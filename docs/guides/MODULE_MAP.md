@@ -70,6 +70,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
 | `sessions-broadcast.js` | Session list client mapping, loop display resolution, debounced session list fanout |
 | `sessions-handoff.js` | Session handoff history inference, missing handoff context recovery, vendor/model/route replay helpers |
+| `sessions-history.js` | Session history pagination, replay ordering, assistant-event classification, replay completion metadata |
 | `sessions-persistence.js` | Session JSONL meta rewrites, heavy-save coalescing, atomic tmp+rename writes, append high-water marks |
 | `sdk-bridge.js` | SDK bridge coordinator: createSDKBridge factory, worker lifecycle, query stream, tool permissions, mention sessions |
 | `sdk-skill-discovery.js` | Skill directory scanning, shell segment splitting, SDK/filesystem skill merging |
