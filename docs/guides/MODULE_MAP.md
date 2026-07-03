@@ -50,6 +50,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-notifications.js` | `notification_mark_read`, `notification_mark_all_read`, `notification_delete`, `notification_clear_all` | Notification center persistence and CRUD |
 | `whats-new.js` + `whats-new-content.js` | `whats_new_state` (s2c, pushed from `project-connection.js`), `whats_new_seen` (c2s, handled in `project-sessions-user-state.js`) | What's New modal. `whats-new-content.js` is pure data (entries array). `whats-new.js` joins content with per-user seen ids. Client viewer (`lib/public/modules/whats-new.js`) is content-agnostic; add a new modal by appending to the content file only. |
 | `app-messages-debate.js` | Client WebSocket debate message routing for preparation, live debate turns, comments, user floor, resume, end, and errors |
+| `app-messages-files.js` | Client WebSocket filesystem, project env, shared env, dashboard command, and file-change result routing |
 | `app-messages-mentions.js` | Client WebSocket @mention and user-mention routing, mate activity indicators, and mention rendering |
 | `app-messages-rate-limit.js` | Client WebSocket rate-limit, scheduled auto-continue, prompt suggestion, and fast-mode routing |
 | `project-debate.js` | (called from project.js) `debate_start`, `debate_stop`, `debate_comment`, `debate_conclude_response`, `debate_confirm_brief`, `debate_hand_raise`, `debate_user_floor_response` | Multi-agent debate engine |
