@@ -7,3 +7,10 @@
 - Regression test: `test/rate-limit-credits.test.js`.
 - Related: Full `node --test test/*.test.js` was interrupted because `test/security.test.js` hung; this appears unrelated because the excluding-security suite passed.
 - Status: DONE_WITH_CONCERNS.
+
+## Follow-up: Claude Monthly Spend Limit
+
+- Symptom: Claude could emit "You've hit your org's monthly spend limit" after a normal five-hour `rate_limit` rejection had already queued an auto-continue, producing the wrong "waiting for provider" message and a scheduled resume even though extra usage credits were exhausted.
+- Root cause: The spend-limit signal arrived as normal SDK text/tool output after the rate-limit event, not as a distinct `rate_limit_info` field, so Clay treated the earlier reset timestamp as actionable.
+- Fix: `sdk-message-processor.js` now detects the monthly spend-limit text, cancels any queued scheduled resume, clears pending rate-limit auto-continue state, suppresses the raw provider text, and records one actionable warning.
+- Evidence: `node --test test/rate-limit-credits.test.js` passed with the new monthly-spend regression. The non-security suite passed with 62 tests.
