@@ -71,6 +71,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-broadcast.js` | Session list client mapping, loop display resolution, debounced session list fanout |
 | `sessions-cli-descriptors.js` | Claude CLI JSONL and Codex rollout descriptor discovery, Codex thread index/cache, and import previews |
 | `sessions-cli-import.js` | CLI/Codex/GitHub Copilot orphan adoption, import picker rows, hidden-session restore, and import materialization |
+| `sessions-deletion.js` | Session hide/delete/bulk delete, runtime cleanup, tombstoning, and active-client close handling |
 | `sessions-handoff.js` | Session handoff history inference, missing handoff context recovery, vendor/model/route replay helpers |
 | `sessions-history.js` | Session history pagination, replay ordering, assistant-event classification, replay completion metadata |
 | `sessions-io.js` | Per-session ephemeral sends, recorded history fanout, subscriber callbacks, unread/session I/O notifications |
