@@ -74,6 +74,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-handoff.js` | Session handoff history inference, missing handoff context recovery, vendor/model/route replay helpers |
 | `sessions-history.js` | Session history pagination, replay ordering, assistant-event classification, replay completion metadata |
 | `sessions-io.js` | Per-session ephemeral sends, recorded history fanout, subscriber callbacks, unread/session I/O notifications |
+| `sessions-loader.js` | Persisted session JSONL loading, restart-interruption recovery, legacy history relabeling, moved session file adoption |
 | `sessions-persistence.js` | Session JSONL meta rewrites, heavy-save coalescing, atomic tmp+rename writes, append high-water marks |
 | `sessions-search.js` | Session title/content search and per-session content hit extraction |
 | `sessions-title-migration.js` | Legacy session title migration into provider SDK title storage |
