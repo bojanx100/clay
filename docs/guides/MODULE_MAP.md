@@ -69,6 +69,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-task-setup.js` | `task_setup_accounts`, `task_setup_discover` (→ `task_setup_boards`), `task_setup_scaffold` (→ `task_setup_result`) | Server side of the Task Launcher setup wizard (Project Settings → Task Launchers). Lists gh accounts, discovers a repo's Projects-v2 board via `gh api graphql`, and scaffolds recipes + merged `config.json` (autoLaunch + generated `launchApi` token + dashboard) + `TRIAGE.local.md` starter + website-builder prompt. String/JSON builders live in `project-task-setup-templates.js` (keeps the handler under 500 lines). Client: `lib/public/modules/project-task-wizard.js` |
 | `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
 | `sessions-broadcast.js` | Session list client mapping, loop display resolution, debounced session list fanout |
+| `sessions-cli-descriptors.js` | Claude CLI JSONL and Codex rollout descriptor discovery, Codex thread index/cache, and import previews |
 | `sessions-handoff.js` | Session handoff history inference, missing handoff context recovery, vendor/model/route replay helpers |
 | `sessions-history.js` | Session history pagination, replay ordering, assistant-event classification, replay completion metadata |
 | `sessions-persistence.js` | Session JSONL meta rewrites, heavy-save coalescing, atomic tmp+rename writes, append high-water marks |
