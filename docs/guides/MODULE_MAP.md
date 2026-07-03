@@ -176,8 +176,10 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `tools-plan.js` | Plan mode banners, rendered implementation plan cards, plan state save/restore |
 | `tools-permission.js` | Tool permission request cards, plan approval responses, conversational Mate permission prompts |
 | `tools-results.js` | Tool result rendering, file diffs, inline read/image previews, live output, tool completion state |
+| `tools-subagents.js` | Sub-agent task progress logs, stop controls, status updates, finalization labels |
 | `tools-thinking.js` | Thinking block rendering, token labels, thinking state save/restore |
 | `tools-todo.js` | Todo/task widgets, sticky task summary, dead-session todo compaction |
+| `tools-turn-meta.js` | Turn metadata cost/duration rendering and cumulative cost save/restore |
 
 ---
 
