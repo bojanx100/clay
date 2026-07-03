@@ -4,6 +4,72 @@ var fs = require("fs");
 var os = require("os");
 var path = require("path");
 
+function clearSessionModuleCache() {
+  delete require.cache[require.resolve("../lib/config")];
+  delete require.cache[require.resolve("../lib/tombstones")];
+  delete require.cache[require.resolve("../lib/sessions")];
+}
+
+function makeSessionHarness() {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+  clearSessionModuleCache();
+
+  var utils = require("../lib/utils");
+  var sessionsDir = path.join(tmpHome, "sessions", utils.encodeCwd(projectDir));
+  var sm = require("../lib/sessions").createSessionManager({
+    cwd: projectDir,
+    send: function () {},
+  });
+
+  return {
+    tmpHome: tmpHome,
+    projectDir: projectDir,
+    oldClayHome: oldClayHome,
+    sessionsDir: sessionsDir,
+    sm: sm,
+    cleanup: function () {
+      if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+      else delete process.env.CLAY_HOME;
+      clearSessionModuleCache();
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    },
+  };
+}
+
+function sessionFile(h, storageId) {
+  return path.join(h.sessionsDir, storageId + ".jsonl");
+}
+
+function readSessionMeta(h, storageId) {
+  return JSON.parse(fs.readFileSync(sessionFile(h, storageId), "utf8").split("\n")[0]);
+}
+
+function countSessionTempWrites(h) {
+  var originalWriteFileSync = fs.writeFileSync;
+  var writes = [];
+  fs.writeFileSync = function (filePath, data) {
+    var fileName = String(filePath);
+    if (fileName.indexOf(h.sessionsDir + path.sep) === 0 && fileName.indexOf(".tmp.") !== -1) {
+      writes.push({ file: fileName, data: String(data) });
+    }
+    return originalWriteFileSync.apply(fs, arguments);
+  };
+  return {
+    writes: writes,
+    restore: function () {
+      fs.writeFileSync = originalWriteFileSync;
+    },
+  };
+}
+
+function wait(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
 test("loads missing handoff context for GitHub Copilot sessions", function () {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
@@ -508,6 +574,78 @@ test("historical provider session ids block orphan CLI re-adoption", function ()
     delete require.cache[require.resolve("../lib/sessions")];
     fs.rmSync(tmpHome, { recursive: true, force: true });
     fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("light session saves write immediately each time", function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h);
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "light-save" });
+    session.title = "First title";
+    h.sm.saveSessionFile(session);
+    session.title = "Second title";
+    h.sm.saveSessionFile(session);
+
+    assert.strictEqual(counter.writes.length, 2);
+    assert.strictEqual(readSessionMeta(h, "light-save").title, "Second title");
+  } finally {
+    counter.restore();
+    h.cleanup();
+  }
+});
+
+test("heavy session save bursts write immediately once and coalesce trailing metadata", async function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h);
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "heavy-save" });
+    session.title = "Initial heavy title";
+    session.history.push({ type: "delta", text: "x".repeat(600 * 1024), _ts: Date.now() });
+
+    h.sm.saveSessionFile(session);
+    session.title = "Middle heavy title";
+    h.sm.saveSessionFile(session);
+    session.title = "Final heavy title";
+    h.sm.saveSessionFile(session);
+
+    assert.strictEqual(counter.writes.length, 1);
+    assert.strictEqual(readSessionMeta(h, "heavy-save").title, "Initial heavy title");
+
+    await wait(210);
+
+    assert.strictEqual(counter.writes.length, 2);
+    assert.strictEqual(readSessionMeta(h, "heavy-save").title, "Final heavy title");
+  } finally {
+    counter.restore();
+    h.cleanup();
+  }
+});
+
+test("deleteSession cancels pending heavy save so the file is not resurrected", async function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h);
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "delete-heavy-save" });
+    session.title = "Delete me";
+    session.history.push({ type: "delta", text: "y".repeat(600 * 1024), _ts: Date.now() });
+
+    h.sm.saveSessionFile(session);
+    session.title = "Should not persist";
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(counter.writes.length, 1);
+    assert.strictEqual(fs.existsSync(sessionFile(h, "delete-heavy-save")), true);
+
+    h.sm.deleteSession(session.localId, null);
+    assert.strictEqual(fs.existsSync(sessionFile(h, "delete-heavy-save")), false);
+
+    await wait(210);
+
+    assert.strictEqual(counter.writes.length, 1);
+    assert.strictEqual(fs.existsSync(sessionFile(h, "delete-heavy-save")), false);
+  } finally {
+    counter.restore();
+    h.cleanup();
   }
 });
 
