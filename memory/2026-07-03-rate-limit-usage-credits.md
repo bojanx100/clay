@@ -14,3 +14,10 @@
 - Root cause: The spend-limit signal arrived as normal SDK text/tool output after the rate-limit event, not as a distinct `rate_limit_info` field, so Clay treated the earlier reset timestamp as actionable.
 - Fix: `sdk-message-processor.js` now detects the monthly spend-limit text, cancels any queued scheduled resume, clears pending rate-limit auto-continue state, suppresses the raw provider text, and records one actionable warning.
 - Evidence: `node --test test/rate-limit-credits.test.js` passed with the new monthly-spend regression. The non-security suite passed with 62 tests.
+
+## Follow-up: Security Test Hang
+
+- Symptom: `test/security.test.js` passed all assertions but kept the Node test runner alive until interrupted.
+- Root cause: Importing `lib/server`/`lib/project` pulled in `lib/smtp.js`, which created a module-scope OTP cleanup interval without `unref()`.
+- Fix: Store the SMTP OTP cleanup interval handle and call `unref()` when available.
+- Evidence: `node --test test/security.test.js` exits cleanly, and the standard suite now includes it.

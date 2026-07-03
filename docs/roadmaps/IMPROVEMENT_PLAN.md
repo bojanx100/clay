@@ -18,8 +18,9 @@
 ## Verification protocol
 
 ```sh
-# Standard suite (62 tests; security.test.js excluded until P0.1 fixes its hang):
-node --test test/auto-launch.test.js test/cli-sessions.test.js \
+# Standard suite:
+node --test test/security.test.js \
+  test/auto-launch.test.js test/cli-sessions.test.js \
   test/codex-adapter-routing.test.js test/connection-policy.test.js \
   test/copilot-sessions.test.js test/effort-ultracode.test.js \
   test/github-copilot-helpers.test.js test/pr-qa-verdict.test.js \
