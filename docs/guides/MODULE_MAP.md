@@ -70,6 +70,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
 | `sessions-broadcast.js` | Session list client mapping, loop display resolution, debounced session list fanout |
 | `sessions-cli-descriptors.js` | Claude CLI JSONL and Codex rollout descriptor discovery, Codex thread index/cache, and import previews |
+| `sessions-cli-import.js` | CLI/Codex/GitHub Copilot orphan adoption, import picker rows, hidden-session restore, and import materialization |
 | `sessions-handoff.js` | Session handoff history inference, missing handoff context recovery, vendor/model/route replay helpers |
 | `sessions-history.js` | Session history pagination, replay ordering, assistant-event classification, replay completion metadata |
 | `sessions-persistence.js` | Session JSONL meta rewrites, heavy-save coalescing, atomic tmp+rename writes, append high-water marks |
