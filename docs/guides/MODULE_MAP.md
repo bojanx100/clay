@@ -28,9 +28,10 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | Module | Message types | Concern |
 |--------|--------------|---------|
 | `project-knowledge.js` | `knowledge_list`, `knowledge_read`, `knowledge_save`, `knowledge_delete`, `knowledge_promote`, `knowledge_depromote` | Knowledge file CRUD for mates and projects |
-| `project-sessions.js` | `new_session`, `switch_session`, `delete_session`, `rename_session`, `resume_session`, `stop`, `stop_task`, `kill_process`, `input_sync`, `cursor_*`, `text_select`, `push_subscribe`, `load_more_history`, `set_session_visibility`, `set_mate_dm` | Session lifecycle and live session controls |
+| `project-sessions.js` | `new_session`, `switch_session`, `delete_session`, `rename_session`, `resume_session`, `load_more_history`, `set_session_visibility`, `set_mate_dm` | Session lifecycle and history controls |
 | `project-sessions-config.js` | `get_daemon_config`, `set_pin`, `set_keep_awake`, `set_auto_continue`, `set_inherit_groups`, `set_image_retention`, `shutdown_server`, `restart_server`, `process_stats`, `set_update_channel`, `check_update`, `update_now` | Daemon config, server management, update checks, process stats |
 | `project-sessions-git-accounts.js` | `list_git_accounts`, `get_project_git_account`, `set_project_git_account` | Project GitHub account listing and pinning handlers |
+| `project-sessions-live.js` | `push_subscribe`, `stop`, `stop_task`, `kill_process`, `input_sync`, `cursor_*`, `text_select` | Push registration, live stop/kill controls, input sync, and collaborative cursor/text selection fanout |
 | `project-sessions-permissions.js` | `ask_user_response`, `permission_response`, `elicitation_response`, `user_dialog_response`, `get_claude_allow_list`, `set_claude_user_allow_list` | User/tool permission responses, elicitation/dialog responses, and Claude allow-list updates |
 | `project-sessions-projects.js` | `browse_dir`, `add_project`, `create_project`, `clone_project`, `create_worktree`, `remove_project*`, `schedule_move`, `reorder_projects`, `set_project_title`, `set_project_icon`, `move_session_to_project`, `transfer_project_owner` | Project management, worktrees, schedule moves, session project moves |
 | `project-sessions-rewind.js` | `rewind_preview`, `rewind_execute`, `fork_session` | Rewind preview/execute and session fork handlers |
