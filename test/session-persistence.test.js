@@ -510,3 +510,64 @@ test("historical provider session ids block orphan CLI re-adoption", function ()
     fs.rmSync(projectDir, { recursive: true, force: true });
   }
 });
+
+test("session list broadcasts coalesce bursty calls", function () {
+  return new Promise(function (resolve, reject) {
+    var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+    var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+    var oldClayHome = process.env.CLAY_HOME;
+    process.env.CLAY_HOME = tmpHome;
+
+    try {
+      delete require.cache[require.resolve("../lib/config")];
+      delete require.cache[require.resolve("../lib/sessions")];
+
+      var clients = [
+        { readyState: 1, sent: [], send: function (payload) { this.sent.push(payload); } },
+        { readyState: 1, sent: [], send: function (payload) { this.sent.push(payload); } },
+      ];
+      var sm = require("../lib/sessions").createSessionManager({
+        cwd: projectDir,
+        send: function () {},
+        sendEach: function (fn) {
+          for (var i = 0; i < clients.length; i++) fn(clients[i], null);
+        },
+      });
+      sm.sessions.clear();
+      sm.createSessionRaw({ storageId: "one" }).title = "One";
+      sm.createSessionRaw({ storageId: "two" }).title = "Two";
+
+      sm.broadcastSessionList();
+      sm.broadcastSessionList();
+      sm.broadcastSessionList();
+
+      setTimeout(function () {
+        try {
+          assert.strictEqual(clients[0].sent.length, 1);
+          assert.strictEqual(clients[1].sent.length, 1);
+          var payload = JSON.parse(clients[0].sent[0]);
+          assert.strictEqual(payload.type, "session_list");
+          assert.strictEqual(payload.sessions.length, 2);
+          resolve();
+        } catch (e) {
+          reject(e);
+        } finally {
+          if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+          else delete process.env.CLAY_HOME;
+          delete require.cache[require.resolve("../lib/config")];
+          delete require.cache[require.resolve("../lib/sessions")];
+          fs.rmSync(tmpHome, { recursive: true, force: true });
+          fs.rmSync(projectDir, { recursive: true, force: true });
+        }
+      }, 90);
+    } catch (e) {
+      if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+      else delete process.env.CLAY_HOME;
+      delete require.cache[require.resolve("../lib/config")];
+      delete require.cache[require.resolve("../lib/sessions")];
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+      fs.rmSync(projectDir, { recursive: true, force: true });
+      reject(e);
+    }
+  });
+});
