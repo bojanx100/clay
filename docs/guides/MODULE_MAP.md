@@ -175,6 +175,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `tools-dialogs.js` | MCP elicitation cards and host user dialog request/response rendering |
 | `tools-plan.js` | Plan mode banners, rendered implementation plan cards, plan state save/restore |
 | `tools-permission.js` | Tool permission request cards, plan approval responses, conversational Mate permission prompts |
+| `tools-results.js` | Tool result rendering, file diffs, inline read/image previews, live output, tool completion state |
 | `tools-thinking.js` | Thinking block rendering, token labels, thinking state save/restore |
 | `tools-todo.js` | Todo/task widgets, sticky task summary, dead-session todo compaction |
 
