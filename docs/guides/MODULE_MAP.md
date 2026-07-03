@@ -28,7 +28,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | Module | Message types | Concern |
 |--------|--------------|---------|
 | `project-knowledge.js` | `knowledge_list`, `knowledge_read`, `knowledge_save`, `knowledge_delete`, `knowledge_promote`, `knowledge_depromote` | Knowledge file CRUD for mates and projects |
-| `project-sessions.js` | `new_session`, `switch_session`, `resume_session` | Session lifecycle controls |
+| `project-sessions.js` | `new_session`, `switch_session`, `sync_external_session` | Session lifecycle controls |
 | `project-sessions-config.js` | `get_daemon_config`, `set_pin`, `set_keep_awake`, `set_auto_continue`, `set_inherit_groups`, `set_image_retention`, `shutdown_server`, `restart_server`, `process_stats`, `set_update_channel`, `check_update`, `update_now` | Daemon config, server management, update checks, process stats |
 | `project-sessions-git-accounts.js` | `list_git_accounts`, `get_project_git_account`, `set_project_git_account` | Project GitHub account listing and pinning handlers |
 | `project-sessions-handoff.js` | `refresh_vendors`, `handoff_session` | Provider refresh, provider-route/model matching, and cross-provider session handoff |
@@ -40,6 +40,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-sessions-rewind.js` | `rewind_preview`, `rewind_execute`, `fork_session` | Rewind preview/execute and session fork handlers |
 | `project-sessions-search.js` | `list_cli_sessions`, `import_cli_session`, `search_sessions`, `search_session_content` | CLI session import and session search handlers |
 | `project-sessions-settings.js` | `set_model`, `reload_skills`, `set_mcp_permission_mode_override`, `set_vendor`, `set_*_default_model`, `set_*_mode`, `set_*_effort`, `set_betas`, `set_thinking`, `set_codex_*` | Session, project, and server model/provider/permission defaults |
+| `project-sessions-tui.js` | `resume_tui_session`, `suspend_tui_session`, `tui_transcript_request` | Claude TUI title watchers, PTY helpers, transcript hydration, and TUI-specific handlers |
 | `project-sessions-user-state.js` | `set_mate_dm`, `whats_new_seen`, `set_claude_open_mode` | Per-user session-adjacent state: mate DM restore target, What's New dismissals, and Claude GUI/TUI open-mode preference |
 | `project-filesystem.js` | `fs_list`, `fs_read`, `fs_write`, `fs_watch`, `fs_unwatch`, `fs_file_history`, `fs_git_diff`, `fs_file_at`, `get_project_env`, `set_project_env`, `read_global_claude_md`, `write_global_claude_md`, `get_shared_env`, `set_shared_env` | File browser, file history, project env/settings |
 | `project-user-message.js` | `message`, `note_*`, `term_*`, `context_sources_save`, `browser_tab_list`, `extension_result`, `loop_*` (delegation), `schedule_*`, `send_scheduled_now`, `cancel_scheduled_message` | User message dispatch, sticky notes, terminals, context sources, browser extension |
