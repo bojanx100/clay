@@ -50,6 +50,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `50f4da1b78` | P0.3: task-setup GitHub repo, board, label, and collaborator discovery now uses async `execFile`; no `execFileSync("gh"` remains in `lib/project-task-setup.js` |
 | `5118ab619b` | P0.4: prepended history now renders mermaid diagrams with per-replacement scroll compensation |
 | `8cfb7a0e40` | P1.2: session-list broadcasts are debounced and share a serialized payload when client state allows |
+| `7c19a0284f` | P1.3: session worktree-list TTL refreshes now run asynchronously and use the stale cached list for the current tool event |
 
 ---
 
@@ -166,6 +167,8 @@ npm run dev   # then exercise the changed flow in the browser
   updates correctly for filtered multi-user clients; no test regressions.
 
 ### P1.3 Take `noteTool`'s periodic `git worktree list` off the streaming path
+- **Status:** fixed in `7c19a0284f`; verified expired list refreshes call
+  `scanWorktreesAsync` and current tool events use the stale cached list.
 - **Files:** `lib/session-worktree.js`.
 - **Evidence:** `noteTool` runs on EVERY write-tool event (sdk-message-processor
   ~lines 467, 527). Anchor is cached per session, but the worktree list refresh
