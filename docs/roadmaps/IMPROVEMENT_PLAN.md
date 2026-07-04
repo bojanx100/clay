@@ -45,12 +45,14 @@ npm run dev   # then exercise the changed flow in the browser
 | `e230191f63` | `saveSessionFile` bursts on heavy sessions coalesce (leading write + one trailing write within 150ms) |
 | `6f53ca87b8` | post-replay hljs sweep chunked off the main thread; "load more" history now gets highlighted at all |
 | `d108f9b8e1` | Codex watchdog resume loop (30s mid-stream timeout vs silent reasoning → 120s for codex) + injected-instructions leak in rollout imports (end marker + strip + resume-label mapping); regression tests in `test/codex-recovery-loop.test.js` |
+| `this commit` | P0.5: Codex rollout hydration no longer replaces existing live-recorded history; regression tests in `test/project-sessions-view.test.js` |
 
 ---
 
 ## P0 — Stability & correctness
 
 ### P0.5 Rollout import flattens rich live-session history to the text-only stub
+- **Status:** fixed; see `test/project-sessions-view.test.js`.
 - **Files:** `lib/project-sessions-view.js` (`prepareCodexSessionForView`).
 - **Evidence:** when a Codex session is idle and its rollout mtime advances, the
   function REPLACES `session.history` with `readCodexHistorySync`'s text-only stub
