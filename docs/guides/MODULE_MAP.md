@@ -252,6 +252,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `scheduler-history.js` | Run history rendering, schedule event message handlers (registry updates, run started/finished, loop scheduled) |
 | `scheduler-utils.js` | Scheduler date, week, HTML escaping, cron parsing, and cron humanization helpers shared by calendar rendering and config APIs |
 | `filebrowser.js` | File tree/search/viewer coordinator, filesystem message handlers, file history, and compare views |
+| `filebrowser-drop.js` | Drag-and-drop file path insertion and drop hint behavior for the shared message input |
 | `filebrowser-inline-diff.js` | Inline file viewer diff mode, split/unified/source toggles, and first-change scrolling |
 | `filebrowser-render-utils.js` | File viewer language mapping, code block rendering with line numbers, and file-size labels |
 | `filebrowser-history-format.js` | File history entry labels, time labels, and edit-summary text helpers |
