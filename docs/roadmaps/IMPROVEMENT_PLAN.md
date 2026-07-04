@@ -56,6 +56,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `8d80213007` | P2.2: git-account tests cover auth-status parsing, cache TTL, sync/async cache sharing, and timeout partial output |
 | `d35a2f0987` | P2.3: session-persistence tests cover light saves, heavy save coalescing, and delete-during-window behavior |
 | `be29aa5b2c` | P2.4: project-sessions git-account handler tests cover plain results, promises, rejection, and unsupported callbacks |
+| `f83f94f0b7` | P3.1: `project.js` is now under 500 lines after foundation, interaction, runtime, and feature wiring extractions |
 
 ---
 
@@ -236,6 +237,8 @@ npm run dev   # then exercise the changed flow in the browser
 ## P3 — Architecture & hygiene
 
 ### P3.1 Split the 500-line-rule mega-modules (mechanical, no behavior change)
+- **Status:** fixed through `f83f94f0b7`; verified all listed offenders are now
+  under 500 lines (`project.js` is 499).
 Worst offenders (current sizes; the rule is <500):
 
 | File | Lines | Suggested seams |
