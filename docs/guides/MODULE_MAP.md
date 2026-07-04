@@ -59,6 +59,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `app-messages-settings.js` | Client WebSocket server update, project settings, daemon config, What's New, auto-launch, and task setup routing |
 | `app-messages-sessions.js` | Client WebSocket session list, presence, search, queued message, session switch, and session close routing |
 | `app-messages-terminals.js` | Client WebSocket terminal list/create/output/resize/exit/close routing, including TUI view and login modal forwarding |
+| `app-messages-tools.js` | Client WebSocket tool lifecycle, tool permission, slash-command result, and sub-agent routing |
 | `app-messages-workspace.js` | Client WebSocket workspace panel, context source, email account, extension command, and MCP UI routing |
 | `project-debate.js` | (called from project.js) `debate_start`, `debate_stop`, `debate_comment`, `debate_conclude_response`, `debate_confirm_brief`, `debate_hand_raise`, `debate_user_floor_response` | Multi-agent debate engine |
 | `project-mate-interaction.js` | (called from project.js) `mention`, `mention_stop` | @mention handling, DM digests |
