@@ -73,8 +73,10 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | Module | Concern |
 |--------|---------|
 | `project-connection.js` | WebSocket connection setup, initial state sync, session restore, presence |
+| `project-context-sources.js` | Context-source active selection persistence shared by connection, sessions, user messages, and email |
 | `project-http.js` | All HTTP routes: image serving, file upload, push, skills, git status, info |
 | `project-image.js` | `hydrateImageRefs`, `saveImageFile`, image directory setup |
+| `project-path-utils.js` | Path safety helpers, environment string validation, and shared filesystem constants |
 | `project-file-watch.js` | File and directory fs.watch wrappers |
 | `project-task-sources.js` | Source fetchers for project task launcher recipes |
 | `project-task-launcher.js` | `task_launch` | Task launcher engine: load recipes from `.clay/tasks/*.json`, fetch items, spawn sessions (`startSessionForItem`, `loadRecipe`, `launchExternal`). Completion/needs-input markers; delegates the needs-input ping via the `onNeedsInput` callback |
