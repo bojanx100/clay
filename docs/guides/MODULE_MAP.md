@@ -247,6 +247,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar-mobile.js` | Mobile sheet overlays (projects, sessions, mate profile, search, tools, settings), mobile tab bar, drag-to-dismiss, mobile loop groups, mobile session rendering |
 | `scheduler.js` | Scheduler coordinator: init, open/close, calendar views (month/week), detail view, crafting mode, sidebar task list, cron utilities |
 | `scheduler-config.js` | Schedule create/edit modal, delete dialog, cron builder, recurrence/interval UI, calendar date picker, preview events |
+| `scheduler-cron-builders.js` | Pure scheduler cron string builders for recurrence, interval, and custom-repeat options |
 | `scheduler-history.js` | Run history rendering, schedule event message handlers (registry updates, run started/finished, loop scheduled) |
 | `scheduler-utils.js` | Scheduler date, week, HTML escaping, cron parsing, and cron humanization helpers shared by calendar rendering and config APIs |
 | `filebrowser.js` | File tree/search/viewer coordinator, filesystem message handlers, file history, and compare views |
