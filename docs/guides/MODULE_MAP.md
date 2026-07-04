@@ -58,6 +58,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `app-messages-rate-limit.js` | Client WebSocket rate-limit, scheduled auto-continue, prompt suggestion, and fast-mode routing |
 | `app-messages-settings.js` | Client WebSocket server update, project settings, daemon config, What's New, auto-launch, and task setup routing |
 | `app-messages-sessions.js` | Client WebSocket session list, presence, search, queued message, session switch, and session close routing |
+| `app-messages-stream.js` | Client WebSocket live message, context preview, status, thinking, result, completion, refusal, auth, and process state routing |
 | `app-messages-terminals.js` | Client WebSocket terminal list/create/output/resize/exit/close routing, including TUI view and login modal forwarding |
 | `app-messages-tools.js` | Client WebSocket tool lifecycle, tool permission, slash-command result, and sub-agent routing |
 | `app-messages-workspace.js` | Client WebSocket workspace panel, context source, email account, extension command, and MCP UI routing |
