@@ -60,7 +60,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `23b817cee2` | P3.2: `MODULE_MAP.md` now has dedicated entries for all listed bojan server and client modules |
 | `34dc1422e8` | P3.3: GitHub Copilot adapter routing has full-turn, text chunk, resume id, and ACP error regression tests |
 | `6bb7cbee0d` | P3.4: `/launch` scan acknowledgements render as a spinner-style progress chip |
-| `cb29352003` | P3.5: `scripts/README.md` documents session maintenance utilities and daemon safety |
+| `4455510951` | P3.5: `scripts/README.md` documents session maintenance utilities and daemon safety |
 
 ---
 
