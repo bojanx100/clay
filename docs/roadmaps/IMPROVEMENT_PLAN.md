@@ -52,6 +52,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `8cfb7a0e40` | P1.2: session-list broadcasts are debounced and share a serialized payload when client state allows |
 | `7c19a0284f` | P1.3: session worktree-list TTL refreshes now run asynchronously and use the stale cached list for the current tool event |
 | `8956b54a64` | P1.4: GitHub media proxy token fallback now resolves asynchronously and batches concurrent callers |
+| `adc6569296` | P2.1: task launcher async fetch seam and regression coverage for preview, start, fetch failure, and external launch |
 
 ---
 
@@ -194,6 +195,7 @@ npm run dev   # then exercise the changed flow in the browser
 ## P2 — Lock the fixes in with tests
 
 ### P2.1 Test seam + regression tests for the async task launcher
+- **Status:** fixed in `adc6569296`; verified with `test/task-launcher.test.js`.
 - **Files:** `lib/project-task-launcher.js`, new `test/task-launcher.test.js`.
 - **Evidence:** `handleLaunchMessage`/`launchExternal` have NO test coverage; the
   module hard-requires `fetchItemsAsync` (no injection), unlike
