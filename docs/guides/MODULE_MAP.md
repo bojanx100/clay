@@ -89,6 +89,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-mcp-bridge-handler.js` | Codex HTTP MCP bridge list/call tool handler for in-app and extension-proxied servers |
 | `project-os-users.js` | OS-user isolation helpers for per-session Linux users, project access grants, and cached user info lookup |
 | `project-path-utils.js` | Path safety helpers, environment string validation, and shared filesystem constants |
+| `project-runtime.js` | Project runtime wiring for SDK bridge, scheduled messages, task loops, terminals/notes, workspace context, vendor models, update checks, and runtime warmup |
 | `project-scheduled-messages.js` | Scheduled message queue dispatch, manual send-now, usage-credit continues, restart auto-resume, and timer restoration |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
