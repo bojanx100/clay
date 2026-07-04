@@ -46,7 +46,8 @@ npm run dev   # then exercise the changed flow in the browser
 | `6f53ca87b8` | post-replay hljs sweep chunked off the main thread; "load more" history now gets highlighted at all |
 | `d108f9b8e1` | Codex watchdog resume loop (30s mid-stream timeout vs silent reasoning → 120s for codex) + injected-instructions leak in rollout imports (end marker + strip + resume-label mapping); regression tests in `test/codex-recovery-loop.test.js` |
 | `4786caa52d` | P0.5: Codex rollout hydration no longer replaces existing live-recorded history; regression tests in `test/project-sessions-view.test.js` |
-| `this commit` | P0.2: remaining audited user-triggered project/settings sends now use `sendUserAction`; ambient status/model/activity refresh sends intentionally stay raw |
+| `bc6c1d7558` | P0.2: remaining audited user-triggered project/settings sends now use `sendUserAction`; ambient status/model/activity refresh sends intentionally stay raw |
+| `50f4da1b78` | P0.3: task-setup GitHub repo, board, label, and collaborator discovery now uses async `execFile`; no `execFileSync("gh"` remains in `lib/project-task-setup.js` |
 
 ---
 
@@ -103,6 +104,7 @@ npm run dev   # then exercise the changed flow in the browser
   appears (previously: nothing).
 
 ### P0.3 Make the task-setup wizard's remaining gh calls async
+- **Status:** fixed in `50f4da1b78`; verified no `execFileSync("gh"` remains in `lib/project-task-setup.js`.
 - **Files:** `lib/project-task-setup.js` (`handleRepos` ~line 170, `ghText` ~line 203
   used by board discovery and `fetchLabels`).
 - **Evidence:** these are `execFileSync("gh", ["api", ...])` — network round trips to
