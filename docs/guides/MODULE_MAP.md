@@ -206,6 +206,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
 | `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges |
 | `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
+| `sidebar-sessions-context-menu.js` | Session and loop context menus, provider handoff entries, visibility toggle, and shared menu state |
 | `sidebar-sessions-countdown.js` | Session countdown row rendering, auto-launch activity cache, summary, and timer updates |
 | `sidebar-sessions-delete.js` | Session delete confirmation, hide button arming, and delete particle trigger |
 | `sidebar-sessions-drag.js` | Session bookmark drag state, favorite reordering, and bookmark drop targets |
