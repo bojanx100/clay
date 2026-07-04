@@ -214,6 +214,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar-sessions-groups.js` | Session date grouping and search-match highlighting helpers |
 | `sidebar-sessions-header-search.js` | Session header search controls, debounce, result count display, and clear/close behavior |
 | `sidebar-sessions-import.js` | CLI session import picker modal, filtering, import actions, and import refresh handlers |
+| `sidebar-sessions-loop-render.js` | Loop group, run, and child row rendering with expand/collapse behavior |
 | `sidebar-sessions-move.js` | Move-session-to-project picker overlay and move action dispatch |
 | `sidebar-sessions-presence.js` | Session presence avatar rendering, presence updates, and unread badge updates |
 | `sidebar-sessions-rename.js` | Inline rename controls for session rows and loop groups |
