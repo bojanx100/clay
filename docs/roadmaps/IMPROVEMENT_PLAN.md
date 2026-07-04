@@ -49,6 +49,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `bc6c1d7558` | P0.2: remaining audited user-triggered project/settings sends now use `sendUserAction`; ambient status/model/activity refresh sends intentionally stay raw |
 | `50f4da1b78` | P0.3: task-setup GitHub repo, board, label, and collaborator discovery now uses async `execFile`; no `execFileSync("gh"` remains in `lib/project-task-setup.js` |
 | `5118ab619b` | P0.4: prepended history now renders mermaid diagrams with per-replacement scroll compensation |
+| `8cfb7a0e40` | P1.2: session-list broadcasts are debounced and share a serialized payload when client state allows |
 
 ---
 
@@ -152,6 +153,7 @@ npm run dev   # then exercise the changed flow in the browser
   parseable session file (atomicity preserved).
 
 ### P1.2 Debounce + de-duplicate `broadcastSessionList`
+- **Status:** fixed in `8cfb7a0e40`; verified with `test/session-persistence.test.js`.
 - **Files:** `lib/sessions.js` (`broadcastSessionList`, ~line 1506).
 - **Evidence:** every call maps + `JSON.stringify`s the full visible session list
   PER CONNECTED SOCKET (`sendEach` at ~line 1552). It fires on switch/hide/launch/
