@@ -101,6 +101,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-controls.js` | SDK bridge runtime model, effort, permission-mode, task stop, skill reload, and MCP permission controls |
 | `sdk-bridge-dialogs.js` | SDK bridge MCP elicitation and host user-dialog request fanout and abort handling |
 | `sdk-bridge-idle-reaper.js` | SDK bridge idle session reaper timer that closes inactive query handles without blocking process exit |
+| `sdk-bridge-mentions.js` | SDK bridge persistent read-only @mention query sessions and mention activity streaming |
 | `sdk-bridge-mcp.js` | SDK bridge MCP server merge, descriptor extraction, and local MCP tool handler invocation helpers |
 | `sdk-bridge-models.js` | SDK bridge model list normalization, provider-route model matching, and model_info fanout |
 | `sdk-bridge-permissions.js` | SDK bridge tool whitelist, permission request, AskUserQuestion denial contract, and permission notification text helpers |
