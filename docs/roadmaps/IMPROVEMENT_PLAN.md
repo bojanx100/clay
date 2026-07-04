@@ -57,7 +57,8 @@ npm run dev   # then exercise the changed flow in the browser
 | `d35a2f0987` | P2.3: session-persistence tests cover light saves, heavy save coalescing, and delete-during-window behavior |
 | `be29aa5b2c` | P2.4: project-sessions git-account handler tests cover plain results, promises, rejection, and unsupported callbacks |
 | `f83f94f0b7` | P3.1: `project.js` is now under 500 lines after foundation, interaction, runtime, and feature wiring extractions |
-| `this commit` | P3.2: `MODULE_MAP.md` now has dedicated entries for all listed bojan server and client modules |
+| `23b817cee2` | P3.2: `MODULE_MAP.md` now has dedicated entries for all listed bojan server and client modules |
+| `this commit` | P3.3: GitHub Copilot adapter routing has full-turn, text chunk, resume id, and ACP error regression tests |
 
 ---
 
@@ -269,6 +270,7 @@ Verify entries exist (add if missing) for: `tombstones.js`, `recovery-log.js`,
 `connection-policy.js`, `provider-route-ui.js`, `text-title.js`, `project-task-wizard.js`.
 
 ### P3.3 Copilot adapter turn-flow review + routing tests
+- **Status:** fixed; see `test/copilot-adapter-routing.test.js`.
 - **Files:** `lib/yoke/adapters/github-copilot.js`, `github-copilot-helpers.js`,
   `lib/copilot-sessions.js`.
 - **Evidence:** child `error`/`exit` handling verified present; but the adapter is new
