@@ -72,6 +72,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 
 | Module | Concern |
 |--------|---------|
+| `project-browser-extension.js` | Browser extension auth token, shared tab state, command dispatch, and tab context request helpers |
 | `project-clients.js` | Per-project WebSocket client set, broadcast helpers, admin sends, and session presence payloads |
 | `project-connection.js` | WebSocket connection setup, initial state sync, session restore, presence |
 | `project-context-sources.js` | Context-source active selection persistence shared by connection, sessions, user messages, and email |
