@@ -72,6 +72,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 
 | Module | Concern |
 |--------|---------|
+| `project-clients.js` | Per-project WebSocket client set, broadcast helpers, admin sends, and session presence payloads |
 | `project-connection.js` | WebSocket connection setup, initial state sync, session restore, presence |
 | `project-context-sources.js` | Context-source active selection persistence shared by connection, sessions, user messages, and email |
 | `project-http.js` | All HTTP routes: image serving, file upload, push, skills, git status, info |
