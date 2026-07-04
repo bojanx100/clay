@@ -59,7 +59,8 @@ npm run dev   # then exercise the changed flow in the browser
 | `f83f94f0b7` | P3.1: `project.js` is now under 500 lines after foundation, interaction, runtime, and feature wiring extractions |
 | `23b817cee2` | P3.2: `MODULE_MAP.md` now has dedicated entries for all listed bojan server and client modules |
 | `34dc1422e8` | P3.3: GitHub Copilot adapter routing has full-turn, text chunk, resume id, and ACP error regression tests |
-| `this commit` | P3.4: `/launch` scan acknowledgements render as a spinner-style progress chip |
+| `6bb7cbee0d` | P3.4: `/launch` scan acknowledgements render as a spinner-style progress chip |
+| `cb29352003` | P3.5: `scripts/README.md` documents session maintenance utilities and daemon safety |
 
 ---
 
@@ -288,6 +289,7 @@ Verify entries exist (add if missing) for: `tombstones.js`, `recovery-log.js`,
   with the session-context refresh spinner (`9d92b6e0fb`).
 
 ### P3.5 Document `scripts/` maintenance utilities (tiny)
+- **Status:** fixed; see `scripts/README.md`.
 - `scripts/hide-old-sessions.js`, `clear-today-yesterday.js`, `list-sessions.js`,
   `list-bookmarks.js`, `hide-handoff-sessions.js`, `keep-list.txt` — add a short
   `scripts/README.md`: what each does, that they operate on live session storage,
