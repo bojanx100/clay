@@ -67,6 +67,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-user-mention.js` | (called from project.js) `user_mention` | User-to-user @mention side conversations within a session. Records to history, broadcasts to other session viewers, queues transcript into `pendingMentionContexts` for the next coding-agent turn, fires alarm-center notification + push for the target user (push only when offline) |
 | `project-memory.js` | `memory_list`, `memory_search`, `memory_delete` | Session digest memory |
 | `project-mcp.js` | `mcp_servers_available`, `mcp_tool_result`, `mcp_tool_error`, `mcp_toggle_server` | Remote MCP server bridge via Chrome Extension |
+| `project-message-router.js` | Main project WebSocket message router: delegates ping, server-level messages, mentions, debate, MCP, memory, sessions, filesystem, workspace, and user-message routes |
 
 ### Infrastructure Modules
 
