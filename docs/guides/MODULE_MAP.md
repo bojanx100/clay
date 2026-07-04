@@ -98,10 +98,18 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-vendor-models.js` | Vendor model-list message handling, lazy adapter initialization, and model-info responses |
 | `project-file-watch.js` | File and directory fs.watch wrappers |
 | `project-task-sources.js` | Source fetchers for project task launcher recipes |
+| `task-source-worker.js` | Forked worker entrypoint for task launcher source fetches so GitHub scans stay off the daemon event loop |
 | `project-task-launcher.js` | `task_launch` | Task launcher engine: load recipes from `.clay/tasks/*.json`, fetch items, spawn sessions (`startSessionForItem`, `loadRecipe`, `launchExternal`). Completion/needs-input markers; delegates the needs-input ping via the `onNeedsInput` callback |
 | `project-auto-launch.js` | `get_auto_launch`, `set_auto_launch` (→ `auto_launch_state`) | Scheduled auto-start: `launchScheduled` (fetch + dedup + start), `notifyNeedsInput` (confidence-gate ping). Config in `.clay/tasks/config.json` (`autoLaunch`); registers an `autolaunch` record in the loop registry (triggered via `onScheduledTrigger`); UI toggle round-trips here |
+| `project-auto-launch-activity.js` | Recent auto-launch activity persistence and status summaries for task launcher automation |
 | `project-task-setup.js` | `task_setup_accounts`, `task_setup_discover` (→ `task_setup_boards`), `task_setup_scaffold` (→ `task_setup_result`) | Server side of the Task Launcher setup wizard (Project Settings → Task Launchers). Lists gh accounts, discovers a repo's Projects-v2 board via `gh api graphql`, and scaffolds recipes + merged `config.json` (autoLaunch + generated `launchApi` token + dashboard) + `TRIAGE.local.md` starter + website-builder prompt. String/JSON builders live in `project-task-setup-templates.js` (keeps the handler under 500 lines). Client: `lib/public/modules/project-task-wizard.js` |
+| `project-issue-launch-state.js` | Issue/task launch state persistence used to avoid duplicate launches and track workflow state |
+| `project-pr-review-state.js` | PR-review task state persistence for review/CI/QA follow-up passes |
 | `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
+| `project-workspace.js` | `workspace_get`, `workspace_dev_*` | Session workspace context assembly: repo links, worktree binding, PR/preview metadata, dev server lifecycle, and live workspace context patches |
+| `project-workspace-git.js` | Git helpers for workspace context: branch, remote, PR, and repo metadata lookups |
+| `session-worktree.js` | Tracks the active git worktree for a session from write-tool paths and cached worktree scans |
+| `tombstones.js` | Hidden/deleted CLI session tombstones that prevent orphan re-adoption after local removal |
 | `daemon-network.js` | Daemon startup networking helpers: TLS certificate selection/loading and LAN IP detection for share URLs |
 | `sessions-broadcast.js` | Session list client mapping, loop display resolution, debounced session list fanout |
 | `sessions-cli-descriptors.js` | Claude CLI JSONL and Codex rollout descriptor discovery, Codex thread index/cache, and import previews |
@@ -117,6 +125,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-records.js` | Session record metadata updates: visibility, favorites/bookmark ordering, and owner assignment |
 | `sessions-search.js` | Session title/content search and per-session content hit extraction |
 | `sessions-title-migration.js` | Legacy session title migration into provider SDK title storage |
+| `handoff-context.js` | Cross-provider handoff context extraction and formatting helpers |
+| `copilot-sessions.js` | GitHub Copilot session metadata and native-session mapping helpers |
 | `sdk-bridge.js` | SDK bridge coordinator: createSDKBridge factory, worker lifecycle, query stream, tool permissions, mention sessions |
 | `sdk-bridge-auth.js` | SDK bridge auth cache, auth error detection, login command labels, and auth-required notifications |
 | `sdk-bridge-auto-title.js` | SDK bridge automatic title generation and provider title rename helper |
@@ -137,7 +147,12 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `safe-bash-commands.js` | **Single source of truth** for auto-approved bash commands. Consumed by sdk-bridge.js (`isSafeBashSegment`) and claude-hook-installer.js (`buildClayBashAllowPatterns`) - do not duplicate command lists elsewhere |
 | `sdk-message-queue.js` | Async iterable message queue for streaming input to SDK |
 | `sdk-message-processor.js` | SDK stream event processing (message_start, content_block_*), sub-agent message routing |
+| `automation-modes.js` | Shared automation mode normalization and provider permission/approval mapping |
+| `provider-routes.js` | Provider-route configuration loading and model-route matching helpers |
 | `codex-defaults.js` | Codex-specific default values (sandbox, approval, web search). **Single source of truth** - do not duplicate elsewhere |
+| `claude-defaults.js` | Claude-specific default model and mode settings |
+| `recovery-log.js` | Structured recovery-event logging for watchdog stalls, reconnects, and auto-resume diagnostics |
+| `text-title.js` | Shared title cleanup/clamping helpers for session and task titles |
 | `git-accounts.js` | Per-project GitHub account pinning. Lists `gh` CLI accounts and writes/clears a repo-local git credential helper (`gh auth token --user <account>`) so each project pushes/pulls as a chosen account regardless of the globally-active `gh` account. Used by daemon.js relay callbacks (`onListGitAccounts`/`onGetProjectGitAccount`/`onSetProjectGitAccount`); UI in `project-settings.js` |
 | `mates.js` | Mate CRUD, builtin mate management, atomic section enforcement, migration |
 | `mates-prompts.js` | System section enforcers (team, session memory, sticky notes, project registry, debate), marker constants |
@@ -216,6 +231,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | Module | Concern |
 |--------|---------|
 | `app-connection.js` | WebSocket creation, reconnect with exponential backoff, connection status UI, disconnect/restore notifications |
+| `connection-policy.js` | Shared WebSocket reconnect and connection-health policy thresholds |
 | `app-messages.js` | WebSocket message router (`processMessage`). Dispatches all incoming message types to appropriate handlers |
 | `app-dm.js` | DM mode (open/enter/exit), mate project switching, mate onboarding, DM message rendering, typing indicators |
 | `app-home-hub.js` | Home hub rendering, weather, tip rotation, upcoming schedules, project summary |
@@ -224,6 +240,8 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-rendering.js` | Message rendering, streaming, scroll management, pre-thinking dots, suggestion chips, system messages |
 | `app-projects.js` | Project list, switching, add/remove project modals, update available pill, topbar presence |
 | `app-panels.js` | Config chip (model/mode/effort/thinking/beta), usage panel, status panel, context panel, context popover |
+| `workspace-panel.js` | Session workspace panel rendering and controls for links, worktree/branch context, dev server state, and task context |
+| `provider-route-ui.js` | Provider route label/rendering helpers for model and route controls |
 | `app-loop-ui.js` | Ralph Loop UI: bars, banners, preview modal, execution modal |
 | `app-loop-wizard.js` | Ralph Loop wizard: step navigation, mode/authorship selection, data collection |
 | `app-notifications.js` | Notification center panel, badge, rendering, click-to-navigate |
@@ -248,12 +266,15 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar-sessions-presence.js` | Session presence avatar rendering, presence updates, and unread badge updates |
 | `sidebar-sessions-rename.js` | Inline rename controls for session rows and loop groups |
 | `sidebar-sessions-top-actions.js` | Sidebar session top action buttons and Claude/Codex launch option menus |
+| `queued-messages.js` | Client-side queued/steer message indicators and controls |
 | `sidebar-projects.js` | Project icon strip, context menus, emoji picker, drag-and-drop reorder, worktree modal, project access popover, project rename, project badges |
 | `sidebar-mates.js` | User/mate icon strip, DM picker, user/mate context menus, icon strip tooltips, sidebar presence, DM badges, DM user state |
 | `sidebar-mobile.js` | Mobile sheet overlays (projects, sessions, mate profile, search, tools, settings), mobile tab bar, drag-to-dismiss, mobile loop groups, mobile session rendering |
 | `scheduler.js` | Scheduler coordinator: init, open/close, calendar views (month/week), detail view, crafting mode, sidebar task list, cron utilities |
 | `scheduler-config.js` | Schedule create/edit modal, delete dialog, cron builder, recurrence/interval UI, calendar date picker, preview events |
 | `scheduler-cron-builders.js` | Pure scheduler cron string builders for recurrence, interval, and custom-repeat options |
+| `project-task-wizard.js` | Project Settings task-launcher setup wizard UI: account/repo/board discovery, recipe options, scaffold/update flow |
+| `text-title.js` | Client-side title cleanup/clamping helpers |
 | `scheduler-history.js` | Run history rendering, schedule event message handlers (registry updates, run started/finished, loop scheduled) |
 | `scheduler-utils.js` | Scheduler date, week, HTML escaping, cron parsing, and cron humanization helpers shared by calendar rendering and config APIs |
 | `filebrowser.js` | File tree/search/viewer coordinator, filesystem message handlers, file history, and compare views |

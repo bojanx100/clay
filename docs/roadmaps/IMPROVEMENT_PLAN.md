@@ -57,6 +57,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `d35a2f0987` | P2.3: session-persistence tests cover light saves, heavy save coalescing, and delete-during-window behavior |
 | `be29aa5b2c` | P2.4: project-sessions git-account handler tests cover plain results, promises, rejection, and unsupported callbacks |
 | `f83f94f0b7` | P3.1: `project.js` is now under 500 lines after foundation, interaction, runtime, and feature wiring extractions |
+| `this commit` | P3.2: `MODULE_MAP.md` now has dedicated entries for all listed bojan server and client modules |
 
 ---
 
@@ -257,6 +258,8 @@ Worst offenders (current sizes; the rule is <500):
   move it as-is, do not "improve while moving".
 
 ### P3.2 MODULE_MAP.md audit for new bojan modules
+- **Status:** fixed; all listed server and client modules have dedicated `MODULE_MAP.md`
+  entries.
 Verify entries exist (add if missing) for: `tombstones.js`, `recovery-log.js`,
 `text-title.js`, `session-worktree.js`, `handoff-context.js`, `provider-routes.js`,
 `copilot-sessions.js`, `automation-modes.js`, `claude-defaults.js`,
