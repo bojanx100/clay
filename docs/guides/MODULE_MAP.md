@@ -52,6 +52,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `app-messages-debate.js` | Client WebSocket debate message routing for preparation, live debate turns, comments, user floor, resume, end, and errors |
 | `app-messages-dm.js` | Client WebSocket DM, mate, mate datastore, mate knowledge, and mate memory routing |
 | `app-messages-files.js` | Client WebSocket filesystem, project env, shared env, dashboard command, and file-change result routing |
+| `app-messages-history.js` | Client WebSocket history metadata, prepend, replay finalization, replay highlighting, and replay scroll restoration |
 | `app-messages-loop.js` | Client WebSocket Ralph Loop, loop registry, schedule run, and Ralph crafting routing |
 | `app-messages-mentions.js` | Client WebSocket @mention and user-mention routing, mate activity indicators, and mention rendering |
 | `app-messages-rate-limit.js` | Client WebSocket rate-limit, scheduled auto-continue, prompt suggestion, and fast-mode routing |
