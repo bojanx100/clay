@@ -207,6 +207,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges |
 | `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
 | `sidebar-sessions-countdown.js` | Session countdown row rendering, auto-launch activity cache, summary, and timer updates |
+| `sidebar-sessions-delete.js` | Session delete confirmation, hide button arming, and delete particle trigger |
 | `sidebar-sessions-groups.js` | Session date grouping and search-match highlighting helpers |
 | `sidebar-sessions-header-search.js` | Session header search controls, debounce, result count display, and clear/close behavior |
 | `sidebar-sessions-import.js` | CLI session import picker modal, filtering, import actions, and import refresh handlers |
