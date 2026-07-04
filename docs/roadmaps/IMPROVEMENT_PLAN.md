@@ -55,6 +55,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `adc6569296` | P2.1: task launcher async fetch seam and regression coverage for preview, start, fetch failure, and external launch |
 | `8d80213007` | P2.2: git-account tests cover auth-status parsing, cache TTL, sync/async cache sharing, and timeout partial output |
 | `d35a2f0987` | P2.3: session-persistence tests cover light saves, heavy save coalescing, and delete-during-window behavior |
+| `be29aa5b2c` | P2.4: project-sessions git-account handler tests cover plain results, promises, rejection, and unsupported callbacks |
 
 ---
 
@@ -224,6 +225,7 @@ npm run dev   # then exercise the changed flow in the browser
   meta; `deleteSession` during the window does not resurrect the file.
 
 ### P2.4 Test the promise-tolerant `list_git_accounts` handler
+- **Status:** fixed in `be29aa5b2c`; verified with `test/project-sessions-git-accounts.test.js`.
 - **Files:** whichever harness `test/` uses for `project-sessions` handlers (or a
   small focused test): handler works when `onListGitAccounts` returns a plain object
   AND when it returns a promise; failure resolves `ok:false` instead of an unhandled
