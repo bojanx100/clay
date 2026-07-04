@@ -245,6 +245,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `filebrowser-inline-diff.js` | Inline file viewer diff mode, split/unified/source toggles, and first-change scrolling |
 | `filebrowser-render-utils.js` | File viewer language mapping, code block rendering with line numbers, and file-size labels |
 | `filebrowser-history-format.js` | File history entry labels, time labels, and edit-summary text helpers |
+| `filebrowser-tree-render.js` | File browser tree DOM rendering, filtered search rows, drag paths, folder toggles, and expanded-state restoration |
 | `terminal-toolbar.js` | **Shared** mobile control-key bar (Tab/Ctrl/Esc/arrows/Alt) used by both `terminal.js` (bottom-panel shell) and `session-tui-view.js` (embedded TUI). Owns key sequences + sticky modifiers; callers pass a `send` fn. Do not duplicate the key logic |
 | `tools.js` | Tool widget coordinator, thinking blocks, plan/todo rendering, tool results, sub-agent progress |
 | `tools-ask-user.js` | AskUserQuestion cards, answer submission, main input disable/restore, answered-state replay |
