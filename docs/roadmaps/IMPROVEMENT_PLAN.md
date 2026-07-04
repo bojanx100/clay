@@ -51,6 +51,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `5118ab619b` | P0.4: prepended history now renders mermaid diagrams with per-replacement scroll compensation |
 | `8cfb7a0e40` | P1.2: session-list broadcasts are debounced and share a serialized payload when client state allows |
 | `7c19a0284f` | P1.3: session worktree-list TTL refreshes now run asynchronously and use the stale cached list for the current tool event |
+| `8956b54a64` | P1.4: GitHub media proxy token fallback now resolves asynchronously and batches concurrent callers |
 
 ---
 
@@ -180,6 +181,8 @@ npm run dev   # then exercise the changed flow in the browser
   detection still works (allow one event of lag).
 
 ### P1.4 Async `ghMediaToken` fallback (minor)
+- **Status:** fixed in `8956b54a64`; verified no `execFileSync("gh"` remains in
+  `lib/project-http.js`.
 - **Files:** `lib/project-http.js` (~line 130).
 - **Evidence:** GitHub media proxy falls back to `execFileSync("gh", ["auth","token"])`
   (local, 5s timeout, 5-min cache) on an HTTP path. Bounded and cached — low impact.
