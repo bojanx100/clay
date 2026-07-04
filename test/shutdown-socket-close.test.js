@@ -17,6 +17,7 @@ var test = require("node:test");
 var assert = require("node:assert");
 var http = require("http");
 var net = require("net");
+var serverSockets = require("../lib/server-sockets");
 
 test("force-destroying tracked sockets lets server.close() return despite a held-open connection", function (t, done) {
   var server = http.createServer(function (req, res) {
@@ -24,18 +25,8 @@ test("force-destroying tracked sockets lets server.close() return despite a held
     res.write("hi");
   });
 
-  // Mirror lib/server.js socket tracking.
-  var liveSockets = new Set();
-  server.on("connection", function (socket) {
-    liveSockets.add(socket);
-    socket.on("close", function () { liveSockets.delete(socket); });
-  });
-  function destroySockets() {
-    liveSockets.forEach(function (socket) {
-      try { socket.destroy(); } catch (e) {}
-    });
-    liveSockets.clear();
-  }
+  var socketTracker = serverSockets.createSocketTracker();
+  socketTracker.trackServer(server);
 
   server.listen(0, "127.0.0.1", function () {
     var port = server.address().port;
@@ -44,7 +35,7 @@ test("force-destroying tracked sockets lets server.close() return despite a held
 
       // Give the server a tick to accept + register the connection.
       setTimeout(function () {
-        assert.strictEqual(liveSockets.size, 1, "connection should be tracked");
+        assert.strictEqual(socketTracker.getLiveSocketCount(), 1, "connection should be tracked");
 
         var closed = false;
         server.close(function () { closed = true; });
@@ -54,7 +45,7 @@ test("force-destroying tracked sockets lets server.close() return despite a held
           assert.strictEqual(closed, false, "close() should still be waiting on the held connection");
 
           // The fix: force-destroy sockets. close() should now fire promptly.
-          destroySockets();
+          socketTracker.destroySockets();
           setTimeout(function () {
             assert.strictEqual(closed, true, "close() should complete after sockets are destroyed");
             try { client.destroy(); } catch (e) {}
