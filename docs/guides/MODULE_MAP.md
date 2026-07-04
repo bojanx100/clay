@@ -63,6 +63,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `app-messages-tools.js` | Client WebSocket tool lifecycle, tool permission, slash-command result, and sub-agent routing |
 | `app-messages-workspace.js` | Client WebSocket workspace panel, context source, email account, extension command, and MCP UI routing |
 | `project-debate.js` | (called from project.js) `debate_start`, `debate_stop`, `debate_comment`, `debate_conclude_response`, `debate_confirm_brief`, `debate_hand_raise`, `debate_user_floor_response` | Multi-agent debate engine |
+| `project-debate-utils.js` | Debate mention detection, participant name mapping, prompt context builders, and read-only tool policy |
 | `project-mate-interaction.js` | (called from project.js) `mention`, `mention_stop` | @mention handling, DM digests |
 | `project-user-mention.js` | (called from project.js) `user_mention` | User-to-user @mention side conversations within a session. Records to history, broadcasts to other session viewers, queues transcript into `pendingMentionContexts` for the next coding-agent turn, fires alarm-center notification + push for the target user (push only when offline) |
 | `project-memory.js` | `memory_list`, `memory_search`, `memory_delete` | Session digest memory |
