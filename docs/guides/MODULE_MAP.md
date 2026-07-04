@@ -80,6 +80,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-context-sources.js` | Context-source active selection persistence shared by connection, sessions, user messages, and email |
 | `project-destroy.js` | Project shutdown cleanup for timers, sessions, terminals, sockets, temp uploads, and adapter shutdown |
 | `project-external-codex-sync.js` | Polling sync for externally updated idle Codex session history viewed by connected clients |
+| `project-foundation.js` | Project foundation wiring for image handling, OS-user helpers, clients, browser extension state, knowledge, file watches, session manager, status, MCP/email/datastore, and local MCP servers |
 | `project-http.js` | All HTTP routes: image serving, file upload, push, skills, git status, info |
 | `project-image.js` | `hydrateImageRefs`, `saveImageFile`, image directory setup |
 | `project-local-mcp-servers.js` | In-app MCP server assembly for debate, history, AskUser, browser, email, and mate datastore tools |
