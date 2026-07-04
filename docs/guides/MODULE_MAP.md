@@ -107,6 +107,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-permissions.js` | SDK bridge tool whitelist, permission request, AskUserQuestion denial contract, and permission notification text helpers |
 | `sdk-bridge-processes.js` | SDK bridge Linux-user project prep, conflicting Claude process detection, and process verification helpers |
 | `sdk-bridge-recovery.js` | SDK bridge transient stream error detection and bounded auto-resume scheduling helpers |
+| `sdk-bridge-rewind.js` | SDK bridge adapter-agnostic rewind preview, rewind execute, conversation rollback, and fork helpers |
 | `sdk-bridge-warmup.js` | SDK bridge adapter warmup, slash-command skill merge, installed-vendor detection, and initial model_info fanout |
 | `sdk-skill-discovery.js` | Skill directory scanning, shell segment splitting, SDK/filesystem skill merging |
 | `safe-bash-commands.js` | **Single source of truth** for auto-approved bash commands. Consumed by sdk-bridge.js (`isSafeBashSegment`) and claude-hook-installer.js (`buildClayBashAllowPatterns`) - do not duplicate command lists elsewhere |
