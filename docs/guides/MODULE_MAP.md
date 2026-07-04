@@ -245,6 +245,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `scheduler.js` | Scheduler coordinator: init, open/close, calendar views (month/week), detail view, crafting mode, sidebar task list, cron utilities |
 | `scheduler-config.js` | Schedule create/edit modal, delete dialog, cron builder, recurrence/interval UI, calendar date picker, preview events |
 | `scheduler-history.js` | Run history rendering, schedule event message handlers (registry updates, run started/finished, loop scheduled) |
+| `scheduler-utils.js` | Scheduler date, week, HTML escaping, and cron humanization helpers shared by calendar rendering and config APIs |
 | `filebrowser.js` | File tree/search/viewer coordinator, filesystem message handlers, file history, and compare views |
 | `filebrowser-inline-diff.js` | Inline file viewer diff mode, split/unified/source toggles, and first-change scrolling |
 | `filebrowser-render-utils.js` | File viewer language mapping, code block rendering with line numbers, and file-size labels |
