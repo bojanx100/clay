@@ -106,6 +106,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-models.js` | SDK bridge model list normalization, provider-route model matching, and model_info fanout |
 | `sdk-bridge-permissions.js` | SDK bridge tool whitelist, permission request, AskUserQuestion denial contract, and permission notification text helpers |
 | `sdk-bridge-processes.js` | SDK bridge Linux-user project prep, conflicting Claude process detection, and process verification helpers |
+| `sdk-bridge-query-start.js` | SDK bridge query startup, vendor lazy-init, query option assembly, and initial message dispatch |
 | `sdk-bridge-recovery.js` | SDK bridge transient stream error detection and bounded auto-resume scheduling helpers |
 | `sdk-bridge-rewind.js` | SDK bridge adapter-agnostic rewind preview, rewind execute, conversation rollback, and fork helpers |
 | `sdk-bridge-stream.js` | SDK bridge query stream lifecycle, watchdog recovery, terminal turn cleanup, and auto-continue scheduling |
