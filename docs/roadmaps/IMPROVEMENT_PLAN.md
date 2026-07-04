@@ -136,6 +136,8 @@ npm run dev   # then exercise the changed flow in the browser
 ## P1 — Performance follow-through
 
 ### P1.1 Verify save coalescing killed the stalls; if not, go async for heavy sessions
+- **Status:** verified on 2026-07-04; `~/.clay/diag-dev.log` contains no `[SAVE-SLOW]`
+  entries, so no async heavy-save change is warranted yet.
 - **Files:** `lib/sessions.js` (`saveSessionFile` / `writeSessionFileNow`).
 - **Evidence:** `[SAVE-SLOW]` diag entries (see `config.diagLog` tail file) were the
   branch's own smoking gun. Coalescing (`e230191f63`) collapses bursts, but a SINGLE
