@@ -54,6 +54,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `8956b54a64` | P1.4: GitHub media proxy token fallback now resolves asynchronously and batches concurrent callers |
 | `adc6569296` | P2.1: task launcher async fetch seam and regression coverage for preview, start, fetch failure, and external launch |
 | `8d80213007` | P2.2: git-account tests cover auth-status parsing, cache TTL, sync/async cache sharing, and timeout partial output |
+| `d35a2f0987` | P2.3: session-persistence tests cover light saves, heavy save coalescing, and delete-during-window behavior |
 
 ---
 
@@ -215,6 +216,7 @@ npm run dev   # then exercise the changed flow in the browser
   (stdout) `gh auth status` formats, timeout path returns partial text not a throw.
 
 ### P2.3 Tests for save coalescing
+- **Status:** fixed in `d35a2f0987`; verified with `test/session-persistence.test.js`.
 - **Files:** `test/session-persistence.test.js` (extend).
 - **Cases:** light session — every save writes immediately (mtime/content changes);
   heavy session (force `_lastSaveDurMs`/`_lastSaveBytes` over threshold) — burst of 3
