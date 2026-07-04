@@ -48,6 +48,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `4786caa52d` | P0.5: Codex rollout hydration no longer replaces existing live-recorded history; regression tests in `test/project-sessions-view.test.js` |
 | `bc6c1d7558` | P0.2: remaining audited user-triggered project/settings sends now use `sendUserAction`; ambient status/model/activity refresh sends intentionally stay raw |
 | `50f4da1b78` | P0.3: task-setup GitHub repo, board, label, and collaborator discovery now uses async `execFile`; no `execFileSync("gh"` remains in `lib/project-task-setup.js` |
+| `5118ab619b` | P0.4: prepended history now renders mermaid diagrams with per-replacement scroll compensation |
 
 ---
 
@@ -117,6 +118,7 @@ npm run dev   # then exercise the changed flow in the browser
   autocomplete + board discovery still work against a real repo.
 
 ### P0.4 Render mermaid in prepended ("load more") history with scroll compensation
+- **Status:** fixed in `5118ab619b`; verified `prependOlderHistory` uses `renderMermaidBlocks` with anchor-preserving DOM change compensation.
 - **Files:** `lib/public/modules/app-header.js` (`prependOlderHistory`),
   `lib/public/modules/markdown.js`.
 - **Evidence:** the prepend path now highlights code (6f53ca87b8) but deliberately
