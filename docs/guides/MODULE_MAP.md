@@ -82,6 +82,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-mcp-bridge-handler.js` | Codex HTTP MCP bridge list/call tool handler for in-app and extension-proxied servers |
 | `project-os-users.js` | OS-user isolation helpers for per-session Linux users, project access grants, and cached user info lookup |
 | `project-path-utils.js` | Path safety helpers, environment string validation, and shared filesystem constants |
+| `project-scheduled-messages.js` | Scheduled message queue dispatch, manual send-now, usage-credit continues, restart auto-resume, and timer restoration |
 | `project-file-watch.js` | File and directory fs.watch wrappers |
 | `project-task-sources.js` | Source fetchers for project task launcher recipes |
 | `project-task-launcher.js` | `task_launch` | Task launcher engine: load recipes from `.clay/tasks/*.json`, fetch items, spawn sessions (`startSessionForItem`, `loadRecipe`, `launchExternal`). Completion/needs-input markers; delegates the needs-input ping via the `onNeedsInput` callback |
