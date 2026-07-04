@@ -44,10 +44,26 @@ npm run dev   # then exercise the changed flow in the browser
 | `bb7183c910` | usage-credits auto-continue now consumes the `_consecutiveAutoResumes` budget; spend-limit text sniffing got a 500-char gate |
 | `e230191f63` | `saveSessionFile` bursts on heavy sessions coalesce (leading write + one trailing write within 150ms) |
 | `6f53ca87b8` | post-replay hljs sweep chunked off the main thread; "load more" history now gets highlighted at all |
+| `d108f9b8e1` | Codex watchdog resume loop (30s mid-stream timeout vs silent reasoning → 120s for codex) + injected-instructions leak in rollout imports (end marker + strip + resume-label mapping); regression tests in `test/codex-recovery-loop.test.js` |
 
 ---
 
 ## P0 — Stability & correctness
+
+### P0.5 Rollout import flattens rich live-session history to the text-only stub
+- **Files:** `lib/project-sessions-view.js` (`prepareCodexSessionForView`).
+- **Evidence:** when a Codex session is idle and its rollout mtime advances, the
+  function REPLACES `session.history` with `readCodexHistorySync`'s text-only stub
+  (user + agent text; tool cards, thinking, info bubbles all dropped) and PERSISTS
+  it via `saveSessionFile`. The `usingStorageThread` branch lets this hit sessions
+  that were born live in Clay (storageId === codex thread id), not just imports —
+  a rich transcript degrades to plain text after any external rollout touch.
+  The leak itself is fixed (`d108f9b8e1`); the flattening remains.
+- **Approach:** only rebuild from the rollout when the session has NO live-recorded
+  history (true imports), or merge rollout-only tail events instead of replacing;
+  never overwrite history that contains tool/thinking items with the stub.
+- **Acceptance:** a live Clay Codex session's transcript (tool cards visible)
+  survives an external `codex` CLI touch of the same thread + a view switch.
 
 ### P0.1 Fix the `security.test.js` hang, restore it to the standard suite
 - **Files:** `test/security.test.js`, plus whichever of `lib/server.js` / `lib/project.js` / `lib/config.js` holds the offending handle.
