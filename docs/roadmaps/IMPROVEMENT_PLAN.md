@@ -58,7 +58,8 @@ npm run dev   # then exercise the changed flow in the browser
 | `be29aa5b2c` | P2.4: project-sessions git-account handler tests cover plain results, promises, rejection, and unsupported callbacks |
 | `f83f94f0b7` | P3.1: `project.js` is now under 500 lines after foundation, interaction, runtime, and feature wiring extractions |
 | `23b817cee2` | P3.2: `MODULE_MAP.md` now has dedicated entries for all listed bojan server and client modules |
-| `this commit` | P3.3: GitHub Copilot adapter routing has full-turn, text chunk, resume id, and ACP error regression tests |
+| `34dc1422e8` | P3.3: GitHub Copilot adapter routing has full-turn, text chunk, resume id, and ACP error regression tests |
+| `this commit` | P3.4: `/launch` scan acknowledgements render as a spinner-style progress chip |
 
 ---
 
@@ -281,6 +282,7 @@ Verify entries exist (add if missing) for: `tombstones.js`, `recovery-log.js`,
   dedup of streamed vs final text, session-id mapping, error surfaces.
 
 ### P3.4 `/launch` scanning feedback polish (small)
+- **Status:** fixed; `/launch` scan acknowledgements render with a loader chip while async results still use the standard slash-command output.
 - `handleLaunchMessage` now acks "Scanning <recipe> tasks…" then results arrive later.
   Optionally upgrade to a progress-style system message or spinner chip consistent
   with the session-context refresh spinner (`9d92b6e0fb`).
