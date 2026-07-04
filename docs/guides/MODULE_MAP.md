@@ -98,6 +98,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge.js` | SDK bridge coordinator: createSDKBridge factory, worker lifecycle, query stream, tool permissions, mention sessions |
 | `sdk-bridge-auth.js` | SDK bridge auth cache, auth error detection, login command labels, and auth-required notifications |
 | `sdk-bridge-auto-title.js` | SDK bridge automatic title generation and provider title rename helper |
+| `sdk-bridge-controls.js` | SDK bridge runtime model, effort, permission-mode, task stop, skill reload, and MCP permission controls |
 | `sdk-bridge-dialogs.js` | SDK bridge MCP elicitation and host user-dialog request fanout and abort handling |
 | `sdk-bridge-idle-reaper.js` | SDK bridge idle session reaper timer that closes inactive query handles without blocking process exit |
 | `sdk-bridge-mcp.js` | SDK bridge MCP server merge, descriptor extraction, and local MCP tool handler invocation helpers |
