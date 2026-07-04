@@ -241,6 +241,9 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `scheduler.js` | Scheduler coordinator: init, open/close, calendar views (month/week), detail view, crafting mode, sidebar task list, cron utilities |
 | `scheduler-config.js` | Schedule create/edit modal, delete dialog, cron builder, recurrence/interval UI, calendar date picker, preview events |
 | `scheduler-history.js` | Run history rendering, schedule event message handlers (registry updates, run started/finished, loop scheduled) |
+| `filebrowser.js` | File tree/search/viewer coordinator, filesystem message handlers, file history, and compare views |
+| `filebrowser-render-utils.js` | File viewer language mapping, code block rendering with line numbers, and file-size labels |
+| `filebrowser-history-format.js` | File history entry labels, time labels, and edit-summary text helpers |
 | `terminal-toolbar.js` | **Shared** mobile control-key bar (Tab/Ctrl/Esc/arrows/Alt) used by both `terminal.js` (bottom-panel shell) and `session-tui-view.js` (embedded TUI). Owns key sequences + sticky modifiers; callers pass a `send` fn. Do not duplicate the key logic |
 | `tools.js` | Tool widget coordinator, thinking blocks, plan/todo rendering, tool results, sub-agent progress |
 | `tools-ask-user.js` | AskUserQuestion cards, answer submission, main input disable/restore, answered-state replay |
