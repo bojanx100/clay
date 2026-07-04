@@ -96,6 +96,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-search.js` | Session title/content search and per-session content hit extraction |
 | `sessions-title-migration.js` | Legacy session title migration into provider SDK title storage |
 | `sdk-bridge.js` | SDK bridge coordinator: createSDKBridge factory, worker lifecycle, query stream, tool permissions, mention sessions |
+| `sdk-bridge-permissions.js` | SDK bridge tool whitelist, permission request, AskUserQuestion denial contract, and permission notification text helpers |
 | `sdk-skill-discovery.js` | Skill directory scanning, shell segment splitting, SDK/filesystem skill merging |
 | `safe-bash-commands.js` | **Single source of truth** for auto-approved bash commands. Consumed by sdk-bridge.js (`isSafeBashSegment`) and claude-hook-installer.js (`buildClayBashAllowPatterns`) - do not duplicate command lists elsewhere |
 | `sdk-message-queue.js` | Async iterable message queue for streaming input to SDK |
