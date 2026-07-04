@@ -45,7 +45,8 @@ npm run dev   # then exercise the changed flow in the browser
 | `e230191f63` | `saveSessionFile` bursts on heavy sessions coalesce (leading write + one trailing write within 150ms) |
 | `6f53ca87b8` | post-replay hljs sweep chunked off the main thread; "load more" history now gets highlighted at all |
 | `d108f9b8e1` | Codex watchdog resume loop (30s mid-stream timeout vs silent reasoning → 120s for codex) + injected-instructions leak in rollout imports (end marker + strip + resume-label mapping); regression tests in `test/codex-recovery-loop.test.js` |
-| `this commit` | P0.5: Codex rollout hydration no longer replaces existing live-recorded history; regression tests in `test/project-sessions-view.test.js` |
+| `4786caa52d` | P0.5: Codex rollout hydration no longer replaces existing live-recorded history; regression tests in `test/project-sessions-view.test.js` |
+| `this commit` | P0.2: remaining audited user-triggered project/settings sends now use `sendUserAction`; ambient status/model/activity refresh sends intentionally stay raw |
 
 ---
 
@@ -83,6 +84,7 @@ npm run dev   # then exercise the changed flow in the browser
   file to the standard suite command in this doc and in `memory/`.
 
 ### P0.2 Migrate user-triggered sends to `sendUserAction`
+- **Status:** fixed for the audited modules; periodic/status/model-refresh traffic remains raw by design.
 - **Files:** `lib/public/modules/sidebar-sessions.js` (~21 raw sends),
   `app-projects.js` (~8), plus audit `sidebar-projects.js`, `project-settings.js`,
   `app-panels.js`, `scheduler*.js`, `sidebar-mobile.js`.
