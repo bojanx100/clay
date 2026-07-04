@@ -83,6 +83,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-foundation.js` | Project foundation wiring for image handling, OS-user helpers, clients, browser extension state, knowledge, file watches, session manager, status, MCP/email/datastore, and local MCP servers |
 | `project-http.js` | All HTTP routes: image serving, file upload, push, skills, git status, info |
 | `project-image.js` | `hydrateImageRefs`, `saveImageFile`, image directory setup |
+| `project-interactions.js` | Project-level wiring for memory, mate mentions, user mentions, and debate handlers |
 | `project-local-mcp-servers.js` | In-app MCP server assembly for debate, history, AskUser, browser, email, and mate datastore tools |
 | `project-mate-claude-watcher.js` | Mate `CLAUDE.md` startup enforcement, sticky-note knowledge sync, and change watcher |
 | `project-mcp-bridge-handler.js` | Codex HTTP MCP bridge list/call tool handler for in-app and extension-proxied servers |
