@@ -45,6 +45,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `e230191f63` | `saveSessionFile` bursts on heavy sessions coalesce (leading write + one trailing write within 150ms) |
 | `6f53ca87b8` | post-replay hljs sweep chunked off the main thread; "load more" history now gets highlighted at all |
 | `d108f9b8e1` | Codex watchdog resume loop (30s mid-stream timeout vs silent reasoning → 120s for codex) + injected-instructions leak in rollout imports (end marker + strip + resume-label mapping); regression tests in `test/codex-recovery-loop.test.js` |
+| `45ddb9ede8` | P0.1: `test/security.test.js` exits cleanly after the SMTP OTP cleanup interval was unref'd |
 | `4786caa52d` | P0.5: Codex rollout hydration no longer replaces existing live-recorded history; regression tests in `test/project-sessions-view.test.js` |
 | `bc6c1d7558` | P0.2: remaining audited user-triggered project/settings sends now use `sendUserAction`; ambient status/model/activity refresh sends intentionally stay raw |
 | `50f4da1b78` | P0.3: task-setup GitHub repo, board, label, and collaborator discovery now uses async `execFile`; no `execFileSync("gh"` remains in `lib/project-task-setup.js` |
@@ -83,6 +84,8 @@ npm run dev   # then exercise the changed flow in the browser
   survives an external `codex` CLI touch of the same thread + a view switch.
 
 ### P0.1 Fix the `security.test.js` hang, restore it to the standard suite
+- **Status:** fixed in `45ddb9ede8`; verified `node --test test/security.test.js`
+  exits cleanly and the standard suite includes it.
 - **Files:** `test/security.test.js`, plus whichever of `lib/server.js` / `lib/project.js` / `lib/config.js` holds the offending handle.
 - **Evidence:** every test in the file PASSES, then the runner prints
   `Interrupted while running:` and never exits (verified with `timeout 25`).
