@@ -79,6 +79,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-http.js` | All HTTP routes: image serving, file upload, push, skills, git status, info |
 | `project-image.js` | `hydrateImageRefs`, `saveImageFile`, image directory setup |
 | `project-local-mcp-servers.js` | In-app MCP server assembly for debate, history, AskUser, browser, email, and mate datastore tools |
+| `project-mcp-bridge-handler.js` | Codex HTTP MCP bridge list/call tool handler for in-app and extension-proxied servers |
 | `project-os-users.js` | OS-user isolation helpers for per-session Linux users, project access grants, and cached user info lookup |
 | `project-path-utils.js` | Path safety helpers, environment string validation, and shared filesystem constants |
 | `project-file-watch.js` | File and directory fs.watch wrappers |
