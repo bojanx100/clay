@@ -205,6 +205,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
 | `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges |
+| `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
 | `sidebar-sessions-import.js` | CLI session import picker modal, filtering, import actions, and import refresh handlers |
 | `sidebar-projects.js` | Project icon strip, context menus, emoji picker, drag-and-drop reorder, worktree modal, project access popover, project rename, project badges |
 | `sidebar-mates.js` | User/mate icon strip, DM picker, user/mate context menus, icon strip tooltips, sidebar presence, DM badges, DM user state |
