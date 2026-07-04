@@ -53,6 +53,7 @@ npm run dev   # then exercise the changed flow in the browser
 | `7c19a0284f` | P1.3: session worktree-list TTL refreshes now run asynchronously and use the stale cached list for the current tool event |
 | `8956b54a64` | P1.4: GitHub media proxy token fallback now resolves asynchronously and batches concurrent callers |
 | `adc6569296` | P2.1: task launcher async fetch seam and regression coverage for preview, start, fetch failure, and external launch |
+| `8d80213007` | P2.2: git-account tests cover auth-status parsing, cache TTL, sync/async cache sharing, and timeout partial output |
 
 ---
 
@@ -207,6 +208,7 @@ npm run dev   # then exercise the changed flow in the browser
   resolves ok/error and never throws synchronously.
 
 ### P2.2 Tests for `git-accounts` caching + async listing
+- **Status:** fixed in `8d80213007`; verified with `test/git-accounts.test.js`.
 - **Files:** new `test/git-accounts.test.js`.
 - **Cases:** cache TTL honored (second call within 60s does not re-exec), async and
   sync variants share the cache, parseAccounts regex on both old (stderr) and new
