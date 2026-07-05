@@ -125,7 +125,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-records.js` | Session record metadata updates: visibility, favorites/bookmark ordering, and owner assignment |
 | `sessions-search.js` | Session title/content search and per-session content hit extraction |
 | `sessions-title-migration.js` | Legacy session title migration into provider SDK title storage |
-| `handoff-context.js` | Cross-provider handoff context extraction and formatting helpers |
+| `handoff-context.js` | Cross-provider handoff context extraction and formatting helpers; shared injection/burn-down (`applyHandoffToOutgoingText`) and success finalization |
+| `handoff-package.js` | On-disk handoff package (`.clay/handoffs/<storageId>/`): full transcript.md, sandbox-reachable image copies, state.json; pointer info for the inline context, real-image reload for handoff sends, removal with session + stale sweep |
 | `copilot-sessions.js` | GitHub Copilot session metadata and native-session mapping helpers |
 | `sdk-bridge.js` | SDK bridge coordinator: createSDKBridge factory, worker lifecycle, query stream, tool permissions, mention sessions |
 | `sdk-bridge-auth.js` | SDK bridge auth cache, auth error detection, login command labels, and auth-required notifications |
