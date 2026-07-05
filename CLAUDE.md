@@ -13,3 +13,4 @@
 - Before adding new code, read [docs/guides/MODULE_MAP.md](docs/guides/MODULE_MAP.md) to find the right file. Never add inline logic to `project.js` handleMessage. Keep modules under 500 lines.
 - Never use `localStorage` for user settings or preferences. All settings must be stored server-side (via WebSocket messages or REST API) so they persist across devices and browsers.
 - Client modules (`lib/public/modules/`): state goes in store.js (zustand-like), WS via ws-ref.js, functions via direct import. Never use `var _ctx = null` / `initXxx(ctx)`. See [docs/guides/CLIENT_MODULE_DEPS.md](docs/guides/CLIENT_MODULE_DEPS.md).
+- When debugging stalls, phantom reconnects, resume spam, or UI lag: read [docs/guides/DIAGNOSTICS.md](docs/guides/DIAGNOSTICS.md) and check the canary logs (`~/.clay/recovery-events-dev.log`, `~/.clay/diag-dev.log`) BEFORE reading source code. A fix is not done until the canaries are quiet.
