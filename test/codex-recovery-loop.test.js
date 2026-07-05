@@ -14,7 +14,7 @@ var fs = require("fs");
 var os = require("os");
 var path = require("path");
 
-var { midstreamTimeoutFor } = require("../lib/sdk-bridge-stream");
+var { midstreamTimeoutFor, isWatchdogProgressEvent } = require("../lib/sdk-bridge-stream");
 var instructions = require("../lib/yoke/instructions");
 var bridgeRecovery = require("../lib/sdk-bridge-recovery");
 var cliSessions = require("../lib/cli-sessions");
@@ -30,6 +30,23 @@ test("codex gets a mid-stream watchdog budget that tolerates silent reasoning", 
 test("claude keeps the tight mid-stream watchdog (it streams continuously)", function () {
   assert.strictEqual(midstreamTimeoutFor("claude"), 30 * 1000);
   assert.strictEqual(midstreamTimeoutFor(undefined), 30 * 1000);
+});
+
+// A content-free "system" catch-all flood must NOT keep the watchdog alive —
+// that stall wedged a real claude session behind spinning thinking dots.
+test("content-free system events are not watchdog progress", function () {
+  assert.strictEqual(isWatchdogProgressEvent({ yokeType: "system" }), false);
+  assert.strictEqual(isWatchdogProgressEvent({ yokeType: "system", subtype: "mystery" }), false);
+});
+
+test("real output and payload-bearing system events count as progress", function () {
+  assert.strictEqual(isWatchdogProgressEvent({ yokeType: "text_delta", text: "hi" }), true);
+  assert.strictEqual(isWatchdogProgressEvent({ yokeType: "tool_start" }), true);
+  assert.strictEqual(isWatchdogProgressEvent({ yokeType: "thinking_delta" }), true);
+  // A system event that actually surfaces an error is progress (it gets shown).
+  assert.strictEqual(isWatchdogProgressEvent({ yokeType: "system", error: "hook blocked" }), true);
+  assert.strictEqual(isWatchdogProgressEvent({ yokeType: "system", content: [{ type: "text", text: "x" }] }), true);
+  assert.strictEqual(isWatchdogProgressEvent(null), true);
 });
 
 // --- Injected-instructions stripping ---------------------------------------
