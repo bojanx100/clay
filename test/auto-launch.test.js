@@ -441,3 +441,69 @@ test("runScheduled reconciles a drifted schedule record with config", async func
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+// Cross-recipe issue dedup: two issue recipes (e.g. a misconfigured one cloning
+// the issue source) must not both launch the same issue.
+test("findAnyLiveSessionForItem matches live sessions across recipes, ignores completed", function () {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-anylive-"));
+  try {
+    var sessions = new Map();
+    sessions.set("a", { localId: 1, taskLauncher: { recipeId: "recipe-a", itemNumber: 5, itemUrl: "https://github.com/o/r/issues/5", workflowCompleted: false } });
+    sessions.set("b", { localId: 2, taskLauncher: { recipeId: "recipe-a", itemNumber: 9, itemUrl: "https://github.com/o/r/issues/9", workflowCompleted: true } });
+    var tl = attachTaskLauncher({
+      cwd: cwd,
+      sm: { sessions: sessions, saveSessionFile: function () {} },
+      sdk: {},
+      onComplete: function () {},
+      onNeedsInput: function () {},
+    });
+    // Different recipe, same issue -> found (cross-recipe).
+    assert.ok(tl.findAnyLiveSessionForItem({ number: 5, url: "https://github.com/o/r/issues/5" }));
+    // Completed session -> not a live dup.
+    assert.strictEqual(tl.findAnyLiveSessionForItem({ number: 9, url: "https://github.com/o/r/issues/9" }), null);
+    // Unrelated issue -> none.
+    assert.strictEqual(tl.findAnyLiveSessionForItem({ number: 7, url: "https://github.com/o/r/issues/7" }), null);
+    // A same-numbered PR (different URL) must not collide with the issue.
+    assert.strictEqual(tl.findAnyLiveSessionForItem({ number: 5, url: "https://github.com/o/r/pull/5" }), null);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("launchScheduled skips an issue already live under another recipe", async function () {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xrecipe-"));
+  var tasksDir = path.join(cwd, ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+    autoLaunch: { enabled: true, recipeId: "issues-b", recipes: ["issues-b"], cron: "*/5 * * * *" },
+  }, null, 2) + "\n");
+
+  var recipe = { id: "issues-b", source: { provider: "github", kind: "issue", repo: "o/r" }, launch: { defaultLimit: 5 }, session: {}, completion: {} };
+  var started = [];
+  var launcher = {
+    loadRecipe: function () { return recipe; },
+    // Same-recipe check finds nothing (the live session belongs to another recipe)...
+    findExistingSessionForItem: function () { return null; },
+    // ...but the cross-recipe check does.
+    findAnyLiveSessionForItem: function (item) { return item.number === 5 ? { localId: 99 } : null; },
+    startSessionForItem: function (ws, r, item) { started.push(item.number); return { localId: 100 + item.number }; },
+  };
+  var autoLaunch = attachAutoLaunch({
+    cwd: cwd,
+    sm: { sessions: new Map(), broadcastSessionList: function () {} },
+    getTaskLauncher: function () { return launcher; },
+    fetchItems: function () {
+      return [
+        { number: 5, title: "dup", url: "https://github.com/o/r/issues/5" },
+        { number: 6, title: "fresh", url: "https://github.com/o/r/issues/6" },
+      ];
+    },
+  });
+  try {
+    var result = await autoLaunch.launchScheduled("issues-b");
+    assert.deepStrictEqual(started, [6], "only the non-duplicate issue should start");
+    assert.strictEqual(result.skipped.length, 1);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
