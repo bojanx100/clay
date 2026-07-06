@@ -530,3 +530,57 @@ test("dedup ignores hidden (archived) sessions", function () {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+// Vendor safety: if the picker wants a rate-limited vendor, fall back to an
+// available one; if all configured vendors are rate-limited, defer the item.
+function makeVendorLaunchHarness(rejectedVendors, weights) {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-vendor-"));
+  var tasksDir = path.join(cwd, ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+    autoLaunch: { enabled: true, recipeId: "assigned-to-me", recipes: ["assigned-to-me"], cron: "*/5 * * * *", vendorWeights: weights },
+  }, null, 2) + "\n");
+  var recipe = { id: "assigned-to-me", source: { provider: "github", kind: "issue", repo: "o/r" }, launch: { defaultLimit: 10 }, session: {}, completion: {} };
+  var launched = [];
+  var launcher = {
+    loadRecipe: function () { return recipe; },
+    findExistingSessionForItem: function () { return null; },
+    findAnyLiveSessionForItem: function () { return null; },
+    startSessionForItem: function (ws, r, item, args) { launched.push({ number: item.number, vendor: args.vendor }); return { localId: item.number }; },
+  };
+  var entries = Object.keys(rejectedVendors).map(function (v) {
+    return { type: "rate_limit_usage", vendor: v, rateLimitType: "5h", status: "rejected", resetsAt: Date.now() + 3600000 };
+  });
+  var autoLaunch = attachAutoLaunch({
+    cwd: cwd,
+    sm: { sessions: new Map(), broadcastSessionList: function () {} },
+    getTaskLauncher: function () { return launcher; },
+    rateLimitCache: { liveEntries: function () { return entries; } },
+    fetchItems: function () { return [{ number: 1, url: "https://github.com/o/r/issues/1" }]; },
+  });
+  return { autoLaunch: autoLaunch, cwd: cwd, launched: launched };
+}
+
+test("auto-launch falls back to the other vendor when the picked one is rate-limited", async function () {
+  // claude rate-limited, only claude+codex configured -> must use codex.
+  var h = makeVendorLaunchHarness({ claude: true }, { claude: 100, codex: 1 });
+  try {
+    var res = await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(res.started.length, 1);
+    assert.strictEqual(h.launched[0].vendor, "codex", "should fall back to codex when claude is rate-limited");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("auto-launch defers when all configured vendors are rate-limited", async function () {
+  var h = makeVendorLaunchHarness({ claude: true, codex: true }, { claude: 50, codex: 50 });
+  try {
+    var res = await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(res.started.length, 0, "nothing should start when every vendor is out");
+    assert.strictEqual(res.vendorDeferred, 1);
+    assert.strictEqual(h.launched.length, 0);
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
