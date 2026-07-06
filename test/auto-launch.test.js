@@ -365,3 +365,35 @@ test("disabled auto-launch config ignores stale registry triggers", async functi
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+// Regression: the forked task-source worker must flush its IPC result before
+// exiting. It previously called process.exit(0) synchronously right after
+// process.send(), which raced the flush — on newer Node the parent saw 'exit'
+// before 'message' and rejected every scan with "worker exited early", silently
+// breaking scheduled auto-launch. Exercise the REAL child (not the injected sync
+// fetch) so this path is covered. An unsupported source makes fetchItems throw
+// fast with no network I/O; the point is the error is DELIVERED, not swallowed.
+test("task-source worker delivers its result before exiting (no 'exited early')", async function () {
+  var taskSources = require("../lib/project-task-sources");
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-worker-"));
+  try {
+    var recipe = { id: "bogus", source: { provider: "nope" } };
+    var err = null;
+    try {
+      await taskSources.fetchItemsAsync(cwd, recipe, {});
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err, "expected the scan to reject");
+    assert.ok(
+      /Unsupported task source/.test(err.message),
+      "expected the worker's own error to be delivered, got: " + err.message
+    );
+    assert.ok(
+      !/exited early/.test(err.message),
+      "worker exited before flushing its IPC message: " + err.message
+    );
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
