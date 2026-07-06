@@ -397,3 +397,47 @@ test("task-source worker delivers its result before exiting (no 'exited early')"
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+// Regression: the schedule record must track config.json even when it is edited
+// directly on disk (not via the set_auto_launch UI path, which calls
+// ensureSchedule). Otherwise the record's cron/task/name drift until the next
+// project attach — and a changed cron keeps firing at the old frequency.
+// runScheduled now reconciles the record when it detects drift.
+test("runScheduled reconciles a drifted schedule record with config", async function () {
+  var scheduler = require("../lib/scheduler");
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-drift-"));
+  var tasksDir = path.join(cwd, ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  function writeCfg(al) {
+    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({ autoLaunch: al }, null, 2));
+  }
+  try {
+    writeCfg({ enabled: true, recipes: ["pr-review"], cron: "*/5 * * * *" });
+    var reg = scheduler.createLoopRegistry({ cwd: cwd });
+    reg.load();
+    var autoLaunch = attachAutoLaunch({ cwd: cwd, loopRegistry: reg, fetchItems: function () { return []; } });
+    autoLaunch.ensureSchedule();
+    var before = reg.getById("autolaunch_assigned");
+    assert.strictEqual(before.task, "pr-review");
+    var stamp = before.updatedAt;
+
+    // Direct file edit (no UI): add a recipe and change the cron.
+    writeCfg({ enabled: true, recipes: ["assigned-to-me", "pr-review"], cron: "*/10 * * * *" });
+    // Record is still stale until a tick fires runScheduled.
+    assert.strictEqual(reg.getById("autolaunch_assigned").cron, "*/5 * * * *");
+
+    await autoLaunch.runScheduled(reg.getById("autolaunch_assigned"));
+    var after = reg.getById("autolaunch_assigned");
+    assert.strictEqual(after.task, "assigned-to-me,pr-review");
+    assert.strictEqual(after.cron, "*/10 * * * *");
+    assert.strictEqual(after.name, "Auto-launch: assigned-to-me, pr-review");
+    assert.ok(after.updatedAt >= stamp, "updatedAt should advance on reconcile");
+
+    // A subsequent no-drift tick must not rewrite the record.
+    var stamp2 = after.updatedAt;
+    await autoLaunch.runScheduled(reg.getById("autolaunch_assigned"));
+    assert.strictEqual(reg.getById("autolaunch_assigned").updatedAt, stamp2, "no-drift tick should not touch the record");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
