@@ -507,3 +507,26 @@ test("launchScheduled skips an issue already live under another recipe", async f
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+// A hidden (archived) session must not block a relaunch — otherwise archiving a
+// wrongly-launched session would permanently prevent the issue from being taken
+// by the correct recipe.
+test("dedup ignores hidden (archived) sessions", function () {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-hidden-"));
+  try {
+    var sessions = new Map();
+    sessions.set("a", { localId: 1, hidden: true, taskLauncher: { recipeId: "pr-review", itemNumber: 2097, itemUrl: "https://github.com/o/r/issues/2097", workflowCompleted: false } });
+    var tl = attachTaskLauncher({
+      cwd: cwd,
+      sm: { sessions: sessions, saveSessionFile: function () {} },
+      sdk: {},
+      onComplete: function () {},
+      onNeedsInput: function () {},
+    });
+    var item = { number: 2097, url: "https://github.com/o/r/issues/2097" };
+    assert.strictEqual(tl.findAnyLiveSessionForItem(item), null, "hidden session must not count as a cross-recipe dup");
+    assert.strictEqual(tl.findExistingSessionForItem({ id: "pr-review" }, item, true), null, "hidden session must not count as a same-recipe live dup");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
