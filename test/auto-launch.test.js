@@ -309,6 +309,92 @@ test("issue auto-launch does not repeatedly relaunch a completed session after s
   }
 });
 
+test("issue auto-launch does not relaunch an armed issue while a visible completed session remains", async function () {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-autolaunch-"));
+  var tasksDir = path.join(cwd, ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+    autoLaunch: {
+      enabled: true,
+      recipeId: "assigned-to-me",
+      recipes: ["assigned-to-me"],
+      cron: "*/5 * * * *",
+    },
+  }, null, 2) + "\n");
+  fs.writeFileSync(path.join(tasksDir, "issue-launch-state.json"), JSON.stringify({
+    "owner/repo#2097": {
+      status: "completed",
+      statusAtCompletion: "Dev Complete",
+      armed: true,
+      lastLaunchAt: 1,
+      completedAt: 2,
+      updatedAt: 2,
+    },
+  }, null, 2) + "\n");
+
+  var recipe = {
+    id: "assigned-to-me",
+    source: { provider: "github", kind: "issues", repo: "owner/repo" },
+    launch: { defaultLimit: 5 },
+    session: { title: "Issue #{number} {title}" },
+    completion: {},
+  };
+  var item = {
+    number: 2097,
+    title: "Visible completed issue",
+    url: "https://github.com/owner/repo/issues/2097",
+  };
+  var visibleCompletedSession = {
+    hidden: false,
+    taskLauncher: {
+      recipeId: "assigned-to-me",
+      itemNumber: 2097,
+      itemUrl: item.url,
+      workflowCompleted: true,
+    },
+  };
+  var launcher = {
+    loadRecipe: function () {
+      return recipe;
+    },
+    findExistingSessionForItem: function () {
+      return visibleCompletedSession;
+    },
+    findAnyLiveSessionForItem: function () {
+      return null;
+    },
+    findAnyVisibleSessionForItem: function () {
+      return visibleCompletedSession;
+    },
+    startSessionForItem: function () {
+      throw new Error("should not launch");
+    },
+  };
+  var autoLaunch = attachAutoLaunch({
+    cwd: cwd,
+    sm: {
+      sessions: new Map(),
+      broadcastSessionList: function () {},
+    },
+    getTaskLauncher: function () {
+      return launcher;
+    },
+    fetchItems: function () {
+      return [item];
+    },
+  });
+
+  try {
+    var result = await autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(result.started.length, 0);
+    assert.strictEqual(result.skipped.length, 1);
+    var state = JSON.parse(fs.readFileSync(path.join(tasksDir, "issue-launch-state.json"), "utf8"));
+    assert.strictEqual(state["owner/repo#2097"].armed, true);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("disabled auto-launch config ignores stale registry triggers", async function () {
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-autolaunch-"));
   var tasksDir = path.join(cwd, ".clay", "tasks");
