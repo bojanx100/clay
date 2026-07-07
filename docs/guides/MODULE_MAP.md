@@ -54,6 +54,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-message-queue.js` | Async iterable message queue for streaming input to SDK |
 | `sdk-message-processor.js` | SDK stream event processing (message_start, content_block_*), sub-agent message routing |
 | `codex-defaults.js` | Codex-specific default values (sandbox, approval, web search). **Single source of truth** - do not duplicate elsewhere |
+| `kiro-defaults.js` | Kiro-specific default values (agent/mode). **Single source of truth** - do not duplicate elsewhere |
 | `mates.js` | Mate CRUD, builtin mate management, atomic section enforcement, migration |
 | `mates-prompts.js` | System section enforcers (team, session memory, sticky notes, project registry, debate), marker constants |
 | `mates-knowledge.js` | Common knowledge registry (promote/depromote, cross-mate file sharing) |
@@ -76,11 +77,15 @@ YOKE is the vendor-agnostic interface layer. Each adapter implements the same co
 | `yoke/adapters/claude.js` | Claude adapter using `@anthropic-ai/claude-agent-sdk`. In-process + worker (OS user isolation) paths |
 | `yoke/adapters/codex.js` | Codex adapter using `codex app-server` JSON-RPC protocol. Handles approval events, skill injection, MCP bridge config |
 | `yoke/codex-app-server.js` | Codex `app-server` child process manager. JSON-RPC 2.0 over stdin/stdout, request ID tracking, event routing |
+| `yoke/adapters/kiro.js` | Kiro adapter using `kiro-cli acp` (Agent Client Protocol). Dynamic model catalog, event flattening (session/update), permission routing, session resume |
+| `yoke/kiro-acp-server.js` | Kiro `acp` child process manager. JSON-RPC 2.0 over stdin/stdout, request ID tracking, auth-error detection |
 | `yoke/mcp-bridge-server.js` | Stdio MCP server spawned by Codex. Proxies tool list/call to Clay via HTTP at `/api/mcp-bridge` |
 
 **When adding a new vendor**: implement the YOKE interface, register in `yoke/index.js` createAdapter switch. Do not add vendor-specific logic outside the adapter.
 
 **For Codex-specific patterns and gotchas**: see [CODEX-INTEGRATION.md](./CODEX-INTEGRATION.md).
+
+**For Kiro-specific patterns and gotchas**: see [KIRO-INTEGRATION.md](./KIRO-INTEGRATION.md).
 
 ### Server Modules (lib/server-*.js)
 
