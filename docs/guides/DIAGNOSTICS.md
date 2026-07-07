@@ -66,6 +66,7 @@ main thread is being starved by rendering work, not a network problem.
 
 | Date | Signature | Root cause | Fix |
 |---|---|---|---|
+| 2026-07-07 | repeated claude `mid-generation` @ 30-35s (session 577) | Opus 4.8 extended thinking reasons silently between events; 30s claude watchdog killed healthy turns → resume loop | base mid-generation budget raised to 120s for all vendors |
 | 2026-07-04 | dozens of codex `mid-generation` @ 30-35s | 30s watchdog vs silent gpt-5.5 reasoning → resume loop | `d108f9b8e1` vendor-aware 120s budget |
 | 2026-07-03 | `[SAVE-SLOW]` bursts + `[LOOP-LAG]` spikes | multiple full-history rewrites per tick | `e230191f63` heavy-session save coalescing |
 | 2026-07-03 | `[LOOP-LAG]` during settings/wizard use | sync network-bound `gh` calls on the event loop | `5277b92264`, `1299ad890a`, `50f4da1b78` |

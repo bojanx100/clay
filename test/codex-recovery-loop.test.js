@@ -27,9 +27,11 @@ test("codex gets a mid-stream watchdog budget that tolerates silent reasoning", 
     "codex mid-stream timeout must exceed normal silent-reasoning gaps (got " + codexMs + "ms)");
 });
 
-test("claude keeps the tight mid-stream watchdog (it streams continuously)", function () {
-  assert.strictEqual(midstreamTimeoutFor("claude"), 30 * 1000);
-  assert.strictEqual(midstreamTimeoutFor(undefined), 30 * 1000);
+test("claude gets a mid-stream watchdog budget that tolerates silent reasoning (Opus 4.8 extended thinking)", function () {
+  assert.ok(midstreamTimeoutFor("claude") >= 90 * 1000,
+    "claude mid-stream timeout must exceed normal silent-reasoning gaps");
+  assert.ok(midstreamTimeoutFor(undefined) >= 90 * 1000,
+    "default mid-stream timeout must exceed normal silent-reasoning gaps");
 });
 
 // A content-free "system" catch-all flood must NOT keep the watchdog alive —
