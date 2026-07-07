@@ -14,7 +14,7 @@ var fs = require("fs");
 var os = require("os");
 var path = require("path");
 
-var { midstreamTimeoutFor, isWatchdogProgressEvent } = require("../lib/sdk-bridge-stream");
+var { midstreamTimeoutFor, isWatchdogProgressEvent, isContextOverflowError } = require("../lib/sdk-bridge-stream");
 var instructions = require("../lib/yoke/instructions");
 var bridgeRecovery = require("../lib/sdk-bridge-recovery");
 var cliSessions = require("../lib/cli-sessions");
@@ -32,6 +32,24 @@ test("claude gets a mid-stream watchdog budget that tolerates silent reasoning (
     "claude mid-stream timeout must exceed normal silent-reasoning gaps");
   assert.ok(midstreamTimeoutFor(undefined) >= 90 * 1000,
     "default mid-stream timeout must exceed normal silent-reasoning gaps");
+});
+
+// A context-window overflow must be classified as recoverable regardless of
+// which path surfaces it (thrown error OR in-stream error event) so the client
+// shows the "context_overflow" card, not a bare "Prompt is too long" bubble.
+test("isContextOverflowError recognizes the Anthropic overflow variants", function () {
+  assert.strictEqual(isContextOverflowError("Prompt is too long"), true);
+  assert.strictEqual(isContextOverflowError("API Error: 400 prompt is too long"), true);
+  assert.strictEqual(isContextOverflowError("input length exceeds context_length"), true);
+  assert.strictEqual(isContextOverflowError("this model's maximum context length is 200000 tokens"), true);
+});
+
+test("isContextOverflowError ignores unrelated errors and empty input", function () {
+  assert.strictEqual(isContextOverflowError("Authentication required"), false);
+  assert.strictEqual(isContextOverflowError("ECONNRESET"), false);
+  assert.strictEqual(isContextOverflowError(""), false);
+  assert.strictEqual(isContextOverflowError(null), false);
+  assert.strictEqual(isContextOverflowError(undefined), false);
 });
 
 // A content-free "system" catch-all flood must NOT keep the watchdog alive —
