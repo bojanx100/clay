@@ -231,6 +231,68 @@ test("persists GitHub Copilot handoff native reset marker", function () {
   }
 });
 
+test("archives completed task-launched sessions on load", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(tmpHome, "sessions", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    var storageId = "completed-task";
+    var lines = [
+      JSON.stringify({
+        type: "meta",
+        cliSessionId: storageId,
+        storageId: storageId,
+        title: "Completed task",
+        createdAt: Date.now(),
+        vendor: "claude",
+        taskLauncher: {
+          recipeId: "assigned-to-me",
+          itemNumber: 123,
+          completion: {
+            marker: "CLAY_TASK_COMPLETE",
+            closeSession: true,
+            archiveSession: true,
+          },
+          autoLaunch: true,
+          autoKind: "issue",
+          workflowCompleted: true,
+        },
+      }),
+      JSON.stringify({ type: "delta", text: "CLAY_TASK_COMPLETE", _ts: Date.now() }),
+      JSON.stringify({ type: "done", code: 0, _ts: Date.now() }),
+    ];
+    fs.writeFileSync(path.join(sessionsDir, storageId + ".jsonl"), lines.join("\n") + "\n");
+
+    var createSessionManager = require("../lib/sessions").createSessionManager;
+    var sm = createSessionManager({
+      cwd: projectDir,
+      send: function () {},
+    });
+    var session = sm.sessions.get(1);
+
+    assert.strictEqual(session.hidden, true);
+    var savedMeta = JSON.parse(fs.readFileSync(path.join(sessionsDir, storageId + ".jsonl"), "utf8").split("\n")[0]);
+    assert.strictEqual(savedMeta.hidden, true);
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
 test("saved session metadata omits volatile local id", function () {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
