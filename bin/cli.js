@@ -659,6 +659,13 @@ function ensureCerts(ip) {
     return null;
   }
 
+  // Default to the browser-trusted *.d.clay.studio certificate. mkcert remains
+  // available through --local-cert for users who explicitly want local CA certs.
+  if (!forceMkcert) {
+    var defaultBuiltin = getBuiltinCert();
+    if (defaultBuiltin) return defaultBuiltin;
+  }
+
   var certDir = path.join(process.env.CLAY_HOME || path.join(REAL_HOME, ".clay"), "certs");
   var keyPath = path.join(certDir, "key.pem");
   var certPath = path.join(certDir, "cert.pem");
@@ -729,12 +736,6 @@ function ensureCerts(ip) {
     if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
       return { key: keyPath, cert: certPath, caRoot: caRoot, mkcertDetected: !forceMkcert };
     }
-  }
-
-  // Fallback: builtin cert (unless --local-cert forces mkcert-only)
-  if (!forceMkcert) {
-    var builtin = getBuiltinCert();
-    if (builtin) return builtin;
   }
 
   return null;
