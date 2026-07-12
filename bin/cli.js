@@ -37,6 +37,7 @@ var { loadConfig, saveConfig, configPath, socketPath, logPath, ensureConfigDir, 
 var { sendIPCCommand } = require("../lib/ipc");
 var { generateAuthToken } = require("../lib/server");
 var { enableMultiUser, disableMultiUser, hasAdmin, isMultiUser, getSetupCode } = require("../lib/users");
+var { refreshBuiltinCertCache } = require("../lib/daemon-network");
 var clayStudioCert = require("../lib/clay-studio-cert");
 
 function openUrl(url) {
@@ -478,6 +479,11 @@ async function restartDaemonFromConfig() {
     log(a.red + "     No config found. Cannot restart." + a.reset);
     process.exit(1);
     return;
+  }
+
+  var refreshed = await refreshBuiltinCertCache(lastConfig, 5000);
+  if (refreshed) {
+    log(a.dim + "     Refreshed d.clay.studio certificate cache before restart." + a.reset);
   }
 
   clearStaleConfig();
