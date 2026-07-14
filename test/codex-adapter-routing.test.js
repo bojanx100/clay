@@ -178,6 +178,7 @@ function makeStreamState() {
     planTexts: {},
     agentBlockId: null,
     agentTextLen: 0,
+    agentText: "",
   };
 }
 
@@ -218,6 +219,18 @@ test("Codex agentMessage streams once when deltas carry a matching itemId", func
     { method: "item/completed", params: { item: { id: "msg1", type: "agentMessage", text: "Hello world" } } },
   ]);
   assert.strictEqual(out, "Hello world");
+});
+
+test("Codex agentMessage trims overlapping delta tails", function () {
+  var state = makeStreamState();
+  var out = streamText(state, [
+    { method: "item/agentMessage/delta", params: { delta: "I'm" } },
+    { method: "item/agentMessage/delta", params: { delta: "I'm going" } },
+    { method: "item/agentMessage/delta", params: { delta: " going to" } },
+    { method: "item/agentMessage/delta", params: { delta: " to make" } },
+    { method: "item/completed", params: { item: { id: "msg1", type: "agentMessage", text: "I'm going to make this" } } },
+  ]);
+  assert.strictEqual(out, "I'm going to make this");
 });
 
 test("Codex agentMessage reconciles a tail the deltas never streamed", function () {
