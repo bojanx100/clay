@@ -44,6 +44,14 @@ function makeAutoSession() {
   };
 }
 
+function makePrReviewSession() {
+  var session = makeAutoSession();
+  session.taskLauncher.recipeId = "pr-review";
+  session.taskLauncher.autoKind = "pr-review";
+  session.taskLauncher.itemNumber = 1644;
+  return session;
+}
+
 test("'mark as done' does not complete the workflow until the marker is emitted", function () {
   var h = makeTaskLauncher();
   try {
@@ -73,6 +81,31 @@ test("workflow completes only when the marker is emitted", function () {
     assert.strictEqual(session.taskLauncher.workflowCompleted, true);
     assert.strictEqual(h.completed.length, 1);
     assert.strictEqual(h.completed[0].summary, "fixed file-name display");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("pr-review workflow accepts standard PR completion marker as fallback", function () {
+  var h = makeTaskLauncher();
+  try {
+    var session = makePrReviewSession();
+    h.tl.handleTaskTurnDone(session, "", "Updated the PR and CI is green.\n\nCLAY_PR_REVIEW_COMPLETE: fixed review hardening items and CI green");
+    assert.strictEqual(session.taskLauncher.workflowCompleted, true);
+    assert.strictEqual(h.completed.length, 1);
+    assert.strictEqual(h.completed[0].summary, "fixed review hardening items and CI green");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("issue workflow does not accept PR completion marker", function () {
+  var h = makeTaskLauncher();
+  try {
+    var session = makeAutoSession();
+    h.tl.handleTaskTurnDone(session, "", "Updated the issue branch.\n\nCLAY_PR_REVIEW_COMPLETE: done");
+    assert.notStrictEqual(session.taskLauncher.workflowCompleted, true);
+    assert.strictEqual(h.completed.length, 0);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
