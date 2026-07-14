@@ -29,6 +29,8 @@ test("compact continuation prompt moves latest user message into current block",
   assert.ok(prompt.indexOf("Implemented the first version.") !== -1);
   assert.ok(prompt.indexOf("<current_user_message>\nwhy did this stop?\n</current_user_message>") !== -1);
   assert.ok(prompt.indexOf("Use this transcript only to preserve continuity") !== -1);
+  assert.ok(prompt.indexOf("commits, pushes, tests, and status messages in <clay_handoff_context> are historical") !== -1);
+  assert.ok(prompt.indexOf("if you create or push a new commit in this continuation, report that new commit") !== -1);
 });
 
 test("Codex empty zero-usage turn triggers compact-and-continue once", function () {
