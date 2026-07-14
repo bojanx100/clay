@@ -98,7 +98,7 @@ test("Codex context usage uses current context tokens, not cumulative total toke
   assert.strictEqual(result.contextWindow, 258400);
 });
 
-test("Codex rate limit credits are treated as immediate overage capacity", function () {
+test("Codex rate limit credits keep the account-state update out of rejected state", function () {
   var events = routing.flattenEvent({
     method: "account/rateLimits/updated",
     params: {
@@ -125,7 +125,7 @@ test("Codex rate limit credits are treated as immediate overage capacity", funct
 
   assert.strictEqual(events.length, 1);
   assert.strictEqual(events[0].yokeType, "rate_limit");
-  assert.strictEqual(events[0].rateLimitInfo.status, "rejected");
+  assert.strictEqual(events[0].rateLimitInfo.status, "allowed_warning");
   assert.strictEqual(events[0].rateLimitInfo.rateLimitType, "seven_day");
   assert.strictEqual(events[0].rateLimitInfo.utilization, 1);
   assert.strictEqual(events[0].rateLimitInfo.isUsingOverage, true);
