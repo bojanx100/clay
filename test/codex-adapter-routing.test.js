@@ -188,6 +188,7 @@ function streamText(state, sequence) {
     var events = routing.flattenEvent(sequence[i], state) || [];
     for (var j = 0; j < events.length; j++) {
       if (events[j].yokeType === "text_delta") out += events[j].text;
+      if (events[j].yokeType === "text_replace") out = events[j].text;
     }
   }
   return out;
@@ -241,6 +242,16 @@ test("Codex agentMessage reconciles a tail the deltas never streamed", function 
     { method: "item/completed", params: { item: { id: "msg1", type: "agentMessage", text: "Hello world" } } },
   ]);
   assert.strictEqual(out, "Hello world");
+});
+
+test("Codex agentMessage replaces final revised text instead of appending it", function () {
+  var state = makeStreamState();
+  var out = streamText(state, [
+    { method: "item/agentMessage/delta", params: { delta: "No. OAuth / S" } },
+    { method: "item/agentMessage/delta", params: { delta: "O flow." } },
+    { method: "item/completed", params: { item: { id: "msg1", type: "agentMessage", text: "No. OAuth / SSO flow." } } },
+  ]);
+  assert.strictEqual(out, "No. OAuth / SSO flow.");
 });
 
 test("Codex streams two sequential agent messages in one turn without bleed", function () {
