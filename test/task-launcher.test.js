@@ -207,3 +207,39 @@ test("launchExternal resolves an error object when async fetch fails", async fun
     cleanupHarness(h);
   }
 });
+
+test("sentry tasks render Sentry variables and keep sentry autoKind", function () {
+  var h = makeHarness(function () {
+    return Promise.resolve([]);
+  });
+  try {
+    var tasksDir = path.join(h.cwd, ".clay", "tasks");
+    fs.writeFileSync(path.join(tasksDir, "sentry.md"), "Sentry {{sentry_short_id}} {{related_github_refs}}\n{{sentry_permalink}}\n");
+    var recipe = {
+      id: "sentry-related",
+      source: { provider: "sentry", kind: "findings", githubRepo: "owner/repo" },
+      prompt: { template: "sentry.md" },
+      session: { title: "Sentry {sentry_short_id} {title}" },
+      completion: {},
+    };
+    var item = {
+      number: "123456",
+      title: "TypeError",
+      url: "https://sentry.example/issues/123456",
+      key: "sentry:acme/webapp#123456",
+      sentry_short_id: "WEBAPP-9",
+      sentry_permalink: "https://sentry.example/issues/123456",
+      related_github_refs: "owner/repo issue #22",
+    };
+
+    var session = h.launcher.startSessionForItem(null, recipe, item, {}, null, { auto: true });
+
+    assert.strictEqual(session.taskLauncher.autoKind, "sentry");
+    assert.strictEqual(session.taskLauncher.itemKey, "sentry:acme/webapp#123456");
+    assert.strictEqual(session.title, "Sentry WEBAPP-9 TypeError");
+    assert.ok(h.startQueries[0].prompt.indexOf("Sentry WEBAPP-9 owner/repo issue #22") !== -1);
+    assert.ok(h.startQueries[0].prompt.indexOf("https://sentry.example/issues/123456") !== -1);
+  } finally {
+    cleanupHarness(h);
+  }
+});
