@@ -41,3 +41,19 @@ test("sentryIssuesUrl uses org issues endpoint with integration expansion", func
   assert.ok(url.indexOf("limit=100") !== -1);
   assert.ok(url.indexOf("expand=integrationIssues") !== -1);
 });
+
+test("sentryIssuesUrl falls back to SENTRY_URL", function () {
+  var oldUrl = process.env.SENTRY_URL;
+  var oldOrg = process.env.SENTRY_ORG;
+  try {
+    process.env.SENTRY_URL = "https://de.sentry.io";
+    process.env.SENTRY_ORG = "trialview";
+    var url = sentry.sentryIssuesUrl({ project: "v2" }, {});
+    assert.ok(url.indexOf("https://de.sentry.io/api/0/organizations/trialview/issues/?") === 0);
+  } finally {
+    if (oldUrl === undefined) delete process.env.SENTRY_URL;
+    else process.env.SENTRY_URL = oldUrl;
+    if (oldOrg === undefined) delete process.env.SENTRY_ORG;
+    else process.env.SENTRY_ORG = oldOrg;
+  }
+});
