@@ -84,6 +84,18 @@ test("stripInjectedInstructions handles multi-paragraph instruction content", fu
   assert.strictEqual(instructions.stripInjectedInstructions(composed, null, "codex"), "Fix the login bug");
 });
 
+test("stripInjectedInstructions removes a model-guidance-only block", function () {
+  var composed = instructions.MODEL_GUIDANCE_MARKER + "\nCurrent runtime: Codex model: gpt-5.6-sol.\n" +
+    MARKER + "\n\nImplement the change";
+  assert.strictEqual(instructions.stripInjectedInstructions(composed, null, "codex"), "Implement the change");
+});
+
+test("stripInjectedInstructions removes model guidance after an existing system prompt", function () {
+  var composed = "Custom system prompt.\n\n" + instructions.MODEL_GUIDANCE_MARKER +
+    "\nCurrent runtime: Codex model: gpt-5.6-sol.\n" + MARKER + "\n\nImplement the change";
+  assert.strictEqual(instructions.stripInjectedInstructions(composed, null, "codex"), "Implement the change");
+});
+
 test("stripInjectedInstructions strips legacy (marker-less) blocks when files match", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-instr-"));
   try {
