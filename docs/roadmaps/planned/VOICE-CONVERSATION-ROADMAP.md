@@ -213,8 +213,10 @@ Each phone, browser tab, or native client may navigate independently. A Coop swi
 ### Audio floor
 
 ```text
-unclaimed / claimed(client, device, epoch) / handoff-requested / revoking / failed
+unclaimed / active(client, device, epoch)
 ```
+
+Claim transactions have their own temporary states: `requested`, `target-ready`, `committing`, `failed`, `failed-after-commit`, `cancelled`, and `expired`.
 
 Example: the phone may own the audio floor and be listening to session A while its screen shows session A, an executor works on the approved plan, the laptop browses session B, and Coop remains available as the workspace coordinator. None of those states should overwrite another.
 
@@ -413,7 +415,6 @@ Conversation active on phone         Listening · Working
 - Every lease carries a daemon generation, monotonically increasing epoch, and unguessable lease ID. After a handoff, the daemon rejects microphone frames and output requests from any older binding.
 - Input frames and output chunks carry the current epoch. The daemon accepts input and emits synthesized audio only for that epoch.
 - Claim state is immediately visible on all connected clients.
-- Claims move through `requested`, `revoking-old-owner`, `active`, or `failed`; the interface never shows two active owners.
 - Claim activation uses one atomic daemon barrier. Clay stops accepting old-owner frames at a recorded sequence, resolves the old provisional turn exactly once, revokes old output, and only then activates the new owner.
 - A final transcript acknowledged at or before the barrier commits once. Unconfirmed transcript fragments after that boundary are discarded and marked interrupted; the new client tells the user that the last words may need repeating. Audio from two devices is never spliced into one utterance.
 - Output handoff is break-before-make. The new client starts only after the old client acknowledges revocation; if it cannot acknowledge, Clay waits for the short playback lease to expire.
@@ -421,6 +422,42 @@ Conversation active on phone         Listening · Working
 - Clay numbers synthesized speech segments and records the highest playback offset acknowledged by the active client. After an acknowledged handoff, the new client resumes from the next offset. If acknowledgement is impossible because of a partition, Clay waits for lease expiry and speaks a short handoff summary instead of guessing which buffered words played.
 - Reconnecting an old owner never restores its former lease automatically. It returns as synchronized and inactive.
 - A daemon restart creates and persists a fresh generation before accepting media. All pre-restart leases become invalid, the floor returns to `unclaimed`, and a client must claim it again; durable transcript, lifecycle, and executor work continue normally.
+
+### Two-phase claim transaction
+
+The audio floor is scoped to one authenticated user in one Clay workspace and carries one exact conversational target: Coop or an immutable project/session pair. A user has one live audio conversation at a time even when several clients and executor sessions are open.
+
+```text
+requested
+    ↓ target proves readiness
+target-ready
+    ↓ final readiness check + daemon compare-and-swap
+committing
+    ↓ irreversible barrier: old owner revoked, turn resolved
+active
+
+requested / target-ready → failed / cancelled / expired
+committing → active / failed-after-commit
+```
+
+The old owner remains fully active during `requested` and `target-ready`. The target becomes ready only after it proves all of the following:
+
+- The exact conversation and current durable state are loaded.
+- The user accepted any required local focus change.
+- Microphone permission is granted and capture can start.
+- Playback permission is granted and the audio context is usable.
+- The daemon media path is live.
+- The client, device registration, user, and claim ID still match the request.
+
+Permission denial, timeout, target suspension, failed media setup, or stale conversation state before the commit barrier fails the claim without disturbing the old owner.
+
+At `target-ready`, the daemon revalidates every readiness condition immediately before the irreversible barrier, then serializes claims with a compare-and-swap against the current daemon generation and lease epoch. One claim enters `committing`. Losing clients see the winning device and may retry; they never revoke the owner or activate audio. A newer explicit request from the same user cancels an older pending request before eligibility.
+
+Crossing the barrier revokes the old owner and cannot be rolled back. If target activation fails after that point, the floor becomes `unclaimed`, the failed target never receives a lease, and the user must make a fresh explicit claim. Cancellation and expiry are rejected after `committing` begins.
+
+Pending claims have server-side expiry, may be cancelled from either involved client, and are removed when their target disconnects. If the active owner's lease expires, the floor becomes `unclaimed`; it never silently migrates. Any pending transfer fails and the target must make a fresh explicit claim.
+
+A playback acknowledgement means audio actually completed playback through the reported segment and offset. Receipt, decoding, buffering, or scheduling does not count. This acknowledgement is the only point Clay may use for exact offset resume; otherwise it uses the partition-safe handoff summary.
 
 ### Connectivity and authorization
 
@@ -633,7 +670,8 @@ Existing stalls, reconnects, resume spam, and UI lag are conversation correctnes
 
 - [ ] Define typed control, lifecycle, intent, snapshot, focus, attention, device-claim, and media events.
 - [ ] Define idempotency, human-input provenance, authorization, sequence, acknowledgement, and reconnect behavior.
-- [ ] Define immutable target bindings, request IDs, and audio-floor fencing epochs.
+- [ ] Define immutable target bindings, two-phase claim readiness, request expiry/cancellation, and audio-floor fencing epochs.
+- [ ] Define a minimal persistent daemon-level client coordination channel independent of the currently selected project WebSocket.
 - [ ] Confirm that existing simultaneous clients can share durable conversation state and document HTTPS/VPN connectivity requirements.
 - [ ] Instrument microphone start, transcript, dispatch, model output, speech, control, routing, and recovery timings.
 - [ ] Establish provider-neutral capability negotiation.
@@ -648,6 +686,7 @@ Existing stalls, reconnects, resume spam, and UI lag are conversation correctnes
 
 - [ ] Implement separate conversation and executor lanes.
 - [ ] Implement the six independent state models.
+- [ ] Implement the minimal persistent coordination channel for client presence, durable snapshots, claim offers, claim state, and acknowledgements.
 - [ ] Produce normalized executor snapshots for Claude and Codex first.
 - [ ] Implement typed control gateway operations.
 - [ ] Persist plan versions, approvals, decisions, corrections, and closeout.
@@ -679,6 +718,9 @@ Existing stalls, reconnects, resume spam, and UI lag are conversation correctnes
 - [ ] Add human-readable server-side device names and connected-device discovery.
 - [ ] Add guaranteed local **Continue here** activation and request-only semantics for spoken or system triggers when the platform requires a gesture.
 - [ ] Bind claims to conversation, client, device, user, claim ID, daemon generation, and fenced lease epoch.
+- [ ] Keep the old owner active until the target proves conversation, permission, playback, and media-path readiness.
+- [ ] Serialize simultaneous ready claims and expose the winner without disturbing the old owner on failed attempts.
+- [ ] Expire, cancel, and supersede abandoned requests; return the floor to `unclaimed` after owner loss.
 - [ ] Relay active-client input and selected output through the daemon so both directions are authoritatively fenced.
 - [ ] Implement an atomic input barrier and break-before-make output handoff, including deterministic provisional-turn handling and acknowledged speech offsets.
 - [ ] Invalidate every audio lease across daemon generation changes.
@@ -688,11 +730,25 @@ Existing stalls, reconnects, resume spam, and UI lag are conversation correctnes
 
 **Exit**: The user can converse on the laptop, claim the same conversation on the phone, continue immediately, and return it to the laptop without restarting work, losing state, duplicating a turn, or creating echo.
 
+#### Phase 3A evidence gate
+
+Do not choose latency budgets, lease durations, playback-buffer limits, or the final speech-resume policy from intuition. First run an instrumented two-client prototype across desktop Chrome, Android Chrome, and the installed PWA.
+
+The prototype must measure:
+
+- Claim request-to-ready, ready-to-commit, commit-to-audio, and complete resume latency at P50 and P95
+- Revocation acknowledgement and lease-expiry behavior during normal handoff and network partition
+- Microphone, playback, suspension, Bluetooth, and notification behavior across the actual Android devices used for daily work
+- Provider speech-boundary stability and the user experience of exact-offset resume, last-phrase replay, and short-summary recovery
+- Accidental claims, abandoned claims, failed claims, and how predictable each trigger feels in real multi-session use
+
+The phase cannot exit until the measured results are recorded here, explicit latency and lease budgets are adopted, one speech-resume policy is selected, and no unresolved browser or device behavior can silently move or duplicate the audio floor.
+
 ### Phase 3B: Coop Workspace Coordinator
 
 **Goal**: Navigate and supervise multiple sessions conversationally.
 
-- [ ] Add the persistent daemon coordination channel.
+- [ ] Extend the existing persistent coordination channel with Coop target resolution, attention, narration, and routing events.
 - [ ] Build cross-project normalized snapshot and attention indexes.
 - [ ] Add target resolution with explicit ambiguity handling.
 - [ ] Add immutable target bindings, focus, triage, narration, and approved-intent routing.
@@ -791,10 +847,15 @@ These are release-blocking automated tests, not aspirational requirements:
 12. Changing one client's visual project/session cannot change workspace conversational focus or another client's view.
 13. An audio claim commits or discards the old provisional turn exactly once before the new microphone becomes active.
 14. Every pre-restart audio lease is rejected under the new daemon generation.
-15. Voice-provider failure leaves executor work intact and immediately exposes text transcript and deterministic controls.
-16. Synthesized, replayed, agent-generated, or low-confidence speech cannot approve a plan or externally consequential action.
-17. A plan whose goal, approach, constraints, or acceptance criteria changed cannot execute under the previous approval.
-18. Secret fixtures never appear in synthesized speech, narration text, retained transcripts, or conversation diagnostics.
+15. A claim that fails, is cancelled, expires, is suspended, or is permission-denied before crossing the irreversible barrier leaves the old owner active.
+16. Simultaneous ready claims produce exactly one winner; losing claims never revoke or activate audio.
+17. A failure after the irreversible commit barrier leaves the floor `unclaimed`; it never restores the old owner or silently activates the target.
+18. Loss of the active owner returns the floor to `unclaimed` and never silently activates another client.
+19. Exact speech-offset resume uses only an acknowledgement that confirms audio actually played, never receipt or buffering.
+20. Voice-provider failure leaves executor work intact and immediately exposes text transcript and deterministic controls.
+21. Synthesized, replayed, agent-generated, or low-confidence speech cannot approve a plan or externally consequential action.
+22. A plan whose goal, approach, constraints, or acceptance criteria changed cannot execute under the previous approval.
+23. Secret fixtures never appear in synthesized speech, narration text, retained transcripts, or conversation diagnostics.
 
 ---
 
@@ -826,8 +887,15 @@ These are release-blocking automated tests, not aspirational requirements:
 - Wired and Bluetooth headsets
 - Route changes during listening and speaking
 - A handoff during provisional user speech, acknowledged AI playback, and partitioned unacknowledged playback
+- Simultaneous claims from two ready clients, including a stale compare-and-swap loser
+- Microphone or playback permission denial after **Continue here**
+- Target suspension or disconnect between `target-ready` and `committing`
+- Target activation failure after the irreversible barrier, leaving the floor `unclaimed`
+- Cancelled, expired, abandoned, and superseded claim requests
+- Active-owner disconnect while another claim is still preparing
 - Phone lock, backgrounding, network handoff, disconnect, and incoming call
 - Daemon restart followed by stale pre-restart audio frames and a fresh claim
+- Persistent coordination-channel reconnect while project clients navigate independently
 - Provider timeout, partial outage, and fallback to text
 
 ### Safety
@@ -888,6 +956,38 @@ Once that lifecycle feels dependable, add cross-device continuation and Coop's c
 
 ---
 
+## Recommended Next Work
+
+Build in this order:
+
+### 1. Establish the reliability baseline
+
+Finish or isolate current queue, reconnect, stale-thinking, resume, and session-state bugs before adding another real-time control path. Run the documented diagnostics and record a quiet canary baseline. Conversation correctness cannot be distinguished from existing lifecycle noise without this.
+
+### 2. Turn Phase 0 into an engineering contract
+
+Define the protocol events, persistent records, reducers, typed gateway operations, authorization boundaries, sequence/idempotency rules, restart replay behavior, and the minimal daemon-level coordination channel shared by every client. Review that contract against the current module map before writing product UI.
+
+### 3. Build the text-simulated Conversation Kernel
+
+Use one project, one executor session, and no audio. Prove separate conversation/executor lanes, versioned plan approval, read-only status, correction diffs, verification, closeout, and restart recovery. Implement the minimal persistent coordination channel for client presence, snapshots, and later claim offers. This is the highest-leverage next implementation because every voice, Coop, and Android surface depends on it.
+
+### 4. Add one desktop real-time voice adapter
+
+Connect the proven kernel to one provider in desktop Chrome. Ship natural turn-taking, barge-in, deterministic stop controls, visible transcript, and secret redaction for one active session. Avoid multi-provider work until this daily loop feels trustworthy.
+
+### 5. Run the two-client continuity prototype
+
+Open the same conversation in desktop Chrome and Android Chrome/PWA. Implement **Continue here** and the two-phase claim transaction, instrument every stage, and complete the Phase 3A evidence gate. Use the measured results to choose lease budgets and speech-resume behavior.
+
+### 6. Add Coop, then native Android
+
+Build Coop after normalized snapshots and the persistent coordination channel exist. Build the Android companion after the browser prototype shows which background, audio-focus, Bluetooth, headset, notification, and lock-screen gaps truly need native code.
+
+Do not start with wake words, multi-Mate rooms, a full Android UI, automatic device stealing, or broad provider abstraction. They add surface area before the core daily conversation is proven.
+
+---
+
 ## Research References
 
 - [OpenAI Agents SDK voice agents](https://openai.github.io/openai-agents-js/guides/voice-agents/)
@@ -925,3 +1025,10 @@ Once that lifecycle feels dependable, add cross-device continuation and Coop's c
 | 2026-07-18 | Keep workspace conversational focus separate from every client's local visual navigation. |
 | 2026-07-18 | Guarantee **Continue here** in the browser proof; treat spoken/system triggers as requests when local activation is required, and guarantee hardware claims in native Android. |
 | 2026-07-18 | Make handoff atomic across provisional input and acknowledged output, and invalidate every audio lease on daemon generation change. |
+| 2026-07-18 | Keep the old audio owner active until a target proves conversation, permission, playback, and media-path readiness, then commit the claim atomically. |
+| 2026-07-18 | Scope one audio floor to each authenticated user/workspace and serialize simultaneous claims against the current generation and epoch. |
+| 2026-07-18 | Expire, cancel, or supersede abandoned claims; owner loss returns the floor to `unclaimed` and never silently moves it. |
+| 2026-07-18 | Treat playback as acknowledged only after it was actually played, not merely received or buffered. |
+| 2026-07-18 | Measure real devices before selecting latency budgets, lease timing, playback buffers, and the final speech-resume policy. |
+| 2026-07-18 | Preserve the old owner for every pre-commit failure; after the irreversible barrier, activation failure leaves the floor `unclaimed`. |
+| 2026-07-18 | Build the minimal persistent client coordination channel with the kernel; Coop later extends it instead of owning it. |
