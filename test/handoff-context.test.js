@@ -8,8 +8,23 @@
 // with zero context.
 var test = require("node:test");
 var assert = require("node:assert");
+var fs = require("fs");
+var os = require("os");
+var path = require("path");
+var { execFileSync } = require("child_process");
 
 var handoff = require("../lib/handoff-context");
+
+function tmpDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "clay-handoff-state-"));
+}
+
+function initGitRepo(dir, branch) {
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  execFileSync("git", ["config", "user.email", "t@t.co"], { cwd: dir });
+  execFileSync("git", ["config", "user.name", "T"], { cwd: dir });
+  execFileSync("git", ["checkout", "-q", "-b", branch], { cwd: dir });
+}
 
 function switchedSession(vendor, context) {
   return {
@@ -63,4 +78,72 @@ test("no pending handoff leaves outgoing text untouched", function () {
   var s = { vendor: "codex" };
   assert.strictEqual(handoff.applyHandoffToOutgoingText(s, "hello"), "hello");
   assert.strictEqual(handoff.applyHandoffToOutgoingText(null, "hello"), "hello");
+});
+
+test("brief enriches the header with goal, git state, tasks, and doc paths", function () {
+  var cwd = tmpDir();
+  try {
+    initGitRepo(cwd, "feature-x");
+    fs.writeFileSync(path.join(cwd, "dirty.js"), "var x = 1;\n");
+    fs.mkdirSync(path.join(cwd, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "docs", "FEATURE-PLAN.md"), "# plan\n");
+
+    var history = [
+      { type: "user_message", text: "Build a login form with validation", _ts: 1700000000000 },
+      { type: "delta", text: "working on it", _ts: 1700000000001 },
+      {
+        type: "tool_executing",
+        name: "TodoWrite",
+        id: "t1",
+        input: {
+          todos: [
+            { id: "1", content: "Design schema", status: "completed" },
+            { id: "2", content: "Write handler", status: "in_progress" },
+            { id: "3", content: "Add tests", status: "pending" },
+          ],
+        },
+        _ts: 1700000000002,
+      },
+    ];
+
+    var brief = handoff.buildHandoffContextFromHistory(history, {
+      fromVendor: "claude", toVendor: "codex", cwd: cwd,
+    });
+    assert.ok(brief, "brief generated");
+    assert.ok(brief.indexOf("Original user goal: Build a login form with validation") !== -1, "goal line present");
+    assert.ok(brief.indexOf("Git branch: feature-x") !== -1, "branch present");
+    assert.ok(brief.indexOf("dirty.js") !== -1, "dirty file listed");
+    assert.ok(brief.indexOf("[x] Design schema") !== -1, "completed task checkmark");
+    assert.ok(brief.indexOf("[~] Write handler") !== -1, "in-progress task marker");
+    assert.ok(brief.indexOf("[ ] Add tests") !== -1, "pending task marker");
+    assert.ok(brief.indexOf(path.join("docs", "FEATURE-PLAN.md")) !== -1, "plan doc path listed");
+    // The enriched sections sit ABOVE the transcript body, still inside the guard.
+    assert.ok(brief.indexOf("Git branch: feature-x") < brief.indexOf("<prior_transcript>"), "state precedes transcript");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("brief degrades cleanly: non-git dir, no todos, no docs -> sections omitted", function () {
+  var cwd = tmpDir();
+  try {
+    var history = [
+      { type: "user_message", text: "just a chat", _ts: 1700000000000 },
+      { type: "delta", text: "sure", _ts: 1700000000001 },
+    ];
+    var brief;
+    assert.doesNotThrow(function () {
+      brief = handoff.buildHandoffContextFromHistory(history, {
+        fromVendor: "claude", toVendor: "codex", cwd: cwd,
+      });
+    }, "no throw in a non-git dir");
+    assert.ok(brief, "brief still generated");
+    assert.strictEqual(brief.indexOf("Git branch:"), -1, "no git section");
+    assert.strictEqual(brief.indexOf("Current tasks:"), -1, "no tasks section");
+    assert.strictEqual(brief.indexOf("Plan/handoff docs:"), -1, "no docs section");
+    // The original goal comes from history alone, so it is still present.
+    assert.ok(brief.indexOf("Original user goal: just a chat") !== -1, "goal still present from history");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
 });
