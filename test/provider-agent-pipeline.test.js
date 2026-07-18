@@ -9,6 +9,7 @@ test("provider worker definitions route Claude to Opus and Codex to Terra", func
   var claudeAgents = pipeline.claudeWorkerAgents();
   assert.strictEqual(claudeAgents.worker.model, "opus");
   assert.ok(claudeAgents.worker.prompt.indexOf("execution-focused worker") !== -1);
+  assert.ok(claudeAgents.worker.prompt.indexOf("ESCALATION_REQUIRED: yes") !== -1);
 
   var config = pipeline.withCodexWorkerConfig({
     mcp_servers: { existing: { command: "node" } },
@@ -21,6 +22,17 @@ test("provider worker definitions route Claude to Opus and Codex to Terra", func
   var workerToml = fs.readFileSync(config.agents.worker.config_file, "utf8");
   assert.ok(workerToml.indexOf('name = "worker"') !== -1);
   assert.ok(workerToml.indexOf('model = "gpt-5.6-terra"') !== -1);
+  assert.ok(workerToml.indexOf("WORKER_STATUS: blocked") !== -1);
+});
+
+test("main-agent policy escalates only blocked worker work", function () {
+  var policy = pipeline.mainAgentEscalationPolicy();
+  var autoLaunchPrompt = pipeline.autoLaunchPipelinePrompt();
+
+  assert.ok(policy.indexOf("Accept completed, verified worker results") !== -1);
+  assert.ok(policy.indexOf("take over only the blocked portion") !== -1);
+  assert.ok(policy.indexOf("Do not repeatedly send the same failed work") !== -1);
+  assert.ok(autoLaunchPrompt.indexOf("ESCALATION_REQUIRED: yes") !== -1);
 });
 
 test("custom Codex worker configuration overrides Clay defaults", function () {

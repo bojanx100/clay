@@ -7,6 +7,8 @@ test("model recommendation prompt names the current runtime", function () {
   var prompt = buildModelRecommendationPrompt("codex", "gpt-5.6-sol");
   assert.ok(prompt.indexOf("Current runtime: Codex model: gpt-5.6-sol.") !== -1);
   assert.ok(prompt.indexOf("Suggest GPT-5.6 Sol") !== -1);
+  assert.ok(prompt.indexOf("configured provider-matched worker first") !== -1);
+  assert.ok(prompt.indexOf("ESCALATION_REQUIRED: yes") !== -1);
 });
 
 test("model recommendation prompt includes Claude model fit guidance", function () {
