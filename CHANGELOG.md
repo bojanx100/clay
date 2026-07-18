@@ -1,3 +1,17 @@
+# [2.46.0](https://github.com/chadbyte/clay/compare/v2.45.0...v2.46.0) (2026-07-03)
+
+
+### Features
+
+* **deps:** bump claude-agent-sdk to 0.3.198 for Claude Fable 5 support ([#381](https://github.com/chadbyte/clay/issues/381)) ([fc9baab](https://github.com/chadbyte/clay/commit/fc9baab75b8fde8511840921c597ea3de7b6f5ae))
+
+# [2.46.0-beta.1](https://github.com/chadbyte/clay/compare/v2.45.0...v2.46.0-beta.1) (2026-07-02)
+
+
+### Features
+
+* **deps:** bump claude-agent-sdk to 0.3.198 for Claude Fable 5 support ([#381](https://github.com/chadbyte/clay/issues/381)) ([fc9baab](https://github.com/chadbyte/clay/commit/fc9baab75b8fde8511840921c597ea3de7b6f5ae))
+
 # [2.45.0](https://github.com/chadbyte/clay/compare/v2.44.0...v2.45.0) (2026-07-01)
 
 
