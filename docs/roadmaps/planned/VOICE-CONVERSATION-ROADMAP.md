@@ -3,7 +3,7 @@
 > Make Clay usable as an ongoing conversation: think together, agree on an explicit plan, supervise execution, make corrections, verify completion, and move between projects and sessions with minimal keyboard or mouse use.
 
 **Created**: 2026-07-18
-**Rewritten**: 2026-07-18 (v2 — grounded in empirical mining of 425 Claude Code sessions and 592 Codex rollouts; provider strategy rebuilt around zero-marginal-cost constraint)
+**Rewritten**: 2026-07-18 (v3 — archive-grounded pipeline plan, reviewed for approval safety, routing correctness, provider boundaries, and cross-device continuity)
 **Status**: Planning
 **Working coordinator name**: Coop
 
@@ -31,12 +31,12 @@ Do not rebuild ordinary Clay screens in Android. The daemon remains authoritativ
 
 ## What the Data Says
 
-Before designing the conversation model, we mined the user's real archives — every conversational claim in this roadmap traces to one of these findings. Corpus: **425 Claude Code sessions** (urban-stay 65, clay 96, v2-webapp 264; 125 deep-extracted, all scanned for rare events) and **592 Codex rollouts** (~846 MB, all parsed; 420-message classified sample + 1,697 agent→user adjacency pairs). ~668 Claude-side and ~2,850 Codex-side genuinely human-typed messages. Methodology and artifacts in Appendix B.
+Before designing the conversation model, we mined the user's real archives. The corpus contains **425 Claude Code sessions across the three primary projects**, one additional Trialview session, and **592 Codex rollouts**. The archive is strong evidence for vocabulary, recurring workflows, and broad interaction patterns. Percentage estimates that depend on manual classification remain hypotheses until the privacy-safe audit artifact in Appendix B is complete. Product safety rules do not depend on an unfinished label set.
 
-### F1 — Barge-in is a myth for this user; steering is turn-boundary
+### F1 — Typed steering is overwhelmingly turn-boundary; spoken barge-in remains an experiment
 
-Mid-turn interrupts across ~950 sessions: **≈6 in Claude Code, 5 `turn_aborted` in 592 Codex sessions.** All steering happens between turns or via a typed queued message. The word `stop` is typed (10× Codex, 1× urban-stay) rather than the interrupt button pressed.
-→ *Voice barge-in must mean "queue a steer", never "abort the turn". Abort is the explicit word "stop", and even then stop-speech before stop-work (speech is reversible).*
+Mid-turn interrupts are rare in the typed archives: **approximately 6 in Claude Code and 5 `turn_aborted` events in Codex** across the qualifying sessions. Most steering happens between turns or through a queued message. This evidence describes typed coding sessions; it does not prove how often a user will interrupt spoken output.
+→ *Voice barge-in stops or ducks speech immediately, then routes the finalized utterance through the normal intent router. It never becomes an executor steer merely because it interrupted TTS. Executor interruption remains a separate explicit control.*
 
 ### F2 — "continue" is the single most frequent utterance
 
@@ -50,13 +50,13 @@ Observed pure approvals, by frequency: `continue`, `yes`, `ok do it` (26×), `do
 
 ### F4 — Approvals carry riders; plans are edited, not rejected
 
-~1 in 3 approvals is conditional or fused with the next command: "yes, and commit and push", "Yes, but keep Analytics top-level", "ok try it but don't commit untill I'm happy with it", "do b2 and C, but…", "1 yes, 2 not needed". And in the entire 425-session corpus there were only **6 formal ExitPlanMode plans — all 5 approvals were "Approved Plan (edited by user)"; zero rejections.** The real revision channel is *amend-then-approve*.
-→ *`APPROVE_PLAN_VERSION` alone is wrong. The gateway needs `APPROVE_WITH_AMENDMENT` (amendment creates the new version and approves it atomically) and fused approval+dispatch ("yes, and push" = approve + queue ops command).*
+Conditional or fused approvals are common: "yes, and commit and push", "Yes, but keep Analytics top-level", "ok try it but don't commit untill I'm happy with it", "do b2 and C, but…", "1 yes, 2 not needed". The formal ExitPlanMode approvals found in the archive were edited visibly by the user before approval. They do not prove that a model-interpreted spoken amendment is safe to approve before the user hears the resulting version.
+→ *The router must split approval riders. A rider creates a pending amended plan version, Clay narrates the concise diff, and the user approves that exact version. Fused post-approval operations remain ordered but keep their own authorization requirements.*
 
-### F5 — Corrections split ~60/40 minor/material, with recognizable material markers
+### F5 — The preliminary sample contains both minor and material corrections, with recognizable material markers
 
-Minor corrections are verbless fragments: "also the color", "no need for two emails", "just the lower line", "reduce length of spikes by just a bit, 10%". Material corrections open with **"you missunderstood" / "you missed the point" / "i said" / "like I said" / "no no no"** and often re-state the whole flow as a numbered list.
-→ *Two-tier correction routing: minor → steer into the executor (Clay's existing steer path) with no ceremony; material → intent diff + plan re-version + re-approval. The markers above are the classifier features.*
+Minor corrections are often short fragments such as "also the color", "just the lower line", or "reduce length of spikes by 10%". Material corrections often open with **"you missunderstood" / "you missed the point" / "i said" / "like I said" / "no no no"** and may restate the whole flow. Some short corrections, such as "no need for two emails", still change scope, so phrase shape alone is not an authorization boundary.
+→ *Two-tier correction routing remains useful, but immediate steering is limited to clearly bounded implementation details that preserve goal, approach, constraints, and acceptance criteria. Uncertain or material changes produce a pending intent diff and require approval. Stop prevents further work; it is not undo.*
 
 ### F6 — The debug/verify loop is the product, not the new-task flow
 
@@ -70,7 +70,7 @@ Minor corrections are verbless fragments: "also the color", "no need for two ema
 
 ### F8 — Multi-intent utterances are routine
 
-6–15% of messages chain intents: "why didn't address come from guesty… and why don't we parse doc on choose file… and please buttons still have no feedback" (3 bug reports); question + feature ask; approval + correction; numbered multi-part replies mirroring the agent's enumeration ("1. … 2. … 4a: …").
+Multi-intent messages are routine in the inspected samples: "why didn't address come from guesty… and why don't we parse doc on choose file… and please buttons still have no feedback" (3 bug reports); question + feature ask; approval + correction; numbered multi-part replies mirroring the agent's enumeration ("1. … 2. … 4a: …"). The exact 6–15% estimate remains provisional until Appendix B's labeling audit is complete.
 → *The router must **split-and-queue**, not classify whole utterances. Enumeration resolution against the agent's last numbered list is required ("for the first one yes, second one no").*
 
 ### F9 — His written style is already transcribed speech
@@ -125,9 +125,9 @@ Codex sessions: median 2 user messages but median **5.3 h wall clock** in the hi
 ### Starting from an idea
 
 1. The user describes an unfinished idea naturally.
-2. Clay adds useful possibilities, challenges weak assumptions, and asks only the questions that materially change the outcome — **at most a couple, each with 2–3 options and a recommendation** (F12).
+2. Clay adds useful possibilities, challenges weak assumptions, and asks only questions that materially change the outcome. Questions use 2–3 options and a recommendation; after two exploratory questions Clay asks whether to keep probing or draft the plan (F12).
 3. Clay and the user settle on a concrete plan with acceptance criteria and known caveats.
-4. The user approves that exact plan version — possibly **with a spoken amendment that becomes the approved version** (F4).
+4. A spoken amendment creates a pending plan version. Clay reads the concise change back, and the user approves that exact version (F4).
 5. Clay executes without mixing status questions or side conversation into the executor's instruction stream.
 6. The user can ask what is happening at any time and receive a one-breath answer from a read-only snapshot (F10, F14).
 7. Corrections become explicit changes to intent, tiered: small tweaks steer immediately; material changes produce an intent diff and a re-approval (F5).
@@ -159,17 +159,17 @@ Product decisions in force (superseded items struck from the v1 list are recorde
 
 1. **Conversation mode is first-class.** Composer dictation (`stt.js`) remains a fallback and test harness, not the product model.
 2. **Conversation and execution are separate lanes.** The conversational controller may inspect executor state; status questions and discussion never steer active work unless the user sends a revised intent.
-3. **Every implementation requires explicit plan approval; amendment is the primary approval flavor.** Approval names a specific plan version. A spoken amendment creates the new version and approves it in one atomic gateway operation. A model may recommend approval but cannot grant it.
-4. **Corrections are tiered.** Minor (no change to goal/approach/acceptance criteria) → routed as a steer with zero ceremony. Material → intent diff, new plan version, re-approval. Misclassifying toward the strict side is a product failure mode (users abandon voice), so the classifier defaults minor unless material markers (F5) or scope analysis say otherwise, and every steer is undoable by "stop".
+3. **Every implementation requires explicit plan approval.** Approval names a specific immutable plan version. A spoken amendment creates a pending version; Clay narrates the exact intent diff before the user approves it. The controller may recommend approval but cannot grant it or approve its own interpretation.
+4. **Corrections are tiered.** A clearly bounded implementation detail that preserves goal, approach, constraints, and acceptance criteria may queue as a minor steer. A material or uncertain change creates an intent diff, a pending plan version, and a new approval. The classifier never treats "stop" as undo and never defaults an uncertain state-changing correction to minor.
 5. **Stop, pause, continue, status, target selection, approval, and closeout are deterministic controls** resolved by a typed gateway, not model improvisation. A ~25%-coverage phrase-macro table (F11) runs before any model sees the utterance.
-6. **Barge-in steers; only "stop" stops; stop-speech before stop-work.** (F1)
+6. **Barge-in stops speech, then routes normally.** It does not imply a steer. Only an explicitly classified and authorized correction enters the executor lane; `STOP_WORK` remains separate from `STOP_SPEECH`. (F1)
 7. **The daemon is authoritative.** Conversation state survives reloads, daemon restarts, compaction, provider handoffs, and device switches. (F17)
 8. **Voice and text share one transcript and lifecycle.** Audio is ephemeral; durable records are transcripts, decisions, plan versions, summaries, outcomes.
-9. **Secrets are never spoken.** Redaction happens on the *text* the TTS receives — one reason the pipeline architecture below is mandatory, not optional.
-10. **Human-input provenance is typed on every event.** Machine-injected user-slot turns (auto-launch, auto-resume, notifications, handoffs — 13–26% of traffic, F16), synthesized speech, replayed audio, and other agents can never approve, confirm done, or answer destructive confirms.
-11. **Zero-marginal-cost core.** The conversational brain runs on existing subscription auth through YOKE; audio I/O runs on free tiers (browser or daemon-local). Paid voice providers are optional adapters. (Owner constraint; see Voice Architecture Decision.)
+9. **Secrets are never spoken or durably retained through conversation mode.** Redaction covers inbound confirmed transcripts, persisted snapshots, narration, and the final text sent to TTS.
+10. **Human-input provenance is typed and assigned at trusted ingress.** Machine-injected user-slot turns, synthesized speech, replayed audio, TTS echo, client/model provenance claims, and other agents can never approve, confirm done, dispatch closeout, or answer destructive confirms.
+11. **Zero-new-service-spend core.** The preferred controller uses the locally authenticated YOKE subscription path only after Phase 0 verifies usage and overage behavior; browser or daemon-local audio requires no paid voice API. Paid providers remain optional adapters. (Owner constraint; see Voice Architecture Decision.)
 12. **Pipeline architecture (STT → text controller → TTS), not speech-to-speech.** Decided — see below.
-13. **Exactly one client owns the live audio floor**; v1 floor transfer is explicit last-claim-wins with a fenced lease. The full two-phase claim protocol from v1 of this document is **design notes for Phase 3A, to be validated by the instrumented prototype** — Appendix A.
+13. **Exactly one client owns the live audio floor.** Transfer requires target readiness, an atomic fenced claim, and break-before-make output. Real-device evidence selects lease durations and speech-resume behavior; it does not decide whether readiness and output fencing exist. See Appendix A.
 14. **Coop and multi-Mate rooms are separate concepts.** Coop coordinates the workspace; a room moderates participants inside one task.
 15. **Android is a hardware companion, not a second Clay application.**
 16. **Shared conversation does not force shared navigation.** Workspace conversational focus is durable and shared; each client browses independently.
@@ -187,16 +187,16 @@ Two possible architectures existed:
 2. **Redaction**: "secrets are never spoken" is only enforceable if there is a *text* artifact between the brain and the speaker. A speech-to-speech model's audio output cannot be reliably redacted or tested against secret fixtures. Violates Decision 9.
 3. **Brain quality/coherence**: the conversational brain would be a different vendor's voice-tuned model reasoning about Claude's plans and snapshots, with no access to Clay's session context, memory, or permission system.
 
-**(B) Pipeline** — streaming STT → text conversational controller → streaming TTS. Chosen. Latency is worse (target: first spoken syllable ≤ 1.5 s after end-of-turn; acceptable because the user's real interaction rhythm is turn-boundary, not rapid-fire — F1), but every constraint is satisfied, and the controller becomes a first-class Clay citizen:
+**(B) Pipeline** — streaming STT → text conversational controller → streaming TTS. Chosen. Latency is worse; the initial Tier 1 target is first spoken syllable within 2.5 s after confirmed intent, then tuned from measured P50/P95 results. The controller becomes a first-class Clay citizen:
 
 ### The conversational controller is a YOKE session on subscription auth
 
 The controller is **not** a new metered API client. It is a lightweight background session driven through the exact same machinery that runs coding sessions today:
 
-- Spawned via `yoke` (Claude adapter) with the user's existing **Claude Team subscription OAuth** — the same auth path `lib/yoke/index.js` already resolves when `ANTHROPIC_API_KEY` is absent. Zero new credentials, zero marginal dollars; it draws from subscription usage windows.
+- Spawned via `yoke` (Claude adapter) using the same locally authenticated Claude Code path Clay already exercises when `ANTHROPIC_API_KEY` is absent. **Phase 0 must verify this as a supported, durable controller path under the installed Agent SDK and the user's subscription**, including rate-limit and extra-usage behavior. The core must stop or fall back rather than silently incur metered overage.
 - Precedent already in the codebase: `sdk-bridge-mentions.js` maintains *persistent read-only @mention query sessions* — the controller is architecturally the same animal with a different system prompt and toolset.
-- **Toolset**: read-only. It can read the conversation ledger, plan versions, executor snapshots, and (bounded) session transcript/files. Its only write path is *proposing typed gateway operations* (structured output), which the daemon validates and executes. It can never edit files or talk to the executor directly.
-- **Vendor-portable**: because it goes through YOKE, the controller can alternatively run on the Codex adapter (ChatGPT Pro auth) — useful when Claude usage windows are exhausted. The controller contract is adapter-neutral.
+- **Toolset**: read-only. It can read the conversation ledger, plan versions, executor snapshots, and bounded session context. Its only write path is *proposing typed gateway operations* as untrusted structured output, which a runtime schema and the daemon gateway validate. It can never edit files or talk to the executor directly.
+- **Vendor-portable contract, verified per adapter**: the Codex fallback must start with `sandboxMode: "read-only"`, deny write-capable tools, and pass a negative write test before it is eligible. YOKE's current Codex default is `workspace-write`; portability is a goal, not a safety assumption.
 - **Usage-window discipline** (it burns subscription quota, so): system prompt frozen and cache-friendly; snapshots delivered as compact structured text; deterministic macro layer (F11) answers ~25% of utterances with zero controller tokens; `GET_STATUS` answered by template from the snapshot (zero tokens) unless the user asks a *why* question; controller turns targeted at &lt; 500 output tokens.
 
 ### Audio I/O: a three-tier ladder behind one adapter interface
@@ -205,17 +205,17 @@ One provider-neutral interface (`stt-adapter` / `tts-adapter` contracts, negotia
 
 | Tier | STT | TTS | Cost | Latency | Notes |
 |---|---|---|---|---|---|
-| **0 — Browser** (first slice) | Web Speech API — already integrated in `lib/public/modules/stt.js` (continuous + interim, 7 languages) | `speechSynthesis` — built into every browser incl. iOS Safari PWA | **$0** | STT good on Chrome; TTS instant | Chrome-quality recognition; degrades on Firefox/Brave; fine to prove the whole kernel |
+| **0 — Browser** (first slice) | Web Speech API — already integrated in `lib/public/modules/stt.js` (continuous + interim, 7 configured languages) | `speechSynthesis` — broadly available, with browser/voice differences | **$0 to Clay** | STT good on supported Chrome; TTS starts quickly | `SpeechRecognition` is not cross-browser baseline and may send audio to the browser vendor; desktop Chrome only for the first proof |
 | **1 — Daemon-local** (Phase 2) | whisper.cpp / faster-whisper on the daemon host (realtime+ on Apple Silicon; multilingual incl. Croatian — F9) | Kokoro (open-weights, near-commercial quality, realtime on M-series) or Piper; macOS `say` as trivial fallback | **$0** | ~300–800 ms STT finalize; ~100–300 ms TTS first audio | Private (audio never leaves the machine); serves **all clients incl. phone** via daemon-mediated audio over the existing WS; this is the workhorse tier |
 | **2 — Paid cloud** (optional, never required) | Deepgram Flux (~$0.46/hr streaming, built-in end-of-turn detection) or OpenAI realtime transcription (~$0.46/hr) | Cartesia Sonic (~90 ms TTFA, $50/M chars) / Deepgram Aura ($15/M chars) / ElevenLabs ($66/M chars) | ~$0.50–1.00/hr active | best-in-class | Pluggable adapter; config per user; off by default |
 
-End-of-turn detection: Tier 0 uses Web Speech finalization + a configurable silence timer + push-to-talk override; Tier 1 adds local VAD (e.g. Silero) in front of whisper; Tier 2 (Flux) has it natively. Barge-in at every tier = duck-and-cancel local playback (client-side, instant) + queue the transcript as a steer (F1).
+End-of-turn detection: Tier 0 uses Web Speech finalization + a configurable silence timer + push-to-talk override; Tier 1 adds local VAD (e.g. Silero) in front of whisper; Tier 2 (Flux) has it natively. At every tier, barge-in first ducks and cancels local playback. The finalized transcript then enters the same phase-aware router as any other utterance. Phase 0 must define duplex/echo handling so Clay's own synthesized speech cannot become live-human input or approve an action.
 
 ### Cost model (for the record)
 
 | Path | Marginal cost of a 6 h working day |
 |---|---|
-| Chosen: Tier 0/1 audio + subscription controller | **$0** (subscription usage windows only) |
+| Chosen: Tier 0/1 audio + subscription controller | **$0 new service spend when subscription usage remains included**; local compute/electricity and optional overage are measured separately |
 | Tier 2 audio + subscription controller | ~$3–6 |
 | Rejected: OpenAI Realtime speech-to-speech | ~$20–80 |
 | Reference: controller on metered API instead of subscription (Haiku 4.5 $1/$5 per MTok, cache reads 0.1×) | ~$0.50–2 — the fallback if subscription windows ever become the bottleneck |
@@ -234,7 +234,7 @@ Claude, Codex, or Copilot performs approved work — exactly today's sessions. I
 Above projects and sessions: resolve, triage, narrate, focus, route. Runs on a persistent daemon-level coordination channel independent of the per-project WebSocket (which is replaced on project switch). Reuses `server-palette.js` cross-project search as a resolution input.
 
 ### 4. Cross-Device Conversation Continuity
-Web, PWA, and native clients are equal views of one durable conversation. Any client can claim the audio floor via an explicit **Continue here** gesture; v1 is last-claim-wins with a fenced lease epoch (stale frames dropped). Full handoff protocol: Appendix A, gated on the Phase 3A prototype.
+Web, PWA, and native clients are equal views of one durable conversation. Any client can request the audio floor through an explicit **Continue here** gesture. The target must prove readiness before the daemon commits the fenced transfer and revokes the old owner. Appendix A defines the minimum protocol; the Phase 3A prototype tunes its budgets and resume experience.
 
 ### 5. Minimal Android Companion
 Native mic capture, playback, audio focus, Bluetooth routing, foreground service, lock-screen/notification controls. Built only after the browser proof identifies concrete failures. Unchanged from v1 (see Phase 4).
@@ -258,7 +258,7 @@ Later collaboration mode; moderator owns the audible floor. Unchanged from v1 (P
 │              │                                                         │
 │              ├── deterministic intent router (macro table → splitter)  │
 │              ├── controller brain = YOKE background session            │
-│              │     (Claude Team subscription auth, read-only tools,    │
+│              │     (verified subscription path, read-only tools,      │
 │              │      structured-output proposals only)                  │
 │              ├── conversation ledger (plans, approvals, diffs, done)   │
 │              ├── typed control gateway (validates + executes ops)      │
@@ -280,8 +280,9 @@ Later collaboration mode; moderator owns the audible floor. Unchanged from v1 (P
 The explicit action flow:
 
 ```text
-mic audio → STT tier → confirmed transcript (provenance: live-human, device, floor epoch)
-  → deterministic macro table (~25% resolved here: NUDGE, STOP, GET_STATUS, ops verbs)
+mic audio → STT tier → confirmed transcript
+  → daemon-assigned provenance + current {generation, leaseId, epoch} binding
+  → phase-aware deterministic macro table (read-only and exact control paths)
   → utterance splitter (multi-intent → ordered intent list, enumeration resolution)
   → controller brain (classification + response + proposed typed operations)
   → daemon policy + deterministic gateway (validate provenance, plan version, target)
@@ -306,7 +307,7 @@ Six state machines stay independent so the UI and speech layer can tell the trut
 
 **Client visual focus**: per-client, independent; a Coop switch changes a client's view only when accepted.
 
-**Audio floor**: `unclaimed / active(client, device, user, epoch)` — v1 semantics: explicit claim, last-claim-wins, monotone epoch fencing, floor returns to `unclaimed` on owner loss or daemon restart (new generation invalidates all leases). Extended claim-transaction states: Appendix A.
+**Audio floor**: `unclaimed → requested → target-ready → committing → active(client, device, user, daemonGeneration, leaseId, epoch)`, with `failed / cancelled / expired / failed-after-commit`. The old owner stays active until the target proves readiness and the daemon commits atomically. Loss of the active owner returns the floor to `unclaimed`; a daemon restart creates a new generation and invalidates every old lease. See Appendix A.
 
 ---
 
@@ -314,25 +315,30 @@ Six state machines stay independent so the UI and speech layer can tell the trut
 
 Three stages, cheapest first:
 
-### Stage 1 — Deterministic macro table (no tokens, &lt;10 ms)
+### Stage 1 — Phase-aware deterministic macro table (no tokens, &lt;10 ms)
 
-Fuzzy-matched (edit distance ≤ 2 per word, F9) closed vocabulary → gateway ops. Covers ~25% of real traffic (F11):
+The vocabulary covers roughly a quarter of observed traffic (F11), but words do not have global meanings. The current lifecycle, pending request, and executor state select the operation first:
 
-| Utterance family | Op |
-|---|---|
-| "continue", "continye", "keep going", "retry" | `NUDGE` (auto-continue / poke stalled turn) |
-| "stop" (bare) | `STOP_SPEECH`; if nothing is being spoken → confirm "stop the work too?" (reversible-first, F1) |
-| "stop the work", "kill it" | `STOP_WORK` |
-| "what's next", "anything left", "are you done", "status" | `GET_STATUS` (template answer from snapshot, zero tokens) |
-| "commited and pushed?", "commit push", "commit and push" | `GET_STATUS(git)` / ops dispatch |
-| "mark as done", "ship it", "call it done" | `CONFIRM_DONE` (requires live-human provenance) |
-| "run localhost", "restart", "restart the daemon" | ops dispatch (existing task/loop plumbing) |
-| "wrong chat", "wrong session" | focus correction — offer last-focused alternatives |
-| bare "yes"/"ok"/"do it"/"1"/"a"/"num 3" **when a proposal or enumeration is pending** | approval resolution (Stage 1.5 below) |
+| Context | Utterance family | Op |
+|---|---|---|
+| plan version awaiting approval | "continue", "yes", "ok", "do it", "go", option token | approval resolution (Stage 1.5) |
+| executor paused | "continue", "keep going" | `CONTINUE` |
+| executor working or apparently stalled | "continue", "continye", "retry" | `NUDGE` |
+| TTS speaking | bare "stop" | `STOP_SPEECH` |
+| no TTS; executor active | bare "stop" | ask "Stop the work too?"; no work mutation yet |
+| any authorized active-work state | "stop the work", "kill it" | `STOP_WORK` |
+| any state | "what's next", "anything left", "are you done", "status" | `GET_STATUS` |
+| any state | "commited and pushed?" | `GET_STATUS(git)` |
+| approved plan with requested repository step | "commit push", "commit and push" | ordered closeout operation, subject to the approved plan and repository policy |
+| verified `closeout` only | "mark as done", "ship it", "call it done" | `CONFIRM_DONE` |
+| any other state | "ship it" | approval or dispatch candidate; resolve from pending context, never infer completion |
+| any state | "wrong chat", "wrong session" | focus correction; offer last-focused alternatives |
+
+Fuzzy matching is allowed for read-only macros and non-authorizing suggestions. A fuzzy match may never directly approve, stop work, dispatch repository/runtime operations, answer a permission, or confirm done. State-changing commands require an exact normalized phrase or a concise read-back and explicit confirmation. This prevents short collisions such as "go"/"no" and "ship"/"skip" from becoming actions.
 
 ### Stage 1.5 — Approval & enumeration resolver
 
-Maintains the *last agent enumeration* (options, plan version, question set). Resolves option tokens, partial approvals ("1 yes, 2 not needed"), and detects riders: any non-approval remainder after the approval phrase is re-fed to Stage 2 as an additional intent ("yes, and commit and push" → `APPROVE_PLAN_VERSION` + ops dispatch; "Yes, but keep Analytics top-level" → `APPROVE_WITH_AMENDMENT`). Low-confidence transcript + approval intent → one-line read-back before the gateway accepts (spoken approvals of plan versions always read back the version's one-line goal).
+Maintains the *last agent enumeration* (options, plan version, question set). Resolves option tokens, partial approvals ("1 yes, 2 not needed"), and detects riders. A post-approval rider is re-fed to Stage 2 as a separately authorized intent ("yes, and commit and push" → approve, then evaluate the repository operation in order). An amendment rider creates a pending version ("Yes, but keep Analytics top-level" → `AMEND_PLAN_VERSION`), after which Clay reads the concise diff and asks for approval of the new version. Spoken plan approvals always read back the version ID and one-line goal before acceptance.
 
 ### Stage 2 — Utterance splitter + classifier (controller brain)
 
@@ -348,7 +354,7 @@ Everything else goes to the controller session with the current enumeration, lif
     {"kind": "ops", "op": "COMMIT_PUSH"}
   ],
   "reply": "spoken response text",
-  "proposed_ops": [{"op": "STEER_EXECUTOR", "payload": "..."}]
+  "proposed_ops": [{"op": "QUEUE_EXECUTOR_STEER", "payload": "..."}]
 }
 ```
 
@@ -356,7 +362,7 @@ Classifier kinds mirror the empirical taxonomy (F-table): `new_task, exploration
 
 ### Correction routing (Decision 4)
 
-`correction_minor` → `STEER_EXECUTOR` immediately (maps onto the existing steer path: `payload.steer`, `steerInterruptRequested`, abort+auto-resume in `sdk-bridge-stream.js`) and is narrated in one line ("Steering: smaller icon."). `correction_material` (markers from F5, or the diff touches goal/approach/acceptance criteria) → controller produces the correction diff (what changed / affected work / changed criteria / plan still valid? / recommendation), speaks it in ≤ 3 sentences, and awaits `APPROVE_WITH_AMENDMENT`. When the classifier is unsure it asks *one* bounded question ("Small tweak or does this change the plan?") — and remembers the answer as a labeled example (per-user tuning corpus).
+`correction_minor` is allowed only when a comparison against the approved intent confirms that goal, approach, constraints, and acceptance criteria remain unchanged. The gateway queues it for the executor's next safe turn boundary and narrates one line ("Queued: smaller icon."). It does **not** reuse the current abort+auto-resume steer path unchanged. An explicit user request to interrupt active work is a separate control. `correction_material` produces a pending correction diff (what changed / affected work / changed criteria / plan still valid? / recommendation), speaks it in ≤ 3 sentences, and awaits approval of the resulting version. When classification is uncertain, Clay asks one bounded question and performs no state-changing dispatch until resolved.
 
 ---
 
@@ -410,9 +416,9 @@ A durable product record (not a Git commit): goal in the user's own words; selec
 
 ### Approval semantics
 - Approval references an immutable plan version. Editing → new version, prior approval invalidated.
-- **`APPROVE_WITH_AMENDMENT` is first-class**: one utterance both revises and approves; the gateway creates the version, records the amendment text, and approves atomically, then the controller confirms the amendment aloud in one line. (F4 — the only approval flavor observed in the wild.)
-- Fused approval+dispatch ("yes, and push") approves and queues the ops command in order.
-- Approval binds verified live-human provenance (F16), immutable project/session ID, and the exact version. Low-confidence recognition or ambiguous version → one-line read-back first.
+- **Amend-then-approve is first-class**: `AMEND_PLAN_VERSION` records the verbatim amendment, creates a pending immutable version, and produces a concise intent diff. Clay narrates that diff before a later `APPROVE_PLAN_VERSION` can authorize it. The controller never approves its own interpretation. (F4)
+- Fused approval+dispatch ("yes, and push") is split and ordered. Approval can succeed while a repository/runtime operation is rejected, confirmed separately, or withheld because the approved plan does not authorize it.
+- Approval binds daemon-verified live-human provenance (F16), immutable project/session target, and the exact version. Provenance is assigned at trusted ingress and is never accepted from a client or model payload. Spoken plan approvals always receive a version/goal read-back before acceptance.
 - "sounds reasonable", "makes sense" = conversational agreement, **not** approval. The detector is the F3 phrase set + option tokens, not sentiment.
 - Synthesized speech, replayed audio, another agent, or machine-injected text can never approve.
 
@@ -429,11 +435,11 @@ Executor "done" → `verifying`/`closeout`, never `complete` (Invariant 8). Veri
 
 ## Deterministic Control Gateway
 
-Typed operations; each carries target, idempotency key, authorization context (incl. provenance class), and result. Only gateway ops change authoritative state.
+Typed operations; each carries target, idempotency key, server-assigned authorization/provenance context, expected lifecycle state/version, and result. Only gateway ops change authoritative state. Every controller proposal and WebSocket payload is untrusted until it passes a runtime decoder and operation-specific policy checks; `ws-schema.js` remains a registry, not the validator.
 
-`STOP_SPEECH` · `STOP_WORK` · `PAUSE` · `CONTINUE` · `NUDGE` · `GET_STATUS` · `STEER_EXECUTOR` · `FOCUS_TARGET` · `APPROVE_PLAN_VERSION` · `APPROVE_WITH_AMENDMENT` · `REJECT_PLAN_VERSION` · `REQUEST_PLAN_REVISION` · `SEND_APPROVED_INTENT` · `ANSWER_PERMISSION` · `ANSWER_QUESTION` · `CONFIRM_DONE` · `REOPEN_WORK` · `END_CONVERSATION` · `CLAIM_AUDIO_FLOOR` · `RELEASE_AUDIO_FLOOR`
+`STOP_SPEECH` · `STOP_WORK` · `PAUSE` · `CONTINUE` · `NUDGE` · `GET_STATUS` · `QUEUE_EXECUTOR_STEER` · `INTERRUPT_AND_STEER` · `FOCUS_TARGET` · `AMEND_PLAN_VERSION` · `APPROVE_PLAN_VERSION` · `REJECT_PLAN_VERSION` · `REQUEST_PLAN_REVISION` · `SEND_APPROVED_INTENT` · `ANSWER_PERMISSION` · `ANSWER_QUESTION` · `RUN_APPROVED_CLOSEOUT` · `CONFIRM_DONE` · `REOPEN_WORK` · `END_CONVERSATION` · `REQUEST_AUDIO_FLOOR` · `COMMIT_AUDIO_FLOOR` · `RELEASE_AUDIO_FLOOR`
 
-Rules: "stop talking" ≠ "stop the work"; ambiguous "stop" silences speech immediately (reversible) then asks. `ANSWER_PERMISSION` binds the exact pending request ID and expires with it. `NUDGE` and `GET_STATUS` are rate-limit-free and never enter the executor queue. Every op is idempotent under reconnect/replay.
+Rules: "stop talking" ≠ "stop the work"; ambiguous "stop" silences speech immediately, then asks before affecting work. `ANSWER_PERMISSION` and `ANSWER_QUESTION` bind the exact still-pending request ID and accepted option set. `CONTINUE` resumes a paused executor; `NUDGE` only requests a truthful liveness check and never approves, resumes, or duplicates executor input. `RUN_APPROVED_CLOSEOUT` can perform only repository/runtime steps named by the approved plan and project rules. Every op is idempotent under reconnect/replay.
 
 ---
 
@@ -442,10 +448,10 @@ Rules: "stop talking" ≠ "stop the work"; ambiguous "stop" silences speech imme
 - **Speak**: conclusions, bounded questions (2–3 options + recommendation), decisions, plan summaries, state *transitions* (tests pass/fail, push done, retry, unexpected discovery), blockers/needs-you, caveats, destructive confirms.
 - **Don't speak**: logs, tool calls, file paths, line numbers, diffs, per-edit narration, token-by-token anything, secrets (redaction layer is mandatory and test-gated), routine progress.
 - **Completion utterance** = verdict word first, then caveats, then needs-you, then offered next action; 30–60 words (F14). Then stay hot for "still broken" (F6).
-- **Status utterance** = one breath from the snapshot: lifecycle + currentStep + needsYou + git state. Template-generated (zero tokens); the brain engages only for *why* questions.
+- **Status utterance** = one breath from the snapshot with strict precedence: stale/disconnected → failure/blocker → pending human question/permission → current step → verification result → git/closeout state. A stale snapshot states its age and confidence instead of sounding healthy. Template-generated (zero tokens); the brain engages only for *why* questions.
 - **Plan narration** = goal (user's own words) → in/out of scope → approach in one sentence → locked decisions/risks → verification method; 60–90 words; full plan stays visual (F14: ~75% of plan text is noise aloud).
 - **Proactive progress**: during long turns (p90 = 7 min, F17), a short spoken pulse at meaningful transitions only — calibrated to preempt "alive?" checks without narrating routine steps. User-configurable cadence, server-side setting.
-- **Question budget**: default ≤ 2 clarifying questions per task before the controller must assume-and-state ("Codex-style": act on the stated assumption, offer "If you want…" alternatives). Over-budget asks require the user to have opted into "interview me" mode (e.g. spec/interview skills). (F12 — "too philosophical" is a product failure signal.)
+- **Question budget**: during execution, avoid more than two consecutive blocking clarification turns before recommending a safe assumption, deferral, or bounded choice. Exploration has no global two-question ceiling; after two questions Clay asks whether to keep probing or draft the plan. Explicit interview/spec modes can go deeper. (F12)
 - **Long content**: appears in the transcript with a spoken offer to summarize aloud.
 - Accessibility: every audio-only state has a visual equivalent; text input and controls remain available at all times.
 
@@ -453,45 +459,47 @@ Rules: "stop talking" ≠ "stop the work"; ambiguous "stop" silences speech imme
 
 ## Persistence, Privacy, Recovery
 
-**Durable**: conversation lifecycle + focus; confirmed transcripts (with provenance class per event); intent commits, decisions, plan versions, approvals, amendments; normalized snapshots + attention events; device registrations (human-readable names, revocable) + route preferences; closeout summaries. Storage: JSONL per conversation under `~/.clay/conversations/<project>/<sessionId>.jsonl`, same append-only + replay conventions as session storage.
+**Durable**: conversation lifecycle + focus; redacted confirmed transcripts (with server-assigned provenance class per event); intent commits, decisions, plan versions, approvals, amendments; normalized redacted snapshots + attention events; device registrations (human-readable names, revocable) + route preferences; closeout summaries. Storage uses a Clay-owned `conversationId`, with immutable executor-session bindings recorded in the ledger so provider handoff cannot change identity. Phase 0 defines versioned event envelopes, monotone sequence numbers, causation IDs, atomic append, partial-tail recovery, replay checkpoints, and migration behavior under `~/.clay/conversations/`.
 
-**Ephemeral**: raw mic audio; synthesized audio buffers; provisional transcript fragments after finalization; voice-provider credentials.
+**Ephemeral**: raw mic audio; the unredacted recognition result; synthesized audio buffers; provisional transcript fragments after finalization; voice-provider credentials.
 
-**Protections**: always display the active mic, floor owner, and device name; state where media is processed (on-device / daemon / third party — Tier 0 sends audio to the browser vendor, Tier 1 stays local, Tier 2 goes to the configured provider); never speak secrets/credentials/env values/unredacted logs (redaction runs on controller text before TTS; secret fixtures test-gated); server-side settings only (no localStorage); revocable auditable device registrations; idempotent controls; restart recovery without duplicating the last utterance or executor instruction (existing recovery canaries must stay quiet — see Reliability Baseline).
+**Protections**: always display the active mic, floor owner, and device name; state where media is processed and that third-party retention is governed by that provider; redact inbound confirmed transcripts before persistence and outbound controller/narration text before every TTS adapter; redact snapshot fields before persistence; never speak secrets/credentials/env values/unredacted logs; keep secret fixtures test-gated across all three paths; server-side settings only (no localStorage); revocable auditable device registrations; restart recovery without duplicating the last utterance or executor instruction.
 
 ---
 
 ## Implementation Map (module-level)
 
-Per `MODULE_MAP.md` conventions: `attachXxx(ctx)`, ≤ 500 lines/module, no inline logic in `project.js` handleMessage, client state in store slices + `ws-ref.js`, `var`/no-arrow-functions server-side CommonJS, client ES modules.
+Per `MODULE_MAP.md` and `CLIENT_MODULE_DEPS.md`: `attachXxx(ctx)` for attached features, ≤ 500 lines/module, no inline logic in `project.js` handleMessage, client state in `store.js`, WebSocket access through `ws-ref.js`, direct imports instead of context initializers, `var`/no-arrow-functions, server CommonJS, client ES modules.
 
 ### Server (lib/)
 
 | Module | Concern |
 |---|---|
-| `conversation-kernel.js` | Lifecycle reducer (six state machines), conversation ledger persistence, replay |
+| `conversation-protocol.js` | Runtime decoders for event envelopes and controller proposals; schema/version/provenance boundary |
+| `conversation-kernel.js` | Pure lifecycle reducer across the independent state machines; no I/O |
+| `conversation-ledger.js` | Atomic JSONL append, checkpoints, replay, partial-tail recovery, migrations |
 | `conversation-gateway.js` | Typed ops: validation, provenance checks, idempotency, dispatch to executor/ledger |
-| `conversation-router.js` | Stage 1 macro table + fuzzy matcher + approval/enumeration resolver (Stage 1.5) |
+| `conversation-router.js` | Phase-aware macro table + safe fuzzy suggestions + approval/enumeration resolver |
 | `conversation-controller.js` | Controller brain: spawns/maintains the YOKE background session (mention-session pattern), builds compact context (snapshot header + enumeration + last turns), parses structured proposals |
 | `conversation-snapshot.js` | Reduces YOKE adapter events into the snapshot schema; persistence; staleness marking |
 | `conversation-scaffold.js` | Executor system-prompt addendum (externalize the five silent-decision categories, needs-you list, verification report format) injected via YOKE instruction merge |
 | `conversation-redaction.js` | Never-speak policy: secret patterns, env values, credential shapes; test fixtures |
 | `conversation-narration.js` | Template speech: status/completion/plan compression per the Spoken Response Policy |
-| `conversation-media.js` | Media WS frames (Tier 1/2): mic frame ingest with epoch fencing, TTS chunk egress, floor lease state |
+| `conversation-media.js` | Media WS frames (Tier 1/2): mic ingest and TTS egress fenced by generation+lease+epoch; backpressure and bounded buffers |
 | `voice-adapters/stt-local.js`, `voice-adapters/tts-local.js` | Tier 1: whisper.cpp / Kokoro child processes (worker-forked, off the daemon event loop like `task-source-worker.js`) |
 | `voice-adapters/stt-cloud.js`, `voice-adapters/tts-cloud.js` | Tier 2 optional adapters behind the same contract |
 | `server-coordination.js` | Persistent daemon-level WS channel (presence, focus, claim state, attention events, Coop routing) — a new focused module, **not** an extension of `server-global-ws.js` |
 | `coop-resolver.js`, `coop-attention.js`, `coop-narrator.js` (Phase 3B) | Target resolution (reusing `server-palette.js` BM25 + recency), attention queue, cross-session narration |
 
-Message routing: new `conversation_*` / `voice_*` / `coord_*` WS types registered in `ws-schema.js`, dispatched from `project-message-router.js` (session-scoped) and the coordination channel (workspace-scoped). Executor steering reuses `project-user-message.js` `dispatchPreparedToSdk` steer path unchanged.
+Message routing: new `conversation_*` / `voice_*` / `coord_*` WS types are documented in `ws-schema.js`, decoded at runtime by `conversation-protocol.js`, and dispatched from `project-message-router.js` (session-scoped) or the coordination channel (workspace-scoped). Minor steering gets a focused queue-at-boundary adapter; it does not reuse `dispatchPreparedToSdk`'s abort+auto-resume behavior unchanged.
 
 ### Client (lib/public/modules/)
 
 | Module | Concern |
 |---|---|
-| `convo-store.js` | Store slice: media state, floor state, lifecycle, transcript, pending enumeration |
+| `store.js` | Add conversation state/actions: media, floor, lifecycle, transcript, pending enumeration; this remains the only client state owner |
 | `convo-mic.js` | Capture: Tier 0 Web Speech wrapper (shares permission UX with `stt.js`) or getUserMedia→WS frames for Tier 1/2; VAD hooks; push-to-talk |
-| `convo-speaker.js` | Playback: `speechSynthesis` (Tier 0) or streamed audio chunks; barge-in duck/cancel; epoch-checked playback |
+| `convo-speaker.js` | Playback: `speechSynthesis` (Tier 0) or streamed audio chunks; barge-in duck/cancel; generation+lease+epoch checks |
 | `convo-ui.js` | Conversation mode UI: floor indicator ("Listening · Working"), live transcript with provisional/confirmed styling, Continue-here button, stop-speech vs stop-work controls |
 | `convo-transcript.js` | Rendering the shared transcript + plan cards / approval read-backs into the message stream (reuses `tools-plan.js` plan cards) |
 
@@ -501,7 +509,7 @@ Message routing: new `conversation_*` / `voice_*` / `coord_*` WS types registere
 
 ## Reliability Baseline (precondition)
 
-Existing stalls, phantom reconnects, resume spam, and UI lag are conversation-correctness risks — a voice loop amplifies every one of them into a user-facing failure ("did you stop again?" is already 11% of typed traffic, F2). Before Phase 1 exits: run the documented diagnostics (`docs/guides/DIAGNOSTICS.md`), record a quiet baseline in `~/.clay/recovery-events-dev.log` / `diag-dev.log`, and gate every phase exit on the canaries staying quiet.
+Existing stalls, phantom reconnects, resume spam, and UI lag are conversation-correctness risks. Before Phase 1 begins, run the documented diagnostics (`docs/guides/DIAGNOSTICS.md`), record a quiet baseline in `~/.clay/recovery-events-dev.log` / `diag-dev.log`, and gate every phase exit on the canaries staying quiet.
 
 ---
 
@@ -511,38 +519,44 @@ Existing stalls, phantom reconnects, resume spam, and UI lag are conversation-co
 
 Lock semantics before UI/media detail, but only what the slice needs:
 
-- [ ] Typed events for: control ops (list above), lifecycle transitions, intent commits, snapshot, provenance classes, media frames, floor lease (v1 semantics).
-- [ ] Idempotency, sequencing, reconnect/replay behavior; provenance rules (F16).
+- [ ] Versioned runtime-decoded event envelopes for control ops, lifecycle transitions, intent commits, snapshots, provenance, media frames, and claim state. `ws-schema.js` documents these types but does not enforce them.
+- [ ] Idempotency, monotone sequencing, causation, acknowledgement, reconnect/replay, partial-tail recovery, and migration behavior.
+- [ ] Trusted-ingress provenance assignment. Clients and models cannot self-declare `live-human`; TTS echo, replay, machine injections, and agent proposals remain non-authorizing.
 - [ ] Snapshot schema (above) + adapter mapping tables for Claude and Codex events.
-- [ ] Macro table v1 + approval phrase set (seeded from Appendix B phrase inventory).
-- [ ] Redaction policy + never-speak test fixtures.
-- [ ] Minimal persistent coordination channel spec (presence, floor state, claim offers) — spec only; implementation lands in Phase 3A.
+- [ ] Phase-aware macro table + approval phrase set. Fuzzy matches cannot directly authorize state-changing operations.
+- [ ] Inbound transcript, snapshot, narration, and outbound TTS redaction policy + secret fixtures.
+- [ ] Tier 0 duplex/echo contract: microphone/TTS arbitration, cancellation ordering, and approval gating.
+- [ ] Claude subscription-controller spike: long-lived query, usage-window exhaustion, extra-usage guard, restart, and structured-proposal validation. Codex fallback must prove read-only sandboxing.
+- [ ] Persistent coordination channel spec plus minimum safe claim transaction: target readiness, atomic compare-and-swap, generation+lease+epoch binding, bounded output buffers, and revocation acknowledgement/expiry. Implementation lands in Phase 3A.
 - [ ] Timing instrumentation points (mic start, transcript, route, brain, gateway, TTS-first-audio, floor ops).
-- [ ] Reliability baseline recorded.
+- [ ] Privacy-safe corpus audit artifact committed: source counts, filters, sampling method/seed, classification schema, completed denominators, and an evidence table for each percentage used by routing. Until then, provisional percentages remain non-normative.
+- [ ] Reliability baseline recorded before Phase 1 begins.
 
-**Exit**: the same simulated conversation runs through text and scripted-voice event fixtures without changing lifecycle semantics. *(Full 15-op gateway, claim transaction states, and Coop events are explicitly deferred.)*
+**Exit**: the same simulated conversation runs through text and scripted-voice fixtures without changing lifecycle semantics; unsafe payloads fail closed; approval, restart replay, TTS echo, and claim-state fixtures pass. Coop events and timing choices remain deferred.
 
 ### Phase 1 — Vertical slice: thin kernel + Tier 0 voice (desktop Chrome)
 
 The inversion from v1 of this doc: voice is in the *first* slice, kernel depth follows evidence.
 
-- [ ] Thin kernel: lifecycle enum + ledger persistence + gateway with `STOP_SPEECH/STOP_WORK/NUDGE/GET_STATUS/STEER_EXECUTOR/APPROVE_PLAN_VERSION/APPROVE_WITH_AMENDMENT/CONFIRM_DONE/REOPEN_WORK`.
-- [ ] Stage 1 macro router + enumeration/approval resolver.
-- [ ] Controller brain as YOKE background session (subscription auth), read-only tools, structured proposals.
+- [ ] Thin kernel: lifecycle reducer + ledger persistence + runtime protocol validation + gateway with `STOP_SPEECH/STOP_WORK/PAUSE/CONTINUE/NUDGE/GET_STATUS/QUEUE_EXECUTOR_STEER/INTERRUPT_AND_STEER/AMEND_PLAN_VERSION/APPROVE_PLAN_VERSION/ANSWER_QUESTION/ANSWER_PERMISSION/RUN_APPROVED_CLOSEOUT/CONFIRM_DONE/REOPEN_WORK`.
+- [ ] Phase-aware Stage 1 macro router + enumeration/approval resolver; exact/confirmed recognition for state-changing controls.
+- [ ] Controller brain as a verified YOKE background session, read-only tools, runtime-validated structured proposals, usage-window guard, and text fallback if unavailable.
 - [ ] Snapshot v1 for the Claude adapter (Codex next phase); executor scaffold addendum.
-- [ ] Tier 0 audio: Web Speech capture + `speechSynthesis` output, silence-timer end-of-turn + push-to-talk, barge-in = duck + queue-steer.
-- [ ] Spoken plan review + amendment approval; spoken status from snapshot; spoken completion (verdict/caveats/needs-you); minor-steer path; correction-tier classifier v1.
-- [ ] Redaction live on the TTS path; text composer remains a parallel input throughout.
+- [ ] Tier 0 audio in desktop Chrome: Web Speech capture + `speechSynthesis`, silence-timer end-of-turn + push-to-talk, defined half/full-duplex behavior, echo tests, and barge-in = stop speech then route normally.
+- [ ] Spoken plan review; amend → narrated diff → exact-version approval; spoken status with stale/failure/pending precedence; spoken completion; bounded minor-steer queue; material correction re-approval.
+- [ ] Verbally answer one executor question and one destructive permission prompt, then pause and continue work without confusing those operations with `NUDGE`.
+- [ ] Inbound, snapshot, narration, and TTS redaction live; text composer and visible plan/transcript remain parallel inputs throughout; screenshot-pending can attach an image to the active conversation turn.
+- [ ] Truthful visual working/waiting presence plus a minimal spoken progress pulse after a configurable silence threshold or meaningful transition.
 - [ ] One project, one executor session, one client. Measure everything.
 
-**Exit**: both north-star workflows (idea + issue) complete on a real task by conversation in desktop Chrome — explore, amend-approve, supervise with non-interrupting status, minor + material corrections, verification, spoken closeout, "still broken" re-entry — with canaries quiet. **This phase is also the evidence gate for kernel depth**: what conversation actually needs determines which v1-spec machinery gets built out next.
+**Exit**: both north-star workflows complete on a real task in desktop Chrome: explore/diagnose, amend and hear the diff, approve the exact version, pause/continue, answer a pending question, ask non-interrupting status, apply minor and material corrections safely, verify, run authorized closeout, confirm done, and re-enter on "still broken". No synthesized or fuzzy-recognized speech authorizes an action; canaries remain quiet.
 
 ### Phase 2 — Tier 1 audio + kernel hardening
 
 - [ ] Daemon-local STT/TTS workers (whisper.cpp/faster-whisper + Kokoro/Piper), local VAD, adapter contract + capability negotiation between tiers.
 - [ ] Daemon-mediated media frames over WS (this is also the substrate Phase 3A needs).
 - [ ] Codex snapshot adapter; provider handoff continuity for the conversation ledger.
-- [ ] Correction-tier classifier tuning from Phase 1 labeled examples; question-budget enforcement; proactive progress pulses.
+- [ ] Correction-tier classifier tuning from Phase 1 labeled examples; execution question-budget enforcement; richer proactive progress policies.
 - [ ] Croatian/mixed-language STT validation (F9).
 - [ ] Restart/compaction recovery exercises; intent-commit history UI.
 
@@ -551,9 +565,10 @@ The inversion from v1 of this doc: voice is in the *first* slice, kernel depth f
 ### Phase 3A — Cross-device continuity (browser proof)
 
 - [ ] Persistent coordination channel implementation (presence, device names server-side, floor state fan-out).
-- [ ] **Continue here** explicit claim; v1 floor semantics (last-claim-wins, epoch fencing, unclaimed-on-loss, generation invalidation on restart).
+- [ ] **Continue here** request; target proves conversation, permission, playback, and media readiness; daemon commits with atomic compare-and-swap against `{daemonGeneration, leaseId, epoch}` before revoking the old owner.
+- [ ] Break-before-make output: old owner acknowledgement or lease expiry before new playback, bounded buffers shorter than the lease, per-chunk lease validation, and deterministic provisional-input resolution.
 - [ ] Instrumented two-client prototype: desktop Chrome ⇄ Android Chrome/PWA, measuring claim latency, audio resume, suspension/lock/network-handoff behavior, accidental-claim rate.
-- [ ] **Evidence gate**: only after measurement, adopt lease budgets and the speech-resume policy, and decide how much of the Appendix A protocol (two-phase claim, break-before-make output, playback-offset resume) reality requires.
+- [ ] **Evidence gate**: measurement chooses lease budgets and the speech-resume policy. Target readiness, atomic commit, input fencing, and break-before-make output are not optional.
 
 **Exit**: start on the laptop, claim on the phone, continue the same conversation, return — without losing state, duplicating a turn, or echo; measured numbers recorded here.
 
@@ -568,7 +583,7 @@ The inversion from v1 of this doc: voice is in the *first* slice, kernel depth f
 
 ### Phase 4 — Minimal native Android companion
 
-Unchanged from v1 in shape; entry gate = concrete measured browser failures in background/screen-off operation, mic/playback suspension, Bluetooth/audio focus, headset/lock-screen controls, or lifecycle recovery. Kotlin/Compose, not a WebView shell; sign-in + device registration, conversation/status screen, PTT + mode + mute + stop controls, foreground service + media session, deep links into the web UI. Exit criteria as v1 (claim/return floor, survive background+lock, call interruption recovery, same gateway, no silent recording).
+Entry gate = concrete measured browser failures in background/screen-off operation, mic/playback suspension, Bluetooth/audio focus, headset/lock-screen controls, or lifecycle recovery. Kotlin/Compose, not a WebView shell; sign-in + device registration, conversation/status screen, PTT + mode + mute + stop controls, foreground service + media session, deep links into the web UI. **Continue here** is the guaranteed local claim action. Spoken, headset, notification, lock-screen, and system triggers request a transfer; local foreground confirmation completes it when Android or browser permission rules require user activation. Opening, focusing, unlocking, or reconnecting never claims. Exit: claim/return floor, survive background+lock, recover from call interruption, use the same gateway, and never record silently.
 
 ### Phase 5 — Rooms and advanced orchestration
 
@@ -578,16 +593,19 @@ Multi-Mate fan-out with moderated floor; Coop subscriptions ("tell me when eithe
 
 ## Acceptance Journeys
 
-1. **Fresh idea** — explore, challenge, plan, amend-approve, implement, status, verify, close.
+1. **Fresh idea** — explore, challenge, plan, amend, hear the diff, approve the exact version, implement, status, verify, close.
 2. **Reported issue** — diagnose, explain evidence/confidence, plan, approve, repair, verify, close.
 3. **Non-interrupting status** — status during execution changes nothing in the executor queue (executor transcript byte-identical with and without the question).
-4. **Minor correction** — "make the icon smaller" steers within seconds, no ceremony, narrated in one line.
+4. **Minor correction** — "make the icon smaller" is compared with approved intent, queues at a safe boundary, and is narrated in one line without aborting the active turn.
 5. **Material correction** — "you missed the point, the flow is…" produces a spoken diff and re-approval; only invalidated work redone.
 6. **Still-broken re-entry** — after a done *report*, "didn't work" re-enters diagnosis with context hot; after `CONFIRM_DONE`, `REOPEN_WORK` does the same.
 7. **Restart recovery** — browser and daemon restarts resume the same lifecycle, plan version, and floor state (floor re-claimed explicitly).
 8. **Cross-device continuation** — begin on web, Continue-here on phone, return.
 9. **Coop navigation** — find by topic, disambiguate once, act on a pending decision.
 10. **Closeout** — verification evidence spoken, caveats stated, explicit "mark as done".
+11. **Pending decision** — executor asks a numbered question; voice resolves the exact pending request and work continues once.
+12. **Phase-aware language** — "continue" approves only when a plan is pending, resumes only when paused, and nudges only while working; "ship it" cannot complete work outside verified closeout.
+13. **Echo safety** — Clay's own TTS says an approval-like phrase while a plan is pending; no approval operation is emitted.
 
 ---
 
@@ -608,7 +626,7 @@ Percentiles and failure rates, not averages.
 | Device claim | Continue-here | active + old client silent | &lt; 3 s |
 | Recovery | connection usable | durable state restored | &lt; 2 s |
 
-Quality: approval correctness (no unapproved version executes — zero tolerance); correction-tier misclassification rate (both directions; strict-side errors weighted heavier); status fidelity vs executor events; false turn-endings; echo loops; duplicate sends; secret-redaction failures (zero); hands-free completion rate per journey; **subscription usage burn** (controller tokens/day, share of usage window — budget alert at configurable %); presence-check rate ("alive?" utterances should trend to zero as proactive progress lands, F2).
+Quality: approval correctness (no unapproved version executes — zero tolerance); correction-tier misclassification rate (unsafe minor dispatches are release-blocking; unnecessary clarification is measured as friction); status fidelity vs executor events; false turn-endings; echo loops; duplicate sends; secret-redaction failures (zero); hands-free completion rate per journey; **subscription usage burn and overage** (controller tokens/day, share of usage window, unexpected metered spend = zero for the core); presence-check rate ("alive?" utterances should trend toward zero).
 
 ---
 
@@ -619,17 +637,19 @@ Release-blocking automated tests:
 1. No executor input, file/repo/runtime mutation, or state-changing external action without a valid approval bound to the current immutable plan version and target.
 2. A status request produces zero executor-input events.
 3. An approved plan version begins execution at most once.
-4. Reconnect, replay, and duplicate delivery cannot repeat an approval, control, permission answer, or intent dispatch.
+4. Reconnect, replay, and duplicate delivery cannot repeat an approval, control, permission answer, closeout operation, or intent dispatch.
 5. A changed, stale, missing, or ambiguous Coop target receives no routed action; changing visual focus cannot retarget an in-flight utterance.
 6. A permission/question answer applies only to its exact still-pending request ID.
 7. Executor completion cannot mark lifecycle `complete`; only verified live-human `CONFIRM_DONE` can.
-8. Machine-injected user-slot events (auto-launch, auto-resume, notifications, handoffs), synthesized speech, replayed audio, and agent-generated text can never approve, confirm done, or answer a destructive confirm (F16).
+8. Provenance is assigned at trusted server ingress. Client/model claims of `live-human`, machine-injected user-slot events, synthesized speech, replayed audio, TTS echo, and agent-generated text can never approve, confirm done, dispatch repository/runtime work, or answer a destructive confirm (F16).
 9. A minor-tier steer never alters plan version, goal, approach, or acceptance criteria records; a material correction cannot execute under the previous approval.
-10. Only input frames carrying the current floor lease epoch are accepted; every pre-restart lease is rejected under a new daemon generation; loss of the owner returns the floor to `unclaimed`, never silently migrating it.
+10. Input frames and output chunks are accepted or played only when their `{daemonGeneration, leaseId, epoch}` exactly matches the active floor binding; every pre-restart lease is rejected; owner loss returns the floor to `unclaimed`.
 11. Opening, focusing, unlocking, or reconnecting a client cannot claim the floor.
 12. Voice-provider failure leaves executor work intact and immediately exposes text transcript and deterministic controls.
-13. Secret fixtures never appear in synthesized speech, narration text, retained transcripts, or diagnostics.
-14. Amendment approval records both the amendment text and the resulting version; the executed plan is byte-identical to the approved version.
+13. Secret fixtures never appear in synthesized speech, narration text, persisted snapshots, retained transcripts, or diagnostics; raw recognition containing a fixture remains ephemeral.
+14. An amendment cannot approve itself. Approval occurs only after the pending version's diff and identity are presented; the executed plan is byte-identical to that approved version.
+15. A claim cannot revoke the old owner before the target is ready and the daemon crosses the atomic commit barrier.
+16. New playback cannot begin until old playback is acknowledged stopped or its bounded lease expires; stale buffered chunks fail their local lease check.
 
 (The v1 list's audio-handoff invariants 10–19 become Phase 3A acceptance criteria — Appendix A.)
 
@@ -637,15 +657,15 @@ Release-blocking automated tests:
 
 ## Testing Matrix
 
-**Lifecycle**: exploration, diagnosis, plan revision, amendment-approval, execution, verification, closeout; status while working; correction before/during/after work; still-broken re-entry ×3 rounds (F6); permission question while another session completes; reload, daemon restart, compaction, provider handoff, stale snapshots.
+**Lifecycle**: exploration, diagnosis, plan revision, amendment-diff-approval, execution, pause/continue, verification, ordered closeout; status while working; exact pending question/permission answers; correction before/during/after work; still-broken re-entry ×3 rounds (F6); reload, daemon restart, compaction, provider handoff, stale snapshots.
 
-**Router** (fixtures drawn from the mined corpora — Appendix B): every macro phrase incl. typo variants ("continye", "ok verigy", "commit push"); fused approvals ("yes, and commit and push"); partial approvals ("1 yes, 2 not needed"); guarded approvals ("ok try it but don't commit untill I'm happy"); amendment approvals ("Yes, but keep Analytics top-level"); material markers ("you missunderstood", "like I said", "no no no"); multi-intent chains (3-bug utterance); enumeration answers ("for the first one yes"); counter-questions; deferrals ("doing it in another session"); "screenshot coming"; Croatian fragments; conversational-agreement-that-is-not-approval ("sounds reasonable").
+**Router** (fixtures drawn from the mined corpora — Appendix B): lifecycle matrix for "continue" and "ship it"; every macro phrase incl. typo variants; read-only fuzzy matches; negative collisions ("go"/"no", "ship"/"skip"); fused approvals split into ordered intents; partial approvals; guarded approvals; amendment → pending diff → approval; material markers; short but material scope changes; multi-intent chains; enumeration answers; counter-questions; deferrals; "screenshot coming"; Croatian fragments; conversational agreement that is not approval.
 
 **Coop and routing**: exact/similar/missing/completed/deleted targets; same title across projects; permission-denied target; state change during resolution; rapid focus changes; command spoken during a switch; multiple simultaneous pending decisions.
 
-**Clients and audio**: desktop Chrome, Android Chrome, installed PWA, (later) native companion; laptop/phone mic-speaker combinations; wired + Bluetooth; route changes while listening/speaking; barge-in during TTS; silence for 30+ minutes then resume; suspension/lock/network handoff/incoming call; daemon restart + stale pre-restart frames + fresh claim; simultaneous claims; provider timeout and fallback to text.
+**Clients and audio**: desktop Chrome, Android Chrome, installed PWA, later native companion; laptop/phone mic-speaker combinations; wired + Bluetooth; route changes while listening/speaking; TTS echo and approval-like playback; barge-in question vs correction; silence for 30+ minutes then resume; suspension/lock/network handoff/incoming call; daemon restart + stale pre-restart frames/chunks + fresh claim; target permission/readiness failure; simultaneous claims; provider timeout and fallback to text.
 
-**Safety**: approval-resembling speech that isn't approval; agent-generated audio attempting approval; secrets in logs/env/transcripts/snapshots; replayed control messages; old-client audio after handoff; device-credential revocation; stop-speech vs stop-work ambiguity; machine-injected turns attempting gateway ops.
+**Safety**: approval-resembling speech that is not approval; fuzzy state-changing phrases; agent-generated audio and acoustic echo attempting approval; client-forged provenance; untrusted controller JSON shapes; secrets entering inbound transcripts, logs, snapshots, narration, or TTS; replayed controls; old-client audio after handoff; device revocation; stop-speech vs stop-work ambiguity; machine-injected turns attempting gateway ops; Codex fallback attempting file or command writes.
 
 ---
 
@@ -674,7 +694,7 @@ Release-blocking automated tests:
 4. Tier 1 model sizing: whisper variant (tiny/base/small) and Kokoro vs Piper on the actual daemon hardware — measure WER on his accent + Croatian code-switch (F9) before choosing.
 5. How much transcript the Android companion shows without becoming a second UI.
 6. Play Store vs internal APK distribution.
-7. Controller brain model selection per subscription window state (Claude tier when available; Codex fallback) — automatic or user-pinned?
+7. After both adapters pass read-only and usage-window tests, should controller selection be automatic or user-pinned?
 8. Whether "still broken" within N minutes of CONFIRM_DONE should auto-REOPEN_WORK or ask.
 
 ---
@@ -682,19 +702,19 @@ Release-blocking automated tests:
 ## Recommended Next Work (in order)
 
 1. **Reliability baseline** — quiet canaries first; conversation correctness is indistinguishable from lifecycle noise without it.
-2. **Phase 0 contract, slice-scoped** — the event/op/provenance/snapshot definitions above, reviewed against MODULE_MAP before any UI.
-3. **Macro router + gateway + thin kernel** — deterministic value even text-only (typed "continue"/"mark as done"/"anything left?" hit the same ops).
-4. **Controller brain as YOKE background session** — the subscription-auth mechanism is the architectural keystone; prove it with text before audio.
-5. **Tier 0 audio on the slice** — first end-to-end spoken plan-amend-approve on a real task.
+2. **Corpus audit + Phase 0 contract** — complete the privacy-safe evidence table; define runtime event validation, trusted provenance, persistence/replay, phase-aware commands, redaction, echo handling, and minimum safe claims before UI.
+3. **Controller substrate spike** — prove Claude subscription behavior, overage guard, restart, structured proposals, and Codex read-only enforcement. Failure must leave text controls usable and spend at zero.
+4. **Macro router + gateway + thin kernel** — deterministic value text-only, including lifecycle-specific "continue"/"ship it", pending questions, pause/continue, amend-readback-approve, and ordered closeout.
+5. **Tier 0 audio on the slice** — first end-to-end spoken plan amendment, narrated diff, exact-version approval, echo test, supervision, and closeout on a real task.
 6. **Then** Tier 1 local audio, Codex snapshots, and the Phase 2+ ladder.
 
-Do not start with wake words, multi-Mate rooms, a full Android UI, automatic device stealing, the complete claim protocol, or broad provider abstraction.
+Do not start with wake words, multi-Mate rooms, a full Android UI, automatic device stealing, playback-offset resume, or broad provider abstraction. Target readiness, atomic claim, and break-before-make output are minimum safety, not optional scope.
 
 ---
 
 ## Research References
 
-- [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) — controller session substrate (subscription OAuth auth path already in `lib/yoke/`)
+- [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) — candidate controller substrate; Phase 0 verifies the locally authenticated subscription path and usage behavior rather than assuming a permanent contract
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) / [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — Tier 1 STT
 - [Kokoro TTS](https://github.com/hexgrad/kokoro) / [Piper](https://github.com/rhasspy/piper) — Tier 1 TTS
 - [Silero VAD](https://github.com/snakers4/silero-vad) — local voice-activity detection
@@ -705,11 +725,11 @@ Do not start with wake words, multi-Mate rooms, a full Android UI, automatic dev
 
 ---
 
-## Appendix A — Audio-Floor Handoff Protocol (design notes for Phase 3A)
+## Appendix A — Audio-Floor Handoff Protocol
 
-*Status: not committed. v1 ships last-claim-wins with epoch fencing (Decision 13). The instrumented Phase 3A prototype decides how much of the following is actually needed. Preserved from v1 of this document.*
+*Status: minimum correctness contract for Phase 3A. Target readiness, atomic commit, input fencing, and break-before-make output are normative. The instrumented prototype chooses budgets and the user-facing speech-resume policy.*
 
-**Two-phase claim transaction**: `requested → target-ready → committing → active`, with `failed / cancelled / expired / failed-after-commit`. Target proves readiness (conversation loaded, permissions granted, playback context usable, media path live, binding unchanged) before an atomic daemon compare-and-swap against the current generation+epoch; old owner stays fully active until the irreversible barrier; post-barrier activation failure leaves the floor `unclaimed`, never restoring the old owner or silently activating the target; losing claimants never revoke or activate.
+**Two-phase claim transaction**: `requested → target-ready → committing → active`, with `failed / cancelled / expired / failed-after-commit`. Target proves readiness (conversation loaded, permissions granted, playback context usable, media path live, binding unchanged) before an atomic daemon compare-and-swap against the current `{daemonGeneration, leaseId, epoch}`; old owner stays fully active until the irreversible barrier; post-barrier activation failure leaves the floor `unclaimed`, never restoring the old owner or silently activating the target; losing claimants never revoke or activate.
 
 **Input barrier**: stop accepting old-owner frames at a recorded sequence; resolve the old provisional turn exactly once; fragments after the boundary are discarded and marked interrupted; audio from two devices is never spliced into one utterance.
 
@@ -719,21 +739,31 @@ Do not start with wake words, multi-Mate rooms, a full Android UI, automatic dev
 
 **Misc**: reconnecting old owners return synchronized-inactive, never auto-restored; pending claims have server-side expiry, are cancellable from either side, and die with their target's disconnect; a newer request from the same user supersedes an older pending one; spoken/system triggers become requests when the platform requires a local gesture ("Continue conversation" button completes them).
 
-**Phase 3A evidence gate (unchanged)**: measure claim request→ready→commit→audio latencies (P50/P95), revocation ack + lease expiry under partition, mic/playback/suspension/Bluetooth/notification behavior on the real devices, speech-boundary stability and the felt UX of exact-offset resume vs last-phrase replay vs short-summary recovery, and accidental/abandoned/failed claim rates — before adopting budgets or committing to this machinery.
+**Phase 3A evidence gate**: measure claim request→ready→commit→audio latencies (P50/P95), revocation acknowledgement + lease expiry under partition, mic/playback/suspension/Bluetooth/notification behavior on the real devices, speech-boundary stability and the felt UX of exact-offset resume vs last-phrase replay vs short-summary recovery, and accidental/abandoned/failed claim rates. Evidence chooses budgets and whether playback-offset resume is worth building; it cannot remove the minimum correctness contract above.
 
 ---
 
 ## Appendix B — Corpus Methodology
 
-**Sources** (mined 2026-07-18):
-- `~/.claude/projects/`: urban-stay 65 sessions (88 MB), Trialview-webapp 1, clay 96 (121 MB), v2-webapp 264 (262 MB). All 425 scanned for rare events (ExitPlanMode, AskUserQuestion, interrupts, denials); 125 deep-extracted.
-- `~/.codex/sessions/`: 592 rollouts (~846 MB), all parsed for lifecycle stats; 420-message stratified sample classified; 1,697 agent-final→user-next adjacency pairs.
+**Current source inventory** (mined 2026-07-18):
+- Claude primary projects: urban-stay 65 + clay 96 + v2-webapp 264 = **425 sessions**. One additional Trialview-webapp session was inspected separately, for **426 discovered Claude session files** total.
+- Codex: **592 rollout files** (~846 MB), with per-file lifecycle parsing, a 420-message stratified sample, and 1,697 agent-final→user-next candidate pairs.
 
-**Filters**: excluded tool_results, `isMeta`, sidechain messages, slash-command wrappers, and machine-injected user-slot content (auto-launch prompts, auto-resume, task notifications, handoff blocks) — which itself became finding F16. `.bak` files excluded. One grep self-contamination (this analysis session's own transcript) identified and excluded.
+**Current limitations**:
+- The Claude manual label file has 367 rows, of which 242 are still `TODO`.
+- The 420-row Codex sample preserves extracted tags but does not yet contain the complete behavior labels required to derive every percentage in F5/F8/F12.
+- Some sampled Codex rows still contain machine-injected prefixes marked by tags; the final aggregate must exclude them after tagging, not merely claim they were excluded during extraction.
+- Temporary working paths under `/tmp/bojan_taxonomy/` and `/tmp/codex_analysis/` are not a reproducible or durable evidence artifact.
 
-**Headline numbers**: ~668 Claude-side + ~2,850 Codex-side human-typed messages; interrupts ≈ 6 + 5 across ~950 sessions; "continue" family 76 + 56; approval phrase inventory and frequencies as listed in F3; AskUserQuestion 248 events (74% clean picks); ExitPlanMode 6 (5 approved-as-edited, 0 rejected); completion reports 529 (p50 231 words, 52% caveats, 12% needs-you); interstitial narration 2,234 blocks (p50 19 words); done-claim pushback 5–10% (Claude) / ~25–33% incl. negative screenshots (Codex UI work); screenshots on 10–18.5% of messages; sessions ~50% fully autonomous; 90% bypassPermissions; median session wall-clock 5.3 h (Codex high-traffic sample), max 452 h.
+Therefore phrase inventories, exact command counts, rare lifecycle events, and broad qualitative patterns may guide prototype coverage now. Manually classified percentages are **provisional hypotheses** until the audit below is complete. No authorization or safety rule may rely on those percentages.
 
-Working artifacts (temp, regenerate as needed): `/tmp/bojan_taxonomy/`, `/tmp/codex_analysis/` (cleaned utterances, adjacency pairs, per-file lifecycle stats, classified samples).
+**Required privacy-safe audit artifact before Phase 1**:
+1. Commit extraction and aggregation scripts without raw private message content.
+2. Record source counts, inclusion/exclusion rules, project strata, sampling algorithm, and deterministic seed.
+3. Define the behavior taxonomy and double-check ambiguous labels.
+4. Finish the samples used for every published percentage and record numerator, denominator, confidence/uncertainty, and representative redacted examples.
+5. Produce an F1–F17 evidence table marking each claim `verified-count`, `verified-sample`, `qualitative`, or `hypothesis`.
+6. Add a regeneration command and aggregate checks that catch source-count mismatches, injected-message leakage, self-contamination, and unfinished labels.
 
 ---
 
@@ -752,13 +782,16 @@ Working artifacts (temp, regenerate as needed): `/tmp/bojan_taxonomy/`, `/tmp/co
 | 2026-07-18 | Read-only exploration before approval; approval before mutation; human confirmation before complete. |
 | 2026-07-18 | Fence Coop targets, pending requests, and audio-floor claims against stale or replayed actions. |
 | 2026-07-18 | Daemon-mediated media for cross-device handoff; equal synchronized clients; one floor owner; explicit claims only; workspace focus ≠ client navigation; measure before choosing lease budgets. |
-| 2026-07-18 | **v2**: Ground the conversation model in mined session data (425 Claude sessions + 592 Codex rollouts); findings F1–F17 are normative inputs to the design. |
-| 2026-07-18 | **v2**: Zero-marginal-cost constraint — conversational brain runs as a YOKE background session on existing subscription auth (Claude Team primary, Codex fallback); audio on free tiers (browser → daemon-local); paid voice is an optional adapter. ChatGPT Pro confirmed to NOT include OpenAI API/Realtime access. |
-| 2026-07-18 | **v2**: Barge-in = steer; only the word "stop" stops; stop-speech before stop-work (F1). |
-| 2026-07-18 | **v2**: `APPROVE_WITH_AMENDMENT` is first-class; fused approval+dispatch supported (F4). |
-| 2026-07-18 | **v2**: Two-tier corrections — minor→steer (no ceremony), material→diff+re-approval (F5); classifier defaults minor. |
+| 2026-07-18 | **v2, refined by v3**: Ground the conversation model in mined session data. Verified counts and qualitative patterns guide the design; unfinished manually labeled percentages remain hypotheses. |
+| 2026-07-18 | **v2, refined by v3**: Zero-new-service-spend core through a verified YOKE subscription path plus browser/local audio; guard against overage and require every fallback adapter to pass read-only tests. |
+| 2026-07-18 | **v2, superseded by v3**: Barge-in no longer implies steer. It stops speech, then the utterance routes normally; executor interruption is explicit. |
+| 2026-07-18 | **v2, superseded by v3**: A spoken amendment creates a pending version and narrated diff; only later approval of that exact version authorizes execution. |
+| 2026-07-18 | **v2, refined by v3**: Two-tier corrections remain, but only clearly bounded details queue as minor; uncertain changes fail closed into clarification or re-approval, and stop is not undo. |
 | 2026-07-18 | **v2**: Deterministic macro table before any model call (~25% traffic coverage, F11); status answered from snapshot templates at zero tokens. |
 | 2026-07-18 | **v2**: Human-input provenance typed on every event; machine-injected turns can never approve/confirm/answer (F16). |
-| 2026-07-18 | **v2**: Phase order inverted — Tier 0 voice ships in the first slice; kernel depth follows Phase 1 evidence; full audio-floor protocol demoted to Appendix A pending the 3A prototype. |
-| 2026-07-18 | **v2**: Question budget (≤2 clarifying questions per task, bounded options + recommendation, assume-and-state otherwise) (F12). |
+| 2026-07-18 | **v2, refined by v3**: Tier 0 voice remains in the first slice. Cross-device readiness, atomic claim, and break-before-make output remain mandatory; evidence tunes timings and resume UX. |
+| 2026-07-18 | **v2, refined by v3**: Limit consecutive blocking questions during execution; exploration asks whether to continue probing instead of applying a universal two-question ceiling. |
 | 2026-07-18 | **v2**: Multiplayer voice on one session deferred past Phase 3B; floor scoped per user. |
+| 2026-07-18 | **v3**: Phase-aware macro resolution; fuzzy recognition cannot directly authorize state changes. |
+| 2026-07-18 | **v3**: Runtime-decode untrusted controller/WS payloads and assign human provenance only at trusted ingress. |
+| 2026-07-18 | **v3**: Redact inbound transcripts, persisted snapshots, narration, and TTS output; raw recognition remains ephemeral. |
