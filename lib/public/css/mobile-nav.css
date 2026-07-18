@@ -758,13 +758,32 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--success);
+    background: #da7756;
+    box-shadow: 0 0 0 2px rgba(218, 119, 86, 0.16);
     flex-shrink: 0;
+    animation: vendor-dot-pulse 1.1s ease-in-out infinite;
+  }
+
+  .mobile-session-processing.codex {
+    background: #4a9eff;
+    box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.14);
+  }
+
+  .mobile-session-processing.claude {
+    background: #da7756;
+    box-shadow: 0 0 0 2px rgba(218, 119, 86, 0.16);
   }
 
   .mobile-session-processing.io {
-    background: #fff !important;
-    box-shadow: 0 0 4px var(--success);
+    opacity: 0.45;
+  }
+
+  .mobile-session-processing.codex.io {
+    box-shadow: 0 0 7px #4a9eff;
+  }
+
+  .mobile-session-processing.claude.io {
+    box-shadow: 0 0 7px #da7756;
   }
 
   /* Date group header inside sheet */
