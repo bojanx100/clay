@@ -254,6 +254,8 @@ test("task launcher defaults to the best Claude model", function () {
     var session = h.launcher.startSessionForItem(null, recipe, makeItem(7, "Model routing"), {}, null, { auto: true });
 
     assert.strictEqual(session.model, "best");
+    assert.ok(h.startQueries[0].prompt.indexOf("PROVIDER-MATCHED AGENT PIPELINE") !== -1);
+    assert.ok(h.startQueries[0].prompt.indexOf("Claude workers to Opus") !== -1);
   } finally {
     cleanupHarness(h);
   }
@@ -269,6 +271,7 @@ test("task launcher defaults to Sol but preserves an explicit model pin", functi
     recipe.session.vendor = "codex";
     var bestSession = h.launcher.startSessionForItem(null, recipe, makeItem(8, "Best model"), {}, null, { auto: true });
     assert.strictEqual(bestSession.model, "gpt-5.6-sol");
+    assert.ok(h.startQueries[0].prompt.indexOf("Codex workers to Terra") !== -1);
 
     recipe.session.model = "gpt-5.6-terra";
     var pinnedSession = h.launcher.startSessionForItem(null, recipe, makeItem(9, "Pinned model"), {}, null, { auto: true });

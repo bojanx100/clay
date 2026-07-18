@@ -154,6 +154,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `codex-defaults.js` | Codex-specific default values (sandbox, approval, web search). **Single source of truth** - do not duplicate elsewhere |
 | `claude-defaults.js` | Claude-specific default model and mode settings |
 | `model-selection.js` | Shared strongest-available model selection for new sessions and task launches, while respecting configured defaults |
+| `provider-agent-pipeline.js` | Provider-matched worker configuration: Codex roots delegate to Terra workers and Claude roots delegate to Opus workers |
 | `recovery-log.js` | Structured recovery-event logging for watchdog stalls, reconnects, and auto-resume diagnostics |
 | `text-title.js` | Shared title cleanup/clamping helpers for session and task titles |
 | `git-accounts.js` | Per-project GitHub account pinning. Lists `gh` CLI accounts and writes/clears a repo-local git credential helper (`gh auth token --user <account>`) so each project pushes/pulls as a chosen account regardless of the globally-active `gh` account. Used by daemon.js relay callbacks (`onListGitAccounts`/`onGetProjectGitAccount`/`onSetProjectGitAccount`); UI in `project-settings.js` |
