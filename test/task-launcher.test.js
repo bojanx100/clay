@@ -243,3 +243,37 @@ test("sentry tasks render Sentry variables and keep sentry autoKind", function (
     cleanupHarness(h);
   }
 });
+
+test("task launcher defaults to the best Claude model", function () {
+  var h = makeHarness(function () { return Promise.resolve([]); });
+  try {
+    h.sm.modelsByVendor = {
+      claude: [{ value: "default" }, { value: "best" }, { value: "claude-opus-4-8" }],
+    };
+    var recipe = h.launcher.loadRecipe("bugs");
+    var session = h.launcher.startSessionForItem(null, recipe, makeItem(7, "Model routing"), {}, null, { auto: true });
+
+    assert.strictEqual(session.model, "best");
+  } finally {
+    cleanupHarness(h);
+  }
+});
+
+test("task launcher defaults to Sol but preserves an explicit model pin", function () {
+  var h = makeHarness(function () { return Promise.resolve([]); });
+  try {
+    h.sm.modelsByVendor = {
+      codex: [{ value: "gpt-5.6-terra", isDefault: true }, { value: "gpt-5.6-sol" }],
+    };
+    var recipe = h.launcher.loadRecipe("bugs");
+    recipe.session.vendor = "codex";
+    var bestSession = h.launcher.startSessionForItem(null, recipe, makeItem(8, "Best model"), {}, null, { auto: true });
+    assert.strictEqual(bestSession.model, "gpt-5.6-sol");
+
+    recipe.session.model = "gpt-5.6-terra";
+    var pinnedSession = h.launcher.startSessionForItem(null, recipe, makeItem(9, "Pinned model"), {}, null, { auto: true });
+    assert.strictEqual(pinnedSession.model, "gpt-5.6-terra");
+  } finally {
+    cleanupHarness(h);
+  }
+});

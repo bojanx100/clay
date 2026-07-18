@@ -37,3 +37,14 @@ test("fallback Codex models include picker guidance and are cloned", function ()
   first[0].supportedEffortLevels.push("mutated");
   assert.strictEqual(second[0].supportedEffortLevels.indexOf("mutated"), -1);
 });
+
+test("best Codex model prefers the newest available Sol", function () {
+  var models = [
+    { value: "gpt-5.6-terra", isDefault: true },
+    { value: "gpt-5.5-sol" },
+    { value: "gpt-5.6-sol" },
+  ];
+
+  assert.strictEqual(codexModels.preferredCodexBest(models), "gpt-5.6-sol");
+  assert.strictEqual(codexModels.preferredCodexBest([]), "gpt-5.6-sol");
+});
