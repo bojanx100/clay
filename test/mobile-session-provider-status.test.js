@@ -28,8 +28,8 @@ test("mobile session activity targets the rendered processing dot", function () 
 test("provider color classification follows routed AI family", async function () {
   var providerUi = await import("../lib/public/modules/provider-route-ui.js");
 
-  assert.equal(providerUi.providerColorClass("claude", null, "claude-opus-4-6"), "claude");
-  assert.equal(providerUi.providerColorClass("codex", null, "gpt-5.6-codex"), "codex");
-  assert.equal(providerUi.providerColorClass("github-copilot", "claude-github-copilot", ""), "claude");
-  assert.equal(providerUi.providerColorClass("github-copilot", "codex-github-copilot", ""), "codex");
+  assert.equal(providerUi.providerShortName("claude", null, "claude-opus-4-6"), "Claude");
+  assert.equal(providerUi.providerShortName("codex", null, "gpt-5.6-codex"), "Codex");
+  assert.equal(providerUi.providerShortName("github-copilot", "claude-github-copilot", ""), "Claude");
+  assert.equal(providerUi.providerShortName("github-copilot", "codex-github-copilot", ""), "Codex");
 });
