@@ -157,11 +157,11 @@ Clay does not depend on provider-specific close behavior. Instead, the prompt te
 WORKFLOW_COMPLETE: issue_shipped
 ```
 
-When Clay sees that marker in a launched task session and `archiveSession` is true, it archives the session after the successful turn completes.
+When Clay sees that marker in an auto-launched task session, it closes the session window after the successful turn completes. Manual task launches close only when `archiveSession` or `closeSession` is enabled.
 
 For shipping-style workflows, Clay can also arm completion when the user sends a completion phrase. Configure `completion.closeOnUserMessages` with project-specific phrases, or omit it to use the defaults: `mark as done`, `mark it done`, `mark done`, `ship it`, and exact `done`. If the recipe has a `completion.marker`, Clay still waits for that marker before archiving so the session can finish the configured workflow first. Recipes without a marker fall back to archiving after the next assistant turn.
 
-This is still scoped to task-launched sessions only, and only applies when the recipe has `archiveSession` or `closeSession` enabled.
+This is scoped to task-launched sessions only. Auto-launched sessions close by default; manual launches still require `archiveSession` or `closeSession`.
 
 ## Dashboard Startup
 

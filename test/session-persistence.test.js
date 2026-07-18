@@ -231,7 +231,7 @@ test("persists GitHub Copilot handoff native reset marker", function () {
   }
 });
 
-test("archives completed task-launched sessions on load", function () {
+test("closes completed auto-launched sessions on load without close flags", function () {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
   var oldClayHome = process.env.CLAY_HOME;
@@ -260,8 +260,6 @@ test("archives completed task-launched sessions on load", function () {
           itemNumber: 123,
           completion: {
             marker: "CLAY_TASK_COMPLETE",
-            closeSession: true,
-            archiveSession: true,
           },
           autoLaunch: true,
           autoKind: "issue",

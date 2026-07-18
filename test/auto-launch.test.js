@@ -86,6 +86,20 @@ test("workflow completes only when the marker is emitted", function () {
   }
 });
 
+test("auto-launched workflow closes its session window without close flags", function () {
+  var h = makeTaskLauncher();
+  try {
+    var session = makeAutoSession();
+    delete session.taskLauncher.completion.closeSession;
+    delete session.taskLauncher.completion.archiveSession;
+    h.tl.handleTaskTurnDone(session, "", "Finished autonomous review. CLAY_TASK_COMPLETE");
+    assert.strictEqual(session.taskLauncher.workflowCompleted, true);
+    assert.deepStrictEqual(h.hidden, [7]);
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
 test("pr-review workflow accepts standard PR completion marker as fallback", function () {
   var h = makeTaskLauncher();
   try {
