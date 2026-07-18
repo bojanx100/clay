@@ -127,7 +127,7 @@ Codex sessions: median 2 user messages but median **5.3 h wall clock** in the hi
 1. The user describes an unfinished idea naturally.
 2. Clay adds useful possibilities, challenges weak assumptions, and asks only questions that materially change the outcome. Questions use 2–3 options and a recommendation; after two exploratory questions Clay asks whether to keep probing or draft the plan (F12).
 3. Clay and the user settle on a concrete plan with acceptance criteria and known caveats.
-4. A spoken amendment creates a pending plan version. Clay reads the concise change back, and the user approves that exact version (F4).
+4. A spoken amendment creates a pending plan version. Clay reads the concise change back **as the approval prompt itself**, so a single "yes" completes it — the amend→approve ceremony costs exactly one word, and Phase 1 measures amendment friction (F4, F12).
 5. Clay executes without mixing status questions or side conversation into the executor's instruction stream.
 6. The user can ask what is happening at any time and receive a one-breath answer from a read-only snapshot (F10, F14).
 7. Corrections become explicit changes to intent, tiered: small tweaks steer immediately; material changes produce an intent diff and a re-approval (F5).
@@ -196,7 +196,7 @@ The controller is **not** a new metered API client. It is a lightweight backgrou
 - Spawned via `yoke` (Claude adapter) using the same locally authenticated Claude Code path Clay already exercises when `ANTHROPIC_API_KEY` is absent. **Phase 0 must verify this as a supported, durable controller path under the installed Agent SDK and the user's subscription**, including rate-limit and extra-usage behavior. The core must stop or fall back rather than silently incur metered overage.
 - Precedent already in the codebase: `sdk-bridge-mentions.js` maintains *persistent read-only @mention query sessions* — the controller is architecturally the same animal with a different system prompt and toolset.
 - **Toolset**: read-only. It can read the conversation ledger, plan versions, executor snapshots, and bounded session context. Its only write path is *proposing typed gateway operations* as untrusted structured output, which a runtime schema and the daemon gateway validate. It can never edit files or talk to the executor directly.
-- **Vendor-portable contract, verified per adapter**: the Codex fallback must start with `sandboxMode: "read-only"`, deny write-capable tools, and pass a negative write test before it is eligible. YOKE's current Codex default is `workspace-write`; portability is a goal, not a safety assumption.
+- **Vendor-portable contract, verified per adapter**: the Codex fallback must start with `sandboxMode: "read-only"`, deny write-capable tools, and pass a negative write test before it is eligible. YOKE's current Codex default is `danger-full-access` (`lib/codex-defaults.js`), which makes the negative write test non-negotiable; portability is a goal, not a safety assumption.
 - **Usage-window discipline** (it burns subscription quota, so): system prompt frozen and cache-friendly; snapshots delivered as compact structured text; deterministic macro layer (F11) answers ~25% of utterances with zero controller tokens; `GET_STATUS` answered by template from the snapshot (zero tokens) unless the user asks a *why* question; controller turns targeted at &lt; 500 output tokens.
 
 ### Audio I/O: a three-tier ladder behind one adapter interface
@@ -362,7 +362,7 @@ Classifier kinds mirror the empirical taxonomy (F-table): `new_task, exploration
 
 ### Correction routing (Decision 4)
 
-`correction_minor` is allowed only when a comparison against the approved intent confirms that goal, approach, constraints, and acceptance criteria remain unchanged. The gateway queues it for the executor's next safe turn boundary and narrates one line ("Queued: smaller icon."). It does **not** reuse the current abort+auto-resume steer path unchanged. An explicit user request to interrupt active work is a separate control. `correction_material` produces a pending correction diff (what changed / affected work / changed criteria / plan still valid? / recommendation), speaks it in ≤ 3 sentences, and awaits approval of the resulting version. When classification is uncertain, Clay asks one bounded question and performs no state-changing dispatch until resolved.
+`correction_minor` is allowed only when a comparison against the approved intent confirms that goal, approach, constraints, and acceptance criteria remain unchanged. The gateway queues it for the executor's **next safe tool-call boundary** — seconds away, not the end of the turn (turn p90 is ~7 minutes, F17; a minor correction that waits for turn end lets the executor do wrong work for minutes) — and narrates one line ("Queued: smaller icon."). If no boundary occurs within a short configurable window, Clay offers `INTERRUPT_AND_STEER` explicitly. It does **not** reuse the current abort+auto-resume steer path unchanged. An explicit user request to interrupt active work is a separate control. `correction_material` produces a pending correction diff (what changed / affected work / changed criteria / plan still valid? / recommendation), speaks it in ≤ 3 sentences, and awaits approval of the resulting version. When classification is uncertain, Clay asks one bounded question and performs no state-changing dispatch until resolved.
 
 ---
 
@@ -529,7 +529,7 @@ Lock semantics before UI/media detail, but only what the slice needs:
 - [ ] Claude subscription-controller spike: long-lived query, usage-window exhaustion, extra-usage guard, restart, and structured-proposal validation. Codex fallback must prove read-only sandboxing.
 - [ ] Persistent coordination channel spec plus minimum safe claim transaction: target readiness, atomic compare-and-swap, generation+lease+epoch binding, bounded output buffers, and revocation acknowledgement/expiry. Implementation lands in Phase 3A.
 - [ ] Timing instrumentation points (mic start, transcript, route, brain, gateway, TTS-first-audio, floor ops).
-- [ ] Privacy-safe corpus audit artifact committed: source counts, filters, sampling method/seed, classification schema, completed denominators, and an evidence table for each percentage used by routing. Until then, provisional percentages remain non-normative.
+- [ ] Privacy-safe corpus audit artifact started (see Appendix B): evidence table for F1–F17 with `verified-count / verified-sample / qualitative / hypothesis` markings. Percentages stay non-normative until their rows are complete; this item does **not** block Phase 1 prototype work.
 - [ ] Reliability baseline recorded before Phase 1 begins.
 
 **Exit**: the same simulated conversation runs through text and scripted-voice fixtures without changing lifecycle semantics; unsafe payloads fail closed; approval, restart replay, TTS echo, and claim-state fixtures pass. Coop events and timing choices remain deferred.
@@ -757,7 +757,7 @@ Do not start with wake words, multi-Mate rooms, a full Android UI, automatic dev
 
 Therefore phrase inventories, exact command counts, rare lifecycle events, and broad qualitative patterns may guide prototype coverage now. Manually classified percentages are **provisional hypotheses** until the audit below is complete. No authorization or safety rule may rely on those percentages.
 
-**Required privacy-safe audit artifact before Phase 1**:
+**Privacy-safe audit artifact — required before any percentage is cited as normative, not a blocker for Phase 1 prototype work** (qualitative findings, phrase inventories, and verified counts are sufficient to build the slice; this is a one-user product and the audit's job is honesty, not ceremony):
 1. Commit extraction and aggregation scripts without raw private message content.
 2. Record source counts, inclusion/exclusion rules, project strata, sampling algorithm, and deterministic seed.
 3. Define the behavior taxonomy and double-check ambiguous labels.
