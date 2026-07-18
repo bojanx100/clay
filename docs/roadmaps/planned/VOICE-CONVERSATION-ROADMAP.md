@@ -17,7 +17,7 @@ Voice is one transport into the same durable conversation lifecycle used by text
 
 Build the shared conversation kernel and protocol first. Prove real-time conversation in the web app. Then add:
 
-1. A phone-as-remote-audio mode for using a mobile microphone, speaker, headset, and Bluetooth devices while the full Clay UI remains open elsewhere.
+1. Cross-device conversation continuity so a user can begin on the web, pick up a phone, and continue the same live conversation in either direction.
 2. Coop, a workspace-level voice coordinator for finding, triaging, and switching between projects and sessions.
 3. A deliberately small native Android companion for the hardware and lifecycle capabilities browsers cannot provide reliably.
 
@@ -72,9 +72,11 @@ These are current product decisions, not open questions:
 6. **The daemon is authoritative.** Conversation state survives browser reloads, daemon restarts, compaction, provider handoffs, and switching devices.
 7. **Voice and text share one transcript and lifecycle.** Audio is ephemeral by default. Durable records contain transcripts, decisions, plan versions, summaries, and outcomes.
 8. **Secrets are never spoken.** Clay redacts sensitive values from speech, transcripts intended for narration, diagnostics, and summaries.
-9. **One audible speaker and one active microphone route are the default.** This prevents overlapping agents and feedback loops.
+9. **All connected clients stay synchronized, but one owns the live audio floor.** Exactly one device listens and speaks by default, preventing overlapping agents, echo, and duplicate turns.
 10. **Coop and multi-Mate rooms are separate concepts.** Coop coordinates workspace activity; a room moderates participants inside one task.
 11. **Android is a hardware companion, not a second Clay application.** Native work begins only where it materially improves audio routing, background operation, lock-screen controls, or reliability.
+12. **Shared conversation does not force shared navigation.** Workspace conversational focus is durable and shared; each client may independently browse another project or session.
+13. **Web guarantees a local claim gesture; native Android guarantees hardware/background claims.** Spoken and system triggers become requests when the target platform cannot activate audio directly.
 
 ---
 
@@ -100,9 +102,9 @@ Claude, Codex, or another coding executor performs the approved work. It receive
 
 Coop operates above projects and sessions. It resolves names and topics, triages attention, narrates cross-session status, changes conversational focus, and routes approved instructions. It does not replace the session controller or coding executor.
 
-### 4. Remote Audio Endpoint
+### 4. Cross-Device Conversation Continuity
 
-A phone can become the selected microphone and speaker for a conversation whose visual UI is on a laptop or desktop. The phone connects to the Clay daemon and session directly; it is not merely a browser microphone forwarded through a laptop tab.
+Web, PWA, and native clients are equal views of the same durable conversation. Any connected device can claim the live audio floor and continue from the current transcript and lifecycle state. Other clients remain synchronized visual and control surfaces; none is permanently primary.
 
 ### 5. Minimal Android Companion
 
@@ -156,7 +158,7 @@ Human media or text
     → coding executor or durable lifecycle transition
 ```
 
-Single-endpoint media transport may be device-to-provider or device-to-daemon depending on the selected provider and privacy mode. Remote endpoint handoff requires hard input and output fencing, so the initial phone endpoint uses daemon-mediated media: the phone sends audio to Clay, Clay connects to the provider, and Clay sends synthesized audio only to the current output endpoint.
+Single-device media transport may be device-to-provider or device-to-daemon depending on the selected provider and privacy mode. Cross-device audio-floor handoff requires hard input and output fencing, so the initial handoff uses daemon-mediated media: the active client sends audio to Clay, Clay connects to the provider, and Clay sends synthesized audio only to the client that owns the floor.
 
 A later direct device-to-provider transport is acceptable only if the provider connection can be bound to a lease epoch, revoked by the daemon, and tested to suppress stale input and playback after handoff or partition. In every topology, confirmed transcripts, tool proposals, sequence numbers, and lifecycle changes must be mirrored through the daemon before they become durable or actionable. Control state, authorization, session identity, and durable decisions always flow through Clay.
 
@@ -164,7 +166,7 @@ A later direct device-to-provider transport is acceptable only if the provider c
 
 ## Independent State Models
 
-A single “listening/thinking/speaking” state is insufficient. Four state machines must remain independent so the UI and speech layer can tell the truth.
+A single “listening/thinking/speaking” state is insufficient. Six state machines must remain independent so the UI and speech layer can tell the truth.
 
 ### Media state
 
@@ -192,13 +194,29 @@ executing → verifying → closeout → complete
 idle / working / waiting-for-input / paused / stopped / failed / completed
 ```
 
-### Conversational focus
+### Workspace conversational focus
 
 ```text
 Coop / project / session / no target
 ```
 
-Example: Clay may be listening while an executor is working on an approved plan in another session and Coop is the current focus. None of those states should overwrite another.
+This is the shared target of spoken conversation and controls. It is not the page every client must display.
+
+### Client visual focus
+
+```text
+per-client project / session / panel / home
+```
+
+Each phone, browser tab, or native client may navigate independently. A Coop switch or audio claim changes a target client's visual focus only when that client accepts the switch.
+
+### Audio floor
+
+```text
+unclaimed / claimed(client, device, epoch) / handoff-requested / revoking / failed
+```
+
+Example: the phone may own the audio floor and be listening to session A while its screen shows session A, an executor works on the approved plan, the laptop browses session B, and Coop remains available as the workspace coordinator. None of those states should overwrite another.
 
 ---
 
@@ -309,6 +327,8 @@ Initial operations:
 - `END_CONVERSATION`
 - `CONFIRM_DONE`
 - `REOPEN_WORK`
+- `CLAIM_AUDIO_FLOOR`
+- `RELEASE_AUDIO_FLOOR`
 
 Each operation includes a target, idempotency key, authorization context, and result. Destructive, external, or permission-gated actions retain Clay's existing confirmation rules. Neither speech synthesis nor text generated by another agent can self-approve an action.
 
@@ -345,49 +365,74 @@ The existing Web Speech API module remains useful as dictation, a degraded fallb
 
 ---
 
-## Phone as a Remote Microphone and Speaker
+## Cross-Device Conversation Continuity
 
-This mode lets a user work visually on the web app while using a phone as the audio endpoint. It is useful when the laptop microphone is poor, the user is moving around, or a phone-connected Bluetooth headset is more convenient.
+The normal model is not “phone as a microphone for the laptop.” Clay already supports simultaneous mobile and web clients. Conversation should work the same way: every signed-in client follows the same durable transcript, focus, lifecycle, and executor state, while one client owns live listening and speaking.
 
-### Interaction model
+The user can begin on the laptop, pick up the phone, choose **Continue here**, and speak from the exact point they left off. Returning to the laptop is the same operation in reverse. Nothing is copied or restarted, and the coding executor continues without interruption.
 
-1. The desktop displays a QR code or short-lived pairing code.
-2. The phone opens Clay in a mobile browser or installed PWA and confirms the daemon and target session.
-3. The user selects the phone as input, output, or both.
-4. The desktop remains the primary visual surface while the phone shows only essential conversation state and controls.
-5. Either device can relinquish or transfer the audio role without changing the underlying session.
+### Hybrid claim triggers
 
-### Endpoint rules
+The three triggers express the same intent, but platform capability determines whether a trigger can activate audio immediately:
 
-- Exactly one endpoint holds the active microphone lease by default.
-- Exactly one endpoint is the audible output by default.
-- Every lease has a monotonically increasing epoch/fencing token. After a handoff, the daemon and media receiver reject packets from every older epoch immediately.
-- Input frames and output chunks carry the current epoch. The daemon accepts microphone frames and emits synthesized audio only for that epoch.
-- Endpoint changes are explicit and immediately visible on all connected clients.
-- A disconnected phone may reserve ownership for a short reconnect grace period, but a newly issued epoch immediately fences the old connection so a network partition can never produce two accepted microphones.
-- Output handoff is break-before-make. Clients flush queued playback on revocation or lease expiry. The new output begins only after the old endpoint acknowledges revocation; if acknowledgement is unavailable, Clay waits for the old short-lived playback lease to expire before activating the new endpoint.
-- Output buffers remain shorter than the playback lease, and clients check the local lease deadline before playing every chunk. This prevents overlapping narration during a network partition at the cost of a bounded handoff delay.
-- Playback never runs on both phone and laptop unless the user deliberately enables it.
-- The phone can stop speech or work even if the desktop tab is backgrounded.
-- Pairing grants only the scoped conversation capabilities requested, not unrestricted daemon access.
+1. **Continue here** — the guaranteed Phase 3A browser/PWA trigger. A prominent local control supplies the foreground user gesture browsers require for microphone and playback activation.
+2. **Spoken transfer** — from the active device, “Coop, move this conversation to my phone” or another unambiguous named device. This creates a handoff request. It activates immediately only when the target is already foregrounded and its platform permits it; otherwise the target requires **Continue conversation**.
+3. **Hardware or system action** — a headset/media button, Android notification action, or lock-screen control. Browser/PWA support is best-effort. Native Android Phase 4 makes these triggers dependable.
 
-### Security and reliability
+Opening Clay, focusing a browser tab, unlocking the phone, or viewing the transcript never steals the floor. A claim is intentional. Ownership persists until another client claims it, the user ends conversation mode, or the owner becomes unavailable.
 
-- Use TLS for remote connections and reject insecure non-loopback pairing by default.
-- Use a one-time pairing flow and a revocable device credential stored with platform-appropriate protection.
-- Display the daemon identity, project, session, microphone state, and selected route before capture begins.
-- Never activate the microphone from a remote command without a local user action and platform permission.
-- Define behavior for phone lock, browser suspension, Wi-Fi/cellular handoff, daemon restart, and duplicate endpoints.
+If a spoken target is ambiguous, Coop names the connected devices and asks once. A handoff request names the exact conversation and target client. If the target platform requires a local user gesture, Coop prepares the handoff and the target displays or announces **Continue conversation**; that local action completes the claim.
 
-### Initial connectivity topology
+```text
+STUDIO LAPTOP                         BOJAN'S PHONE
+Listening · Working                  Active on Studio laptop
+Conversation continues...            [ Continue here ]
 
-Phase 3A supports Android Chrome or the installed Android PWA connecting to the same existing Clay daemon origin over HTTPS. That origin must already be reachable from the phone through a trusted same-LAN HTTPS setup, VPN, or user-managed secure reverse proxy. The QR code carries the verified daemon origin and a one-time scoped pairing secret; it does not create network reachability.
+                  user claims phone
+                         ↓
 
-The daemon is the media relay for the first remote-endpoint slice, but this does not introduce a Clay-hosted network relay or tunnel. Plain HTTP is allowed only for loopback development and is not a supported phone-pairing topology. If real use shows that trusted daemon reachability is the dominant setup barrier, a scoped hosted relay or guided certificate/tunnel feature requires a separate security design.
+Conversation active on phone         Listening · Working
+[ Continue here ]                     Same transcript, same executor
+```
+
+### Client behavior
+
+- Every client can render the same confirmed transcript, plan approval, and executor snapshot for a conversation, but each client keeps its own visual focus.
+- The active client shows **Listening** or **Speaking** and its device name.
+- Inactive clients show **Active on _device_** and **Continue here**.
+- If the target client is viewing another project or session, the persistent coordination channel offers a claim bound to the exact conversation. Only acceptance changes that client's local view and begins audio activation.
+- Inactive clients may still use text, inspect status, answer visible controls, and navigate without claiming audio.
+- A claim transfers microphone and speaker together by default. Split input/output routing remains an advanced option, not the normal interaction.
+- Stop speech, stop work, pause, continue, and emergency controls remain available from every authenticated client.
+- Human-readable device names such as “Bojan's phone” and “Studio laptop” are stored server-side against a revocable device registration issued through Clay's existing authentication.
+
+### Audio-floor rules
+
+- Exactly one client holds the microphone lease and output lease by default.
+- A claim is bound to the immutable conversation, client, device, user, and claim ID.
+- Every lease carries a daemon generation, monotonically increasing epoch, and unguessable lease ID. After a handoff, the daemon rejects microphone frames and output requests from any older binding.
+- Input frames and output chunks carry the current epoch. The daemon accepts input and emits synthesized audio only for that epoch.
+- Claim state is immediately visible on all connected clients.
+- Claims move through `requested`, `revoking-old-owner`, `active`, or `failed`; the interface never shows two active owners.
+- Claim activation uses one atomic daemon barrier. Clay stops accepting old-owner frames at a recorded sequence, resolves the old provisional turn exactly once, revokes old output, and only then activates the new owner.
+- A final transcript acknowledged at or before the barrier commits once. Unconfirmed transcript fragments after that boundary are discarded and marked interrupted; the new client tells the user that the last words may need repeating. Audio from two devices is never spliced into one utterance.
+- Output handoff is break-before-make. The new client starts only after the old client acknowledges revocation; if it cannot acknowledge, Clay waits for the short playback lease to expire.
+- Clients flush queued playback on revocation or lease expiry, keep buffers shorter than the lease, and check the local lease deadline before playing every chunk.
+- Clay numbers synthesized speech segments and records the highest playback offset acknowledged by the active client. After an acknowledged handoff, the new client resumes from the next offset. If acknowledgement is impossible because of a partition, Clay waits for lease expiry and speaks a short handoff summary instead of guessing which buffered words played.
+- Reconnecting an old owner never restores its former lease automatically. It returns as synchronized and inactive.
+- A daemon restart creates and persists a fresh generation before accepting media. All pre-restart leases become invalid, the floor returns to `unclaimed`, and a client must claim it again; durable transcript, lifecycle, and executor work continue normally.
+
+### Connectivity and authorization
+
+The first browser proof uses the existing Clay sign-in and simultaneous-client behavior. It does not add conversation-specific QR pairing. Android Chrome or the installed PWA connects to the same existing Clay daemon origin over HTTPS through the user's current LAN, VPN, or secure remote-access setup.
+
+The daemon mediates media for the first cross-device handoff so it can enforce both input and output ownership. This is not a new hosted relay or tunnel. A later direct device-to-provider path is acceptable only if it proves the same revocation and stale-playback guarantees.
+
+Never activate a target microphone without the permission and local gesture required by that platform. Define behavior for browser suspension, phone lock, Wi-Fi/cellular handoff, daemon restart, device duplication, and a claim arriving while speech is already playing.
 
 ### Browser-first proof
 
-Prove remote audio in Android Chrome and the installed Android PWA before native Android work. The result determines which failures are browser limitations and which are protocol or product problems. A browser proof is successful even if background and lock-screen behavior remain deliberately limited.
+Prove laptop-to-phone and phone-to-laptop continuation with desktop Chrome, Android Chrome, and the installed Android PWA before native Android work. The proof is successful when the conversation, transcript, work lifecycle, and executor remain continuous even if background and lock-screen behavior remain limited.
 
 ---
 
@@ -467,7 +512,7 @@ Support native phone hardware and Android lifecycle behavior with the smallest m
 
 Prefer a small native Kotlin/Compose client and service over a full WebView shell. A WebView wrapper duplicates the browser surface without solving the hardest hardware problems. The companion needs only:
 
-- Pairing and connection diagnostics
+- Sign-in, device registration, and connection diagnostics
 - Current Coop/project/session identity
 - Separate `Listening/Speaking` and `Working/Waiting` indicators
 - Push-to-talk, conversation mode, mute, stop speech, pause/stop work, and end controls
@@ -496,7 +541,7 @@ Prefer a small native Kotlin/Compose client and service over a full WebView shel
 
 ### Native entry gate
 
-Begin implementation after the browser remote-audio proof identifies concrete failures involving at least one of:
+Begin implementation after the browser cross-device proof identifies concrete failures involving at least one of:
 
 - Background or screen-off conversation
 - Browser microphone or playback suspension
@@ -508,7 +553,7 @@ Do not require a broad usage threshold before building the companion: the stated
 
 ### Native exit criteria
 
-- A paired phone can become the audio endpoint for an existing web session.
+- A phone can claim and continue the audio floor of an existing conversation, then return it to the web client.
 - An active conversation survives expected background and screen-lock transitions.
 - Bluetooth connect/disconnect and phone-call interruption recover without duplicating a turn.
 - Foreground, lock-screen, notification, and headset controls invoke the same deterministic gateway as the web UI.
@@ -551,12 +596,12 @@ Room moderation must not be reused as Coop's cross-session routing logic. They h
 
 ### Required protections
 
-- Always display active microphone and selected endpoint state.
+- Always display the active microphone, audio-floor owner, and device name.
 - State whether media is processed on-device, by the daemon, or by a third party.
 - Never speak secrets, credentials, raw environment values, or unredacted logs.
 - Preserve Clay authentication and project permissions on every surface.
 - Store user settings server-side so they follow the user across browsers and devices.
-- Make pairing revocable and auditable.
+- Make device registrations revocable and auditable.
 - Make every control idempotent so reconnect cannot approve, send, or stop twice.
 - Recover from daemon restart without duplicating the last utterance or executor instruction.
 
@@ -586,10 +631,10 @@ Existing stalls, reconnects, resume spam, and UI lag are conversation correctnes
 
 **Goal**: Lock the product semantics before choosing UI or media details.
 
-- [ ] Define typed control, lifecycle, intent, snapshot, focus, attention, endpoint, and media events.
+- [ ] Define typed control, lifecycle, intent, snapshot, focus, attention, device-claim, and media events.
 - [ ] Define idempotency, human-input provenance, authorization, sequence, acknowledgement, and reconnect behavior.
-- [ ] Define immutable target bindings, request IDs, and endpoint fencing epochs.
-- [ ] Confirm the initial remote endpoint topology and document HTTPS/VPN/reverse-proxy setup requirements.
+- [ ] Define immutable target bindings, request IDs, and audio-floor fencing epochs.
+- [ ] Confirm that existing simultaneous clients can share durable conversation state and document HTTPS/VPN connectivity requirements.
 - [ ] Instrument microphone start, transcript, dispatch, model output, speech, control, routing, and recovery timings.
 - [ ] Establish provider-neutral capability negotiation.
 - [ ] Add redaction and “never speak” policy tests.
@@ -602,7 +647,7 @@ Existing stalls, reconnects, resume spam, and UI lag are conversation correctnes
 **Goal**: Prove the work lifecycle independently of real-time audio.
 
 - [ ] Implement separate conversation and executor lanes.
-- [ ] Implement the four independent state models.
+- [ ] Implement the six independent state models.
 - [ ] Produce normalized executor snapshots for Claude and Codex first.
 - [ ] Implement typed control gateway operations.
 - [ ] Persist plan versions, approvals, decisions, corrections, and closeout.
@@ -626,19 +671,22 @@ Existing stalls, reconnects, resume spam, and UI lag are conversation correctnes
 
 **Exit**: A user can explore or diagnose, approve, supervise, correct, verify, and close a real task through conversation without using composer dictation.
 
-### Phase 3A: Browser Remote Audio Endpoint
+### Phase 3A: Cross-Device Conversation Continuity
 
-**Goal**: Use a phone browser/PWA as the microphone and speaker for a web-visible session.
+**Goal**: Continue one live conversation between an existing web client and phone browser/PWA in either direction.
 
-- [ ] Add scoped QR/one-time-code pairing.
-- [ ] Add endpoint discovery, fenced microphone/output leases, and route handoff.
-- [ ] Relay phone input and selected output through the daemon so both directions are authoritatively fenced.
-- [ ] Implement break-before-make output handoff: flush on acknowledged revocation or wait for lease expiry before starting the new output.
-- [ ] Add a minimal mobile remote-audio screen.
-- [ ] Handle phone disconnect, network handoff, duplicate endpoints, and daemon restart.
-- [ ] Measure end-to-end remote audio and control latency.
+- [ ] Synchronize conversation lifecycle, transcript, executor snapshot, and claim state across existing authenticated clients.
+- [ ] Add human-readable server-side device names and connected-device discovery.
+- [ ] Add guaranteed local **Continue here** activation and request-only semantics for spoken or system triggers when the platform requires a gesture.
+- [ ] Bind claims to conversation, client, device, user, claim ID, daemon generation, and fenced lease epoch.
+- [ ] Relay active-client input and selected output through the daemon so both directions are authoritatively fenced.
+- [ ] Implement an atomic input barrier and break-before-make output handoff, including deterministic provisional-turn handling and acknowledged speech offsets.
+- [ ] Invalidate every audio lease across daemon generation changes.
+- [ ] Preserve text, status, and control access on synchronized inactive clients.
+- [ ] Handle browser suspension, phone disconnect, network handoff, duplicate clients, and daemon restart.
+- [ ] Measure claim, audio resume, and end-to-end control latency.
 
-**Exit**: The user can leave the laptop UI open, carry the phone, converse with the same session, and return audio to the laptop without losing state or creating echo.
+**Exit**: The user can converse on the laptop, claim the same conversation on the phone, continue immediately, and return it to the laptop without restarting work, losing state, duplicating a turn, or creating echo.
 
 ### Phase 3B: Coop Workspace Coordinator
 
@@ -660,9 +708,9 @@ Phases 3A and 3B may proceed in parallel after the kernel is stable. Together th
 
 **Goal**: Replace browser-specific hardware weaknesses without duplicating Clay.
 
-- [ ] Build native pairing and the essential conversation/status screen.
+- [ ] Build native sign-in/device registration and the essential conversation/status screen.
 - [ ] Implement native audio capture, playback, focus, and routing.
-- [ ] Implement foreground service, media session, notification, headset, and lock-screen controls.
+- [ ] Implement dependable foreground service, media session, notification, headset, and lock-screen audio-floor claims.
 - [ ] Handle Android lifecycle, phone calls, Bluetooth changes, and process recovery.
 - [ ] Establish signing, internal distribution, updates, and diagnostics.
 
@@ -688,7 +736,7 @@ Every phase should preserve these end-to-end journeys:
 3. **Non-interrupting status** — ask status during execution without changing the executor queue.
 4. **Intent correction** — change one requirement and see the exact work and criteria affected.
 5. **Restart recovery** — restart browser or daemon and resume from the same lifecycle and approval state.
-6. **Remote phone audio** — use a phone microphone/speaker while the desktop remains the visual surface.
+6. **Cross-device continuation** — begin on web, claim the same live conversation on the phone, continue, and return in either direction.
 7. **Coop navigation** — find a session by topic, resolve ambiguity safely, switch focus, and act on its pending decision.
 8. **Closeout** — report implementation, tests, verification, caveats, repository/runtime actions, and wait for the user's done decision.
 
@@ -709,8 +757,8 @@ Track percentiles and failure rates, not only averages.
 | Work control | Pause/stop/continue | Target acknowledges state |
 | Target resolution | Coop request | Unique target confirmed or ambiguity asked |
 | Action routing | Confirmed target action | Target acknowledges receipt |
-| Remote audio latency | Audio captured | Audio is rendered/understood at destination |
-| Endpoint handoff | Route change | New route is active and old route is silent |
+| Device claim latency | User invokes a claim | Target client is active and old client is silent |
+| Cross-device audio resume | Claim is accepted | Target client can hear or be heard |
 | Recovery | Connection becomes usable | Durable conversation state is restored |
 
 Quality metrics:
@@ -737,12 +785,16 @@ These are release-blocking automated tests, not aspirational requirements:
 6. Changing visual focus cannot retarget an in-flight utterance.
 7. A permission response applies only to its exact still-pending request ID.
 8. Executor completion cannot mark the lifecycle `complete`; verified human `CONFIRM_DONE` is required.
-9. Only input frames carrying the current microphone lease epoch are accepted.
-10. Only one output endpoint can play audio: normal handoff waits for revocation acknowledgement, and partition handoff waits for old-lease expiry before the new endpoint receives playable audio.
-11. Voice-provider failure leaves executor work intact and immediately exposes text transcript and deterministic controls.
-12. Synthesized, replayed, agent-generated, or low-confidence speech cannot approve a plan or externally consequential action.
-13. A plan whose goal, approach, constraints, or acceptance criteria changed cannot execute under the previous approval.
-14. Secret fixtures never appear in synthesized speech, narration text, retained transcripts, or conversation diagnostics.
+9. Only input frames carrying the current audio-floor lease epoch are accepted.
+10. Only one client can play audio: normal handoff waits for revocation acknowledgement, and partition handoff waits for old-lease expiry before the new client receives playable audio.
+11. Opening, focusing, unlocking, or reconnecting a client cannot claim the audio floor.
+12. Changing one client's visual project/session cannot change workspace conversational focus or another client's view.
+13. An audio claim commits or discards the old provisional turn exactly once before the new microphone becomes active.
+14. Every pre-restart audio lease is rejected under the new daemon generation.
+15. Voice-provider failure leaves executor work intact and immediately exposes text transcript and deterministic controls.
+16. Synthesized, replayed, agent-generated, or low-confidence speech cannot approve a plan or externally consequential action.
+17. A plan whose goal, approach, constraints, or acceptance criteria changed cannot execute under the previous approval.
+18. Secret fixtures never appear in synthesized speech, narration text, retained transcripts, or conversation diagnostics.
 
 ---
 
@@ -764,6 +816,7 @@ These are release-blocking automated tests, not aspirational requirements:
 - Target changes state during resolution
 - Target revision changes between spoken resolution and dispatch
 - Rapid focus changes and a command spoken during a switch
+- Independent client navigation while another client owns a different conversation's audio floor
 - Multiple simultaneous pending decisions
 
 ### Clients and audio
@@ -772,7 +825,9 @@ These are release-blocking automated tests, not aspirational requirements:
 - Laptop and phone microphone/speaker combinations
 - Wired and Bluetooth headsets
 - Route changes during listening and speaking
+- A handoff during provisional user speech, acknowledged AI playback, and partitioned unacknowledged playback
 - Phone lock, backgrounding, network handoff, disconnect, and incoming call
+- Daemon restart followed by stale pre-restart audio frames and a fresh claim
 - Provider timeout, partial outage, and fallback to text
 
 ### Safety
@@ -781,8 +836,8 @@ These are release-blocking automated tests, not aspirational requirements:
 - Agent-generated audio attempting to invoke a tool or approval
 - Secrets in logs, environment output, transcripts, or status snapshots
 - Replayed or duplicated control messages
-- Old endpoint audio arriving after a route handoff
-- Pairing-token theft, revocation, and expired device permissions
+- Old-client audio arriving after an audio-floor handoff
+- Device-credential theft, revocation, and expired microphone permissions
 - Stop-speech versus stop-work ambiguity
 
 ---
@@ -792,7 +847,7 @@ These are release-blocking automated tests, not aspirational requirements:
 - Rebuilding all Clay screens as a native Android application
 - Treating speech-to-text in the composer as full conversation mode
 - Running Claude Code or Codex directly on the phone
-- Allowing several agents or endpoints to speak simultaneously by default
+- Allowing several agents or clients to speak simultaneously by default
 - Sending ordinary status questions into an active executor turn
 - Letting Coop silently guess an ambiguous project or session
 - Persisting raw microphone audio by default
@@ -807,7 +862,7 @@ These require prototypes or explicit user decisions:
 
 1. Which wake/focus interaction feels safest: “Coop” always addresses the coordinator, or does the name only escape from a focused session?
 2. Which Coop events deserve unsolicited narration, and which require a subscription such as “tell me when this finishes”?
-3. Should the phone default to both microphone and speaker, or preserve the desktop speaker until explicitly changed?
+3. How should Clay name two browser clients on the same physical device without exposing unstable browser identifiers?
 4. Which real-time voice provider best balances latency, language quality, privacy, cost, and self-hosted deployment?
 5. How much transcript should the minimal Android companion show without becoming a second full UI?
 6. Is internal APK distribution sufficient initially, or is Play Store distribution needed for installation and update trust?
@@ -829,7 +884,7 @@ Build a narrow vertical slice of the conversation kernel and web real-time voice
 7. Verification, caveats, and user-confirmed closeout
 8. Full timing, persistence, redaction, and restart instrumentation
 
-Once that lifecycle feels dependable, build the phone browser as a remote audio endpoint and Coop's cross-session coordination on the same protocol. Native Android then becomes a focused solution to measured hardware and lifecycle gaps rather than a competing application architecture.
+Once that lifecycle feels dependable, add cross-device continuation and Coop's cross-session coordination on the same protocol. Native Android then becomes a focused solution to measured hardware and lifecycle gaps rather than a competing application architecture.
 
 ---
 
@@ -856,11 +911,17 @@ Once that lifecycle feels dependable, build the phone browser as a remote audio 
 | 2026-07-18 | Make plan corrections explicit intent diffs. |
 | 2026-07-18 | Keep audio ephemeral and never speak secrets. |
 | 2026-07-18 | Use OpenAI Realtime as the initial candidate behind a provider-neutral adapter; keep LiveKit optional. |
-| 2026-07-18 | Add phone-as-remote-audio before native Android to validate the shared protocol. |
+| 2026-07-18 | Initially frame the phone as a remote audio endpoint before native Android. Superseded by equal-client continuity below. |
 | 2026-07-18 | Define Coop as a daemon-level workspace coordinator distinct from multi-Mate rooms. |
 | 2026-07-18 | Keep Android minimal and native-hardware-focused rather than wrapping the entire web UI. |
 | 2026-07-18 | Allow read-only exploration and diagnosis before approval; require approval before implementation or mutation. |
 | 2026-07-18 | Require verified human confirmation after verification/closeout before work becomes complete. |
-| 2026-07-18 | Fence Coop targets, pending requests, and remote audio endpoints against stale or replayed actions. |
-| 2026-07-18 | Use the user's existing HTTPS-reachable daemon origin for the first Android Chrome/PWA remote-audio proof; do not add a hosted relay initially. |
-| 2026-07-18 | Relay Phase 3A phone media through the daemon so microphone and output handoffs have enforceable lease fencing. |
+| 2026-07-18 | Fence Coop targets, pending requests, and audio-floor claims against stale or replayed actions. |
+| 2026-07-18 | Use the user's existing HTTPS-reachable daemon origin for the first Android Chrome/PWA continuity proof; do not add a hosted relay initially. |
+| 2026-07-18 | Relay Phase 3A active-client media through the daemon so microphone and output handoffs have enforceable lease fencing. |
+| 2026-07-18 | Treat web, PWA, and native surfaces as equal synchronized clients of one durable conversation; none is permanently primary. |
+| 2026-07-18 | Keep one live audio-floor owner and transfer it through **Continue here**, hardware/system actions, or an unambiguous spoken Coop command. |
+| 2026-07-18 | Never claim audio merely because a client opens, focuses, unlocks, or reconnects. |
+| 2026-07-18 | Keep workspace conversational focus separate from every client's local visual navigation. |
+| 2026-07-18 | Guarantee **Continue here** in the browser proof; treat spoken/system triggers as requests when local activation is required, and guarantee hardware claims in native Android. |
+| 2026-07-18 | Make handoff atomic across provisional input and acknowledged output, and invalidate every audio lease on daemon generation change. |

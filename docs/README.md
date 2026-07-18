@@ -21,6 +21,6 @@ docs/
 │       ├── EMAIL-INTEGRATION.md        Built-in email (IMAP/SMTP, 8 PRs)
 │       ├── HOME-HUB-ROADMAP.md         Notification center + widgets (4 phases)
 │       ├── CHAT_PROJECT_PLAN.md        Chat project type + channels (10 PRs)
-│       └── VOICE-CONVERSATION-ROADMAP.md  Conversation engine, Coop, remote audio, Android companion
+│       └── VOICE-CONVERSATION-ROADMAP.md  Conversation engine, Coop, device continuity, Android companion
 └── README.md                           This file
 ```
