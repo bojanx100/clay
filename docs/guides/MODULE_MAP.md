@@ -190,6 +190,9 @@ YOKE is the vendor-agnostic interface layer. Each adapter implements the same co
 | `yoke/adapters/codex-events.js` | Codex app-server event flattening into adapter-neutral YOKE event objects |
 | `yoke/adapters/codex-skills.js` | Codex adapter helper for discovering Claude skills and parsing `$skill` references into app-server skill attachments |
 | `yoke/adapters/codex-routing-utils.js` | Codex adapter routing helpers for event identity, auth detection, UUIDs, shutdown errors, token usage, and process-exit waits |
+| `yoke/adapters/github-copilot.js` | GitHub Copilot adapter using the authenticated CLI's ACP server |
+| `yoke/adapters/github-copilot-helpers.js` | Stateless Copilot ACP event, model, permission, and session helpers |
+| `yoke/adapters/github-copilot-entitlements.js` | Account-enabled Copilot model discovery, startup cache warmup, and bounded background refresh |
 | `yoke/codex-app-server.js` | Codex `app-server` child process manager. JSON-RPC 2.0 over stdin/stdout, request ID tracking, event routing |
 | `yoke/mcp-bridge-server.js` | Stdio MCP server spawned by Codex. Proxies tool list/call to Clay via HTTP at `/api/mcp-bridge` |
 

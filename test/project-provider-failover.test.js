@@ -6,6 +6,7 @@ var path = require("path");
 
 var failoverModule = require("../lib/project-provider-failover");
 var providerHealth = require("../lib/provider-health");
+var copilotEntitlements = require("../lib/yoke/adapters/github-copilot-entitlements");
 require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
 function tmpDir() {
@@ -101,6 +102,7 @@ test("credit exhaustion switches to an available healthy provider and continues"
 });
 
 test("fallback selection preserves the model family through Copilot when possible", function () {
+  copilotEntitlements._test.setSnapshot(["claude-opus-4.8", "gpt-5.5"]);
   providerHealth._reset();
   providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
   var sm = makeSm(["claude", "codex", "github-copilot"]);
@@ -116,6 +118,31 @@ test("fallback selection preserves the model family through Copilot when possibl
   assert.strictEqual(handled, true);
   assert.strictEqual(session.vendor, "github-copilot");
   assert.strictEqual(session.providerRouteId, "claude-github-copilot");
+  copilotEntitlements._test.reset();
+  providerHealth._reset();
+});
+
+test("Fable resolves to the organization-enabled Copilot Fable model", function () {
+  copilotEntitlements._test.setSnapshot(["auto", "claude-fable-5", "claude-opus-4.8"]);
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude", "github-copilot"]);
+  sm.modelsByVendor.claude = ["fable"];
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+  session.model = "fable";
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+  });
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(session.vendor, "github-copilot");
+  assert.strictEqual(session.model, "claude-fable-5");
+  assert.strictEqual(continued.length, 1);
+  copilotEntitlements._test.reset();
   providerHealth._reset();
 });
 
@@ -168,6 +195,58 @@ test("Fable schedules the original provider reset instead of downgrading to Copi
   assert.strictEqual(scheduled.length, 1);
   assert.strictEqual(scheduled[0].resetsAt, resetsAt);
   assert.ok(scheduled[0].label.indexOf("Claude via Anthropic") !== -1);
+  providerHealth._reset();
+});
+
+test("a static Copilot catalog never authorizes automatic failover", function () {
+  copilotEntitlements._test.reset();
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude", "github-copilot"]);
+  var continued = [];
+  var scheduled = [];
+  var failover = makeFailover(sm, continued, { scheduled: scheduled });
+  var session = makeSession();
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+    resetsAt: Date.now() + 3600000,
+  });
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(session.vendor, "claude");
+  assert.strictEqual(continued.length, 0);
+  assert.strictEqual(scheduled.length, 1);
+  providerHealth._reset();
+});
+
+test("unverified Copilot model identity cannot authorize a comparable fallback", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("github-copilot", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["github-copilot", "codex"]);
+  sm.modelsByVendor.codex = ["gpt-5.6-sol"];
+  sm.serverDefaultModelsByVendor = { codex: "gpt-5.6-sol" };
+  var continued = [];
+  var scheduled = [];
+  var failover = makeFailover(sm, continued, { scheduled: scheduled });
+  var session = makeSession();
+  session.vendor = "github-copilot";
+  session.providerRouteId = "claude-github-copilot";
+  session.model = "claude-fable-5";
+  session.requestedModel = "claude-fable-5";
+  session.verifiedModel = null;
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "github-copilot",
+    reason: "usage-credits-exhausted",
+    resetsAt: Date.now() + 3600000,
+  });
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(session.vendor, "github-copilot");
+  assert.strictEqual(continued.length, 0);
+  assert.strictEqual(scheduled.length, 1);
   providerHealth._reset();
 });
 
