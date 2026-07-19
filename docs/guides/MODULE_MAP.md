@@ -92,6 +92,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-path-utils.js` | Path safety helpers, environment string validation, and shared filesystem constants |
 | `project-runtime.js` | Project runtime wiring for SDK bridge, scheduled messages, task loops, terminals/notes, workspace context, vendor models, update checks, and runtime warmup |
 | `project-scheduled-messages.js` | Scheduled message queue dispatch, manual send-now, usage-credit continues, restart auto-resume, and timer restoration |
+| `project-provider-failover.js` | Healthy fallback-route selection, automatic provider switch, and interrupted-turn continuation |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
@@ -145,6 +146,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-recovery.js` | SDK bridge transient stream error detection and bounded auto-resume scheduling helpers |
 | `sdk-bridge-rewind.js` | SDK bridge adapter-agnostic rewind preview, rewind execute, conversation rollback, and fork helpers |
 | `sdk-bridge-stream.js` | SDK bridge query stream lifecycle, watchdog recovery, terminal turn cleanup, and auto-continue scheduling |
+| `sdk-provider-failover-signals.js` | Provider failure recording and unhealthy-session failover markers |
 | `sdk-bridge-warmup.js` | SDK bridge adapter warmup, slash-command skill merge, installed-vendor detection, and initial model_info fanout |
 | `sdk-skill-discovery.js` | Skill directory scanning, shell segment splitting, SDK/filesystem skill merging |
 | `safe-bash-commands.js` | **Single source of truth** for auto-approved bash commands. Consumed by sdk-bridge.js (`isSafeBashSegment`) and claude-hook-installer.js (`buildClayBashAllowPatterns`) - do not duplicate command lists elsewhere |

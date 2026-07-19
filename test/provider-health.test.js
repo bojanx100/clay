@@ -66,6 +66,18 @@ test("a strong signal extends the streak even outside the window", function () {
   assert.strictEqual(health.state, "unhealthy");
 });
 
+test("a definitive unavailable signal marks the provider unhealthy immediately", function () {
+  providerHealth._reset();
+
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { now: T0, immediate: true });
+
+  var health = providerHealth.getHealth("claude");
+  assert.strictEqual(health.state, "unhealthy");
+  assert.strictEqual(health.consecutiveFailures, 1);
+  assert.strictEqual(health.unhealthySince, T0);
+  assert.strictEqual(health.lastError, "usage-credits-exhausted");
+});
+
 test("recordSuccess resets an unhealthy vendor to healthy and stamps recoveredAt", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "a", { now: T0 });
