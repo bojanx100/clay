@@ -112,6 +112,97 @@ test("fallback selection preserves the model family through Copilot when possibl
   providerHealth._reset();
 });
 
+test("Fable fails over directly to GPT-5.6 Sol without confirmation", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude", "codex", "github-copilot"]);
+  sm.modelsByVendor.claude = ["fable"];
+  sm.modelsByVendor.codex = ["gpt-5.6-sol"];
+  sm.serverDefaultModelsByVendor = { codex: "gpt-5.6-sol" };
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+  session.model = "fable";
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+  });
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(session.vendor, "codex");
+  assert.strictEqual(session.model, "gpt-5.6-sol");
+  assert.strictEqual(continued.length, 1);
+  assert.ok(!sm.recorded.some(function (item) { return item.type === "user_dialog_request"; }));
+  providerHealth._reset();
+});
+
+test("Fable pauses for confirmation before falling back to Copilot Opus", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude", "github-copilot"]);
+  sm.modelsByVendor.claude = ["fable"];
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+  session.model = "fable";
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+  });
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(session.vendor, "claude");
+  assert.strictEqual(continued.length, 0);
+  var request = sm.recorded.find(function (item) { return item.type === "user_dialog_request"; });
+  assert.ok(request);
+  assert.strictEqual(request.payload.cancelLabel, "Keep paused");
+  assert.ok(request.payload.message.indexOf("lower-capability model") !== -1);
+
+  session.pendingUserDialogs[request.requestId].resolve({ behavior: "completed", result: "continue" });
+
+  assert.strictEqual(session.vendor, "github-copilot");
+  assert.strictEqual(session.model, "claude-opus-4.8");
+  assert.strictEqual(continued.length, 1);
+  providerHealth._reset();
+});
+
+test("declining a model downgrade keeps automatic continuation paused", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude", "github-copilot"]);
+  sm.modelsByVendor.claude = ["fable"];
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+  session.model = "fable";
+
+  failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+  });
+  var request = sm.recorded.find(function (item) { return item.type === "user_dialog_request"; });
+  session.pendingUserDialogs[request.requestId].resolve({ behavior: "cancelled" });
+
+  assert.strictEqual(session.vendor, "claude");
+  assert.strictEqual(continued.length, 0);
+  assert.ok(sm.recorded.some(function (item) {
+    return item.type === "info" && String(item.text || "").indexOf("remains paused") !== -1;
+  }));
+  providerHealth._reset();
+});
+
+test("model capability tiers distinguish flagship and downgraded fallbacks", function () {
+  assert.strictEqual(failoverModule.modelCapabilityTier("fable"), 4);
+  assert.strictEqual(failoverModule.modelCapabilityTier("claude-fable-5"), 4);
+  assert.strictEqual(failoverModule.modelCapabilityTier("gpt-5.6-sol"), 4);
+  assert.strictEqual(failoverModule.modelCapabilityTier("claude-opus-4.8"), 3);
+  assert.strictEqual(failoverModule.modelCapabilityTier("gpt-5.4-mini"), 1);
+  assert.strictEqual(failoverModule.capabilityComparison("fable", "gpt-5.6-sol").requiresConfirmation, false);
+  assert.strictEqual(failoverModule.capabilityComparison("fable", "claude-opus-4.8").requiresConfirmation, true);
+});
+
 test("unhealthy candidates are skipped and a missing fallback remains visible", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
