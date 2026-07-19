@@ -143,6 +143,7 @@ test("Claude monthly spend-limit tool result cancels the stale resume and reques
   assert.deepStrictEqual(session.providerFailoverPending, {
     vendor: "claude",
     reason: "usage-credits-exhausted",
+    resetsAt: session.rateLimitLastResetsAt,
   });
   assert.strictEqual(providerHealth.getHealth("claude").state, "unhealthy");
   assert.ok(session.history.some(function (item) {
@@ -172,6 +173,7 @@ test("Claude monthly spend-limit failover is queued at the terminal turn boundar
   assert.deepStrictEqual(spies.failoverQueued, {
     vendor: "claude",
     reason: "usage-credits-exhausted",
+    resetsAt: null,
   });
   assert.strictEqual(session.providerFailoverPending, null);
   assert.strictEqual(session.isProcessing, true, "the old query remains busy until it is detached");

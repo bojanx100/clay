@@ -44,17 +44,24 @@ function makeSession() {
   };
 }
 
-function makeFailover(sm, continued) {
+function makeFailover(sm, continued, options) {
+  var opts = options || {};
   return failoverModule.attachProjectProviderFailover({
     cwd: tmpDir(),
     sm: sm,
     sendToSession: function () {},
     cancelScheduledMessage: function () {},
     recordRecoveryEvent: function () {},
+    getComparableFailoverSetting: function () { return opts.comparable !== false; },
     scheduledMessages: {
       continueAfterProviderSwitch: function (session, prompt, label, providerLabel) {
         continued.push({ session: session, prompt: prompt, label: label, providerLabel: providerLabel });
         return true;
+      },
+      scheduleMessage: function (session, text, resetsAt, prompt, label, scheduleOpts) {
+        if (opts.scheduled) {
+          opts.scheduled.push({ session: session, text: text, resetsAt: resetsAt, prompt: prompt, label: label, options: scheduleOpts });
+        }
       },
     },
   });
@@ -137,59 +144,54 @@ test("Fable fails over directly to GPT-5.6 Sol without confirmation", function (
   providerHealth._reset();
 });
 
-test("Fable pauses for confirmation before falling back to Copilot Opus", function () {
+test("Fable schedules the original provider reset instead of downgrading to Copilot Opus", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
   var sm = makeSm(["claude", "github-copilot"]);
   sm.modelsByVendor.claude = ["fable"];
   var continued = [];
-  var failover = makeFailover(sm, continued);
+  var scheduled = [];
+  var failover = makeFailover(sm, continued, { scheduled: scheduled });
   var session = makeSession();
   session.model = "fable";
+  var resetsAt = Date.now() + 3600000;
 
   var handled = failover.failoverAndContinue(session, {
     vendor: "claude",
     reason: "usage-credits-exhausted",
+    resetsAt: resetsAt,
   });
 
   assert.strictEqual(handled, true);
   assert.strictEqual(session.vendor, "claude");
   assert.strictEqual(continued.length, 0);
-  var request = sm.recorded.find(function (item) { return item.type === "user_dialog_request"; });
-  assert.ok(request);
-  assert.strictEqual(request.payload.cancelLabel, "Keep paused");
-  assert.ok(request.payload.message.indexOf("lower-capability model") !== -1);
-
-  session.pendingUserDialogs[request.requestId].resolve({ behavior: "completed", result: "continue" });
-
-  assert.strictEqual(session.vendor, "github-copilot");
-  assert.strictEqual(session.model, "claude-opus-4.8");
-  assert.strictEqual(continued.length, 1);
+  assert.strictEqual(scheduled.length, 1);
+  assert.strictEqual(scheduled[0].resetsAt, resetsAt);
+  assert.ok(scheduled[0].label.indexOf("Claude via Anthropic") !== -1);
   providerHealth._reset();
 });
 
-test("declining a model downgrade keeps automatic continuation paused", function () {
+test("disabled comparable-model failover stays on the original provider even when Codex is comparable", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
-  var sm = makeSm(["claude", "github-copilot"]);
-  sm.modelsByVendor.claude = ["fable"];
+  var sm = makeSm(["claude", "codex"]);
   var continued = [];
-  var failover = makeFailover(sm, continued);
+  var scheduled = [];
+  var failover = makeFailover(sm, continued, { comparable: false, scheduled: scheduled });
   var session = makeSession();
-  session.model = "fable";
+  var resetsAt = Date.now() + 3600000;
 
-  failover.failoverAndContinue(session, {
+  var handled = failover.failoverAndContinue(session, {
     vendor: "claude",
     reason: "usage-credits-exhausted",
+    resetsAt: resetsAt,
   });
-  var request = sm.recorded.find(function (item) { return item.type === "user_dialog_request"; });
-  session.pendingUserDialogs[request.requestId].resolve({ behavior: "cancelled" });
 
+  assert.strictEqual(handled, true);
   assert.strictEqual(session.vendor, "claude");
   assert.strictEqual(continued.length, 0);
-  assert.ok(sm.recorded.some(function (item) {
-    return item.type === "info" && String(item.text || "").indexOf("remains paused") !== -1;
-  }));
+  assert.strictEqual(scheduled.length, 1);
+  assert.strictEqual(scheduled[0].resetsAt, resetsAt);
   providerHealth._reset();
 });
 
@@ -199,11 +201,11 @@ test("model capability tiers distinguish flagship and downgraded fallbacks", fun
   assert.strictEqual(failoverModule.modelCapabilityTier("gpt-5.6-sol"), 4);
   assert.strictEqual(failoverModule.modelCapabilityTier("claude-opus-4.8"), 3);
   assert.strictEqual(failoverModule.modelCapabilityTier("gpt-5.4-mini"), 1);
-  assert.strictEqual(failoverModule.capabilityComparison("fable", "gpt-5.6-sol").requiresConfirmation, false);
-  assert.strictEqual(failoverModule.capabilityComparison("fable", "claude-opus-4.8").requiresConfirmation, true);
+  assert.strictEqual(failoverModule.capabilityComparison("fable", "gpt-5.6-sol").comparable, true);
+  assert.strictEqual(failoverModule.capabilityComparison("fable", "claude-opus-4.8").comparable, false);
 });
 
-test("unhealthy candidates are skipped and a missing fallback remains visible", function () {
+test("a missing comparable fallback stays visible when no reset time is known", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
   providerHealth.recordFailure("codex", "unavailable", { immediate: true });
@@ -221,7 +223,7 @@ test("unhealthy candidates are skipped and a missing fallback remains visible", 
   assert.strictEqual(session.vendor, "claude");
   assert.strictEqual(continued.length, 0);
   assert.ok(sm.recorded.some(function (item) {
-    return item.type === "info" && String(item.text || "").indexOf("no healthy fallback provider") !== -1;
+    return item.type === "info" && String(item.text || "").indexOf("did not report a future reset time") !== -1;
   }));
   providerHealth._reset();
 });

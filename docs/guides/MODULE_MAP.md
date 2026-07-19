@@ -40,7 +40,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-sessions-records.js` | `set_session_visibility`, `set_session_bookmark`, `reorder_session_bookmarks`, `bulk_delete_sessions`, `delete_session`, `hide_session`, `rename_session` | Session record metadata, bookmarks, deletion, hiding, and title updates |
 | `project-sessions-rewind.js` | `rewind_preview`, `rewind_execute`, `fork_session` | Rewind preview/execute and session fork handlers |
 | `project-sessions-search.js` | `list_cli_sessions`, `import_cli_session`, `search_sessions`, `search_session_content` | CLI session import and session search handlers |
-| `project-sessions-settings.js` | `set_model`, `reload_skills`, `set_mcp_permission_mode_override`, `set_vendor`, `set_*_default_model`, `set_*_mode`, `set_*_effort`, `set_betas`, `set_thinking`, `set_codex_*` | Session, project, and server model/provider/permission defaults |
+| `project-sessions-settings.js` | `set_model`, `reload_skills`, `set_mcp_permission_mode_override`, `set_vendor`, `get/set_project_auto_continue_comparable`, `set_*_default_model`, `set_*_mode`, `set_*_effort`, `set_betas`, `set_thinking`, `set_codex_*` | Session, project, and server model/provider/permission defaults |
 | `project-sessions-tui.js` | `resume_tui_session`, `suspend_tui_session`, `tui_transcript_request` | Claude TUI title watchers, PTY helpers, transcript hydration, and TUI-specific handlers |
 | `project-sessions-user-state.js` | `set_mate_dm`, `whats_new_seen`, `set_claude_open_mode` | Per-user session-adjacent state: mate DM restore target, What's New dismissals, and Claude GUI/TUI open-mode preference |
 | `project-sessions-view.js` | (called from project/session restore) | Session view resolution and imported Codex/GitHub Copilot transcript hydration |
@@ -93,6 +93,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-runtime.js` | Project runtime wiring for SDK bridge, scheduled messages, task loops, terminals/notes, workspace context, vendor models, update checks, and runtime warmup |
 | `project-scheduled-messages.js` | Scheduled message queue dispatch, manual send-now, usage-credit continues, restart auto-resume, and timer restoration |
 | `project-provider-failover.js` | Healthy fallback-route selection, automatic provider switch, and interrupted-turn continuation |
+| `lib/public/modules/project-settings-continuation.js` | Per-project comparable-model auto-continue toggle state and WebSocket round trip |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
