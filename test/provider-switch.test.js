@@ -1,4 +1,4 @@
-// Tests for the extracted provider-switch executor and the /switch command.
+// Tests for the extracted provider-switch executor and provider commands.
 //
 // The executor is the single producer of vendor_switched entries; these tests
 // pin its guard behavior (idempotence, processing refusal, unavailable
@@ -11,6 +11,7 @@ var os = require("os");
 var path = require("path");
 
 var { attachProviderSwitch } = require("../lib/provider-switch");
+var copilotEntitlements = require("../lib/yoke/adapters/github-copilot-entitlements");
 require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
 function tmpDir() {
@@ -178,6 +179,13 @@ test("parseSwitchCommand detects command forms", function () {
   assert.deepStrictEqual(switcher.parseSwitchCommand("/SWITCH Codex via OpenAI"), { target: "Codex via OpenAI" });
 });
 
+test("parseProviderCommand detects safe provider command forms", function () {
+  var switcher = makeSwitcher(makeSm());
+  assert.strictEqual(switcher.parseProviderCommand("/switch codex"), null);
+  assert.deepStrictEqual(switcher.parseProviderCommand("/provider"), { list: true });
+  assert.deepStrictEqual(switcher.parseProviderCommand(" /PROVIDER copilot "), { target: "copilot" });
+});
+
 test("resolveSwitchTargetRoute resolves vendors, route ids, aliases, and label prefixes", function () {
   var switcher = makeSwitcher(makeSm());
   var session = makeSession();
@@ -231,6 +239,94 @@ test("/switch to a valid target executes the switch with chat-command attributio
   assert.strictEqual(entry.initiatedBy.source, "chat-command");
   assert.strictEqual(entry.initiatedBy.userId, "u9");
   assert.ok(toasts.length > 0 && toasts[0].type === "toast", "success toast sent");
+});
+
+test("/provider uses the exact organization-enabled model on Copilot", function () {
+  copilotEntitlements._test.setSnapshot(["auto", "claude-fable-5", "claude-opus-4.8"]);
+  var sm = makeSm({
+    availableVendors: ["claude", "github-copilot"],
+    installedVendors: ["claude", "github-copilot"],
+    modelsByVendor: { claude: ["fable"], "github-copilot": ["claude-opus-4.8"] },
+  });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({ model: "fable" });
+
+  var consumed = switcher.handleProviderCommand(null, session, "/provider copilot");
+
+  assert.strictEqual(consumed, true);
+  assert.strictEqual(session.vendor, "github-copilot");
+  assert.strictEqual(session.providerRouteId, "claude-github-copilot");
+  assert.strictEqual(session.model, "claude-fable-5");
+  assert.strictEqual(lastEntryOfType(session, "vendor_switched").initiatedBy.source, "provider-command");
+  copilotEntitlements._test.reset();
+});
+
+test("/provider chooses the closest comparable model when exact is unavailable", function () {
+  var sm = makeSm({
+    modelsByVendor: { claude: ["fable"], codex: ["gpt-5.5", "gpt-5.6-sol"] },
+    serverDefaultModelsByVendor: { codex: "gpt-5.5" },
+  });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({ model: "fable" });
+
+  var consumed = switcher.handleProviderCommand(null, session, "/provider openai");
+
+  assert.strictEqual(consumed, true);
+  assert.strictEqual(session.vendor, "codex");
+  assert.strictEqual(session.model, "gpt-5.6-sol");
+});
+
+test("/provider refuses a silent downgrade and points to the permissive command", function () {
+  copilotEntitlements._test.setSnapshot(["auto", "claude-opus-4.8"]);
+  var sm = makeSm({
+    availableVendors: ["claude", "github-copilot"],
+    installedVendors: ["claude", "github-copilot"],
+    modelsByVendor: { claude: ["fable"], "github-copilot": ["claude-opus-4.8"] },
+  });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({ model: "fable" });
+
+  var consumed = switcher.handleProviderCommand(null, session, "/provider copilot");
+
+  assert.strictEqual(consumed, true);
+  assert.strictEqual(session.vendor, "claude");
+  var notice = lastEntryOfType(session, "info");
+  assert.ok(notice.text.indexOf("No exact or comparable model") !== -1);
+  assert.ok(notice.text.indexOf("/switch claude-github-copilot") !== -1);
+  copilotEntitlements._test.reset();
+});
+
+test("/provider keeps Copilot route families separate when comparing models", function () {
+  copilotEntitlements._test.setSnapshot(["auto", "claude-fable-5", "gpt-5.5"]);
+  var sm = makeSm({
+    availableVendors: ["codex", "github-copilot"],
+    installedVendors: ["codex", "github-copilot"],
+    modelsByVendor: { codex: ["gpt-5.6-sol"], "github-copilot": ["claude-fable-5", "gpt-5.5"] },
+  });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({ vendor: "codex", providerRouteId: "codex-openai", model: "gpt-5.6-sol" });
+
+  var consumed = switcher.handleProviderCommand(null, session, "/provider copilot");
+
+  assert.strictEqual(consumed, true);
+  assert.strictEqual(session.vendor, "codex");
+  assert.ok(lastEntryOfType(session, "info").text.indexOf("No exact or comparable model") !== -1);
+  copilotEntitlements._test.reset();
+});
+
+test("bare /provider lists exact and comparable model choices", function () {
+  var sm = makeSm({
+    modelsByVendor: { claude: ["fable"], codex: ["gpt-5.5", "gpt-5.6-sol"] },
+  });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({ model: "fable" });
+
+  var consumed = switcher.handleProviderCommand(null, session, "/provider");
+
+  assert.strictEqual(consumed, true);
+  var notice = lastEntryOfType(session, "info");
+  assert.ok(notice.text.indexOf("without downgrading") !== -1);
+  assert.ok(notice.text.indexOf("gpt-5.6-sol (comparable)") !== -1);
 });
 
 test("non-switch text is not consumed by handleSwitchCommand", function () {

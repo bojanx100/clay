@@ -4,7 +4,7 @@ var fs = require("node:fs");
 var path = require("node:path");
 var attachUserMessage = require("../lib/project-user-message").attachUserMessage;
 
-function makeHarness(processing) {
+function makeHarness(processing, handleSwitchCommand) {
   var session = {
     localId: 42,
     isProcessing: processing,
@@ -59,6 +59,7 @@ function makeHarness(processing) {
     imagesDir: process.cwd(),
     onProcessingChanged: function () {},
     onUserMessageDispatched: function () { return ""; },
+    handleSwitchCommand: handleSwitchCommand,
     _loop: {
       handleLoopMessage: function () { return false; },
     },
@@ -120,4 +121,20 @@ test("queue notifications reconcile a stale optimistic sender bubble", function 
   assert.match(source, /import \{ removeOptimisticUserMessage \} from '\.\/app-rendering\.js';/);
   assert.match(source, /case "queued_user_message":[\s\S]*?removeOptimisticUserMessage\(msg\.clientMessageId\);[\s\S]*?handleQueuedUserMessage\(msg\);/);
   assert.match(source, /case "queued_user_messages_state":[\s\S]*?removeQueuedOptimisticMessages\(msg\.queuedUserMessages \|\| \[\]\);[\s\S]*?setQueuedUserMessages/);
+});
+
+test("provider commands are consumed before they reach the model", function () {
+  var commands = [];
+  var harness = makeHarness(false, function (ws, session, text) {
+    commands.push({ session: session, text: text });
+    return true;
+  });
+
+  harness.handle({ type: "message", text: "/provider copilot" });
+
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0].session, harness.session);
+  assert.equal(commands[0].text, "/provider copilot");
+  assert.equal(harness.session.history.length, 0);
+  assert.equal(harness.sentToSession.length, 0);
 });
