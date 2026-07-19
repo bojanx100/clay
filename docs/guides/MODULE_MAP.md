@@ -159,6 +159,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `model-capability.js` | Shared model capability tiers and comparable-or-stronger checks |
 | `provider-command.js` | Model-aware `/provider` and permissive `/switch` chat command handling |
 | `provider-switch.js` | Single executor for cross-provider session switches (WS handoff, provider chat commands, outage failover) plus model/route resolution helpers |
+| `model-context-window.js` | Per-model context-window lookup (Claude/Codex/Copilot) and token-aware char budgeting for the inline handoff transcript |
 | `handoff-state.js` | Situational-state collectors for handoff briefs: git state, task snapshot, plan-doc paths, original goal |
 | `codex-defaults.js` | Codex-specific default values (sandbox, approval, web search). **Single source of truth** - do not duplicate elsewhere |
 | `claude-defaults.js` | Claude-specific default model and mode settings |
