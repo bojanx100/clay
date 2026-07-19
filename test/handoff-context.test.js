@@ -54,6 +54,35 @@ test("budget exhaustion consumes the handoff terminally", function () {
   assert.strictEqual(handoff.applyHandoffToOutgoingText(s, "plain"), "plain");
 });
 
+test("failed turn after the consuming send restores the handoff (bounded)", function () {
+  var s = switchedSession("github-copilot");
+  handoff.applyHandoffToOutgoingText(s, "hello"); // budget 1 -> consumed, stashed
+  assert.strictEqual(s.handoffContext, null);
+  // Turn failed (no output) -> restore for a retry send.
+  assert.strictEqual(handoff.restoreHandoffAfterFailedTurn(s), true);
+  assert.ok(s.handoffContext, "context re-armed");
+  assert.strictEqual(s.handoffContextConsumed, false);
+  assert.strictEqual(s.copilotHandoffNativeReset, false, "copilot reset choreography re-armed");
+  // Retry send re-injects the full wrapper.
+  var out = handoff.applyHandoffToOutgoingText(s, "retry");
+  assert.ok(out.indexOf("<clay_handoff_context>") === 0, "retry send carries context");
+  // Second failure restores once more; the third stays consumed for good.
+  assert.strictEqual(handoff.restoreHandoffAfterFailedTurn(s), true);
+  handoff.applyHandoffToOutgoingText(s, "retry 2");
+  assert.strictEqual(handoff.restoreHandoffAfterFailedTurn(s), false, "restore cap reached");
+  assert.strictEqual(s.handoffContext, null);
+  assert.strictEqual(s.handoffContextConsumed, true);
+});
+
+test("a successful turn settles the stash — no restore after real output", function () {
+  var s = switchedSession("github-copilot");
+  handoff.applyHandoffToOutgoingText(s, "hello"); // consumed, stashed
+  handoff.finalizeHandoffAfterSuccessfulTurn(s);
+  assert.strictEqual(handoff.restoreHandoffAfterFailedTurn(s), false, "nothing to restore after success");
+  assert.strictEqual(s.handoffContext, null);
+  assert.strictEqual(s.handoffContextConsumed, true);
+});
+
 test("github-copilot gets exactly one handoff turn and arms the native reset", function () {
   var s = switchedSession("github-copilot");
   s.handoffContextTurnsRemaining = 4; // stale/over-provisioned value must clamp
@@ -107,6 +136,8 @@ test("collectWorkingAgreements mines standing instructions, skips goal/questions
     { type: "user_message", text: "[Auto-continued] never mind this marker", _ts: 5 }, // synthetic — skipped
     { type: "user_message", text: "use zod instead of manual validation. Looks good so far.", _ts: 6 },
     { type: "user_message", text: "don't add comments everywhere, keep them minimal", _ts: 7 }, // dupe
+    { type: "user_message", text: "don't worry about the CI for now", _ts: 8 }, // filler idiom — skipped
+    { type: "user_message", text: "it always fails on the second run", _ts: 9 }, // descriptive, not instruction — skipped
   ];
   var agreements = handoffState.collectWorkingAgreements(history);
   assert.deepStrictEqual(agreements, [

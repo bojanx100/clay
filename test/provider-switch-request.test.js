@@ -112,6 +112,11 @@ test("approval waits for the requesting turn to end before switching", function 
   pendingDialog(h.session).resolve({ behavior: "completed" });
   setTimeout(function () {
     assert.strictEqual(h.switches.length, 0, "no switch while the turn is still processing");
+    var queuedNotice = false;
+    for (var i = 0; i < h.recorded.length; i++) {
+      if (h.recorded[i].type === "info" && String(h.recorded[i].text).indexOf("waiting for the current turn") !== -1) queuedNotice = true;
+    }
+    assert.ok(queuedNotice, "user told the switch is queued behind the running turn");
     h.session.isProcessing = false;
   }, 50);
   setTimeout(function () {
