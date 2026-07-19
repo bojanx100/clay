@@ -6,6 +6,7 @@ var path = require("path");
 
 var failoverModule = require("../lib/project-provider-failover");
 var providerHealth = require("../lib/provider-health");
+require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "clay-provider-failover-"));

@@ -2,6 +2,7 @@ var test = require("node:test");
 var assert = require("node:assert");
 
 var providerHealth = require("../lib/provider-health");
+require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
 // Base timestamp used across the injected-clock tests.
 var T0 = 1000000;

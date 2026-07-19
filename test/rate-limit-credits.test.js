@@ -3,6 +3,7 @@ var assert = require("node:assert");
 
 var processorModule = require("../lib/sdk-message-processor");
 var providerHealth = require("../lib/provider-health");
+require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
 function makeProcessor(spies, autoContinue) {
   var sm = {

@@ -3,6 +3,7 @@ var assert = require("node:assert");
 
 var providerHealth = require("../lib/provider-health");
 var signals = require("../lib/sdk-provider-failover-signals");
+require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
 test("unhealthy provider signal queues one boundary failover when auto-continue is enabled", function () {
   providerHealth._reset();

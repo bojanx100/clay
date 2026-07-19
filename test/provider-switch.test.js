@@ -11,6 +11,7 @@ var os = require("os");
 var path = require("path");
 
 var { attachProviderSwitch } = require("../lib/provider-switch");
+require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "clay-provider-switch-"));
