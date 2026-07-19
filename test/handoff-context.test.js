@@ -14,6 +14,7 @@ var path = require("path");
 var { execFileSync } = require("child_process");
 
 var handoff = require("../lib/handoff-context");
+var handoffState = require("../lib/handoff-state");
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "clay-handoff-state-"));
@@ -78,6 +79,57 @@ test("no pending handoff leaves outgoing text untouched", function () {
   var s = { vendor: "codex" };
   assert.strictEqual(handoff.applyHandoffToOutgoingText(s, "hello"), "hello");
   assert.strictEqual(handoff.applyHandoffToOutgoingText(null, "hello"), "hello");
+});
+
+test("first-response framing: header and trailer forbid handoff narration", function () {
+  var history = [
+    { type: "user_message", text: "fix the bug", _ts: 1700000000000 },
+    { type: "delta", text: "on it", _ts: 1700000000001 },
+  ];
+  var brief = handoff.buildHandoffContextFromHistory(history, {
+    fromVendor: "claude", toVendor: "codex",
+  });
+  assert.ok(brief.indexOf("joining an ongoing conversation mid-stream") !== -1, "mid-stream framing in header");
+  assert.ok(brief.indexOf("do not introduce yourself") !== -1, "no self-introduction instruction");
+  assert.ok(brief.indexOf("I can see you were working on") !== -1, "anti-narration example present");
+
+  var s = switchedSession("codex", brief);
+  var out = handoff.applyHandoffToOutgoingText(s, "and the tests?");
+  assert.ok(out.indexOf("no self-introduction, no handoff acknowledgement") !== -1, "trailer reinforces framing");
+});
+
+test("collectWorkingAgreements mines standing instructions, skips goal/questions/synthetic", function () {
+  var history = [
+    { type: "user_message", text: "Never use tabs in this repo, always spaces", _ts: 1 }, // goal — skipped
+    { type: "delta", text: "ok", _ts: 2 },
+    { type: "user_message", text: "don't add comments everywhere, keep them minimal", _ts: 3 },
+    { type: "user_message", text: "should we always run the linter?", _ts: 4 }, // question — skipped
+    { type: "user_message", text: "[Auto-continued] never mind this marker", _ts: 5 }, // synthetic — skipped
+    { type: "user_message", text: "use zod instead of manual validation. Looks good so far.", _ts: 6 },
+    { type: "user_message", text: "don't add comments everywhere, keep them minimal", _ts: 7 }, // dupe
+  ];
+  var agreements = handoffState.collectWorkingAgreements(history);
+  assert.deepStrictEqual(agreements, [
+    "don't add comments everywhere, keep them minimal",
+    "use zod instead of manual validation.",
+  ]);
+  assert.strictEqual(handoffState.collectWorkingAgreements([
+    { type: "user_message", text: "do the thing", _ts: 1 },
+    { type: "user_message", text: "thanks, looks great", _ts: 2 },
+  ]), null, "no instruction-like sentences -> null");
+});
+
+test("brief renders working agreements section from history", function () {
+  var history = [
+    { type: "user_message", text: "build the exporter", _ts: 1 },
+    { type: "user_message", text: "always write CSV with semicolons, not commas", _ts: 2 },
+  ];
+  var brief = handoff.buildHandoffContextFromHistory(history, {
+    fromVendor: "claude", toVendor: "codex",
+  });
+  assert.ok(brief.indexOf("Working agreements") !== -1, "agreements section present");
+  assert.ok(brief.indexOf("always write CSV with semicolons, not commas") !== -1, "agreement listed");
+  assert.ok(brief.indexOf("Working agreements") < brief.indexOf("<prior_transcript>"), "sits in header");
 });
 
 test("brief enriches the header with goal, git state, tasks, and doc paths", function () {
