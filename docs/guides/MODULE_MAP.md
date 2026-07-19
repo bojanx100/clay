@@ -151,7 +151,10 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-message-queue.js` | Async iterable message queue for streaming input to SDK |
 | `sdk-message-processor.js` | SDK stream event processing (message_start, content_block_*), sub-agent message routing |
 | `automation-modes.js` | Shared automation mode normalization and provider permission/approval mapping |
-| `provider-routes.js` | Provider-route configuration loading and model-route matching helpers |
+| `provider-routes.js` | Provider-route configuration loading, model-route matching helpers, and per-vendor health decoration |
+| `provider-health.js` | Process-wide per-vendor health registry (healthy→degraded→unhealthy) fed by the SDK bridge's failure/success signals |
+| `provider-switch.js` | Single executor for cross-provider session switches (WS handoff, `/switch` chat command, future outage failover) plus model/route resolution helpers |
+| `handoff-state.js` | Situational-state collectors for handoff briefs: git state, task snapshot, plan-doc paths, original goal |
 | `codex-defaults.js` | Codex-specific default values (sandbox, approval, web search). **Single source of truth** - do not duplicate elsewhere |
 | `claude-defaults.js` | Claude-specific default model and mode settings |
 | `model-selection.js` | Shared strongest-available model selection for new sessions and task launches, while respecting configured defaults |
