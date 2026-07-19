@@ -174,6 +174,7 @@ Product decisions in force (superseded items struck from the v1 list are recorde
 15. **Android is a hardware companion, not a second Clay application.**
 16. **Shared conversation does not force shared navigation.** Workspace conversational focus is durable and shared; each client browses independently.
 17. **Multiplayer scope (v1):** the audio floor and conversation lifecycle are scoped per-user. Two teammates conversing simultaneously with the same session is explicitly out of scope until after Phase 3B; their text/steer paths continue to work as today.
+18. **Scope of the conversation lifecycle.** These rules govern **conversation-managed sessions** — sessions with an active conversation attached. Auto-launched/autonomous sessions (~50% of real traffic, F13) keep today's automation-mode semantics (launch prompts, completion markers, auto-continue) and are visible to conversation mode read-only (status, Coop triage). A human may explicitly *adopt* an autonomous session into a conversation; adoption snapshots its current state as the baseline intent, after which the approval discipline applies to new work. Invariants bind operations flowing through the conversation gateway; they do not retroactively govern non-conversation automation.
 
 ---
 
@@ -198,6 +199,7 @@ The controller is **not** a new metered API client. It is a lightweight backgrou
 - **Toolset**: read-only. It can read the conversation ledger, plan versions, executor snapshots, and bounded session context. Its only write path is *proposing typed gateway operations* as untrusted structured output, which a runtime schema and the daemon gateway validate. It can never edit files or talk to the executor directly.
 - **Vendor-portable contract, verified per adapter**: the Codex fallback must start with `sandboxMode: "read-only"`, deny write-capable tools, and pass a negative write test before it is eligible. YOKE's current Codex default is `danger-full-access` (`lib/codex-defaults.js`), which makes the negative write test non-negotiable; portability is a goal, not a safety assumption.
 - **Usage-window discipline** (it burns subscription quota, so): system prompt frozen and cache-friendly; snapshots delivered as compact structured text; deterministic macro layer (F11) answers ~25% of utterances with zero controller tokens; `GET_STATUS` answered by template from the snapshot (zero tokens) unless the user asks a *why* question; controller turns targeted at &lt; 500 output tokens.
+- **Disposable context, durable ledger** (F17: conversations run for days–weeks; the controller session itself will hit compaction): all authoritative conversation state — pending enumeration, plan versions, lifecycle phase, question set — lives in the ledger and is **re-injected on spawn**, never resident only in controller context. The controller session is therefore recyclable at any time: fresh session per N turns, on compaction, or on drift, with zero state loss. Post-compaction fidelity (does it still resolve the pending enumeration and plan version correctly?) is a Phase 0 spike item, and the pending-enumeration re-injection path is exercised on every recycle, not just failures.
 
 ### Audio I/O: a three-tier ladder behind one adapter interface
 
@@ -362,7 +364,7 @@ Classifier kinds mirror the empirical taxonomy (F-table): `new_task, exploration
 
 ### Correction routing (Decision 4)
 
-`correction_minor` is allowed only when a comparison against the approved intent confirms that goal, approach, constraints, and acceptance criteria remain unchanged. The gateway queues it for the executor's **next safe tool-call boundary** — seconds away, not the end of the turn (turn p90 is ~7 minutes, F17; a minor correction that waits for turn end lets the executor do wrong work for minutes) — and narrates one line ("Queued: smaller icon."). If no boundary occurs within a short configurable window, Clay offers `INTERRUPT_AND_STEER` explicitly. It does **not** reuse the current abort+auto-resume steer path unchanged. An explicit user request to interrupt active work is a separate control. `correction_material` produces a pending correction diff (what changed / affected work / changed criteria / plan still valid? / recommendation), speaks it in ≤ 3 sentences, and awaits approval of the resulting version. When classification is uncertain, Clay asks one bounded question and performs no state-changing dispatch until resolved.
+`correction_minor` is allowed only when a comparison against the approved intent confirms that goal, approach, constraints, and acceptance criteria remain unchanged. The gateway queues it for the executor's **next safe tool-call boundary** — seconds away, not the end of the turn (turn p90 is ~7 minutes, F17; a minor correction that waits for turn end lets the executor do wrong work for minutes) — and narrates one line stating *when* it applies ("Queued — applies after the current test run.") so the user doesn't re-issue it (F2: he re-pokes anything that looks unacknowledged). If no boundary occurs within a short configurable window, Clay offers `INTERRUPT_AND_STEER` explicitly. It does **not** reuse the current abort+auto-resume steer path unchanged. An explicit user request to interrupt active work is a separate control. `correction_material` produces a pending correction diff (what changed / affected work / changed criteria / plan still valid? / recommendation), speaks it in ≤ 3 sentences, and awaits approval of the resulting version. When classification is uncertain, Clay asks one bounded question and performs no state-changing dispatch until resolved.
 
 ---
 
@@ -423,7 +425,7 @@ A durable product record (not a Git commit): goal in the user's own words; selec
 - Synthesized speech, replayed audio, another agent, or machine-injected text can never approve.
 
 ### Pre-approval mutation boundary
-Before approval: converse, inspect, search, read-only investigation, non-mutating repro, plan drafting. Not allowed: file edits, repo/runtime mutation, executor instructions, external actions. The approved plan authorizes only what it names; goal/approach/constraints/criteria changes require a new version. Destructive/deploy/publish/merge/external actions keep their own confirms (F13: these are the only gates the user actually still uses — make them crisp spoken confirms with the consequence stated: "Dropping 3 stashes is unrecoverable — drop them?").
+Before approval: converse, inspect, search, read-only investigation, non-mutating repro, plan drafting. Not allowed: file edits, repo/runtime mutation, executor instructions, external actions. The approved plan authorizes only what it names; goal/approach/constraints/criteria changes require a new version. Destructive/deploy/publish/merge/external actions keep their own confirms (F13: these are the only gates the user actually still uses — make them crisp spoken confirms with the consequence stated: "Dropping 3 stashes is unrecoverable — drop them?"). Destructive confirms require a **consequence-echo answer** — "drop them" / "confirm drop" — never a bare one-syllable "yes"/"no": a single-syllable ASR flip is worst exactly here, and F13 says these confirms are the only permission gates still in real use.
 
 ### Correction diffs
 On material correction, state: what changed; which completed/active work is affected; which acceptance criteria changed; whether the plan remains valid; recommendation. Spoken in ≤ 3 sentences; full diff visual.
@@ -439,7 +441,7 @@ Typed operations; each carries target, idempotency key, server-assigned authoriz
 
 `STOP_SPEECH` · `STOP_WORK` · `PAUSE` · `CONTINUE` · `NUDGE` · `GET_STATUS` · `QUEUE_EXECUTOR_STEER` · `INTERRUPT_AND_STEER` · `FOCUS_TARGET` · `AMEND_PLAN_VERSION` · `APPROVE_PLAN_VERSION` · `REJECT_PLAN_VERSION` · `REQUEST_PLAN_REVISION` · `SEND_APPROVED_INTENT` · `ANSWER_PERMISSION` · `ANSWER_QUESTION` · `RUN_APPROVED_CLOSEOUT` · `CONFIRM_DONE` · `REOPEN_WORK` · `END_CONVERSATION` · `REQUEST_AUDIO_FLOOR` · `COMMIT_AUDIO_FLOOR` · `RELEASE_AUDIO_FLOOR`
 
-Rules: "stop talking" ≠ "stop the work"; ambiguous "stop" silences speech immediately, then asks before affecting work. `ANSWER_PERMISSION` and `ANSWER_QUESTION` bind the exact still-pending request ID and accepted option set. `CONTINUE` resumes a paused executor; `NUDGE` only requests a truthful liveness check and never approves, resumes, or duplicates executor input. `RUN_APPROVED_CLOSEOUT` can perform only repository/runtime steps named by the approved plan and project rules. Every op is idempotent under reconnect/replay.
+Rules: "stop talking" ≠ "stop the work"; ambiguous "stop" silences speech immediately, then asks before affecting work. `ANSWER_PERMISSION` and `ANSWER_QUESTION` bind the exact still-pending request ID and accepted option set. `CONTINUE` resumes a paused executor; `NUDGE` only requests a truthful liveness check and never approves, resumes, or duplicates executor input. `RUN_APPROVED_CLOSEOUT` can perform only repository/runtime steps named by the approved plan and project rules. `APPROVE_PLAN_VERSION` *authorizes*; `SEND_APPROVED_INTENT` *dispatches* it to the executor exactly once (Invariant 3) — the gateway fuses them when the user's approval implies immediate start, but they remain distinct ops so approval without dispatch is expressible. `END_CONVERSATION` ends conversation mode only: releases the floor, stops speech, persists the ledger; the executor is unaffected. Every op is idempotent under reconnect/replay.
 
 ---
 
@@ -447,6 +449,8 @@ Rules: "stop talking" ≠ "stop the work"; ambiguous "stop" silences speech imme
 
 - **Speak**: conclusions, bounded questions (2–3 options + recommendation), decisions, plan summaries, state *transitions* (tests pass/fail, push done, retry, unexpected discovery), blockers/needs-you, caveats, destructive confirms.
 - **Don't speak**: logs, tool calls, file paths, line numbers, diffs, per-edit narration, token-by-token anything, secrets (redaction layer is mandatory and test-gated), routine progress.
+- **Speakable-field sanitation**: snapshot fields spoken verbatim (`currentStep`, `caveats`, `needsYou`) are length-capped and sanitized before TTS. They derive from executor output, which derives from file/web content — adversarial or garbage text being *spoken aloud* is its own failure mode, distinct from injected content attempting approval. Fixture-tested alongside the secret fixtures.
+- **Instant acknowledgment**: when an utterance leaves the macro path for the controller brain, emit an immediate deterministic ack — a short earcon or templated "on it" — within ~300 ms. Human turn-taking tolerance is ~700 ms before silence reads as failure, and this user demonstrably probes silence ("alive?", "you there" — F2). The ack is zero-token and client-local; the brain's real reply replaces it.
 - **Completion utterance** = verdict word first, then caveats, then needs-you, then offered next action; 30–60 words (F14). Then stay hot for "still broken" (F6).
 - **Status utterance** = one breath from the snapshot with strict precedence: stale/disconnected → failure/blocker → pending human question/permission → current step → verification result → git/closeout state. A stale snapshot states its age and confidence instead of sounding healthy. Template-generated (zero tokens); the brain engages only for *why* questions.
 - **Plan narration** = goal (user's own words) → in/out of scope → approach in one sentence → locked decisions/risks → verification method; 60–90 words; full plan stays visual (F14: ~75% of plan text is noise aloud).
@@ -515,6 +519,8 @@ Existing stalls, phantom reconnects, resume spam, and UI lag are conversation-co
 
 ## Delivery Phases
 
+Rough effort sizing (defends the prioritization against scope pressure): Phase 0 **S–M** · Phase 1 **L** (1a M, 1b M) · Phase 2 **L** · Phase 3A **M–L** · Phase 3B **M** · Phase 4 **L** · Phase 5 **XL**. Anything proposing to jump the ladder pays its size up front.
+
 ### Phase 0 — Contract, scoped to the first slice
 
 Lock semantics before UI/media detail, but only what the slice needs:
@@ -526,7 +532,7 @@ Lock semantics before UI/media detail, but only what the slice needs:
 - [ ] Phase-aware macro table + approval phrase set. Fuzzy matches cannot directly authorize state-changing operations.
 - [ ] Inbound transcript, snapshot, narration, and outbound TTS redaction policy + secret fixtures.
 - [ ] Tier 0 duplex/echo contract: microphone/TTS arbitration, cancellation ordering, and approval gating.
-- [ ] Claude subscription-controller spike: long-lived query, usage-window exhaustion, extra-usage guard, restart, and structured-proposal validation. Codex fallback must prove read-only sandboxing.
+- [ ] Claude subscription-controller spike: long-lived query, usage-window exhaustion, extra-usage guard, restart, and structured-proposal validation. Codex fallback must prove read-only sandboxing. Controller recycle fidelity: after a fresh spawn or compaction, ledger re-injection must restore the pending enumeration, plan version, and lifecycle phase correctly.
 - [ ] Persistent coordination channel spec plus minimum safe claim transaction: target readiness, atomic compare-and-swap, generation+lease+epoch binding, bounded output buffers, and revocation acknowledgement/expiry. Implementation lands in Phase 3A.
 - [ ] Timing instrumentation points (mic start, transcript, route, brain, gateway, TTS-first-audio, floor ops).
 - [ ] Privacy-safe corpus audit artifact started (see Appendix B): evidence table for F1–F17 with `verified-count / verified-sample / qualitative / hypothesis` markings. Percentages stay non-normative until their rows are complete; this item does **not** block Phase 1 prototype work.
@@ -536,9 +542,11 @@ Lock semantics before UI/media detail, but only what the slice needs:
 
 ### Phase 1 — Vertical slice: thin kernel + Tier 0 voice (desktop Chrome)
 
-The inversion from v1 of this doc: voice is in the *first* slice, kernel depth follows evidence.
+The inversion from v1 of this doc: voice is in the *first* slice, kernel depth follows evidence. Run as two sub-gates: **1a — text-only** (kernel + router + gateway + controller, driven through the composer; deterministic value on its own) then **1b — voice** (Tier 0 audio on top). The exit criteria below gate 1b.
 
-- [ ] Thin kernel: lifecycle reducer + ledger persistence + runtime protocol validation + gateway with `STOP_SPEECH/STOP_WORK/PAUSE/CONTINUE/NUDGE/GET_STATUS/QUEUE_EXECUTOR_STEER/INTERRUPT_AND_STEER/AMEND_PLAN_VERSION/APPROVE_PLAN_VERSION/ANSWER_QUESTION/ANSWER_PERMISSION/RUN_APPROVED_CLOSEOUT/CONFIRM_DONE/REOPEN_WORK`.
+Tier 0 provisional latency budgets (the "feel" experiment needs a yardstick): macro path &lt; 500 ms; brain path first spoken syllable ≤ 4 s. Every utterance logs per-stage timings; **Phase 1 "feel" verdicts are drawn only from utterances that met budget**, so concept failure is separable from tier failure — if Tier 0 misses budget chronically, the verdict is "upgrade the tier", not "voice doesn't work".
+
+- [ ] Thin kernel: lifecycle reducer + ledger persistence + runtime protocol validation + gateway with `STOP_SPEECH/STOP_WORK/PAUSE/CONTINUE/NUDGE/GET_STATUS/QUEUE_EXECUTOR_STEER/INTERRUPT_AND_STEER/AMEND_PLAN_VERSION/APPROVE_PLAN_VERSION/REJECT_PLAN_VERSION/REQUEST_PLAN_REVISION/SEND_APPROVED_INTENT/ANSWER_QUESTION/ANSWER_PERMISSION/RUN_APPROVED_CLOSEOUT/CONFIRM_DONE/REOPEN_WORK` — rejecting or pushing back on a plan by voice is core F12 traffic, so the "no" path ships with the "yes" path.
 - [ ] Phase-aware Stage 1 macro router + enumeration/approval resolver; exact/confirmed recognition for state-changing controls.
 - [ ] Controller brain as a verified YOKE background session, read-only tools, runtime-validated structured proposals, usage-window guard, and text fallback if unavailable.
 - [ ] Snapshot v1 for the Claude adapter (Codex next phase); executor scaffold addendum.
@@ -623,7 +631,7 @@ Percentiles and failure rates, not averages.
 | Status response | ask | snapshot summary begins | &lt; 1 s |
 | Speech interruption | barge-in/stop | silence | &lt; 150 ms |
 | Work control | pause/stop/continue | executor acknowledges | &lt; 1 s |
-| Device claim | Continue-here | active + old client silent | &lt; 3 s |
+| Device claim | Continue-here | active + old client silent | &lt; 3 s (provisional — Appendix A evidence chooses final budgets) |
 | Recovery | connection usable | durable state restored | &lt; 2 s |
 
 Quality: approval correctness (no unapproved version executes — zero tolerance); correction-tier misclassification rate (unsafe minor dispatches are release-blocking; unnecessary clarification is measured as friction); status fidelity vs executor events; false turn-endings; echo loops; duplicate sends; secret-redaction failures (zero); hands-free completion rate per journey; **subscription usage burn and overage** (controller tokens/day, share of usage window, unexpected metered spend = zero for the core); presence-check rate ("alive?" utterances should trend toward zero).
@@ -650,6 +658,8 @@ Release-blocking automated tests:
 14. An amendment cannot approve itself. Approval occurs only after the pending version's diff and identity are presented; the executed plan is byte-identical to that approved version.
 15. A claim cannot revoke the old owner before the target is ready and the daemon crosses the atomic commit barrier.
 16. New playback cannot begin until old playback is acknowledged stopped or its bounded lease expires; stale buffered chunks fail their local lease check.
+17. Every `QUEUE_EXECUTOR_STEER`, `INTERRUPT_AND_STEER`, and `ANSWER_QUESTION` carries a causation chain terminating in a live-human ingress event. A controller proposal with no triggering human utterance is rejected — snapshot- or executor-derived content (which ultimately includes file and web content) can never originate a steer. This is the prompt-injection fence for the executor lane.
+18. Conversation invariants bind operations flowing through the conversation gateway (Decision 18). Autonomous sessions outside conversation management are not stranded by Invariant 7; adopting one into a conversation snapshots its state as the baseline intent.
 
 (The v1 list's audio-handoff invariants 10–19 become Phase 3A acceptance criteria — Appendix A.)
 
@@ -665,7 +675,7 @@ Release-blocking automated tests:
 
 **Clients and audio**: desktop Chrome, Android Chrome, installed PWA, later native companion; laptop/phone mic-speaker combinations; wired + Bluetooth; route changes while listening/speaking; TTS echo and approval-like playback; barge-in question vs correction; silence for 30+ minutes then resume; suspension/lock/network handoff/incoming call; daemon restart + stale pre-restart frames/chunks + fresh claim; target permission/readiness failure; simultaneous claims; provider timeout and fallback to text.
 
-**Safety**: approval-resembling speech that is not approval; fuzzy state-changing phrases; agent-generated audio and acoustic echo attempting approval; client-forged provenance; untrusted controller JSON shapes; secrets entering inbound transcripts, logs, snapshots, narration, or TTS; replayed controls; old-client audio after handoff; device revocation; stop-speech vs stop-work ambiguity; machine-injected turns attempting gateway ops; Codex fallback attempting file or command writes.
+**Safety**: approval-resembling speech that is not approval; fuzzy state-changing phrases; agent-generated audio and acoustic echo attempting approval; client-forged provenance; untrusted controller JSON shapes; secrets entering inbound transcripts, logs, snapshots, narration, or TTS; replayed controls; old-client audio after handoff; device revocation; stop-speech vs stop-work ambiguity; machine-injected turns attempting gateway ops; Codex fallback attempting file or command writes; executor-derived narration containing adversarial or garbage text that would be *spoken aloud* (speakable-field sanitation fixture); a controller steer proposal with no live-human causation event (Invariant 17).
 
 ---
 
@@ -688,7 +698,7 @@ Release-blocking automated tests:
 
 ## Remaining Product Questions
 
-1. Wake/address model: is "Coop" always addressable from a focused session, or only from workspace scope? (Prototype in 3B.)
+1. Wake/address model: is "Coop" always addressable from a focused session, or only from workspace scope? (Prototype in 3B.) Also validate the **name itself**: "Coop" is one syllable and ASR-collides with cope / coup / co-op / cool / "scoop" fragments — test recognizability with Web Speech during Phase 1, before the name calcifies; a two-syllable name with an uncommon phoneme sequence would false-trigger less.
 2. Which events deserve unsolicited narration vs subscription ("tell me when this finishes")?
 3. Naming two browser clients on one physical device without unstable identifiers.
 4. Tier 1 model sizing: whisper variant (tiny/base/small) and Kokoro vs Piper on the actual daemon hardware — measure WER on his accent + Croatian code-switch (F9) before choosing.
@@ -702,7 +712,7 @@ Release-blocking automated tests:
 ## Recommended Next Work (in order)
 
 1. **Reliability baseline** — quiet canaries first; conversation correctness is indistinguishable from lifecycle noise without it.
-2. **Corpus audit + Phase 0 contract** — complete the privacy-safe evidence table; define runtime event validation, trusted provenance, persistence/replay, phase-aware commands, redaction, echo handling, and minimum safe claims before UI.
+2. **Corpus audit + Phase 0 contract** — complete the privacy-safe evidence table; define runtime event validation, trusted provenance, persistence/replay, phase-aware commands, redaction, echo handling, and minimum safe claims before UI. Note: the audit's labeled utterances double as the **router's test fixtures** (the testing matrix draws from the mined corpora), so it is on the critical path for router testing specifically — not only for percentage claims.
 3. **Controller substrate spike** — prove Claude subscription behavior, overage guard, restart, structured proposals, and Codex read-only enforcement. Failure must leave text controls usable and spend at zero.
 4. **Macro router + gateway + thin kernel** — deterministic value text-only, including lifecycle-specific "continue"/"ship it", pending questions, pause/continue, amend-readback-approve, and ordered closeout.
 5. **Tier 0 audio on the slice** — first end-to-end spoken plan amendment, narrated diff, exact-version approval, echo test, supervision, and closeout on a real task.
@@ -795,3 +805,7 @@ Therefore phrase inventories, exact command counts, rare lifecycle events, and b
 | 2026-07-18 | **v3**: Phase-aware macro resolution; fuzzy recognition cannot directly authorize state changes. |
 | 2026-07-18 | **v3**: Runtime-decode untrusted controller/WS payloads and assign human provenance only at trusted ingress. |
 | 2026-07-18 | **v3**: Redact inbound transcripts, persisted snapshots, narration, and TTS output; raw recognition remains ephemeral. |
+| 2026-07-18 | **v4**: Steer/answer ops require a live-human causation chain (Invariant 17) — the prompt-injection fence for the executor lane. |
+| 2026-07-18 | **v4**: Conversation lifecycle scoped to conversation-managed sessions (Decision 18); autonomous sessions keep automation semantics and may be explicitly adopted. |
+| 2026-07-18 | **v4**: Destructive confirms require a consequence-echo answer, never a bare one-syllable yes/no. |
+| 2026-07-18 | **v4**: Instant deterministic acknowledgment on brain-path handoff; speakable snapshot fields sanitized before TTS; Tier 0 latency budgets separate concept failure from tier failure; Phase 1 split into 1a text-only / 1b voice sub-gates. |
