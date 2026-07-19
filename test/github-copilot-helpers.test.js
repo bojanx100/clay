@@ -12,6 +12,20 @@ test("Copilot prompt blocks omit images unless the agent advertises image suppor
   assert.match(blocks[0].text, /does not advertise image prompt support/);
 });
 
+test("Copilot prompt blocks point at saved image files when inline images are unsupported", function () {
+  var images = [
+    { mediaType: "image/png", data: "abc123", savedPath: "/tmp/images/1-a.png" },
+    { mediaType: "image/jpeg", data: "def456", savedPath: "/tmp/images/2-b.jpg" },
+  ];
+  var blocks = helpers.copilotPromptBlocks("runtime", "look at this", images, false);
+
+  assert.strictEqual(blocks.length, 1);
+  assert.match(blocks[0].text, /view these files with your file viewing tool/);
+  assert.ok(blocks[0].text.indexOf("/tmp/images/1-a.png") !== -1, "first path listed");
+  assert.ok(blocks[0].text.indexOf("/tmp/images/2-b.jpg") !== -1, "second path listed");
+  assert.strictEqual(blocks[0].text.indexOf("switch to a vision-capable route"), -1, "no provider-switch bounce");
+});
+
 test("Copilot prompt blocks include ACP images when supported", function () {
   var images = [{ mediaType: "image/png", data: "abc123" }];
   var blocks = helpers.copilotPromptBlocks("runtime", "look at this", images, true);
