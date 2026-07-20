@@ -242,6 +242,59 @@ test("GitHub Copilot resumes with the supplied session id when ACP omits it", as
   }
 });
 
+test("GitHub Copilot ignores transcript updates replayed while resuming", async function() {
+  var fakeConnection = {
+    initialize: function() {
+      return Promise.resolve({ agentCapabilities: { sessionCapabilities: { resume: true } } });
+    },
+    resumeSession: async function() {
+      await fakeConnection.client.sessionUpdate({
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: "historical-message",
+          content: { type: "text", text: "old answer" },
+        },
+      });
+      await fakeConnection.client.sessionUpdate({
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "historical-tool",
+          title: "Old tool",
+        },
+      });
+      return {};
+    },
+    prompt: async function() {
+      await fakeConnection.client.sessionUpdate({
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: "live-message",
+          content: { type: "text", text: "new answer" },
+        },
+      });
+      return { usage: { inputTokens: 4, outputTokens: 2 }, stopReason: "end_turn" };
+    },
+    closeSession: function() {
+      return Promise.resolve({});
+    },
+    cancel: function() {
+      return Promise.resolve({});
+    },
+  };
+  var handle = createHandle(fakeConnection, { resumeSessionId: "resume-with-history" });
+
+  try {
+    var eventsOut = await readUntil(handle, function(event) {
+      return event.yokeType === "result";
+    });
+
+    assert.strictEqual(joinedText(eventsOut), "new answer");
+    assert.strictEqual(eventsByType(eventsOut, "tool_start").length, 0);
+  } finally {
+    handle.close();
+  }
+});
+
 test("GitHub Copilot prompt errors include ACP code and data", async function() {
   var fakeConnection = {
     initialize: function() {
