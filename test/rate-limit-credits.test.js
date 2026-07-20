@@ -125,6 +125,30 @@ test("usage-credit rate limit rejection continues immediately after turn ends", 
   assert.strictEqual(session.rateLimitResetsAt, null);
 });
 
+test("plain rate-limit rejection marks the vendor unhealthy immediately instead of scheduling a same-provider wait", function () {
+  providerHealth._reset();
+  var spies = { scheduled: 0, cancelled: 0, continued: 0 };
+  var processor = makeProcessor(spies);
+  var session = makeSession(true);
+
+  processor.processSDKMessage(session, resetRejectedMessage());
+
+  // A hard rejection (no overage) means the vendor is unavailable until
+  // resetsAt — same situation as usage-credits-exhausted. It should flag
+  // provider health immediately (skipping the failure-streak threshold, see
+  // {immediate: true}) rather than just scheduling a same-provider wait, so
+  // the automatic failover in project-provider-failover.js gets a chance to
+  // switch providers instead of always sitting out the reset window.
+  assert.strictEqual(spies.scheduled, 0);
+  assert.strictEqual(providerHealth.getHealth("claude").state, "unhealthy");
+  assert.deepStrictEqual(session.providerFailoverPending, {
+    vendor: "claude",
+    reason: "rate-limit-rejected",
+    resetsAt: session.rateLimitLastResetsAt,
+  });
+  providerHealth._reset();
+});
+
 test("Claude monthly spend-limit tool result cancels the stale resume and requests provider failover", function () {
   providerHealth._reset();
   var spies = { scheduled: 0, cancelled: 0, continued: 0 };
@@ -134,7 +158,7 @@ test("Claude monthly spend-limit tool result cancels the stale resume and reques
   processor.processSDKMessage(session, resetRejectedMessage());
   processor.processSDKMessage(session, monthlySpendLimitToolResult());
 
-  assert.strictEqual(spies.scheduled, 1);
+  assert.strictEqual(spies.scheduled, 0);
   assert.strictEqual(spies.cancelled, 1);
   assert.strictEqual(spies.continued, 0);
   assert.strictEqual(session.rateLimitAutoContinuePending, false);
@@ -180,6 +204,49 @@ test("Claude monthly spend-limit failover is queued at the terminal turn boundar
   assert.ok(session.history.some(function (item) {
     return item.type === "done" && item.code === 1;
   }));
+  providerHealth._reset();
+});
+
+test("plain rate-limit rejection failover is queued at the terminal turn boundary", function () {
+  providerHealth._reset();
+  var spies = { scheduled: 0, cancelled: 0, continued: 0, failoverQueued: null };
+  var processor = makeProcessor(spies);
+  var session = makeSession(true);
+
+  processor.processSDKMessage(session, resetRejectedMessage());
+  processor.processSDKMessage(session, {
+    yokeType: "result",
+    cost: 0,
+    usage: null,
+    modelUsage: null,
+    sessionId: "claude-session-1",
+  });
+
+  assert.deepStrictEqual(spies.failoverQueued, {
+    vendor: "claude",
+    reason: "rate-limit-rejected",
+    resetsAt: session.rateLimitLastResetsAt,
+  });
+  assert.strictEqual(spies.scheduled, 0);
+  assert.strictEqual(session.providerFailoverPending, null);
+  assert.strictEqual(session.isProcessing, true, "the old query remains busy until it is detached");
+  assert.ok(session.history.some(function (item) {
+    return item.type === "done" && item.code === 1;
+  }));
+  providerHealth._reset();
+});
+
+test("disabled auto-continue leaves a plain rate-limit rejection idle without marking provider health", function () {
+  providerHealth._reset();
+  var spies = { scheduled: 0, cancelled: 0, continued: 0, failoverQueued: null };
+  var processor = makeProcessor(spies, false);
+  var session = makeSession(true);
+
+  processor.processSDKMessage(session, resetRejectedMessage());
+
+  assert.strictEqual(spies.scheduled, 0);
+  assert.strictEqual(session.providerFailoverPending, undefined);
+  assert.strictEqual(providerHealth.getHealth("claude").state, "healthy");
   providerHealth._reset();
 });
 
