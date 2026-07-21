@@ -46,3 +46,21 @@ test("default history replay stays bounded for a tool-heavy turn", function () {
   assert.equal(sent.length, sessionHistory.HISTORY_PAGE_SIZE + 2);
   assert.equal(sent[sent.length - 1].type, "history_done");
 });
+
+test("default history replay includes multiple complete recent turns", function () {
+  var sent = [];
+  var api = sessionHistory.attachSessionHistory({
+    send: function (msg) { sent.push(msg); },
+    isMeaninglessUnknownError: function () { return false; },
+  });
+  var history = [{ type: "user_message", text: "Earlier request" }];
+  for (var i = 0; i < 340; i++) history.push({ type: "delta", text: "x" });
+  history.push({ type: "user_message", text: "Latest request" });
+  for (var j = 0; j < 170; j++) history.push({ type: "delta", text: "y" });
+
+  api.replayHistory({ history: history });
+
+  assert.equal(sent[0].type, "history_meta");
+  assert.equal(sent[0].from, 0, "stream deltas should not crowd the earlier complete turn out of the initial view");
+  assert.equal(sent.filter(function (msg) { return msg.type === "user_message"; }).length, 2);
+});
