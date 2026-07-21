@@ -61,6 +61,7 @@ function makeSession(isProcessing) {
     activeTaskToolIds: {},
     taskIdMap: {},
     isProcessing: isProcessing,
+    responsePreview: "",
   };
 }
 
@@ -175,6 +176,31 @@ test("Claude monthly spend-limit tool result cancels the stale resume and reques
   }));
   assert.strictEqual(session.history.some(function (item) {
     return item.type === "tool_result" && String(item.content || "").indexOf("monthly spend limit") !== -1;
+  }), false);
+  providerHealth._reset();
+});
+
+test("Claude model-switch spend-limit text is treated as provider exhaustion", function () {
+  providerHealth._reset();
+  var spies = { scheduled: 0, cancelled: 0, continued: 0 };
+  var processor = makeProcessor(spies);
+  var session = makeSession(true);
+
+  processor.processSDKMessage(session, resetRejectedMessage());
+  processor.processSDKMessage(session, {
+    yokeType: "text_delta",
+    blockId: "limit-text",
+    text: "You've hit your monthly spend limit. /model to switch models.",
+  });
+
+  assert.strictEqual(spies.cancelled, 1);
+  assert.deepStrictEqual(session.providerFailoverPending, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+    resetsAt: session.rateLimitLastResetsAt,
+  });
+  assert.strictEqual(session.history.some(function (item) {
+    return item.type === "delta" && String(item.text || "").indexOf("/model to switch models") !== -1;
   }), false);
   providerHealth._reset();
 });

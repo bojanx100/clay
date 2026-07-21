@@ -54,6 +54,7 @@ function makeFailover(sm, continued, options) {
     cancelScheduledMessage: function () {},
     recordRecoveryEvent: function () {},
     getComparableFailoverSetting: function () { return opts.comparable !== false; },
+    prepareFallbackProviders: opts.prepareFallbackProviders,
     scheduledMessages: {
       continueAfterProviderSwitch: function (session, prompt, label, providerLabel) {
         continued.push({ session: session, prompt: prompt, label: label, providerLabel: providerLabel });
@@ -324,6 +325,7 @@ test("queued failover detaches the old query before switching and continuing", a
   };
   session.queryInstance = oldQuery;
   session.isProcessing = true;
+  session.rateLimitResetsAt = Date.now() + 3600000;
 
   var queued = failover.queueFailover(session, {
     vendor: "claude",
@@ -333,7 +335,50 @@ test("queued failover detaches the old query before switching and continuing", a
 
   assert.strictEqual(queued, true);
   assert.strictEqual(closed, true);
+  assert.strictEqual(session.rateLimitResetsAt, null, "the old stream cannot schedule a duplicate same-provider retry");
   assert.strictEqual(session.vendor, "codex");
+  assert.strictEqual(continued.length, 1);
+  providerHealth._reset();
+});
+
+test("queued failover waits for cold fallback model discovery", async function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "rate-limit-rejected", { immediate: true });
+  var sm = makeSm(["claude", "codex"]);
+  delete sm.modelsByVendor.codex;
+  var continued = [];
+  var prepared = 0;
+  var failover = makeFailover(sm, continued, {
+    prepareFallbackProviders: function () {
+      return new Promise(function (resolve) {
+        setTimeout(function () {
+          prepared++;
+          sm.modelsByVendor.codex = ["gpt-5.6-sol"];
+          resolve();
+        }, 10);
+      });
+    },
+  });
+  var session = makeSession();
+  session.model = "best";
+  session.queryInstance = {
+    close: function () {
+      session.queryInstance = null;
+      session.isProcessing = false;
+    },
+  };
+  session.isProcessing = true;
+
+  var queued = failover.queueFailover(session, {
+    vendor: "claude",
+    reason: "rate-limit-rejected",
+  });
+  await new Promise(function (resolve) { setTimeout(resolve, 40); });
+
+  assert.strictEqual(queued, true);
+  assert.strictEqual(prepared, 1);
+  assert.strictEqual(session.vendor, "codex");
+  assert.strictEqual(session.model, "gpt-5.6-sol");
   assert.strictEqual(continued.length, 1);
   providerHealth._reset();
 });

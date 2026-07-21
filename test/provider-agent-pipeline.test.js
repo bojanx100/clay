@@ -115,3 +115,44 @@ test("Claude query startup passes the Opus worker definition to the SDK adapter"
   assert.strictEqual(captured.adapterOptions.CLAUDE.agents.worker.model, "opus");
   assert.strictEqual(pushed, "Implement the fix");
 });
+
+test("fallback provider readiness discovers models before failover selection", async function () {
+  var initCalls = 0;
+  var modelCalls = 0;
+  var claudeAdapter = { vendor: "claude" };
+  var codexAdapter = {
+    vendor: "codex",
+    init: async function () {
+      initCalls++;
+      return {};
+    },
+    supportedModels: async function () {
+      modelCalls++;
+      return [{ value: "gpt-5.6-sol" }];
+    },
+  };
+  var sm = {
+    modelsByVendor: { claude: [{ value: "best" }] },
+    availableVendors: ["claude", "codex"],
+  };
+  var bridge = attachBridgeQueryStart({
+    adapters: { claude: claudeAdapter, codex: codexAdapter },
+    adapter: claudeAdapter,
+    cwd: "/tmp/clay-provider-readiness-test",
+    dangerouslySkipPermissions: false,
+    clayPort: 2633,
+    clayTls: false,
+    clayAuthToken: "",
+    slug: "provider-readiness-test",
+    sm: sm,
+  });
+
+  await Promise.all([
+    bridge.ensureVendorReady("codex", null),
+    bridge.ensureVendorReady("codex", null),
+  ]);
+
+  assert.strictEqual(initCalls, 1, "concurrent fallback sessions share provider initialization");
+  assert.strictEqual(modelCalls, 1, "concurrent fallback sessions share model discovery");
+  assert.deepStrictEqual(sm.modelsByVendor.codex, [{ value: "gpt-5.6-sol" }]);
+});
