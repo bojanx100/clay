@@ -24,3 +24,11 @@ test("idle history replay clears stale thinking and activity indicators", functi
   assert.match(idleCleanupMatch[0], /setActivity\(null\);/);
   assert.match(idleCleanupMatch[0], /stopThinking\(\);/);
 });
+
+test("authoritative user echoes clear stale activity before starting a new visible turn", function () {
+  var source = readPublicModule("app-messages-stream.js");
+  var userMessageMatch = source.match(/function handleUserMessage\(msg\) \{[\s\S]*?resetThinkingGroup\(\);/);
+
+  assert.ok(userMessageMatch, "handleUserMessage should reset the visible turn state");
+  assert.match(userMessageMatch[0], /removeMatePreThinking\(\);\s*setActivity\(null\);\s*resetThinkingGroup\(\);/);
+});
