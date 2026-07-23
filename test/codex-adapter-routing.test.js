@@ -28,6 +28,87 @@ test("Codex item events with matching nested turn id are routed", function () {
   assert.strictEqual(ok, true);
 });
 
+test("Codex dynamic tool image output is preserved for the client", function () {
+  var state = {
+    blockCounter: 0,
+    toolBlocks: {},
+    thinkingBlocks: {},
+    thinkingLengths: {},
+    commandInputs: {},
+    commandOutputs: {},
+  };
+  var events = routing.flattenEvent({
+    method: "item/completed",
+    params: {
+      item: {
+        id: "image-tool-1",
+        type: "dynamicToolCall",
+        tool: "imagegen",
+        arguments: { prompt: "Urban icon" },
+        status: "completed",
+        success: true,
+        contentItems: [
+          { type: "inputImage", imageUrl: "data:image/png;base64,aGVsbG8=" },
+          { type: "inputText", text: "Saved preview" },
+        ],
+      },
+    },
+  }, state);
+  var result = events.filter(function (event) {
+    return event.yokeType === "tool_result";
+  })[0];
+
+  assert.strictEqual(events[0].yokeType, "tool_start");
+  assert.strictEqual(events[1].toolName, "imagegen");
+  assert.strictEqual(result.content, "Saved preview");
+  assert.deepStrictEqual(result.images, [
+    { url: "data:image/png;base64,aGVsbG8=" },
+  ]);
+  assert.strictEqual(result.isError, false);
+});
+
+test("Codex reconciles dynamic image tools carried only by turn completion", function () {
+  var state = {
+    blockCounter: 0,
+    toolBlocks: {},
+    thinkingBlocks: {},
+    thinkingLengths: {},
+    commandInputs: {},
+    commandOutputs: {},
+    model: "gpt-5.6-sol",
+    aborted: false,
+  };
+  var events = routing.flattenEvent({
+    method: "turn/completed",
+    params: {
+      turn: {
+        status: "completed",
+        items: [{
+          id: "image-tool-turn-only",
+          type: "dynamicToolCall",
+          tool: "view_image",
+          arguments: { path: "/tmp/preview.png" },
+          status: "completed",
+          success: true,
+          contentItems: [{
+            type: "inputImage",
+            imageUrl: "data:image/png;base64,aGVsbG8=",
+          }],
+        }],
+      },
+    },
+  }, state);
+  var result = events.filter(function (event) {
+    return event.yokeType === "tool_result";
+  })[0];
+
+  assert.ok(result);
+  assert.deepStrictEqual(result.images, [
+    { url: "data:image/png;base64,aGVsbG8=" },
+  ]);
+  assert.strictEqual(events[events.length - 1].yokeType, "result");
+});
+
 test("Codex item events without thread or turn identity are ignored after thread binding", function () {
   var state = { threadId: "thread-a", turnId: "turn-a" };
   var ok = routing.shouldRouteServerEvent(state, {}, "item/started", {

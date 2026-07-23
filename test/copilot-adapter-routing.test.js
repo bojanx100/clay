@@ -155,6 +155,65 @@ test("GitHub Copilot routes a full turn with text, tool calls, and completion", 
   }
 });
 
+test("GitHub Copilot preserves image content from completed tool calls", async function() {
+  var fakeConnection = {
+    initialize: function() {
+      return Promise.resolve({ agentCapabilities: {} });
+    },
+    newSession: function() {
+      return Promise.resolve({ sessionId: "copilot-image-session", configOptions: [] });
+    },
+    prompt: async function() {
+      await fakeConnection.client.sessionUpdate({
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "image-tool",
+          title: "View image",
+          rawInput: { path: "/tmp/preview.png" },
+        },
+      });
+      await fakeConnection.client.sessionUpdate({
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "image-tool",
+          title: "View image",
+          status: "completed",
+          content: [{
+            type: "content",
+            content: {
+              type: "image",
+              mimeType: "image/png",
+              data: "aGVsbG8=",
+            },
+          }],
+        },
+      });
+      return { usage: { inputTokens: 1, outputTokens: 1 }, stopReason: "end_turn" };
+    },
+    closeSession: function() {
+      return Promise.resolve({});
+    },
+    cancel: function() {
+      return Promise.resolve({});
+    },
+  };
+  var handle = createHandle(fakeConnection);
+
+  try {
+    var eventsOut = await readUntil(handle, function(event) {
+      return event.yokeType === "result";
+    });
+    var toolResult = eventsByType(eventsOut, "tool_result")[0];
+
+    assert.deepStrictEqual(toolResult.images, [{
+      mediaType: "image/png",
+      data: "aGVsbG8=",
+    }]);
+  } finally {
+    handle.close();
+  }
+});
+
 test("GitHub Copilot emits one text start for repeated streamed chunks", async function() {
   var fakeConnection = {
     initialize: function() {

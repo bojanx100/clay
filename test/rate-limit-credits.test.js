@@ -45,6 +45,8 @@ function makeProcessor(spies, autoContinue) {
     },
     discoverSkillDirs: function () { return []; },
     mergeSkills: function () { return []; },
+    saveImageFile: spies.saveImageFile || null,
+    getLinuxUserForSession: function () { return "clay-test"; },
   });
 }
 
@@ -99,6 +101,53 @@ function monthlySpendLimitToolResult() {
     isError: false,
   };
 }
+
+test("Claude tool-result images are persisted instead of recorded inline", function () {
+  var saved = [];
+  var spies = {
+    scheduled: 0,
+    cancelled: 0,
+    continued: 0,
+    saveImageFile: function (mediaType, data, linuxUser) {
+      saved.push({ mediaType: mediaType, data: data, linuxUser: linuxUser });
+      return "preview.png";
+    },
+  };
+  var processor = makeProcessor(spies);
+  var session = makeSession(true);
+
+  processor.processSDKMessage(session, {
+    yokeType: "message",
+    messageRole: "user",
+    content: [{
+      type: "tool_result",
+      tool_use_id: "tool-image",
+      content: [{
+        type: "image",
+        source: {
+          media_type: "image/png",
+          data: "aGVsbG8=",
+        },
+      }],
+    }],
+  });
+  var entry = session.history[0];
+
+  assert.deepStrictEqual(saved, [{
+    mediaType: "image/png",
+    data: "aGVsbG8=",
+    linuxUser: "clay-test",
+  }]);
+  assert.deepStrictEqual(entry.images, [{
+    mediaType: "image/png",
+    url: "/p/test/images/preview.png",
+  }]);
+  assert.deepStrictEqual(entry.imageRefs, [{
+    mediaType: "image/png",
+    file: "preview.png",
+  }]);
+  assert.strictEqual(JSON.stringify(entry).indexOf("aGVsbG8="), -1);
+});
 
 test("usage-credit rate limit rejection does not schedule while turn is processing", function () {
   var spies = { scheduled: 0, cancelled: 0, continued: 0 };
