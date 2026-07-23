@@ -249,7 +249,7 @@ test("Codex does not render empty reasoning blocks", function () {
   assert.deepStrictEqual(events, []);
 });
 
-test("Tool results render every image and preserve accompanying text", function () {
+test("Tool results render every image, preserve text, and expand their group", function () {
   function FakeClassList() {
     this.values = [];
   }
@@ -326,11 +326,20 @@ test("Tool results render every image and preserve accompanying text", function 
     el: toolElement,
     done: false,
     hasResult: false,
+    groupId: "g1",
+  };
+  var toolGroupElement = new FakeElement("div");
+  toolGroupElement.classList.add("collapsed");
+  var toolGroup = {
+    el: toolGroupElement,
+    doneCount: 0,
+    errorCount: 0,
   };
   sandbox.toolResultsTestApi.initToolResultTools({
     showImageModal: function () {},
   }, {
     getTools: function () { return { imageTool: tool }; },
+    findToolGroup: function () { return toolGroup; },
   });
 
   sandbox.toolResultsTestApi.updateToolResult("imageTool", "Saved two previews", false, [
@@ -344,6 +353,8 @@ test("Tool results render every image and preserve accompanying text", function 
   assert.strictEqual(resultBlock.children[1].children[0].src, "data:image/png;base64,c2Vjb25k");
   assert.strictEqual(resultBlock.children[2].tagName, "pre");
   assert.strictEqual(resultBlock.children[2].textContent, "Saved two previews");
+  assert.strictEqual(toolGroup.autoExpanded, true);
+  assert.strictEqual(toolGroupElement.classList.values.indexOf("collapsed"), -1);
 });
 
 test("Codex item events without thread or turn identity are ignored after thread binding", function () {
