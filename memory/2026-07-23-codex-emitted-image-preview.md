@@ -1,9 +1,9 @@
 # Debug report: Codex emitted image preview
 
 - **Symptom:** Images emitted from a Codex dynamic tool, including `nodeRepl.emitImage`, appeared as completed tool calls without an inline preview.
-- **Root cause:** Codex delivered the result as an MCP-style JSON string containing `content` blocks with `{ type: "image", data, mimeType }`. The Codex adapter only extracted direct `inputImage` content items, so it recorded the base64 JSON as plain text and sent no `images` field to the client.
-- **Fix:** Parse MCP-style JSON results at the Codex adapter boundary and convert image blocks to Clay's existing `{ mediaType, data }` image representation while preserving text blocks.
-- **Evidence:** The captured failing session contained the exact wrapped payload. The new regression test reproduces that payload and confirms the normalized tool result contains the image. The full test suite passes: 307 tests, 0 failures.
-- **Regression test:** `test/codex-adapter-routing.test.js`, "Codex extracts images wrapped in an MCP JSON tool result".
+- **Root cause:** Codex can deliver image results through two item shapes. Dynamic tool calls may wrap MCP `content` blocks in JSON text, while native `mcpToolCall` items expose the blocks directly under `item.result.content`. Clay's dynamic branch only recognized direct `inputImage` items, and its native MCP branch explicitly extracted only `c.text`, discarding image blocks.
+- **Fix:** Normalize both serialized and direct MCP content blocks at the Codex adapter boundary, converting images to Clay's existing `{ mediaType, data }` representation while preserving text.
+- **Evidence:** The original captured session demonstrated the serialized form. A post-restart live test demonstrated the direct `mcpToolCall` form and persisted an empty tool result before the second fix. Regression tests now reproduce both payloads.
+- **Regression tests:** `test/codex-adapter-routing.test.js`, "Codex extracts images wrapped in an MCP JSON tool result" and "Codex preserves image blocks from a completed MCP tool call".
 - **Related:** Earlier fixes handled direct Codex `inputImage`, image-generation items, persistence, and client expansion. They did not cover images nested in serialized MCP results.
 - **Status:** DONE

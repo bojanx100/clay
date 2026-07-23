@@ -114,6 +114,46 @@ test("Codex extracts images wrapped in an MCP JSON tool result", function () {
   assert.strictEqual(result.isError, false);
 });
 
+test("Codex preserves image blocks from a completed MCP tool call", function () {
+  var state = {
+    blockCounter: 0,
+    toolBlocks: {},
+    thinkingBlocks: {},
+    thinkingLengths: {},
+    commandInputs: {},
+    commandOutputs: {},
+  };
+  var events = routing.flattenEvent({
+    method: "item/completed",
+    params: {
+      item: {
+        id: "mcp-node-repl-image-1",
+        type: "mcpToolCall",
+        tool: "js",
+        arguments: { code: "await nodeRepl.emitImage(...)" },
+        status: "completed",
+        result: {
+          content: [
+            { type: "text", text: "Preview ready" },
+            { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+          ],
+          isError: false,
+        },
+      },
+    },
+  }, state);
+  var result = events.filter(function (event) {
+    return event.yokeType === "tool_result";
+  })[0];
+
+  assert.strictEqual(result.content, "Preview ready");
+  assert.deepStrictEqual(result.images, [{
+    mediaType: "image/png",
+    data: "aGVsbG8=",
+  }]);
+  assert.strictEqual(result.isError, false);
+});
+
 test("Codex reconciles dynamic image tools carried only by turn completion", function () {
   var state = {
     blockCounter: 0,
