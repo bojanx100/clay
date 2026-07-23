@@ -155,6 +155,100 @@ test("Codex does not repeat a dynamic tool result at turn completion", function 
   assert.strictEqual(resultCount, 1);
 });
 
+test("Codex image generation output is preserved for the client", function () {
+  var state = {
+    blockCounter: 0,
+    toolBlocks: {},
+    thinkingBlocks: {},
+    thinkingLengths: {},
+    commandInputs: {},
+    commandOutputs: {},
+  };
+  var events = routing.flattenEvent({
+    method: "item/completed",
+    params: {
+      item: {
+        id: "generated-image-1",
+        type: "imageGeneration",
+        status: "completed",
+        revisedPrompt: "A refined urban icon",
+        result: "aGVsbG8=",
+        savedPath: "/tmp/generated.png",
+      },
+    },
+  }, state);
+  var result = events.filter(function (event) {
+    return event.yokeType === "tool_result";
+  })[0];
+
+  assert.strictEqual(events[0].yokeType, "tool_start");
+  assert.strictEqual(events[1].toolName, "imagegen");
+  assert.deepStrictEqual(events[1].input, { prompt: "A refined urban icon" });
+  assert.deepStrictEqual(result.images, [
+    { url: "data:image/png;base64,aGVsbG8=" },
+  ]);
+  assert.strictEqual(result.isError, false);
+});
+
+test("Codex reconciles image generation carried only by turn completion", function () {
+  var state = {
+    blockCounter: 0,
+    toolBlocks: {},
+    thinkingBlocks: {},
+    thinkingLengths: {},
+    commandInputs: {},
+    commandOutputs: {},
+    model: "gpt-5.6-sol",
+    aborted: false,
+  };
+  var events = routing.flattenEvent({
+    method: "turn/completed",
+    params: {
+      turn: {
+        status: "completed",
+        items: [{
+          id: "generated-image-turn-only",
+          type: "imageGeneration",
+          status: "completed",
+          result: "aGVsbG8=",
+        }],
+      },
+    },
+  }, state);
+  var result = events.filter(function (event) {
+    return event.yokeType === "tool_result";
+  })[0];
+
+  assert.ok(result);
+  assert.deepStrictEqual(result.images, [
+    { url: "data:image/png;base64,aGVsbG8=" },
+  ]);
+  assert.strictEqual(events[events.length - 1].yokeType, "result");
+});
+
+test("Codex does not render empty reasoning blocks", function () {
+  var state = {
+    blockCounter: 0,
+    toolBlocks: {},
+    thinkingBlocks: {},
+    thinkingLengths: {},
+    commandInputs: {},
+    commandOutputs: {},
+  };
+  var events = routing.flattenEvent({
+    method: "item/completed",
+    params: {
+      item: {
+        id: "empty-reasoning-1",
+        type: "reasoning",
+        summary: [],
+      },
+    },
+  }, state);
+
+  assert.deepStrictEqual(events, []);
+});
+
 test("Tool results render every image and preserve accompanying text", function () {
   function FakeClassList() {
     this.values = [];
