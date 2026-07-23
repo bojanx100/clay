@@ -14,7 +14,14 @@ var fs = require("fs");
 var os = require("os");
 var path = require("path");
 
-var { midstreamTimeoutFor, isWatchdogProgressEvent, isContextOverflowError } = require("../lib/sdk-bridge-stream");
+var {
+  midstreamTimeoutFor,
+  isWatchdogProgressEvent,
+  isContextOverflowError,
+  watchdogTimeoutFor,
+  clearInteractiveToolWaits,
+} = require("../lib/sdk-bridge-stream");
+var { attachBridgeDialogs } = require("../lib/sdk-bridge-dialogs");
 var instructions = require("../lib/yoke/instructions");
 var bridgeRecovery = require("../lib/sdk-bridge-recovery");
 var cliSessions = require("../lib/cli-sessions");
@@ -67,6 +74,33 @@ test("real output and payload-bearing system events count as progress", function
   assert.strictEqual(isWatchdogProgressEvent({ yokeType: "system", error: "hook blocked" }), true);
   assert.strictEqual(isWatchdogProgressEvent({ yokeType: "system", content: [{ type: "text", text: "x" }] }), true);
   assert.strictEqual(isWatchdogProgressEvent(null), true);
+});
+
+test("submitted connector elicitation keeps the tool-active watchdog budget until stream progress", async function () {
+  var session = {};
+  var dialogs = attachBridgeDialogs({
+    sendAndRecord: function () {},
+    pushModule: null,
+    slug: "test",
+  });
+  var elicitationPromise = dialogs.handleElicitation(session, {
+    serverName: "codex_apps",
+    message: "GitHub project access is required",
+  }, {});
+  var requestId = Object.keys(session.pendingElicitations)[0];
+
+  assert.ok(requestId, "elicitation must be tracked");
+  assert.strictEqual(watchdogTimeoutFor(session, 0, true, "codex"), 10 * 60 * 1000);
+
+  session.pendingElicitations[requestId].resolve({ action: "accept" });
+  delete session.pendingElicitations[requestId];
+  await elicitationPromise;
+
+  assert.strictEqual(watchdogTimeoutFor(session, 0, true, "codex"), 10 * 60 * 1000,
+    "submitting the dialog must not downgrade an in-flight connector call to mid-generation");
+
+  clearInteractiveToolWaits(session);
+  assert.strictEqual(watchdogTimeoutFor(session, 0, true, "codex"), midstreamTimeoutFor("codex"));
 });
 
 // --- Injected-instructions stripping ---------------------------------------
