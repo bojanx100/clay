@@ -6,4 +6,5 @@
 - **Evidence:** The failing session stored two raw JSON tool results of 23 KB and 1.2 MB with `binaryResultsForLlm` images but no `images` metadata. The regression test reproduces that exact update shape.
 - **Regression test:** `test/copilot-adapter-routing.test.js`, "GitHub Copilot extracts image viewer results from raw output".
 - **Related:** Direct ACP `update.content` image blocks were already supported; Copilot's built-in image viewer uses a different raw-output representation.
+- **Codex-via-Copilot follow-up:** Codex-family Copilot models sometimes avoided the image viewer and printed HTML/data URIs or dev-server links. Copilot runtime guidance now explicitly requires the image viewing tool for local chat previews and forbids those text-only substitutes.
 - **Status:** DONE

@@ -4,6 +4,7 @@ var events = require("events");
 var stream = require("stream");
 
 var copilotAdapter = require("../lib/yoke/adapters/github-copilot");
+var copilotHelpers = require("../lib/yoke/adapters/github-copilot-helpers");
 var routing = copilotAdapter._test;
 
 function makeFakeProcess() {
@@ -33,6 +34,13 @@ function makeAcpLoader(fakeConnection) {
     });
   };
 }
+
+test("GitHub Copilot runtime guidance uses the image viewer for chat previews", function() {
+  var prompt = copilotHelpers.runtimeMetadataPrompt("gpt-5.6-sol", "gpt-5.6-sol", "config");
+
+  assert.match(prompt, /call your image viewing tool with the local file path/);
+  assert.match(prompt, /Do not print base64, HTML img tags, data URIs/);
+});
 
 function createHandle(fakeConnection, opts) {
   return routing.createCopilotQueryHandle(Object.assign({
