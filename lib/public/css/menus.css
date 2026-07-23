@@ -648,6 +648,13 @@
   flex-direction: column;
 }
 
+.config-model-loading {
+  padding: 8px 14px;
+  color: var(--text-dimmer);
+  font-size: 12px;
+  font-style: italic;
+}
+
 .config-radio-item {
   display: flex;
   align-items: center;
