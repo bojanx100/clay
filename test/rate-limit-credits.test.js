@@ -149,6 +149,33 @@ test("Claude tool-result images are persisted instead of recorded inline", funct
   assert.strictEqual(JSON.stringify(entry).indexOf("aGVsbG8="), -1);
 });
 
+test("Claude tool-result images remain visible when persistence fails", function () {
+  var spies = {
+    scheduled: 0,
+    cancelled: 0,
+    continued: 0,
+    saveImageFile: function () { return null; },
+  };
+  var processor = makeProcessor(spies);
+  var session = makeSession(true);
+
+  processor.processSDKMessage(session, {
+    yokeType: "tool_result",
+    toolId: "tool-image",
+    content: "Preview",
+    images: [{
+      mediaType: "image/png",
+      data: "aGVsbG8=",
+    }],
+  });
+
+  assert.deepStrictEqual(session.history[0].images, [{
+    mediaType: "image/png",
+    data: "aGVsbG8=",
+  }]);
+  assert.strictEqual(session.history[0].imageRefs, undefined);
+});
+
 test("usage-credit rate limit rejection does not schedule while turn is processing", function () {
   var spies = { scheduled: 0, cancelled: 0, continued: 0 };
   var processor = makeProcessor(spies);

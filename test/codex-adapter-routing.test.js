@@ -1,5 +1,8 @@
 var test = require("node:test");
 var assert = require("node:assert");
+var fs = require("fs");
+var path = require("path");
+var vm = require("vm");
 
 var codexAdapter = require("../lib/yoke/adapters/codex");
 var routing = codexAdapter._test;
@@ -107,6 +110,146 @@ test("Codex reconciles dynamic image tools carried only by turn completion", fun
     { url: "data:image/png;base64,aGVsbG8=" },
   ]);
   assert.strictEqual(events[events.length - 1].yokeType, "result");
+});
+
+test("Codex does not repeat a dynamic tool result at turn completion", function () {
+  var state = {
+    blockCounter: 0,
+    toolBlocks: {},
+    thinkingBlocks: {},
+    thinkingLengths: {},
+    commandInputs: {},
+    commandOutputs: {},
+    model: "gpt-5.6-sol",
+    aborted: false,
+  };
+  var item = {
+    id: "image-tool-repeated",
+    type: "dynamicToolCall",
+    tool: "imagegen",
+    arguments: { prompt: "Urban icon" },
+    status: "completed",
+    success: true,
+    contentItems: [{
+      type: "inputImage",
+      imageUrl: "data:image/png;base64,aGVsbG8=",
+    }],
+  };
+  var itemEvents = routing.flattenEvent({
+    method: "item/completed",
+    params: { item: item },
+  }, state);
+  var turnEvents = routing.flattenEvent({
+    method: "turn/completed",
+    params: {
+      turn: {
+        status: "completed",
+        items: [item],
+      },
+    },
+  }, state);
+  var resultCount = itemEvents.concat(turnEvents).filter(function (event) {
+    return event.yokeType === "tool_result";
+  }).length;
+
+  assert.strictEqual(resultCount, 1);
+});
+
+test("Tool results render every image and preserve accompanying text", function () {
+  function FakeClassList() {
+    this.values = [];
+  }
+  FakeClassList.prototype.add = function (value) {
+    if (this.values.indexOf(value) === -1) this.values.push(value);
+  };
+  FakeClassList.prototype.remove = function (value) {
+    var index = this.values.indexOf(value);
+    if (index !== -1) this.values.splice(index, 1);
+  };
+  FakeClassList.prototype.toggle = function (value) {
+    if (this.values.indexOf(value) === -1) this.add(value);
+    else this.remove(value);
+  };
+
+  function FakeElement(tagName) {
+    this.tagName = tagName;
+    this.children = [];
+    this.className = "";
+    this.classList = new FakeClassList();
+    this.textContent = "";
+    this.listeners = {};
+  }
+  FakeElement.prototype.appendChild = function (child) {
+    this.children.push(child);
+    return child;
+  };
+  FakeElement.prototype.addEventListener = function (name, handler) {
+    this.listeners[name] = handler;
+  };
+  FakeElement.prototype.querySelector = function () { return null; };
+  FakeElement.prototype.remove = function () {};
+
+  var sourcePath = path.join(__dirname, "../lib/public/modules/tools-results.js");
+  var source = fs.readFileSync(sourcePath, "utf8")
+    .replace(/^import .*$/gm, "")
+    .replace(/^export /gm, "");
+  var sandbox = {
+    Set: Set,
+    document: {
+      createElement: function (tagName) { return new FakeElement(tagName); },
+    },
+    window: {},
+    requestAnimationFrame: function (callback) {
+      callback();
+      return 1;
+    },
+    lucide: { createIcons: function () {} },
+    iconHtml: function () { return ""; },
+    refreshIcons: function () {},
+    renderUnifiedDiff: function () {},
+    renderSplitDiff: function () {},
+    renderPatchDiff: function () {},
+    reconstructPatchSources: function () { return { oldStr: "", newStr: "" }; },
+    openFile: function () {},
+  };
+  vm.runInNewContext(source +
+    "\nthis.toolResultsTestApi = { initToolResultTools: initToolResultTools, updateToolResult: updateToolResult };",
+    sandbox);
+
+  var header = new FakeElement("div");
+  var subtitle = new FakeElement("span");
+  var statusIcon = new FakeElement("span");
+  var toolElement = new FakeElement("div");
+  toolElement.querySelector = function (selector) {
+    if (selector === ".tool-header") return header;
+    if (selector === ".tool-subtitle-text") return subtitle;
+    if (selector === ".tool-status-icon") return statusIcon;
+    return null;
+  };
+  var tool = {
+    name: "imagegen",
+    input: {},
+    el: toolElement,
+    done: false,
+    hasResult: false,
+  };
+  sandbox.toolResultsTestApi.initToolResultTools({
+    showImageModal: function () {},
+  }, {
+    getTools: function () { return { imageTool: tool }; },
+  });
+
+  sandbox.toolResultsTestApi.updateToolResult("imageTool", "Saved two previews", false, [
+    { url: "/images/first.png" },
+    { mediaType: "image/png", data: "c2Vjb25k" },
+  ]);
+
+  var resultBlock = toolElement.children[0];
+  assert.strictEqual(resultBlock.children.length, 3);
+  assert.strictEqual(resultBlock.children[0].children[0].src, "/images/first.png");
+  assert.strictEqual(resultBlock.children[1].children[0].src, "data:image/png;base64,c2Vjb25k");
+  assert.strictEqual(resultBlock.children[2].tagName, "pre");
+  assert.strictEqual(resultBlock.children[2].textContent, "Saved two previews");
 });
 
 test("Codex item events without thread or turn identity are ignored after thread binding", function () {
