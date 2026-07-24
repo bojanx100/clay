@@ -337,6 +337,52 @@ test("GitHub Copilot emits one text start for repeated streamed chunks", async f
   }
 });
 
+test("GitHub Copilot hides internal cancellation notices from follow-up prompts", async function() {
+  var fakeConnection = {
+    initialize: function() {
+      return Promise.resolve({ agentCapabilities: {} });
+    },
+    newSession: function() {
+      return Promise.resolve({ sessionId: "copilot-session-cancel-notice", configOptions: [] });
+    },
+    prompt: async function() {
+      await fakeConnection.client.sessionUpdate({
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: "internal-cancel-notice",
+          content: { type: "text", text: "Info: Operation cancelled by user" },
+        },
+      });
+      await fakeConnection.client.sessionUpdate({
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: "real-response",
+          content: { type: "text", text: "Continuing with the requested work." },
+        },
+      });
+      return { usage: { inputTokens: 3, outputTokens: 2 }, stopReason: "end_turn" };
+    },
+    closeSession: function() {
+      return Promise.resolve({});
+    },
+    cancel: function() {
+      return Promise.resolve({});
+    },
+  };
+  var handle = createHandle(fakeConnection);
+
+  try {
+    var eventsOut = await readUntil(handle, function(event) {
+      return event.yokeType === "result";
+    });
+
+    assert.strictEqual(joinedText(eventsOut), "Continuing with the requested work.");
+    assert.strictEqual(eventsByType(eventsOut, "text_start").length, 1);
+  } finally {
+    handle.close();
+  }
+});
+
 test("GitHub Copilot resumes with the supplied session id when ACP omits it", async function() {
   var fakeConnection = {
     initialize: function() {
