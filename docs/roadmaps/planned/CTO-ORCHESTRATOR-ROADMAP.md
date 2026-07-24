@@ -22,6 +22,32 @@ line.** Trust is transferred from eyeballs to automated gates and metrics.
 The human reviews outcomes and gate results, never diffs. The CTO also does
 not read lines — he reads gate verdicts.
 
+### 1.1 Reversibility — the CTO is an opt-in module with a kill switch
+
+Hard design constraint (owner decision, 2026-07-24): the CTO may turn out
+worse than the current setup. It must therefore ship as a **mode/module on
+top of Clay, never a rewiring of Clay**:
+
+- **Server-side setting, off by default.** "CTO mode" is a per-workspace
+  setting (server-side per project rules, never localStorage). Enabling it
+  grants Coop the management duties; disabling it returns Coop to plain
+  coordinator scope (find, triage, switch).
+- **Additive-only rule.** No existing flow — sessions, provider switching,
+  workers, debate, failover, skills — may be changed to *depend* on the CTO.
+  With the mode off, Clay behaves exactly as it does today. Any PR that
+  makes a core path require the CTO violates this roadmap.
+- **Isolated state.** The CTO's portfolio index, routing records, and
+  standup history live in their own storage namespace. Deleting it cannot
+  corrupt sessions, projects, or history.
+- **Kill-switch semantics.** Disabling mid-flight: delegated worker sessions
+  simply become ordinary Clay sessions (they already are); queued CTO
+  actions are dropped; nothing needs migration or cleanup to keep working.
+- **Salvage value.** The pieces with standalone worth are deliberately built
+  *outside* the module: done-gate metrics tooling (§5.1), Live UI's
+  verification manifest, the Voice kernel, cross-provider worker routing.
+  If the orchestration concept fails, only the routing brain and standup
+  composer are discarded — everything else remains in daily use.
+
 ## 2. Prerequisite: Phase 0 — Harden what exists
 
 Before any CTO work starts, Clay's existing features must be **optimised,
@@ -285,11 +311,11 @@ What the CTO composes (all present today):
 
 The CTO is one of three planned initiatives that form a single product:
 
-| Initiative | Doc | Role |
-|---|---|---|
-| CTO Orchestrator | this doc | The brain: who does what, when; gates; reporting |
-| Voice / Coop | `VOICE-CONVERSATION-ROADMAP.md` | The boss's interface: talk, approve, standups, triage |
-| Live UI | `LIVE-UI.md` | The hands-on surface: point at the real app, detail design, fix issues in real time |
+| Initiative | Doc | Role | Ships as |
+|---|---|---|---|
+| CTO Orchestrator | this doc | The brain: who does what, when; gates; reporting | **Opt-in module** (§1.1), off by default |
+| Voice / Coop | `VOICE-CONVERSATION-ROADMAP.md` | The boss's interface: talk, approve, standups, triage | Core feature set |
+| Live UI | `LIVE-UI.md` | The hands-on surface: point at the real app, detail design, fix issues in real time | **Core feature set** — independent of CTO mode |
 
 Binding decisions (recorded here so neither track builds a duplicate):
 
@@ -297,17 +323,22 @@ Binding decisions (recorded here so neither track builds a duplicate):
    canaries, diagnostics, gated phase exits) and this doc's §2 Phase 0 are
    the same requirement. One hardening pass is the precondition for all
    three initiatives.
-2. **The CTO is Coop's management brain.** Coop (workspace coordinator,
-   persistent daemon-level coordination channel, `server-coordination.js`)
-   is how the boss talks to the CTO; the CTO loop (§3.2) is what the same
-   entity does between conversations. This resolves the "where does the CTO
-   live" question: daemon-level, on the Coop coordination channel — not an
-   HQ project.
+2. **The CTO is Coop's management brain — gated by CTO mode.** Coop
+   (workspace coordinator, persistent daemon-level coordination channel,
+   `server-coordination.js`) is how the boss talks to the CTO; the CTO loop
+   (§3.2) is what the same entity does between conversations. This resolves
+   the "where does the CTO live" question: daemon-level, on the Coop
+   coordination channel — not an HQ project. One entity, two power levels:
+   with CTO mode off, Coop is a plain coordinator (find, triage, switch);
+   enabling the mode grants backlog ownership, routing, gate enforcement,
+   and reporting duties.
 3. **The CTO's behavioral done-gate adopts Live UI's evidence contract.**
    Live UI's operation journal, typed verification manifest ("agent prose is
    not verification evidence"), and formal result states (including
    reproduce-before / pass-after for bug fixes) become the CTO's
-   §5.2 evidence format. No parallel verification schema.
+   §5.2 evidence format. No parallel verification schema. Dependency
+   direction is one-way: Live UI is a core feature that never depends on
+   CTO mode; the CTO (when enabled) is a *reader* of its artifacts.
 4. **The CTO's approvals adopt the Voice conversation gateway.** Immutable
    plan versions, amend-then-approve, typed human-input provenance
    (machine-injected input can never approve, confirm done, or answer
