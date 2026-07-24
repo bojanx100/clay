@@ -382,3 +382,50 @@ test("queued failover waits for cold fallback model discovery", async function (
   assert.strictEqual(continued.length, 1);
   providerHealth._reset();
 });
+
+test("bounds consecutive automatic failovers so providers cannot ping-pong", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude", "codex"]);
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+  session._providerFailoverHops = 5;                 // budget already spent
+  session._providerFailoverWindowStart = Date.now(); // within the window
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+  });
+
+  assert.strictEqual(handled, false, "failover is refused once the hop budget is exhausted");
+  assert.strictEqual(session.vendor, "claude", "vendor is left unchanged");
+  assert.strictEqual(continued.length, 0, "no continuation prompt is fired");
+  var warned = session.history.some(function (h) {
+    return h.type === "info" && h.variant === "warning" &&
+      /stopped automatic provider switching/.test(h.text || "");
+  });
+  assert.ok(warned, "the user is told automatic switching stopped");
+  providerHealth._reset();
+});
+
+test("resets the failover hop budget after a quiet window", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude", "codex"]);
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+  session._providerFailoverHops = 5;
+  session._providerFailoverWindowStart = Date.now() - (6 * 60 * 1000); // stale window
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+  });
+
+  assert.strictEqual(handled, true, "a failover after the window resets the budget and proceeds");
+  assert.strictEqual(session.vendor, "codex");
+  assert.strictEqual(session._providerFailoverHops, 1, "hop counter restarts at 1");
+  providerHealth._reset();
+});
