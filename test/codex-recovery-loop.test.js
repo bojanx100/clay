@@ -41,6 +41,32 @@ test("claude gets a mid-stream watchdog budget that tolerates silent reasoning (
     "default mid-stream timeout must exceed normal silent-reasoning gaps");
 });
 
+// Regression for the 2026-07-24 resume loop (session 298): five healthy codex
+// turns killed in a row at silentMs 122-125s vs a fixed 120s budget. The
+// budget must escalate with each consecutive watchdog auto-resume so the loop
+// self-extinguishes instead of burning the whole resume budget on one long
+// silent-reasoning stretch.
+test("mid-stream watchdog budget doubles per consecutive auto-resume, capped at the tool budget", function () {
+  var base = midstreamTimeoutFor("codex");
+  var toolBudget = 10 * 60 * 1000;
+  assert.strictEqual(midstreamTimeoutFor("codex", 0), base);
+  assert.strictEqual(midstreamTimeoutFor("codex", 1), Math.min(base * 2, toolBudget));
+  assert.strictEqual(midstreamTimeoutFor("codex", 2), Math.min(base * 4, toolBudget));
+  assert.ok(midstreamTimeoutFor("codex", 3) <= toolBudget,
+    "escalation must never exceed the tool-active budget");
+  assert.strictEqual(midstreamTimeoutFor("codex", 50), midstreamTimeoutFor("codex", 3),
+    "escalation exponent is capped");
+});
+
+test("watchdogTimeoutFor reads the session resume streak for mid-generation waits", function () {
+  var fresh = {};
+  var looping = { _consecutiveAutoResumes: 2 };
+  assert.strictEqual(watchdogTimeoutFor(fresh, 0, true, "codex"), midstreamTimeoutFor("codex"));
+  assert.strictEqual(watchdogTimeoutFor(looping, 0, true, "codex"), midstreamTimeoutFor("codex", 2));
+  assert.ok(watchdogTimeoutFor(looping, 0, true, "codex") > watchdogTimeoutFor(fresh, 0, true, "codex"),
+    "a resumed turn must get more silent-reasoning headroom than a fresh one");
+});
+
 // A context-window overflow must be classified as recoverable regardless of
 // which path surfaces it (thrown error OR in-stream error event) so the client
 // shows the "context_overflow" card, not a bare "Prompt is too long" bubble.

@@ -19,21 +19,43 @@ Verdict: **canaries are NOT quiet.** Three finding classes below.
 
 ## Findings
 
-### F-1: Codex mid-generation watchdog stall loops (severity: high)
+### F-1: Codex mid-generation watchdog stall loops (severity: high) — FIX LANDED, awaiting quiet canary
 
 35 watchdog events in 7 days, mostly `vendor: codex`,
 `case: mid-generation`, `silentMs` just past the 120 s timeout.
 Worst case: session 298 on 2026-07-23 fired 6 consecutive watchdogs
-(~every 2 min, 14:56–15:08) — the watchdog detected the stall repeatedly
-but recovery did not unstick the generation for ~14 minutes. Also
-sessions 751 (2×), 312 (claude), 740.
+(~every 2 min, 14:56–15:08). Also sessions 751 (2×), 312 (claude), 740.
 
-Questions to answer (read `docs/guides/DIAGNOSTICS.md` first per project
-rules):
-- Does watchdog recovery actually restart/kick the generation, or only log?
-- Why is codex disproportionately affected?
-- Is the 120 s timeout appropriate for long codex turns, or are these
-  false stalls on legitimately slow generations?
+**Root cause** (matches the documented "sick" signature in
+`DIAGNOSTICS.md`): current codex models reason silently past the fixed
+120 s mid-generation budget. The watchdog aborts the HEALTHY turn,
+auto-resume tells the model to continue, it starts reasoning again,
+goes silent > 120 s, gets killed again. `_consecutiveAutoResumes`
+(max 5) bounds the episode: session 298 = 5 wasted kill-resume cycles
+(~14 min of lost work/tokens), then parked "needs attention". Third
+occurrence of this bug class (30 s budget → 120 s → outgrown again).
+
+**Fix** (`lib/sdk-bridge-stream.js`): instead of raising the constant a
+third time, the mid-generation budget now **doubles per consecutive
+auto-resume** (120 s → 240 s → 480 s, capped at the 10-min tool budget).
+First detection stays fast; resume loops self-extinguish; genuine user
+messages / real turn activity already reset the streak. Regression
+tests added in `test/codex-recovery-loop.test.js`. Also removed the
+dead `streamHungAutoRetryQueued` flag (written, incl. one toggle-write,
+never read).
+
+**Secondary effect**: each false watchdog fire also called
+`recordProviderFailure` — F-1 was feeding F-2's health flapping.
+Escalation reduces that input; F-2 still needs its own debounce review.
+
+**Watch item**: `sdk-message-processor.js:970` resets the streak when a
+turn saw activity, so an output-then-long-silence pattern still gets the
+base 120 s each cycle. Acceptable for now (each cycle makes progress);
+revisit if the canary shows activity-interleaved loops.
+
+**Not done until**: `recovery-events-dev.log` shows no
+barely-over-budget mid-generation loops for ~1 week of normal use
+(per DIAGNOSTICS.md: a fix without a quiet canary is not done).
 
 ### F-2: provider_health flapping (severity: medium)
 
@@ -75,3 +97,6 @@ means what it says. A canary that cries on every laptop sleep cannot be
 ## Log
 
 - 2026-07-24: baseline recorded; F-1..F-3 opened.
+- 2026-07-24: F-1 root-caused (fixed-budget watchdog vs silent reasoning,
+  third occurrence) and fixed with escalating per-resume budgets; full
+  test suite green (334); awaiting quiet-canary confirmation.
