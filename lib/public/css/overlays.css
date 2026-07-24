@@ -115,6 +115,23 @@
   min-width: 25px;
   font-variant-numeric: tabular-nums;
 }
+.usage-progress-value.low {
+  color: var(--success);
+}
+.usage-progress-value.medium {
+  color: var(--warning);
+}
+.usage-progress-value.high {
+  color: var(--error);
+}
+.usage-progress-value.exhausted {
+  min-width: auto;
+  padding: 1px 3px;
+  border-radius: 4px;
+  color: #fff;
+  background: #15171c;
+  box-shadow: inset 0 0 0 1px var(--error);
+}
 .usage-check-link .lucide {
   width: 12px;
   height: 12px;
@@ -174,6 +191,12 @@ button.top-bar-pill.pill-accent:hover { background: color-mix(in srgb, var(--acc
   #share-pill { display: none; }
 }
 .pwa-standalone #share-pill { display: none !important; }
+
+@media (max-width: 768px) {
+  .usage-progress {
+    display: none;
+  }
+}
 
 /* Extension pill button — same style as share/install pills */
 .ext-pill-wrap {
