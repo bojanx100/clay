@@ -95,6 +95,68 @@ test("recordSuccess resets an unhealthy vendor to healthy and stamps recoveredAt
   assert.strictEqual(health.unhealthySince, null);
 });
 
+// Regression for F-2 flapping (2026-07-24): a hard rate-limit rejection
+// marked claude unhealthy, then a DIFFERENT in-flight claude turn completed
+// one second later and flipped it straight back to healthy — while new sends
+// were still rejected until the window reset. Successes inside a known quota
+// window must not recover the vendor.
+test("success inside a known quota window does not recover the vendor", function () {
+  providerHealth._reset();
+  var resetsAt = T0 + 60 * 60 * 1000; // window resets in an hour
+
+  providerHealth.recordFailure("claude", "rate-limit-rejected", {
+    now: T0, immediate: true, unavailableUntil: resetsAt,
+  });
+  assert.strictEqual(providerHealth.getHealth("claude").state, "unhealthy");
+
+  // An already-streaming turn completes cleanly one second later.
+  providerHealth.recordSuccess("claude", { now: T0 + 1000 });
+  var afterInFlight = providerHealth.getHealth("claude");
+  assert.strictEqual(afterInFlight.state, "unhealthy",
+    "in-flight completions must not clear quota unavailability");
+  assert.strictEqual(afterInFlight.lastError, "rate-limit-rejected",
+    "the unhealthy record must stay truthful during the window");
+
+  // After the window resets, the next clean turn recovers the vendor.
+  providerHealth.recordSuccess("claude", { now: resetsAt + 1000 });
+  var afterReset = providerHealth.getHealth("claude");
+  assert.strictEqual(afterReset.state, "healthy");
+  assert.strictEqual(afterReset.recoveredAt, resetsAt + 1000);
+  assert.strictEqual(afterReset.unavailableUntil, null);
+});
+
+test("unavailableUntil in the past or invalid is ignored", function () {
+  providerHealth._reset();
+
+  providerHealth.recordFailure("claude", "rate-limit-rejected", {
+    now: T0, immediate: true, unavailableUntil: T0 - 5000,
+  });
+  providerHealth.recordSuccess("claude", { now: T0 + 1000 });
+  assert.strictEqual(providerHealth.getHealth("claude").state, "healthy",
+    "a stale reset time must not pin the vendor unhealthy");
+
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "rate-limit-rejected", {
+    now: T0, immediate: true, unavailableUntil: null,
+  });
+  providerHealth.recordSuccess("claude", { now: T0 + 1000 });
+  assert.strictEqual(providerHealth.getHealth("claude").state, "healthy",
+    "no reset time keeps today's success-recovers behavior");
+});
+
+test("non-quota unhealthy still recovers on the next clean turn", function () {
+  providerHealth._reset();
+
+  providerHealth.recordFailure("codex", "watchdog", { now: T0 });
+  providerHealth.recordFailure("codex", "watchdog", { now: T0 + 1000 });
+  providerHealth.recordFailure("codex", "watchdog", { now: T0 + 2000 });
+  assert.strictEqual(providerHealth.getHealth("codex").state, "unhealthy");
+
+  providerHealth.recordSuccess("codex", { now: T0 + 3000 });
+  assert.strictEqual(providerHealth.getHealth("codex").state, "healthy",
+    "outage-style unhealthiness has no window and recovers on success");
+});
+
 test("recordSuccess on a healthy vendor does not stamp recoveredAt", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "a", { now: T0 });

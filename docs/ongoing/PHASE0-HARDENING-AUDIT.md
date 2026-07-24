@@ -57,7 +57,7 @@ revisit if the canary shows activity-interleaved loops.
 barely-over-budget mid-generation loops for ~1 week of normal use
 (per DIAGNOSTICS.md: a fix without a quiet canary is not done).
 
-### F-2: provider_health flapping (severity: medium)
+### F-2: provider_health flapping (severity: medium) — FIX LANDED, awaiting quiet canary
 
 193 health transitions in 7 days (~27/day). Observed pattern
 (2026-07-24T00:09): claude marked `unhealthy` after a single
@@ -65,12 +65,30 @@ barely-over-budget mid-generation loops for ~1 week of normal use
 triggered for session 143 (`usage-credits-exhausted`), then claude back
 to `healthy` **within 1 second**.
 
-Questions:
-- Should one 429 mark a vendor unhealthy? Debounce/threshold review.
-- Was the session-143 failover necessary if the vendor was healthy again
-  1 s later? A failover carries handoff-context cost and model change.
-- Distinguish transient rate-limit vs. genuine outage vs. quota
-  exhaustion in the health state machine.
+**Root cause**: the `immediate: true` unhealthy on a hard rate-limit
+rejection is deliberate and correct (quota exhaustion IS definitive for
+new sends). The bug is on the recovery side: `recordSuccess` fires on
+ANY turn completing with activity + non-zero cost — including turns
+that were **already streaming** when the limit hit (their tokens were
+already granted). An in-flight completion proves nothing about new-send
+capacity, so health ping-ponged: new send → unhealthy, draining turn →
+healthy.
+
+**Fix** (`lib/provider-health.js`, `lib/sdk-message-processor.js`):
+quota-type failures now carry `unavailableUntil` (the window's known
+`resetsAt`). While inside that window, successes do not recover the
+vendor and the unhealthy record stays truthful; after the window, the
+next clean turn recovers as before. Outage-style unhealthiness (no
+window) keeps today's success-recovers behavior. Regression tests in
+`test/provider-health.test.js`.
+
+**Note**: the session-143 failover itself was arguably correct behavior
+(keep working elsewhere until the window resets); only the health
+signal was lying. F-1's fix also removes a major source of spurious
+`recordProviderFailure` calls feeding this counter.
+
+**Not done until**: provider_health transitions drop to genuinely-rare
+events in `recovery-events-dev.log` (~1 week of normal use).
 
 ### F-3: LOOP-LAG sleep false positives (severity: low, canary hygiene)
 
@@ -100,3 +118,7 @@ means what it says. A canary that cries on every laptop sleep cannot be
 - 2026-07-24: F-1 root-caused (fixed-budget watchdog vs silent reasoning,
   third occurrence) and fixed with escalating per-resume budgets; full
   test suite green (334); awaiting quiet-canary confirmation.
+- 2026-07-24: daemon restarted; F-1 fix live.
+- 2026-07-24: F-2 root-caused (in-flight completions clearing quota
+  unavailability) and fixed with `unavailableUntil` quota windows on the
+  health record; full suite green; awaiting quiet-canary confirmation.
