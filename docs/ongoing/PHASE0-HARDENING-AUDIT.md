@@ -103,16 +103,28 @@ what it says. New marker documented in `docs/guides/DIAGNOSTICS.md`.
 Verification: next sleep/wake cycle should produce a `[SLEEP-WAKE]`
 line and no giant `[LOOP-LAG]` line.
 
-## Feature audit checklist (not started)
+## Feature audit — evidence pass (2026-07-24)
 
-| Feature | Verified E2E | Canaries quiet during test | Discoverable/usable | Notes |
-|---|---|---|---|---|
-| Provider switching (`/provider`, `/switch`, model-requested, outage) | ☐ | ☐ | ☐ | |
-| Handoff packages (context transfer, window sizing, decay) | ☐ | ☐ | ☐ | |
-| Worker delegation (Codex→Terra, Claude→Opus, status contracts) | ☐ | ☐ | ☐ | |
-| Debate engine (moderator + multi-provider panelists) | ☐ | ☐ | ☐ | |
-| Provider failover (health scoring, auto-continue) | ☐ | ☐ | ☐ | related: F-2 |
-| Sub-agent UI rendering (`tools-subagents.js`) | ☐ | ☐ | ☐ | |
+Method: instead of synthetic tests, audited 211 session-history files
+modified in the last 7 days (parsed as JSONL events, not grepped as
+text — session histories contain source code and even prior audit
+output, so naive string matching lies; see "measurement lesson" below).
+
+| Feature | Verdict | Evidence |
+|---|---|---|
+| Provider switching (all triggers) | **✅ verified in production** | 23 real `vendor_switched` events in 7 days (7 manual, 11 provider-failure, 5 legacy/untagged). **All 23** followed by real work from the new provider (deltas + tool calls). Zero dead-ends, zero error-only outcomes. |
+| Handoff packages | **✅ verified in production** | 5 packages on disk, all well-formed (`state.json` with vendor/model/git/tasks/goal metadata + `transcript.md`, 754 B–324 KB). One oldest package has a smaller pre-schema key set — expected. |
+| Provider failover + auto-continue | **✅ verified in production** | The 11 provider-failure switches above all continued working post-switch. Health-signal quality issues tracked separately as F-2 (fixed). |
+| Worker delegation | **✅ working** | ~17 genuine `WORKER_STATUS: complete` vs ~2–4 genuine blocked across recent sessions. (Initial count looked inverted — 41 blocked / 53 escalations — but 37+ of those matches were prompt-boilerplate text recorded in histories, not real outcomes.) |
+| Debate engine | **◐ used, needs one live run** | 17 session files reference debate activity; not yet distinguished from tool-listing noise. Cheap to verify live with one `propose_debate` round. |
+| Sub-agent UI rendering | **◐ not auditable from logs** | Client-side; verify visually during the next worker/debate run. |
+| Ease of use / discoverability | ☐ not started | Needs a fresh-eyes pass over `/provider`, `/switch`, worker and debate entry points. |
+
+**Measurement lesson (feeds the CTO roadmap §5):** counting outcome
+strings in transcripts produced a wildly wrong picture (prompt
+boilerplate + audit-echo inflated "blocked" 10×). Orchestrator metrics
+must come from **typed events** (the Live UI verification-manifest
+principle), never from text matching.
 
 ## Log
 
@@ -127,3 +139,7 @@ line and no giant `[LOOP-LAG]` line.
 - 2026-07-24: F-3 fixed (`[SLEEP-WAKE]` classification for wall-clock
   jumps ≥ 30 s); DIAGNOSTICS.md updated. F-2 and F-3 need one daemon
   restart to go live.
+- 2026-07-24: feature-audit evidence pass over 211 recent session files:
+  provider switching, handoffs, failover, and worker delegation all
+  verified working in production. Remaining: one live debate run,
+  sub-agent UI visual check, ease-of-use pass.
