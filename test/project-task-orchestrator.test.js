@@ -2,11 +2,12 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
 
-function testContext() {
-  var sessions = new Map();
+function testContext(existingSessions) {
+  var sessions = existingSessions || new Map();
   var nextId = 2;
   var events = [];
   var starts = [];
+  var pushes = [];
   var sm = {
     sessions: sessions,
     defaultVendor: "claude",
@@ -32,6 +33,9 @@ function testContext() {
       startQuery: function (session, prompt) {
         starts.push({ session: session, prompt: prompt });
       },
+      pushMessage: function (session, prompt) {
+        pushes.push({ session: session, prompt: prompt });
+      },
     },
     sendToSession: function (id, event) {
       events.push({ id: id, event: event });
@@ -39,44 +43,145 @@ function testContext() {
     onProcessingChanged: function () {},
     ensureProjectAccessForSession: function () {},
   });
-  return { sm: sm, sessions: sessions, events: events, starts: starts, api: api };
+  return {
+    sm: sm,
+    sessions: sessions,
+    events: events,
+    starts: starts,
+    pushes: pushes,
+    api: api,
+  };
 }
 
-test("starts a queued message as a tracked worker session", function () {
-  var ctx = testContext();
+function coordinator(ctx) {
   var parent = {
     localId: 1,
     title: "Coordinator",
     vendor: "codex",
     model: "gpt-test",
+    history: [],
     orchestrationTasks: [],
+    isProcessing: false,
+    coordinationMode: true,
   };
   ctx.sessions.set(parent.localId, parent);
+  return parent;
+}
 
-  var result = ctx.api.startTask(parent, {
-    text: "Review the reconnect logic",
-    displayText: "Review the reconnect logic",
-  }, null);
+function brief(parent) {
+  return {
+    coordinatorSessionId: parent.localId,
+    title: "Review reconnect logic",
+    objective: "Find and fix the reconnect regression.",
+    context: "The parent has already isolated the issue to resume handling.",
+    acceptanceCriteria: "Tests pass and reconnect happens once.",
+    ownedPaths: "lib/reconnect.js and its tests",
+  };
+}
 
-  assert.ok(result.taskId.indexOf("task-") === 0);
+test("activates the current session as coordinator with the queued request", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  parent.coordinationMode = false;
+
+  var prompt = ctx.api.activateCoordinator(parent, "this is what you asked");
+
+  assert.equal(parent.coordinationMode, true);
+  assert.match(prompt, /coordinatorSessionId for orchestration tool calls is 1/);
+  assert.match(prompt, /this is what you asked/);
+  assert.match(prompt, /delegate_task/);
+});
+
+test("rejects delegation from a session that is not the coordinator", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  parent.coordinationMode = false;
+
+  var result = ctx.api.delegateFromTool(brief(parent));
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /non-coordinator/);
+});
+
+test("starts a worker from a complete coordinator brief and returns its result", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+
+  var result = ctx.api.delegateFromTool(brief(parent));
+
+  assert.equal(result.isError, undefined);
   assert.equal(parent.orchestrationTasks.length, 1);
   assert.equal(parent.orchestrationTasks[0].status, "running");
   assert.equal(parent.orchestrationTasks[0].provider, "codex");
   assert.equal(ctx.starts.length, 1);
-  assert.match(ctx.starts[0].prompt, /Complete only the task below/);
-  assert.match(ctx.starts[0].prompt, /Review the reconnect logic/);
-  assert.equal(ctx.starts[0].session.isProcessing, true);
+  assert.match(ctx.starts[0].prompt, /Find and fix the reconnect regression/);
+  assert.match(ctx.starts[0].prompt, /resume handling/);
+  assert.match(ctx.starts[0].prompt, /Tests pass and reconnect happens once/);
+  assert.match(ctx.starts[0].prompt, /lib\/reconnect.js and its tests/);
 
-  ctx.starts[0].session._subscriber({ type: "done" });
+  var worker = ctx.starts[0].session;
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Fixed resume handling.\nVERIFICATION: tests pass",
+  });
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+
   assert.equal(parent.orchestrationTasks[0].status, "completed");
-  assert.equal(ctx.events[ctx.events.length - 1].event.type, "orchestration_tasks_state");
+  assert.equal(parent.isProcessing, true);
+  assert.equal(ctx.starts.length, 2);
+  assert.equal(ctx.starts[1].session, parent);
+  assert.match(ctx.starts[1].prompt, /Fixed resume handling/);
+  assert.match(ctx.starts[1].prompt, /You own this result/);
+});
+
+test("holds worker results while the coordinator is busy", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var worker = ctx.starts[0].session;
+  parent.isProcessing = true;
+  worker.history.push({ type: "delta", text: "WORKER_STATUS: completed\nSUMMARY: Done." });
+  worker.isProcessing = false;
+
+  worker._subscriber({ type: "done" });
+
+  assert.equal(parent.pendingCoordinatorUpdates.length, 1);
+  assert.equal(ctx.api.flushCoordinatorUpdates(parent), false);
+  parent.isProcessing = false;
+  assert.equal(ctx.api.flushCoordinatorUpdates(parent), true);
+  assert.equal(ctx.starts.length, 2);
+});
+
+test("runs a queued coordinator update after the worker turn", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+
+  var result = ctx.api.messageFromTool({
+    coordinatorSessionId: parent.localId,
+    taskId: task.taskId,
+    message: "Also verify the recovery canary.",
+  });
+  assert.match(result.content[0].text, /Queued the update/);
+
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+
+  assert.equal(ctx.starts.length, 2);
+  assert.equal(ctx.starts[1].session, worker);
+  assert.match(ctx.starts[1].prompt, /verify the recovery canary/);
+  assert.equal(task.status, "running");
 });
 
 test("restores a running worker subscription", function () {
   var sessions = new Map();
-  var worker = { localId: 2, isProcessing: true };
+  var worker = { localId: 2, isProcessing: true, history: [] };
   var parent = {
     localId: 1,
+    history: [],
     orchestrationTasks: [{
       taskId: "task-existing",
       title: "Existing task",
@@ -86,21 +191,8 @@ test("restores a running worker subscription", function () {
   };
   sessions.set(parent.localId, parent);
   sessions.set(worker.localId, worker);
-  var sm = {
-    sessions: sessions,
-    saveSessionFile: function () {},
-    subscribeSession: function (id, cb) {
-      sessions.get(id)._subscriber = cb;
-    },
-  };
 
-  attachTaskOrchestrator({
-    sm: sm,
-    sdk: {},
-    sendToSession: function () {},
-  });
+  testContext(sessions);
 
   assert.equal(typeof worker._subscriber, "function");
-  worker._subscriber({ type: "done" });
-  assert.equal(parent.orchestrationTasks[0].status, "completed");
 });

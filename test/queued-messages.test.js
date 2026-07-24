@@ -165,3 +165,81 @@ test("steering one queued message leaves the remaining messages queued", async f
     return item.queueId;
   }), ["q-first"]);
 });
+
+test("coordinating a queued follow-up keeps it in the parent conversation", function () {
+  var queueApi = attachSessionQueuedMessages({ encodedCwd: "test" });
+  var session = {
+    localId: 42,
+    isProcessing: false,
+    history: [queuedHistoryItem("q-context", "this is what you asked")],
+    pendingUserMessageQueue: [{
+      queueId: "q-context",
+      text: "this is what you asked",
+      displayText: "this is what you asked",
+    }],
+  };
+  var dispatched = [];
+  var sm = {
+    sessions: new Map([[session.localId, session]]),
+    queuedUserMessagesForClient: queueApi.queuedUserMessagesForClient,
+    saveSessionFile: function () {},
+    appendToSessionFile: function () {},
+    broadcastSessionList: function () {},
+  };
+  var handler = attachUserMessage({
+    cwd: process.cwd(),
+    slug: "test",
+    isMate: false,
+    osUsers: false,
+    sm: sm,
+    sdk: {
+      startQuery: function (targetSession, text) {
+        dispatched.push({ session: targetSession, text: text });
+      },
+    },
+    nm: {},
+    tm: {},
+    send: function () {},
+    sendTo: function () {},
+    sendToSession: function () {},
+    sendToSessionOthers: function () {},
+    clients: new Set(),
+    opts: {},
+    usersModule: { isMultiUser: function () { return false; } },
+    matesModule: {},
+    getSessionForWs: function () { return session; },
+    getLinuxUserForSession: function () { return null; },
+    ensureProjectAccessForSession: function () {},
+    getOsUserInfoForWs: function () { return null; },
+    hydrateImageRefs: function (item) { return item; },
+    saveImageFile: function () { return null; },
+    imagesDir: process.cwd(),
+    onProcessingChanged: function () {},
+    onUserMessageDispatched: function () { return ""; },
+    activateCoordinator: function (targetSession, text) {
+      targetSession.coordinationMode = true;
+      return "[coordinator with full parent context]\n" + text;
+    },
+    _loop: { handleLoopMessage: function () { return false; } },
+    browserState: {},
+    scheduleMessage: function () {},
+    cancelScheduledMessage: function () {},
+    loadContextSources: function () { return []; },
+    saveContextSources: function () {},
+    adapter: {},
+  });
+
+  handler.handleUserMessage({ _clayActiveSession: session.localId }, {
+    type: "coordinate_queued_message",
+    queueId: "q-context",
+    sessionId: session.localId,
+  });
+
+  assert.equal(session.coordinationMode, true);
+  assert.equal(dispatched.length, 1);
+  assert.equal(dispatched[0].session, session);
+  assert.match(dispatched[0].text, /full parent context/);
+  assert.match(dispatched[0].text, /this is what you asked/);
+  assert.equal(session.history[0].coordinationRequest, true);
+  assert.equal(session.orchestrationTasks, undefined);
+});

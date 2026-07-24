@@ -7,6 +7,10 @@ test("task projection exposes stable orchestration identity separately from work
     orchestrationTasks: [{
       taskId: "task-stable",
       title: "Review reconnect logic",
+      objective: "Fix reconnect",
+      acceptanceCriteria: "One reconnect",
+      ownedPaths: "lib/reconnect.js",
+      resultSummary: "",
       status: "running",
       workerSessionId: 42,
       provider: "codex",
@@ -20,6 +24,10 @@ test("task projection exposes stable orchestration identity separately from work
   assert.deepEqual(result, [{
     taskId: "task-stable",
     title: "Review reconnect logic",
+    objective: "Fix reconnect",
+    acceptanceCriteria: "One reconnect",
+    ownedPaths: "lib/reconnect.js",
+    resultSummary: "",
     status: "running",
     workerSessionId: 42,
     provider: "codex",

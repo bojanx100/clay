@@ -879,6 +879,10 @@
   background: var(--danger, #e5534b);
 }
 
+.orchestration-task-status-needs_input {
+  background: var(--warning, #d99824);
+}
+
 .orchestration-task-title,
 .orchestration-task-detail {
   display: block;

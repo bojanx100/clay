@@ -102,8 +102,9 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-task-sources.js` | Source fetchers for project task launcher recipes |
 | `task-source-worker.js` | Forked worker entrypoint for task launcher source fetches so GitHub scans stay off the daemon event loop |
 | `project-task-launcher.js` | `task_launch` | Task launcher engine: load recipes from `.clay/tasks/*.json`, fetch items, spawn sessions (`startSessionForItem`, `loadRecipe`, `launchExternal`). Completion/needs-input markers; delegates the needs-input ping via the `onNeedsInput` callback |
-| `project-task-orchestrator.js` | `start_queued_message_as_task` (via user-message routing), `orchestration_tasks_state` | Conversation-owned task records and background session-worker spawning |
-| `orchestration-task-state.js` | (shared serializer) | Provider-neutral orchestration task projection used by sessions and the coordinator |
+| `project-task-orchestrator.js` | `coordinate_queued_message` (via user-message routing), `orchestration_tasks_state` | Coordinator-owned worker delegation, progress tracking, follow-up routing, and automatic result return |
+| `orchestration-mcp-server.js` | MCP `delegate_task`, `send_task_message` | Provider-neutral coordinator tools for complete worker briefs and in-flight task updates |
+| `orchestration-task-state.js` | (shared serializer) | Provider-neutral coordinator prompts, worker-result parsing, and task projection |
 | `project-task-dashboard-page.js` | HTTP `GET /p/:slug/dashboard/` | Serves the project-owned task dashboard and its assets through Clay's authenticated HTTPS listener; rewrites legacy loopback launch URLs to same-origin project routes |
 | `project-task-launcher-completion.js` | (called from `project-task-launcher.js`) | Task launcher completion marker matching, including PR-review fallback markers |
 | `project-auto-launch.js` | `get_auto_launch`, `set_auto_launch` (→ `auto_launch_state`) | Scheduled auto-start: `launchScheduled` (fetch + dedup + start), `notifyNeedsInput` (confidence-gate ping). Config in `.clay/tasks/config.json` (`autoLaunch`); registers an `autolaunch` record in the loop registry (triggered via `onScheduledTrigger`); UI toggle round-trips here |
