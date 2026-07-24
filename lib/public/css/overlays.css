@@ -141,12 +141,6 @@
   width: 10px;
   height: 10px;
 }
-#mobile-rate-limit-usage {
-  display: none;
-}
-#mobile-rate-limit-usage[hidden] {
-  display: none !important;
-}
 
 /* Clickable pill (update) */
 button.top-bar-pill {
@@ -197,35 +191,6 @@ button.top-bar-pill.pill-accent:hover { background: color-mix(in srgb, var(--acc
   #share-pill { display: none; }
 }
 .pwa-standalone #share-pill { display: none !important; }
-
-@media (max-width: 768px) {
-  .usage-progress {
-    display: none;
-  }
-  #mobile-rate-limit-usage {
-    display: flex;
-    width: 100%;
-    min-height: 28px;
-    justify-content: flex-start;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 4px 10px;
-    border-radius: 0;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg);
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-  }
-  #mobile-rate-limit-usage::-webkit-scrollbar {
-    display: none;
-  }
-  #mobile-rate-limit-usage .usage-check-seg {
-    flex: 0 0 auto;
-  }
-  #mobile-rate-limit-usage .usage-check-seg .lucide:last-child {
-    display: none;
-  }
-}
 
 /* Extension pill button — same style as share/install pills */
 .ext-pill-wrap {
