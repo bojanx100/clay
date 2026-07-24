@@ -31,7 +31,7 @@ took (watchdog aborts, auto-resumes). Fields:
 
 ## 2. Daemon performance — `~/.clay/diag(-dev).log`
 
-Two marker types, written via `config.diagLog`:
+Three marker types, written via `config.diagLog`:
 
 - `[LOOP-LAG] … max lag last 60s: Nms` — event-loop responsiveness, sampled
   per minute. **Healthy:** single-digit ms, occasional ~100ms. **Sick:**
@@ -39,6 +39,11 @@ Two marker types, written via `config.diagLog`:
   (historically: sync `gh` calls with network I/O, full-history session-file
   rewrites). Sustained lag makes every client's heartbeat fail → phantom
   "Reconnecting…" overlays for ALL users.
+- `[SLEEP-WAKE] … clock jumped ~Nms` — a wall-clock jump ≥30s classified as
+  system sleep/suspend, excluded from the lag maximum. **Informational**, not
+  a health problem. Before 2026-07-24 these appeared as gigantic (minutes)
+  `[LOOP-LAG]` lines after every laptop sleep — treat any such lines in old
+  logs as sleep artifacts, not real stalls.
 - `[SAVE-SLOW] … saveSessionFile localId=N items=N bytes=N took=Nms` — a
   session-file rewrite took ≥200ms of synchronous IO. **Healthy: absent.**
   Bursts here correlate 1:1 with `[LOOP-LAG]` spikes. Save coalescing

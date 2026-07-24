@@ -90,16 +90,18 @@ signal was lying. F-1's fix also removes a major source of spurious
 **Not done until**: provider_health transitions drop to genuinely-rare
 events in `recovery-events-dev.log` (~1 week of normal use).
 
-### F-3: LOOP-LAG sleep false positives (severity: low, canary hygiene)
+### F-3: LOOP-LAG sleep false positives (severity: low, canary hygiene) — FIX LANDED
 
 Six spikes today between 08:48 and 10:08, each reporting ~15–16 min of
 "event loop blocked", spaced ~15–16 min apart — consistent with system
 sleep + periodic wake, not real loop blockage.
 
-Fix direction: the lag sampler should detect wall-clock jumps (sleep)
-and classify them separately (e.g. `[SLEEP-WAKE]`), so `[LOOP-LAG]`
-means what it says. A canary that cries on every laptop sleep cannot be
-"quiet" and trains us to ignore it.
+**Fix** (`lib/daemon.js`): wall-clock jumps ≥ 30 s are now classified as
+`[SLEEP-WAKE]` (informational), excluded from the lag maximum, and the
+reporting window restarts cleanly after wake — `[LOOP-LAG]` now means
+what it says. New marker documented in `docs/guides/DIAGNOSTICS.md`.
+Verification: next sleep/wake cycle should produce a `[SLEEP-WAKE]`
+line and no giant `[LOOP-LAG]` line.
 
 ## Feature audit checklist (not started)
 
@@ -122,3 +124,6 @@ means what it says. A canary that cries on every laptop sleep cannot be
 - 2026-07-24: F-2 root-caused (in-flight completions clearing quota
   unavailability) and fixed with `unavailableUntil` quota windows on the
   health record; full suite green; awaiting quiet-canary confirmation.
+- 2026-07-24: F-3 fixed (`[SLEEP-WAKE]` classification for wall-clock
+  jumps ≥ 30 s); DIAGNOSTICS.md updated. F-2 and F-3 need one daemon
+  restart to go live.
