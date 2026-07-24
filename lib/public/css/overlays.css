@@ -144,6 +144,9 @@
 #mobile-rate-limit-usage {
   display: none;
 }
+#mobile-rate-limit-usage[hidden] {
+  display: none !important;
+}
 
 /* Clickable pill (update) */
 button.top-bar-pill {
