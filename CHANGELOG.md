@@ -1,3 +1,10 @@
+# [2.47.0-beta.1](https://github.com/chadbyte/clay/compare/v2.46.0...v2.47.0-beta.1) (2026-07-20)
+
+
+### Features
+
+* **codex:** add GPT-5.6 sol/terra/luna models ([#384](https://github.com/chadbyte/clay/issues/384)) ([cd56498](https://github.com/chadbyte/clay/commit/cd564984a467926e80e773bc400f3311172bc105))
+
 # [2.46.0](https://github.com/chadbyte/clay/compare/v2.45.0...v2.46.0) (2026-07-03)
 
 

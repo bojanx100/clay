@@ -1415,21 +1415,13 @@ function setup(callback) {
           }
           port = p;
           log(sym.bar);
-          askMode();
+          // No "single vs multi" question anymore: every deploy runs in the
+          // (general) multi-user model. Solo users get an auto-provisioned
+          // default admin with no PIN and no login wall. OS-level user
+          // isolation stays an opt-in, offered here on Linux and toggleable
+          // later; everything else is just multi-user.
+          askOsUsers("multi");
         });
-      });
-    }
-
-    function askMode() {
-      promptSelect("How will you use Clay?", [
-        { label: "Just me (single user)", value: "single" },
-        { label: "Multiple users", value: "multi" },
-      ], function (mode) {
-        if (mode === "single") {
-          finishSetup(mode, false);
-        } else {
-          askOsUsers(mode);
-        }
       });
     }
 
@@ -1612,7 +1604,7 @@ async function forkDaemon(mode, keepAwake, extraProjects, addCwd, wantOsUsers) {
     dangerouslySkipPermissions: dangerouslySkipPermissions,
     fullAutoMode: fullAutoMode,
     osUsers: wantOsUsers || osUsersMode,
-    mode: mode || "single",
+    mode: mode || "multi",
     setupCompleted: true,
     projects: allProjects,
   });
@@ -1792,7 +1784,7 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
     keepAwake: keepAwake || false,
     dangerouslySkipPermissions: dangerouslySkipPermissions,
     fullAutoMode: fullAutoMode,
-    mode: mode || "single",
+    mode: mode || "multi",
     setupCompleted: true,
     projects: allProjects,
     osUsers: wantOsUsers || (prevDevConfig ? (prevDevConfig.osUsers || false) : false),
@@ -2735,7 +2727,7 @@ var currentVersion = require("../package.json").version;
       });
     } else {
       // Reuse existing config (repeat run)
-      await devMode(devConfig.mode || "single", devConfig.keepAwake || false, devConfig.pinHash || null, devConfig.osUsers || false);
+      await devMode(devConfig.mode || "multi", devConfig.keepAwake || false, devConfig.pinHash || null, devConfig.osUsers || false);
     }
     return;
   }
@@ -2835,7 +2827,7 @@ var currentVersion = require("../package.json").version;
 
     if (isRepeatRun || autoYes) {
       // Repeat run or --yes: skip wizard, reuse saved config
-      var savedMode = (savedConfig && savedConfig.mode) || "single";
+      var savedMode = (savedConfig && savedConfig.mode) || "multi";
       var savedKeepAwake = (savedConfig && savedConfig.keepAwake) || false;
       var savedOsUsers = (savedConfig && savedConfig.osUsers) || false;
 
