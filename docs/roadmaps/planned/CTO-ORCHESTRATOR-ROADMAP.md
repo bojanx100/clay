@@ -281,11 +281,58 @@ What the CTO composes (all present today):
 | **3 — Portfolio** | Workspace-level CTO across all projects; unified backlog; portfolio metrics | Multi-project standup; correct cross-project prioritization |
 | **4 — Widen autonomy** | Auto-to-merge, then optional auto-merge on green | Deliberate loosening only after demonstrated gate reliability |
 
-## 11. Open questions (iterate here)
+## 11. Related initiatives — Voice (Coop) and Live UI
 
-1. **Where does the CTO live?** A dedicated Clay project ("HQ") whose
-   sessions reach into other projects, vs. a new daemon-level construct.
-   HQ-project is cheaper to build; daemon-level is cleaner long-term.
+The CTO is one of three planned initiatives that form a single product:
+
+| Initiative | Doc | Role |
+|---|---|---|
+| CTO Orchestrator | this doc | The brain: who does what, when; gates; reporting |
+| Voice / Coop | `VOICE-CONVERSATION-ROADMAP.md` | The boss's interface: talk, approve, standups, triage |
+| Live UI | `LIVE-UI.md` | The hands-on surface: point at the real app, detail design, fix issues in real time |
+
+Binding decisions (recorded here so neither track builds a duplicate):
+
+1. **Shared Phase 0.** The Voice doc's "Reliability Baseline" (quiet
+   canaries, diagnostics, gated phase exits) and this doc's §2 Phase 0 are
+   the same requirement. One hardening pass is the precondition for all
+   three initiatives.
+2. **The CTO is Coop's management brain.** Coop (workspace coordinator,
+   persistent daemon-level coordination channel, `server-coordination.js`)
+   is how the boss talks to the CTO; the CTO loop (§3.2) is what the same
+   entity does between conversations. This resolves the "where does the CTO
+   live" question: daemon-level, on the Coop coordination channel — not an
+   HQ project.
+3. **The CTO's behavioral done-gate adopts Live UI's evidence contract.**
+   Live UI's operation journal, typed verification manifest ("agent prose is
+   not verification evidence"), and formal result states (including
+   reproduce-before / pass-after for bug fixes) become the CTO's
+   §5.2 evidence format. No parallel verification schema.
+4. **The CTO's approvals adopt the Voice conversation gateway.** Immutable
+   plan versions, amend-then-approve, typed human-input provenance
+   (machine-injected input can never approve, confirm done, or answer
+   destructive confirms) apply to CTO propose-&-approve identically. The
+   CTO can *recommend*; only daemon-verified live-human input authorizes.
+5. **Executor snapshots are shared.** The Voice snapshot schema
+   (`conversation-snapshot.js` — lifecycle, currentStep, needsYou, git
+   state, decisions[], verification) is exactly what the CTO reads to track
+   the team and compose standups. One schema, two consumers.
+6. **Closed loops.** Live UI selections can file items into the CTO's
+   backlog; CTO design items ending "Changed, needs review" surface to the
+   boss as Live UI review sessions; Coop speaks the daily standup and takes
+   spoken approvals.
+
+Sequencing consequence: the CTO is the **capstone**, not a parallel track.
+Voice Phase 1a (text-only kernel: ledger, typed gateway, snapshot,
+provenance) and Live UI Phases 0-4 (operation journal + verification
+manifest) build most of the CTO's substrate. CTO-specific net-new work
+shrinks to: the routing brain (§4), cross-provider worker lift, portfolio
+backlog aggregation, and the standup composer.
+
+## 12. Open questions (iterate here)
+
+1. ~~**Where does the CTO live?**~~ Resolved (§11.2): daemon-level, as
+   Coop's management brain on the coordination channel.
 2. **Cross-project access mechanism** — how does an HQ session enumerate and
    message other projects' sessions? (Debate engine does it within one
    project; needs a workspace-scoped equivalent.)
@@ -299,3 +346,8 @@ What the CTO composes (all present today):
    must respect when staffing.
 7. **Phase 0 backlog** — the audit will produce findings; do these become
    the CTO's first supervised backlog (dogfooding Phase 1 on Clay itself)?
+8. **Cross-initiative sequencing** — within the shared substrate, what is
+   the exact interleaving of Voice 1a (text kernel), Live UI 0.1
+   (Clay-on-Clay loop), and CTO Phase 1 (one project, one item)? Proposal:
+   shared Phase 0 hardening → Voice 1a and Live UI 0.1 in parallel →
+   CTO Phase 1 on top of both.
