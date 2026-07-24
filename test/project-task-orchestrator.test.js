@@ -56,6 +56,7 @@ function testContext(existingSessions) {
 function coordinator(ctx) {
   var parent = {
     localId: 1,
+    storageId: "coordinator-stable",
     title: "Coordinator",
     vendor: "codex",
     model: "gpt-test",
@@ -70,7 +71,7 @@ function coordinator(ctx) {
 
 function brief(parent) {
   return {
-    coordinatorSessionId: parent.localId,
+    coordinatorSessionId: parent.storageId,
     title: "Review reconnect logic",
     objective: "Find and fix the reconnect regression.",
     context: "The parent has already isolated the issue to resume handling.",
@@ -87,7 +88,7 @@ test("activates the current session as coordinator with the queued request", fun
   var prompt = ctx.api.activateCoordinator(parent, "this is what you asked");
 
   assert.equal(parent.coordinationMode, true);
-  assert.match(prompt, /coordinatorSessionId for orchestration tool calls is 1/);
+  assert.match(prompt, /coordinatorSessionId for orchestration tool calls is coordinator-stable/);
   assert.match(prompt, /this is what you asked/);
   assert.match(prompt, /delegate_task/);
 });
@@ -178,15 +179,22 @@ test("runs a queued coordinator update after the worker turn", function () {
 
 test("restores a running worker subscription", function () {
   var sessions = new Map();
-  var worker = { localId: 2, isProcessing: true, history: [] };
+  var worker = {
+    localId: 99,
+    storageId: "worker-stable",
+    isProcessing: true,
+    history: [],
+  };
   var parent = {
-    localId: 1,
+    localId: 17,
+    storageId: "parent-stable",
     history: [],
     orchestrationTasks: [{
       taskId: "task-existing",
       title: "Existing task",
       status: "running",
       workerSessionId: 2,
+      workerStorageId: "worker-stable",
     }],
   };
   sessions.set(parent.localId, parent);
@@ -195,4 +203,94 @@ test("restores a running worker subscription", function () {
   testContext(sessions);
 
   assert.equal(typeof worker._subscriber, "function");
+  assert.equal(parent.orchestrationTasks[0].workerSessionId, 99);
+  assert.equal(worker.orchestrationParent.sessionId, 17);
+  assert.equal(worker.orchestrationParent.sessionStorageId, "parent-stable");
+});
+
+test("keeps a restart-interrupted worker running until automatic resume completes", function () {
+  var sessions = new Map();
+  var worker = {
+    localId: 22,
+    storageId: "worker-restart",
+    isProcessing: false,
+    interruptedByRestart: true,
+    restartResumeEligible: true,
+    history: [
+      { type: "delta", text: "Partial work" },
+      { type: "done", code: 1 },
+    ],
+  };
+  var parent = {
+    localId: 11,
+    storageId: "parent-restart",
+    history: [],
+    orchestrationTasks: [{
+      taskId: "task-restart",
+      title: "Interrupted task",
+      status: "running",
+      workerSessionId: 4,
+      workerStorageId: "worker-restart",
+    }],
+  };
+  sessions.set(parent.localId, parent);
+  sessions.set(worker.localId, worker);
+
+  testContext(sessions);
+
+  assert.equal(parent.orchestrationTasks[0].status, "running");
+  assert.equal(typeof worker._subscriber, "function");
+});
+
+test("does not deliver restored results before the parent restart turn resumes", function () {
+  var sessions = new Map();
+  var parent = {
+    localId: 31,
+    storageId: "parent-pending",
+    history: [],
+    isProcessing: false,
+    restartResumeEligible: true,
+    coordinationMode: true,
+    orchestrationTasks: [],
+    pendingCoordinatorUpdates: [{ text: "Worker finished", queuedAt: 1 }],
+  };
+  sessions.set(parent.localId, parent);
+
+  var ctx = testContext(sessions);
+
+  assert.equal(ctx.starts.length, 0);
+  assert.equal(parent.pendingCoordinatorUpdates.length, 1);
+});
+
+test("reports a non-resumable interrupted worker as needing input", function () {
+  var sessions = new Map();
+  var worker = {
+    localId: 44,
+    storageId: "worker-stale",
+    isProcessing: false,
+    interruptedByRestart: true,
+    history: [{ type: "done", code: 1 }],
+  };
+  var parent = {
+    localId: 43,
+    storageId: "parent-stale",
+    history: [],
+    isProcessing: false,
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-stale",
+      title: "Stale interrupted task",
+      status: "running",
+      workerStorageId: "worker-stale",
+    }],
+  };
+  sessions.set(parent.localId, parent);
+  sessions.set(worker.localId, worker);
+
+  var ctx = testContext(sessions);
+
+  assert.equal(parent.orchestrationTasks[0].status, "needs_input");
+  assert.equal(ctx.starts.length, 1);
+  assert.equal(ctx.starts[0].session, parent);
+  assert.match(ctx.starts[0].prompt, /not eligible for automatic resume/);
 });

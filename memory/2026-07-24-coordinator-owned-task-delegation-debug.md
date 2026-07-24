@@ -17,6 +17,13 @@ message. The server treated the queued text as a complete worker prompt. There
 was no coordinator brief, ownership boundary, acceptance criteria, result
 contract, or route back to the owning conversation.
 
+A follow-up restart audit found that the first coordinator implementation kept
+its task graph only in memory. Session persistence uses an explicit metadata
+allow-list, and orchestration fields were absent. It also linked sessions by
+runtime-local numeric IDs, which are reassigned after every daemon start. A
+restart-generated `done` history marker could therefore be mistaken for a
+successfully completed worker turn.
+
 ## Fix
 
 - Replaced `Run separately` with `Coordinate`.
@@ -32,6 +39,16 @@ contract, or route back to the owning conversation.
 - Updates sent while a worker is busy run as the worker's next turn.
 - Worker task state remains visible and links to the worker session for
   inspection.
+- Coordinator state, task records, parent/worker ownership, undelivered
+  results, and queued worker updates are persisted in session metadata.
+- Cross-session ownership uses stable session storage IDs and remaps current
+  local IDs after loading.
+- A freshly interrupted worker remains `running` while Clay's existing
+  restart-auto-resume mechanism continues it. An interruption that is no
+  longer eligible for automatic resume becomes `needs_input` and reports that
+  state to its coordinator.
+- Restored worker results wait until the coordinator's own restart-resume turn
+  has completed, avoiding competing continuation turns.
 
 ## Evidence
 
@@ -40,7 +57,10 @@ contract, or route back to the owning conversation.
 - Tests cover coordinator authorization, complete worker briefs, automatic
   result return, busy-parent buffering, busy-worker follow-ups, and restart
   subscription restoration.
-- Full suite: 348 tests passed, 0 failed.
+- Restart regression tests serialize and reload coordinator and worker
+  sessions, prove stable-ID remapping, preserve pending messages, and prevent
+  restart markers from being treated as successful completion.
+- Full suite after restart hardening: 352 tests passed, 0 failed.
 - Stable `bojan` daemon stayed running during development.
 - Recovery canary showed no new orchestration-related events.
 - Diagnostic canary remained quiet, with recent loop lag between 2 ms and

@@ -655,6 +655,53 @@ test("light session saves write immediately each time", function () {
   }
 });
 
+test("orchestration ownership and pending messages survive a session-manager restart", function () {
+  var h = makeSessionHarness();
+  try {
+    var parent = h.sm.createSessionRaw({ storageId: "coordinator-stable" });
+    var worker = h.sm.createSessionRaw({ storageId: "worker-stable" });
+    parent.coordinationMode = true;
+    parent.orchestrationTasks = [{
+      taskId: "task-stable",
+      title: "Durable task",
+      status: "running",
+      workerSessionId: worker.localId,
+      workerStorageId: "worker-stable",
+    }];
+    parent.pendingCoordinatorUpdates = [{ text: "Result waiting", queuedAt: 10 }];
+    worker.orchestrationParent = {
+      taskId: "task-stable",
+      sessionId: parent.localId,
+      sessionStorageId: "coordinator-stable",
+    };
+    worker.pendingCoordinatorMessages = ["New acceptance criterion"];
+    h.sm.saveSessionFile(parent);
+    h.sm.saveSessionFile(worker);
+
+    clearSessionModuleCache();
+    var restoredManager = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredParent = null;
+    var restoredWorker = null;
+    restoredManager.sessions.forEach(function (session) {
+      if (session.storageId === "coordinator-stable") restoredParent = session;
+      if (session.storageId === "worker-stable") restoredWorker = session;
+    });
+
+    assert.ok(restoredParent);
+    assert.ok(restoredWorker);
+    assert.strictEqual(restoredParent.coordinationMode, true);
+    assert.strictEqual(restoredParent.orchestrationTasks[0].workerStorageId, "worker-stable");
+    assert.strictEqual(restoredParent.pendingCoordinatorUpdates[0].text, "Result waiting");
+    assert.strictEqual(restoredWorker.orchestrationParent.sessionStorageId, "coordinator-stable");
+    assert.deepStrictEqual(restoredWorker.pendingCoordinatorMessages, ["New acceptance criterion"]);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test("heavy session save bursts write immediately once and coalesce trailing metadata", async function () {
   var h = makeSessionHarness();
   var counter = countSessionTempWrites(h);
