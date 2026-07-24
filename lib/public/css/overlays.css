@@ -69,6 +69,39 @@
   object-fit: cover;
   flex: 0 0 auto;
 }
+.usage-window-label {
+  flex: 0 0 auto;
+}
+.usage-progress {
+  width: 38px;
+  height: 5px;
+  overflow: hidden;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-dimmer) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-dimmer) 10%, transparent);
+}
+.usage-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+.usage-progress-fill.low {
+  background: var(--success);
+}
+.usage-progress-fill.medium {
+  background: var(--warning);
+}
+.usage-progress-fill.high {
+  background: var(--error);
+}
+.usage-progress-fill.unknown {
+  background: transparent;
+}
+.usage-progress-value {
+  min-width: 25px;
+  font-variant-numeric: tabular-nums;
+}
 .usage-check-link .lucide {
   width: 12px;
   height: 12px;
