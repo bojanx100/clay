@@ -260,7 +260,7 @@
 .msg-copy-hint {
   position: absolute;
   bottom: -18px;
-  right: 20px;
+  right: 48px;
   font-size: 11px;
   color: var(--text-dimmer);
   font-weight: 500;
@@ -273,6 +273,50 @@
 .msg-assistant:hover .msg-copy-hint { opacity: 1; }
 .msg-assistant.copy-primed .msg-copy-hint { opacity: 1; color: var(--accent); }
 .msg-assistant.copy-done .msg-copy-hint { opacity: 1; color: var(--success); }
+
+.msg-assistant-actions {
+  position: absolute;
+  right: 16px;
+  bottom: -24px;
+  z-index: 1;
+}
+
+.msg-assistant-reply-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-dimmer);
+  cursor: pointer;
+  opacity: 0;
+  touch-action: manipulation;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.msg-assistant-reply-btn .lucide {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
+.msg-assistant:hover .msg-assistant-reply-btn,
+.msg-assistant-reply-btn:focus-visible {
+  opacity: 1;
+}
+
+.msg-assistant-reply-btn:hover {
+  color: var(--text);
+  background: rgba(var(--overlay-rgb), 0.08);
+}
+
+@media (pointer: coarse) {
+  .msg-assistant-reply-btn { opacity: 1; }
+}
 
 /* Date/time label for assistant messages (mirrors user message time) */
 .msg-assistant-time {
