@@ -23,8 +23,8 @@ function testContext(existingSessions) {
     appendToSessionFile: function () {},
     saveSessionFile: function () {},
     broadcastSessionList: function () {},
-    deleteSession: function (id) {
-      sessions.delete(id);
+    hideSession: function (id) {
+      sessions.get(id).hidden = true;
     },
     subscribeSession: function (id, cb) {
       sessions.get(id)._subscriber = cb;
@@ -185,7 +185,7 @@ test("delivers only one terminal update when a worker emits done again", functio
   assert.equal(ctx.starts[1].session, parent);
 });
 
-test("closing a coordinated task removes its worker conversation", function () {
+test("closing a coordinated task stops and archives its worker conversation", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
   ctx.api.delegateFromTool(brief(parent));
@@ -196,7 +196,9 @@ test("closing a coordinated task removes its worker conversation", function () {
 
   assert.equal(closed, true);
   assert.equal(parent.orchestrationTasks.length, 0);
-  assert.equal(ctx.sessions.has(workerId), false);
+  assert.equal(ctx.sessions.has(workerId), true);
+  assert.equal(ctx.sessions.get(workerId).hidden, true);
+  assert.equal(ctx.sessions.get(workerId).taskStopRequested, true);
   assert.deepEqual(ctx.events[ctx.events.length - 1].event.tasks, []);
 });
 
