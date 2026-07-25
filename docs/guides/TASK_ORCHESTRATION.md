@@ -12,10 +12,15 @@ When a conversation is busy, a queued message can be:
 - steered into the current work, interrupting it;
 - coordinated by the owning AI without interrupting the current turn.
 
-Coordinate no longer launches a context-free worker directly. It records a
-coordinator activation. Once the owning conversation is free, that AI decides
-whether to answer directly, update an existing task, delegate one bounded task,
-or create a dependency graph.
+Coordinate is an explicit delegation decision. It immediately creates an owned
+worker with the parent transcript, while the parent remains responsive and
+retains responsibility for integration. Natural follow-ups delivered to the
+coordinator can still be answered directly, attached to an existing task, or
+expanded into a dependency graph.
+
+Coordinator envelopes and worker-result handoffs are model-only history items:
+the model receives them, but the UI shows the original user request and the
+coordinator's response rather than exposing Clay's internal instructions.
 
 ## Runtime model
 

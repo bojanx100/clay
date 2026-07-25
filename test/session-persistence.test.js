@@ -679,6 +679,12 @@ test("orchestration ownership and pending messages survive a session-manager res
       workerStorageId: "worker-stable",
     }];
     parent.pendingCoordinatorUpdates = [{ text: "Result waiting", queuedAt: 10 }];
+    parent.history.push({
+      type: "user_message",
+      text: "[Clay coordinator mode]",
+      synthetic: true,
+      origin: { kind: "task-notification" },
+    });
     worker.orchestrationParent = {
       taskId: "task-stable",
       sessionId: parent.localId,
@@ -713,6 +719,7 @@ test("orchestration ownership and pending messages survive a session-manager res
     assert.strictEqual(restoredParent.orchestrationEvents[0].eventId, "event-stable");
     assert.strictEqual(restoredParent.orchestrationTasks[0].workerStorageId, "worker-stable");
     assert.strictEqual(restoredParent.pendingCoordinatorUpdates[0].text, "Result waiting");
+    assert.strictEqual(restoredParent.history[0].internalOnly, true);
     assert.strictEqual(restoredWorker.orchestrationParent.sessionStorageId, "coordinator-stable");
     assert.strictEqual(restoredWorker.orchestrationAdoption.status, "adopted");
     assert.deepStrictEqual(restoredWorker.pendingCoordinatorMessages, ["New acceptance criterion"]);

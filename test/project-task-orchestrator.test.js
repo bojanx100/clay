@@ -83,7 +83,7 @@ function brief(parent) {
   };
 }
 
-test("coordinates a queued request through the owning AI without interrupting it", function () {
+test("coordinates a queued request in a new owned worker without interrupting the parent", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
   parent.isProcessing = true;
@@ -101,12 +101,14 @@ test("coordinates a queued request through the owning AI without interrupting it
   });
 
   assert.equal(parent.isProcessing, true);
-  assert.equal(parent.orchestrationTasks.length, 0);
-  assert.equal(task.status, "reviewing");
-  assert.equal(ctx.starts.length, 0);
-  assert.equal(parent.pendingCoordinatorUpdates.length, 1);
-  assert.match(parent.pendingCoordinatorUpdates[0].text, /Add a regression test for background coordination/);
-  assert.match(parent.pendingCoordinatorUpdates[0].text, /stable coordinator/);
+  assert.equal(parent.orchestrationTasks.length, 1);
+  assert.equal(task, parent.orchestrationTasks[0]);
+  assert.equal(task.status, "running");
+  assert.equal(ctx.starts.length, 1);
+  assert.notEqual(ctx.starts[0].session, parent);
+  assert.match(ctx.starts[0].prompt, /Add a regression test for background coordination/);
+  assert.match(ctx.starts[0].prompt, /We are fixing the queue behavior/);
+  assert.match(ctx.starts[0].prompt, /I am working on the active task/);
 });
 
 test("plans independent work in parallel and releases a dependent task", function () {
