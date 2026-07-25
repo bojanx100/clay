@@ -166,6 +166,25 @@ test("starts a worker from a complete coordinator brief and returns its result",
   assert.match(ctx.starts[1].prompt, /You own this result/);
 });
 
+test("delivers only one terminal update when a worker emits done again", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var worker = ctx.starts[0].session;
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Finished once.",
+  });
+  worker.isProcessing = false;
+
+  worker._subscriber({ type: "done" });
+  worker._subscriber({ type: "done" });
+
+  assert.equal(parent.orchestrationTasks[0].status, "completed");
+  assert.equal(ctx.starts.length, 2);
+  assert.equal(ctx.starts[1].session, parent);
+});
+
 test("closing a coordinated task removes its worker conversation", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
