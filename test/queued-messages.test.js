@@ -2,6 +2,7 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var attachSessionQueuedMessages = require("../lib/sessions-queued-messages").attachSessionQueuedMessages;
 var attachUserMessage = require("../lib/project-user-message").attachUserMessage;
+var shouldQueueMessage = require("../lib/project-user-message").shouldQueueMessage;
 
 function queuedHistoryItem(queueId, text, options) {
   options = options || {};
@@ -56,6 +57,17 @@ test("queue state serialization restores pending messages after a restart", func
   assert.deepEqual(clientQueue.map(function (item) {
     return item.queueId;
   }), ["q-first"]);
+});
+
+test("an idle session with a pending backlog keeps new messages queued", function () {
+  assert.equal(shouldQueueMessage({
+    isProcessing: false,
+    pendingUserMessageQueue: [{ queueId: "q-first" }],
+  }), true);
+  assert.equal(shouldQueueMessage({
+    isProcessing: false,
+    pendingUserMessageQueue: [],
+  }), false);
 });
 
 test("steering one queued message resumes the remaining queue automatically", async function () {
