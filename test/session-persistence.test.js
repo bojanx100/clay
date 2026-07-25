@@ -661,6 +661,16 @@ test("orchestration ownership and pending messages survive a session-manager res
     var parent = h.sm.createSessionRaw({ storageId: "coordinator-stable" });
     var worker = h.sm.createSessionRaw({ storageId: "worker-stable" });
     parent.coordinationMode = true;
+    parent.orchestrationGraphId = "graph-stable";
+    parent.orchestrationPolicy = { maxParallel: 4 };
+    parent.orchestrationEvents = [{
+      eventId: "event-stable",
+      graphId: "graph-stable",
+      taskId: "task-stable",
+      type: "task_created",
+      at: 5,
+      data: {},
+    }];
     parent.orchestrationTasks = [{
       taskId: "task-stable",
       title: "Durable task",
@@ -669,10 +679,21 @@ test("orchestration ownership and pending messages survive a session-manager res
       workerStorageId: "worker-stable",
     }];
     parent.pendingCoordinatorUpdates = [{ text: "Result waiting", queuedAt: 10 }];
+    parent.history.push({
+      type: "user_message",
+      text: "[Clay coordinator mode]",
+      synthetic: true,
+      origin: { kind: "task-notification" },
+    });
     worker.orchestrationParent = {
       taskId: "task-stable",
       sessionId: parent.localId,
       sessionStorageId: "coordinator-stable",
+    };
+    worker.orchestrationAdoption = {
+      status: "adopted",
+      coordinatorStorageId: "coordinator-stable",
+      taskId: "task-stable",
     };
     worker.pendingCoordinatorMessages = ["New acceptance criterion"];
     h.sm.saveSessionFile(parent);
@@ -693,9 +714,14 @@ test("orchestration ownership and pending messages survive a session-manager res
     assert.ok(restoredParent);
     assert.ok(restoredWorker);
     assert.strictEqual(restoredParent.coordinationMode, true);
+    assert.strictEqual(restoredParent.orchestrationGraphId, "graph-stable");
+    assert.strictEqual(restoredParent.orchestrationPolicy.maxParallel, 4);
+    assert.strictEqual(restoredParent.orchestrationEvents[0].eventId, "event-stable");
     assert.strictEqual(restoredParent.orchestrationTasks[0].workerStorageId, "worker-stable");
     assert.strictEqual(restoredParent.pendingCoordinatorUpdates[0].text, "Result waiting");
+    assert.strictEqual(restoredParent.history[0].internalOnly, true);
     assert.strictEqual(restoredWorker.orchestrationParent.sessionStorageId, "coordinator-stable");
+    assert.strictEqual(restoredWorker.orchestrationAdoption.status, "adopted");
     assert.deepStrictEqual(restoredWorker.pendingCoordinatorMessages, ["New acceptance criterion"]);
   } finally {
     h.cleanup();

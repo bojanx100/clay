@@ -866,6 +866,7 @@
   background: var(--text-muted);
 }
 
+.orchestration-task-status-ready,
 .orchestration-task-status-running {
   background: var(--accent);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
@@ -879,6 +880,8 @@
   background: var(--danger, #e5534b);
 }
 
+.orchestration-task-status-blocked,
+.orchestration-task-status-reviewing,
 .orchestration-task-status-needs_input {
   background: var(--warning, #d99824);
 }
@@ -1302,6 +1305,56 @@
   justify-content: center;
   transition: background 0.15s, opacity 0.15s;
   touch-action: manipulation;
+}
+
+.composer-task-btn {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.composer-task-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.composer-task-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.composer-task-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.session-role-badge {
+  display: inline-flex;
+  margin-right: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  vertical-align: 1px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.session-role-badge.coordinator {
+  color: var(--accent);
 }
 
 #send-btn .lucide {

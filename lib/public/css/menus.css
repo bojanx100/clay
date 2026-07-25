@@ -23,6 +23,40 @@
   white-space: nowrap;
 }
 
+.header-coordinator-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.header-coordinator-badge .lucide {
+  width: 13px;
+  height: 13px;
+}
+
+.header-coordinator-badge.coordinator {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.header-coordinator-badge.worker {
+  cursor: default;
+  opacity: 0.8;
+}
+
+.header-coordinator-badge.hidden {
+  display: none;
+}
+
 #header-rename-btn {
   display: flex;
   align-items: center;

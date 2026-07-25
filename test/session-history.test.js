@@ -64,3 +64,22 @@ test("default history replay includes multiple complete recent turns", function 
   assert.equal(sent[0].from, 0, "stream deltas should not crowd the earlier complete turn out of the initial view");
   assert.equal(sent.filter(function (msg) { return msg.type === "user_message"; }).length, 2);
 });
+
+test("history replay hides model-only coordinator envelopes", function () {
+  var sent = [];
+  var api = sessionHistory.attachSessionHistory({
+    send: function (msg) { sent.push(msg); },
+    isMeaninglessUnknownError: function () { return false; },
+  });
+  api.replayHistory({
+    history: [
+      { type: "user_message", text: "Visible request" },
+      { type: "user_message", text: "[Clay coordinator mode]", internalOnly: true },
+      { type: "delta", text: "Visible coordinator response" },
+    ],
+  });
+
+  assert.equal(sent.some(function (msg) { return msg.text === "[Clay coordinator mode]"; }), false);
+  assert.equal(sent.some(function (msg) { return msg.text === "Visible request"; }), true);
+  assert.equal(sent.some(function (msg) { return msg.text === "Visible coordinator response"; }), true);
+});
