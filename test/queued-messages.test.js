@@ -156,11 +156,11 @@ test("steering one queued message resumes the remaining queue automatically", as
   }), []);
 });
 
-test("coordinating a queued follow-up keeps it in the parent conversation", function () {
+test("coordinating a queued follow-up starts background work without steering the parent", function () {
   var queueApi = attachSessionQueuedMessages({ encodedCwd: "test" });
   var session = {
     localId: 42,
-    isProcessing: false,
+    isProcessing: true,
     history: [queuedHistoryItem("q-context", "this is what you asked")],
     pendingUserMessageQueue: [{
       queueId: "q-context",
@@ -168,7 +168,11 @@ test("coordinating a queued follow-up keeps it in the parent conversation", func
       displayText: "this is what you asked",
     }],
   };
-  var dispatched = [];
+  var coordinated = [];
+  var aborted = false;
+  session.abortController = {
+    abort: function () { aborted = true; },
+  };
   var sm = {
     sessions: new Map([[session.localId, session]]),
     queuedUserMessagesForClient: queueApi.queuedUserMessagesForClient,
@@ -206,9 +210,11 @@ test("coordinating a queued follow-up keeps it in the parent conversation", func
     imagesDir: process.cwd(),
     onProcessingChanged: function () {},
     onUserMessageDispatched: function () { return ""; },
-    activateCoordinator: function (targetSession, text) {
+    coordinateQueuedMessage: function (targetSession, item) {
       targetSession.coordinationMode = true;
-      return "[coordinator with full parent context]\n" + text;
+      coordinated.push({ session: targetSession, item: item });
+      targetSession.orchestrationTasks = [{ taskId: "task-background", status: "running" }];
+      return targetSession.orchestrationTasks[0];
     },
     _loop: { handleLoopMessage: function () { return false; } },
     browserState: {},
@@ -226,10 +232,13 @@ test("coordinating a queued follow-up keeps it in the parent conversation", func
   });
 
   assert.equal(session.coordinationMode, true);
-  assert.equal(dispatched.length, 1);
-  assert.equal(dispatched[0].session, session);
-  assert.match(dispatched[0].text, /full parent context/);
-  assert.match(dispatched[0].text, /this is what you asked/);
+  assert.equal(coordinated.length, 1);
+  assert.equal(coordinated[0].session, session);
+  assert.equal(coordinated[0].item.text, "this is what you asked");
+  assert.equal(aborted, false);
+  assert.equal(session.isProcessing, true);
+  assert.equal(session.steerInterruptRequested, undefined);
+  assert.equal(session.taskStopRequested, undefined);
   assert.equal(session.history[0].coordinationRequest, true);
-  assert.equal(session.orchestrationTasks, undefined);
+  assert.equal(session.orchestrationTasks[0].taskId, "task-background");
 });

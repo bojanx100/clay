@@ -93,6 +93,33 @@ test("activates the current session as coordinator with the queued request", fun
   assert.match(prompt, /delegate_task/);
 });
 
+test("coordinates a queued request in a background worker with parent context", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  parent.isProcessing = true;
+  parent.history = [{
+    type: "user_message",
+    text: "We are fixing the queue behavior.",
+  }, {
+    type: "delta",
+    text: "I am working on the active task.",
+  }];
+
+  var task = ctx.api.coordinateQueuedMessage(parent, {
+    text: "Add a regression test for background coordination.",
+    displayText: "Add a regression test for background coordination.",
+  });
+
+  assert.equal(parent.isProcessing, true);
+  assert.equal(parent.orchestrationTasks.length, 1);
+  assert.equal(task, parent.orchestrationTasks[0]);
+  assert.equal(ctx.starts.length, 1);
+  assert.notEqual(ctx.starts[0].session, parent);
+  assert.match(ctx.starts[0].prompt, /Add a regression test for background coordination/);
+  assert.match(ctx.starts[0].prompt, /We are fixing the queue behavior/);
+  assert.match(ctx.starts[0].prompt, /I am working on the active task/);
+});
+
 test("rejects delegation from a session that is not the coordinator", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
