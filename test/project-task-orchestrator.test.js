@@ -139,8 +139,14 @@ test("plans independent work in parallel and releases a dependent task", functio
   assert.equal(parent.orchestrationTasks[2].status, "queued");
   var workerA = ctx.starts[0].session;
   var workerB = ctx.starts[1].session;
-  workerA.history.push({ type: "delta", text: "WORKER_STATUS: completed\nSUMMARY: A done." });
-  workerB.history.push({ type: "delta", text: "WORKER_STATUS: completed\nSUMMARY: B done." });
+  workerA.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: A done.\nVERIFICATION: A acceptance criteria passed.\nESCALATION_REQUIRED: no",
+  });
+  workerB.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: B done.\nVERIFICATION: B acceptance criteria passed.\nESCALATION_REQUIRED: no",
+  });
   workerA.isProcessing = false;
   workerB.isProcessing = false;
   parent.isProcessing = true;
@@ -246,7 +252,7 @@ test("starts a worker from a complete coordinator brief and returns its result",
   var worker = ctx.starts[0].session;
   worker.history.push({
     type: "delta",
-    text: "WORKER_STATUS: completed\nSUMMARY: Fixed resume handling.\nVERIFICATION: tests pass",
+    text: "WORKER_STATUS: completed\nSUMMARY: Fixed resume handling.\nVERIFICATION: tests pass\nESCALATION_REQUIRED: no",
   });
   worker.isProcessing = false;
   worker._subscriber({ type: "done" });
@@ -259,6 +265,25 @@ test("starts a worker from a complete coordinator brief and returns its result",
   assert.match(ctx.starts[1].prompt, /You own this result/);
 });
 
+test("does not complete a worker task when the worker only ends with commentary", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var worker = ctx.starts[0].session;
+  worker.history.push({
+    type: "delta",
+    text: "This is a great plan. I can implement it when you are ready.",
+  });
+  worker.isProcessing = false;
+
+  worker._subscriber({ type: "done" });
+
+  assert.equal(parent.orchestrationTasks[0].status, "needs_input");
+  assert.match(parent.orchestrationTasks[0].currentActivity, /Needs coordinator attention/);
+  assert.equal(ctx.starts.length, 2);
+  assert.match(ctx.starts[1].prompt, /Status: needs_input/);
+});
+
 test("delivers only one terminal update when a worker emits done again", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
@@ -266,7 +291,7 @@ test("delivers only one terminal update when a worker emits done again", functio
   var worker = ctx.starts[0].session;
   worker.history.push({
     type: "delta",
-    text: "WORKER_STATUS: completed\nSUMMARY: Finished once.",
+    text: "WORKER_STATUS: completed\nSUMMARY: Finished once.\nVERIFICATION: regression test passed\nESCALATION_REQUIRED: no",
   });
   worker.isProcessing = false;
 
@@ -283,7 +308,10 @@ test("direct worker follow-up marks its completed parent task running again", fu
   var parent = coordinator(ctx);
   ctx.api.delegateFromTool(brief(parent));
   var worker = ctx.starts[0].session;
-  worker.history.push({ type: "delta", text: "WORKER_STATUS: completed\nSUMMARY: First pass." });
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: First pass.\nVERIFICATION: first-pass test passed\nESCALATION_REQUIRED: no",
+  });
   worker.isProcessing = false;
   worker._subscriber({ type: "done" });
   assert.equal(parent.orchestrationTasks[0].status, "completed");
@@ -318,7 +346,10 @@ test("holds worker results while the coordinator is busy", function () {
   ctx.api.delegateFromTool(brief(parent));
   var worker = ctx.starts[0].session;
   parent.isProcessing = true;
-  worker.history.push({ type: "delta", text: "WORKER_STATUS: completed\nSUMMARY: Done." });
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Done.\nVERIFICATION: task checks passed\nESCALATION_REQUIRED: no",
+  });
   worker.isProcessing = false;
 
   worker._subscriber({ type: "done" });
@@ -382,6 +413,43 @@ test("restores a running worker subscription", function () {
   assert.equal(parent.orchestrationTasks[0].workerSessionId, 99);
   assert.equal(worker.orchestrationParent.sessionId, 17);
   assert.equal(worker.orchestrationParent.sessionStorageId, "parent-stable");
+});
+
+test("restores completed worker ownership for sidebar nesting", function () {
+  var sessions = new Map();
+  var worker = {
+    localId: 88,
+    storageId: "worker-completed",
+    isProcessing: false,
+    history: [],
+    orchestrationParent: {
+      taskId: "task-completed",
+      sessionId: 2,
+      sessionStorageId: "parent-completed",
+    },
+  };
+  var parent = {
+    localId: 19,
+    storageId: "parent-completed",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-completed",
+      title: "Completed task",
+      status: "completed",
+      workerSessionId: 2,
+      workerStorageId: "worker-completed",
+    }],
+  };
+  sessions.set(parent.localId, parent);
+  sessions.set(worker.localId, worker);
+
+  testContext(sessions);
+
+  assert.equal(parent.orchestrationTasks[0].workerSessionId, 88);
+  assert.equal(worker.orchestrationParent.sessionId, 19);
+  assert.equal(worker.orchestrationParent.sessionStorageId, "parent-completed");
+  assert.equal(worker._subscriber, undefined);
 });
 
 test("keeps a restart-interrupted worker running until automatic resume completes", function () {
