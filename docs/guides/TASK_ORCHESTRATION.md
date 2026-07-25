@@ -10,7 +10,9 @@ An ordinary conversation can be promoted without losing its transcript, model,
 or current work. Use **Promote** in the chat header, **Promote to coordinator**
 in the sidebar menu, or **New coordinator** from a provider's new-session menu.
 Coordinator and worker conversations carry visible role badges in the header
-and sidebar.
+and sidebar. Owned workers are nested beneath their coordinator in a collapsed
+group by default. The coordinator row expands the worker list; opening or
+searching for a worker expands its owner automatically.
 
 Click a **Coordinator** badge or use **Demote to normal chat** in the sidebar
 to remove the role without losing the transcript or completed task history.
