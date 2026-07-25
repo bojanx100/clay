@@ -23,6 +23,9 @@ function testContext(existingSessions) {
     appendToSessionFile: function () {},
     saveSessionFile: function () {},
     broadcastSessionList: function () {},
+    deleteSession: function (id) {
+      sessions.delete(id);
+    },
     subscribeSession: function (id, cb) {
       sessions.get(id)._subscriber = cb;
     },
@@ -161,6 +164,21 @@ test("starts a worker from a complete coordinator brief and returns its result",
   assert.equal(ctx.starts[1].session, parent);
   assert.match(ctx.starts[1].prompt, /Fixed resume handling/);
   assert.match(ctx.starts[1].prompt, /You own this result/);
+});
+
+test("closing a coordinated task removes its worker conversation", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var workerId = task.workerSessionId;
+
+  var closed = ctx.api.closeTask(parent, task.taskId, null);
+
+  assert.equal(closed, true);
+  assert.equal(parent.orchestrationTasks.length, 0);
+  assert.equal(ctx.sessions.has(workerId), false);
+  assert.deepEqual(ctx.events[ctx.events.length - 1].event.tasks, []);
 });
 
 test("holds worker results while the coordinator is busy", function () {
