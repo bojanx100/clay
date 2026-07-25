@@ -1307,10 +1307,9 @@
   touch-action: manipulation;
 }
 
-#composer-intent {
+.composer-task-btn {
   height: 32px;
-  max-width: 82px;
-  padding: 0 22px 0 9px;
+  padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--bg-alt);
@@ -1319,20 +1318,25 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
-#composer-intent:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.composer-task-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
-#input-wrapper[data-message-intent="task"] {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
-}
-
-#input-wrapper[data-message-intent="task"] #composer-intent {
+.composer-task-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.composer-task-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .session-role-badge {

@@ -572,13 +572,10 @@
                   </div>
                 </div>
               </div>
-              <select id="composer-intent" aria-label="Message intent" title="Choose how this message should be handled">
-                <option value="chat">Chat</option>
-                <option value="task">Task</option>
-                <option value="queue">Queue</option>
-                <option value="steer">Steer</option>
-              </select>
-              <button id="send-btn" disabled aria-label="Send"><i data-lucide="arrow-up"></i></button>
+              <button id="task-btn" class="composer-task-btn" type="button" aria-label="Send as task" title="Send as task (Option/Alt+Enter)">
+                <i data-lucide="git-branch"></i><span>Task</span>
+              </button>
+              <button id="send-btn" disabled aria-label="Send chat" title="Send chat (Enter)"><i data-lucide="arrow-up"></i></button>
             </div>
           </div>
         </div>

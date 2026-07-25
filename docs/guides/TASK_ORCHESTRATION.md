@@ -12,15 +12,14 @@ in the sidebar menu, or **New coordinator** from a provider's new-session menu.
 Coordinator and worker conversations carry visible role badges in the header
 and sidebar.
 
-The composer has an explicit, one-message intent selector:
+The composer has two explicit actions:
 
-- **Chat** sends ordinary conversation to the owning AI;
-- **Task** immediately creates an owned worker, independent of turn timing;
-- **Queue** waits for the coordinator's next ordinary turn, even when idle;
-- **Steer** redirects the current turn.
+- **Chat** sends ordinary conversation to the owning AI. Enter sends Chat;
+  additional messages queue behind its current turn in their original order.
+- **Task** immediately creates an owned worker, independent of turn timing.
 
-`Cmd/Ctrl+Enter` and `/task ...` are shortcuts for **Task**. Non-chat intents
-reset to Chat after sending.
+The **Task** button, `Option/Alt+Enter`, and `/task ...` send a Task.
+`Cmd/Ctrl+Enter` and `Shift+Enter` remain available for a new line.
 
 When a conversation is busy, a queued message can be:
 
