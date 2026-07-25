@@ -58,7 +58,7 @@ test("queue state serialization restores pending messages after a restart", func
   }), ["q-first"]);
 });
 
-test("steering one queued message leaves the remaining messages queued", async function () {
+test("steering one queued message resumes the remaining queue automatically", async function () {
   var queueApi = attachSessionQueuedMessages({ encodedCwd: "test" });
   var session = {
     localId: 42,
@@ -141,29 +141,19 @@ test("steering one queued message leaves the remaining messages queued", async f
   handler.scheduleQueuedUserMessageFlush(session);
   await new Promise(function (resolve) { setTimeout(resolve, 150); });
 
-  assert.deepEqual(dispatched, ["Selected"]);
+  assert.deepEqual(dispatched, ["Selected", "First"]);
   assert.deepEqual(session.pendingUserMessageQueue.map(function (item) {
     return item.queueId;
-  }), ["q-first", "q-last"]);
-
-  handler.handleUserMessage({ _clayActiveSession: session.localId }, {
-    type: "steer_queued_message",
-    queueId: "q-last",
-    sessionId: session.localId,
-  });
-  assert.deepEqual(dispatched, ["Selected", "Last"]);
-  assert.deepEqual(session.pendingUserMessageQueue.map(function (item) {
-    return item.queueId;
-  }), ["q-first"]);
+  }), ["q-last"]);
 
   session.isProcessing = false;
   handler.scheduleQueuedUserMessageFlush(session);
   await new Promise(function (resolve) { setTimeout(resolve, 150); });
 
-  assert.deepEqual(dispatched, ["Selected", "Last"]);
+  assert.deepEqual(dispatched, ["Selected", "First", "Last"]);
   assert.deepEqual(session.pendingUserMessageQueue.map(function (item) {
     return item.queueId;
-  }), ["q-first"]);
+  }), []);
 });
 
 test("coordinating a queued follow-up keeps it in the parent conversation", function () {
