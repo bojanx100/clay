@@ -102,8 +102,10 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-task-sources.js` | Source fetchers for project task launcher recipes |
 | `task-source-worker.js` | Forked worker entrypoint for task launcher source fetches so GitHub scans stay off the daemon event loop |
 | `project-task-launcher.js` | `task_launch` | Task launcher engine: load recipes from `.clay/tasks/*.json`, fetch items, spawn sessions (`startSessionForItem`, `loadRecipe`, `launchExternal`). Completion/needs-input markers; delegates the needs-input ping via the `onNeedsInput` callback |
-| `project-task-orchestrator.js` | `coordinate_queued_message` (via user-message routing), `orchestration_tasks_state` | Coordinator-owned worker delegation, progress tracking, follow-up routing, and automatic result return |
-| `orchestration-mcp-server.js` | MCP `delegate_task`, `send_task_message` | Provider-neutral coordinator tools for complete worker briefs and in-flight task updates |
+| `project-task-orchestrator.js` | `coordinate_queued_message` (via user-message routing), `orchestration_tasks_state` | Coordinator-owned worker execution, recovery, follow-up routing, scheduling, and automatic result return |
+| `orchestration-task-graph.js` | (shared graph engine) | Durable task/event schema, dependency readiness, concurrency ownership, transitions, and retry identity |
+| `orchestration-tool-handlers.js` | (called by orchestration MCP tools) | Coordinator graph planning/delegation and worker progress/retry handlers |
+| `orchestration-mcp-server.js` | MCP `delegate_task`, `plan_task_graph`, `send_task_message`, `retry_task`, `report_task_progress` | Provider-neutral coordinator and worker task controls |
 | `orchestration-task-state.js` | (shared serializer) | Provider-neutral coordinator prompts, worker-result parsing, and task projection |
 | `project-task-dashboard-page.js` | HTTP `GET /p/:slug/dashboard/` | Serves the project-owned task dashboard and its assets through Clay's authenticated HTTPS listener; rewrites legacy loopback launch URLs to same-origin project routes |
 | `project-task-launcher-completion.js` | (called from `project-task-launcher.js`) | Task launcher completion marker matching, including PR-review fallback markers |

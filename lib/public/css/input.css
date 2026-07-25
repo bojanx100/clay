@@ -866,6 +866,7 @@
   background: var(--text-muted);
 }
 
+.orchestration-task-status-ready,
 .orchestration-task-status-running {
   background: var(--accent);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
@@ -879,6 +880,8 @@
   background: var(--danger, #e5534b);
 }
 
+.orchestration-task-status-blocked,
+.orchestration-task-status-reviewing,
 .orchestration-task-status-needs_input {
   background: var(--warning, #d99824);
 }

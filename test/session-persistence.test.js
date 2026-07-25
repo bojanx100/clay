@@ -661,6 +661,16 @@ test("orchestration ownership and pending messages survive a session-manager res
     var parent = h.sm.createSessionRaw({ storageId: "coordinator-stable" });
     var worker = h.sm.createSessionRaw({ storageId: "worker-stable" });
     parent.coordinationMode = true;
+    parent.orchestrationGraphId = "graph-stable";
+    parent.orchestrationPolicy = { maxParallel: 4 };
+    parent.orchestrationEvents = [{
+      eventId: "event-stable",
+      graphId: "graph-stable",
+      taskId: "task-stable",
+      type: "task_created",
+      at: 5,
+      data: {},
+    }];
     parent.orchestrationTasks = [{
       taskId: "task-stable",
       title: "Durable task",
@@ -693,6 +703,9 @@ test("orchestration ownership and pending messages survive a session-manager res
     assert.ok(restoredParent);
     assert.ok(restoredWorker);
     assert.strictEqual(restoredParent.coordinationMode, true);
+    assert.strictEqual(restoredParent.orchestrationGraphId, "graph-stable");
+    assert.strictEqual(restoredParent.orchestrationPolicy.maxParallel, 4);
+    assert.strictEqual(restoredParent.orchestrationEvents[0].eventId, "event-stable");
     assert.strictEqual(restoredParent.orchestrationTasks[0].workerStorageId, "worker-stable");
     assert.strictEqual(restoredParent.pendingCoordinatorUpdates[0].text, "Result waiting");
     assert.strictEqual(restoredWorker.orchestrationParent.sessionStorageId, "coordinator-stable");

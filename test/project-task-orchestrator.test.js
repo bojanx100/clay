@@ -83,7 +83,7 @@ function brief(parent) {
   };
 }
 
-test("coordinates a queued request in a background worker with parent context", function () {
+test("coordinates a queued request through the owning AI without interrupting it", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
   parent.isProcessing = true;
@@ -101,13 +101,63 @@ test("coordinates a queued request in a background worker with parent context", 
   });
 
   assert.equal(parent.isProcessing, true);
-  assert.equal(parent.orchestrationTasks.length, 1);
-  assert.equal(task, parent.orchestrationTasks[0]);
-  assert.equal(ctx.starts.length, 1);
-  assert.notEqual(ctx.starts[0].session, parent);
-  assert.match(ctx.starts[0].prompt, /Add a regression test for background coordination/);
-  assert.match(ctx.starts[0].prompt, /We are fixing the queue behavior/);
-  assert.match(ctx.starts[0].prompt, /I am working on the active task/);
+  assert.equal(parent.orchestrationTasks.length, 0);
+  assert.equal(task.status, "reviewing");
+  assert.equal(ctx.starts.length, 0);
+  assert.equal(parent.pendingCoordinatorUpdates.length, 1);
+  assert.match(parent.pendingCoordinatorUpdates[0].text, /Add a regression test for background coordination/);
+  assert.match(parent.pendingCoordinatorUpdates[0].text, /stable coordinator/);
+});
+
+test("plans independent work in parallel and releases a dependent task", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  var result = ctx.api.planFromTool({
+    coordinatorSessionId: parent.storageId,
+    tasks: [{
+      ref: "a", title: "Implement A", objective: "Implement A", ownedPaths: "lib/a.js",
+    }, {
+      ref: "b", title: "Test B", objective: "Test B", ownedPaths: "test/b.test.js",
+    }, {
+      ref: "c", title: "Integrate C", objective: "Integrate A and B",
+      dependencies: ["a", "b"], ownedPaths: "lib/integration.js",
+    }],
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(ctx.starts.length, 2);
+  assert.equal(parent.orchestrationTasks[2].status, "queued");
+  var workerA = ctx.starts[0].session;
+  var workerB = ctx.starts[1].session;
+  workerA.history.push({ type: "delta", text: "WORKER_STATUS: completed\nSUMMARY: A done." });
+  workerB.history.push({ type: "delta", text: "WORKER_STATUS: completed\nSUMMARY: B done." });
+  workerA.isProcessing = false;
+  workerB.isProcessing = false;
+  parent.isProcessing = true;
+  workerA._subscriber({ type: "done" });
+  assert.equal(ctx.starts.length, 2);
+  workerB._subscriber({ type: "done" });
+  assert.equal(ctx.starts.length, 3);
+  assert.equal(ctx.starts[2].session.orchestrationParent.taskId, parent.orchestrationTasks[2].taskId);
+  assert.equal(parent.orchestrationTasks[2].status, "running");
+});
+
+test("records worker progress on the stable parent task", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+  var result = ctx.api.reportFromTool({
+    workerSessionId: worker.storageId,
+    taskId: task.taskId,
+    activity: "Running reconnect regression tests",
+    progress: 60,
+  });
+  assert.equal(result.isError, undefined);
+  assert.equal(task.currentActivity, "Running reconnect regression tests");
+  assert.equal(task.progress, 60);
+  assert.ok(parent.orchestrationEvents.length >= 3);
 });
 
 test("rejects delegation from a session that is not the coordinator", function () {
