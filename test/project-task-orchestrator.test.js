@@ -384,6 +384,43 @@ test("restores a running worker subscription", function () {
   assert.equal(worker.orchestrationParent.sessionStorageId, "parent-stable");
 });
 
+test("restores completed worker ownership for sidebar nesting", function () {
+  var sessions = new Map();
+  var worker = {
+    localId: 88,
+    storageId: "worker-completed",
+    isProcessing: false,
+    history: [],
+    orchestrationParent: {
+      taskId: "task-completed",
+      sessionId: 2,
+      sessionStorageId: "parent-completed",
+    },
+  };
+  var parent = {
+    localId: 19,
+    storageId: "parent-completed",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-completed",
+      title: "Completed task",
+      status: "completed",
+      workerSessionId: 2,
+      workerStorageId: "worker-completed",
+    }],
+  };
+  sessions.set(parent.localId, parent);
+  sessions.set(worker.localId, worker);
+
+  testContext(sessions);
+
+  assert.equal(parent.orchestrationTasks[0].workerSessionId, 88);
+  assert.equal(worker.orchestrationParent.sessionId, 19);
+  assert.equal(worker.orchestrationParent.sessionStorageId, "parent-completed");
+  assert.equal(worker._subscriber, undefined);
+});
+
 test("keeps a restart-interrupted worker running until automatic resume completes", function () {
   var sessions = new Map();
   var worker = {
