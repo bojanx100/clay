@@ -1307,6 +1307,52 @@
   touch-action: manipulation;
 }
 
+#composer-intent {
+  height: 32px;
+  max-width: 82px;
+  padding: 0 22px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#composer-intent:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#input-wrapper[data-message-intent="task"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+#input-wrapper[data-message-intent="task"] #composer-intent {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.session-role-badge {
+  display: inline-flex;
+  margin-right: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  vertical-align: 1px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.session-role-badge.coordinator {
+  color: var(--accent);
+}
+
 #send-btn .lucide {
   width: 18px;
   height: 18px;

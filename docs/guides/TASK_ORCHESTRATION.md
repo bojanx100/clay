@@ -6,6 +6,22 @@ conversations are replaceable executors.
 
 ## User flow
 
+An ordinary conversation can be promoted without losing its transcript, model,
+or current work. Use **Promote** in the chat header, **Promote to coordinator**
+in the sidebar menu, or **New coordinator** from a provider's new-session menu.
+Coordinator and worker conversations carry visible role badges in the header
+and sidebar.
+
+The composer has an explicit, one-message intent selector:
+
+- **Chat** sends ordinary conversation to the owning AI;
+- **Task** immediately creates an owned worker, independent of turn timing;
+- **Queue** waits for the coordinator's next ordinary turn, even when idle;
+- **Steer** redirects the current turn.
+
+`Cmd/Ctrl+Enter` and `/task ...` are shortcuts for **Task**. Non-chat intents
+reset to Chat after sending.
+
 When a conversation is busy, a queued message can be:
 
 - left queued for the next ordinary turn;
@@ -21,6 +37,12 @@ expanded into a dependency graph.
 Coordinator envelopes and worker-result handoffs are model-only history items:
 the model receives them, but the UI shows the original user request and the
 coordinator's response rather than exposing Clay's internal instructions.
+Worker launches produce an immediate persistent acknowledgement in the
+coordinator transcript.
+
+Closing a coordinator with queued or running work requires a destructive
+confirmation. Confirming stops and archives its active workers; Clay refuses an
+unconfirmed close request so alternate close paths cannot bypass the warning.
 
 ## Runtime model
 

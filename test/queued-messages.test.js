@@ -168,7 +168,7 @@ test("steering one queued message resumes the remaining queue automatically", as
   }), []);
 });
 
-test("coordinating a queued follow-up starts background work without steering the parent", function () {
+test("coordinating a queued follow-up starts background work without steering the parent", async function () {
   var queueApi = attachSessionQueuedMessages({ encodedCwd: "test" });
   var session = {
     localId: 42,
@@ -253,4 +253,20 @@ test("coordinating a queued follow-up starts background work without steering th
   assert.equal(session.taskStopRequested, undefined);
   assert.equal(session.history[0].coordinationRequest, true);
   assert.equal(session.orchestrationTasks[0].taskId, "task-background");
+
+  handler.handleUserMessage({ _clayActiveSession: session.localId }, {
+    type: "message",
+    text: "Launch this as an explicit task",
+    intent: "task",
+    sessionId: session.localId,
+  });
+  await new Promise(function (resolve) {
+    setImmediate(resolve);
+  });
+
+  assert.equal(session.pendingUserMessageQueue.length, 0);
+  assert.equal(coordinated.length, 2);
+  assert.equal(coordinated[1].session, session);
+  assert.equal(coordinated[1].item.text, "Launch this as an explicit task");
+  assert.equal(aborted, false);
 });
