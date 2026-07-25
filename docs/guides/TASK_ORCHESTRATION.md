@@ -49,6 +49,8 @@ The provider-neutral `clay-orchestration` server exposes:
 - `send_task_message` for corrections or added context;
 - `retry_task` to retry while preserving task identity;
 - `report_task_progress` for worker milestones.
+- `adopt_session` to classify an offered existing conversation and optionally
+  continue it as a task executor.
 
 All providers use the same task schema. A worker receives the parent context,
 objective, acceptance criteria, ownership boundary, stable task ID, and the
@@ -67,3 +69,18 @@ The current ledger is stored with the coordinator session. If orchestration
 needs to move to a database or a shared team service later, replay
 `orchestrationEvents` into the same task projection and keep task IDs and
 executor bindings unchanged.
+
+## Existing conversations
+
+An ordinary session remains independent unless the user chooses **Add to
+coordinator…** from its sidebar menu. Clay ranks eligible coordinators using
+existing coordinator status, recent conversation overlap, and activity. It
+only shows sessions the current user may access.
+
+Selecting a coordinator records a durable proposal and sends that AI a compact
+handoff. The coordinator then classifies the conversation as a new task, an
+existing task worker, context only, or unrelated. Task adoption preserves the
+existing conversation and provider, binds it to a stable task ID, sends the
+coordinator's next instruction into that session, and returns its eventual
+result to the coordinator. A tool call cannot claim an arbitrary session: the
+source must first have been explicitly offered to that exact coordinator.

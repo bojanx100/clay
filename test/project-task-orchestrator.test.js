@@ -160,6 +160,52 @@ test("records worker progress on the stable parent task", function () {
   assert.ok(parent.orchestrationEvents.length >= 3);
 });
 
+test("offers an existing session to the coordinator and adopts it as a worker", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  parent.isProcessing = true;
+  var source = {
+    localId: 9,
+    storageId: "existing-session",
+    title: "Existing investigation",
+    vendor: "codex",
+    history: [
+      { type: "user_message", text: "Investigate the flaky reconnect test." },
+      { type: "delta", text: "The race is in resume handling." },
+    ],
+    isProcessing: false,
+  };
+  ctx.sessions.set(source.localId, source);
+
+  var candidates = ctx.api.listAdoptionCoordinators(source);
+  assert.equal(candidates[0].id, parent.localId);
+  assert.equal(candidates[0].recommended, true);
+  assert.equal(ctx.api.proposeSessionAdoption(source, parent), true);
+  assert.equal(source.orchestrationAdoption.status, "proposed");
+  assert.match(parent.pendingCoordinatorUpdates[0].text, /existing-session/);
+  assert.match(parent.pendingCoordinatorUpdates[0].text, /race is in resume handling/);
+
+  parent.isProcessing = false;
+  var result = ctx.api.adoptFromTool({
+    coordinatorSessionId: parent.storageId,
+    sourceSessionId: source.storageId,
+    action: "new_task",
+    title: "Fix reconnect race",
+    objective: "Fix the resume race.",
+    acceptanceCriteria: "The flaky test passes.",
+    ownedPaths: "lib/resume.js",
+    message: "Implement the identified fix and verify the flaky test.",
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(parent.orchestrationTasks.length, 1);
+  assert.equal(parent.orchestrationTasks[0].workerStorageId, source.storageId);
+  assert.equal(source.orchestrationParent.taskId, parent.orchestrationTasks[0].taskId);
+  assert.equal(source.orchestrationAdoption.status, "adopted");
+  assert.equal(ctx.starts[0].session, source);
+  assert.match(ctx.starts[0].prompt, /Implement the identified fix/);
+});
+
 test("rejects delegation from a session that is not the coordinator", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);

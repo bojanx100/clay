@@ -684,6 +684,11 @@ test("orchestration ownership and pending messages survive a session-manager res
       sessionId: parent.localId,
       sessionStorageId: "coordinator-stable",
     };
+    worker.orchestrationAdoption = {
+      status: "adopted",
+      coordinatorStorageId: "coordinator-stable",
+      taskId: "task-stable",
+    };
     worker.pendingCoordinatorMessages = ["New acceptance criterion"];
     h.sm.saveSessionFile(parent);
     h.sm.saveSessionFile(worker);
@@ -709,6 +714,7 @@ test("orchestration ownership and pending messages survive a session-manager res
     assert.strictEqual(restoredParent.orchestrationTasks[0].workerStorageId, "worker-stable");
     assert.strictEqual(restoredParent.pendingCoordinatorUpdates[0].text, "Result waiting");
     assert.strictEqual(restoredWorker.orchestrationParent.sessionStorageId, "coordinator-stable");
+    assert.strictEqual(restoredWorker.orchestrationAdoption.status, "adopted");
     assert.deepStrictEqual(restoredWorker.pendingCoordinatorMessages, ["New acceptance criterion"]);
   } finally {
     h.cleanup();
