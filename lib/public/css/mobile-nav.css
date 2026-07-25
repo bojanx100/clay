@@ -620,6 +620,24 @@
     font-weight: 600;
   }
 
+  .mobile-session-item.bookmarked {
+    color: var(--text);
+  }
+
+  .mobile-session-favorite {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .mobile-session-favorite svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+  }
+
   .mobile-session-title {
     flex: 1;
     display: inline-flex;
