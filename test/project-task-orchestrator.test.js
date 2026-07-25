@@ -109,6 +109,14 @@ test("coordinates a queued request in a new owned worker without interrupting th
   assert.match(ctx.starts[0].prompt, /Add a regression test for background coordination/);
   assert.match(ctx.starts[0].prompt, /We are fixing the queue behavior/);
   assert.match(ctx.starts[0].prompt, /I am working on the active task/);
+  var launchNotice = ctx.events.find(function (entry) {
+    return entry.id === parent.localId && entry.event.type === "system_info";
+  });
+  assert.ok(launchNotice);
+  assert.match(launchNotice.event.text, /Started worker 2/);
+  assert.equal(launchNotice.event.orchestrationTaskId, task.taskId);
+  assert.equal(launchNotice.event.workerSessionId, 2);
+  assert.equal(parent.history[parent.history.length - 1].type, "system_info");
 });
 
 test("plans independent work in parallel and releases a dependent task", function () {
