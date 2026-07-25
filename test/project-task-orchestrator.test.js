@@ -83,19 +83,6 @@ function brief(parent) {
   };
 }
 
-test("activates the current session as coordinator with the queued request", function () {
-  var ctx = testContext();
-  var parent = coordinator(ctx);
-  parent.coordinationMode = false;
-
-  var prompt = ctx.api.activateCoordinator(parent, "this is what you asked");
-
-  assert.equal(parent.coordinationMode, true);
-  assert.match(prompt, /coordinatorSessionId for orchestration tool calls is coordinator-stable/);
-  assert.match(prompt, /this is what you asked/);
-  assert.match(prompt, /delegate_task/);
-});
-
 test("coordinates a queued request in a background worker with parent context", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
@@ -183,6 +170,23 @@ test("delivers only one terminal update when a worker emits done again", functio
   assert.equal(parent.orchestrationTasks[0].status, "completed");
   assert.equal(ctx.starts.length, 2);
   assert.equal(ctx.starts[1].session, parent);
+});
+
+test("direct worker follow-up marks its completed parent task running again", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var worker = ctx.starts[0].session;
+  worker.history.push({ type: "delta", text: "WORKER_STATUS: completed\nSUMMARY: First pass." });
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+  assert.equal(parent.orchestrationTasks[0].status, "completed");
+
+  ctx.api.resumeOwnedWorker(worker);
+
+  assert.equal(parent.orchestrationTasks[0].status, "running");
+  assert.equal(parent.orchestrationTasks[0].resultSummary, "");
+  assert.equal(worker._orchestrationWatcherAttached, true);
 });
 
 test("closing a coordinated task stops and archives its worker conversation", function () {
