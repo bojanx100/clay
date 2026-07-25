@@ -12,6 +12,12 @@ in the sidebar menu, or **New coordinator** from a provider's new-session menu.
 Coordinator and worker conversations carry visible role badges in the header
 and sidebar.
 
+Click a **Coordinator** badge or use **Demote to normal chat** in the sidebar
+to remove the role without losing the transcript or completed task history.
+An idle coordinator demotes immediately. With active workers, Clay offers to
+stop and archive them now or demote automatically after they finish; a pending
+demotion can be cancelled from the sidebar.
+
 The composer has two explicit actions:
 
 - **Chat** sends ordinary conversation to the owning AI. Enter sends Chat;
