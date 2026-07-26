@@ -295,7 +295,6 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar-sessions-rename.js` | Inline rename controls for session rows and loop groups |
 | `sidebar-sessions-top-actions.js` | Sidebar session top action buttons and Claude/Codex launch option menus |
 | `queued-messages.js` | Client-side queued/steer message indicators and controls |
-| `orchestration-task-resolution-dialog.js` | Verified coordinator resolution dialog for existing needs-input and failed worker tasks |
 | `sidebar-projects.js` | Project icon strip, context menus, emoji picker, drag-and-drop reorder, worktree modal, project access popover, project rename, project badges |
 | `sidebar-mates.js` | User/mate icon strip, DM picker, user/mate context menus, icon strip tooltips, sidebar presence, DM badges, DM user state |
 | `sidebar-mobile.js` | Mobile sheet overlays (projects, sessions, mate profile, search, tools, settings), mobile tab bar, drag-to-dismiss, mobile loop groups, mobile session rendering |

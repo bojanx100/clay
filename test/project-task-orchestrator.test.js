@@ -374,27 +374,6 @@ test("owning coordinator resolves a needs-input task after independent verificat
   assert.match(task.verification, /reconnect\.test\.js passed/);
 });
 
-test("existing needs-input task resolves through the coordinator UI path without recreating its worker", function () {
-  var ctx = testContext();
-  var parent = coordinator(ctx);
-  ctx.api.delegateFromTool(brief(parent));
-  var task = parent.orchestrationTasks[0];
-  var originalWorkerId = task.workerSessionId;
-  task.status = "needs_input";
-
-  var result = ctx.api.resolveTask(
-    parent,
-    task.taskId,
-    "Coordinator completed the old task after taking ownership.",
-    "node --test test/project-task-orchestrator.test.js passed"
-  );
-
-  assert.equal(result.isError, undefined);
-  assert.equal(task.status, "completed");
-  assert.equal(task.workerSessionId, originalWorkerId);
-  assert.equal(ctx.starts.length, 1);
-});
-
 test("task resolution rejects unverified outcomes and non-owning sessions", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);

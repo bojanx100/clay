@@ -916,8 +916,7 @@
   height: 14px;
 }
 
-.orchestration-task-close,
-.orchestration-task-resolve {
+.orchestration-task-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -931,106 +930,14 @@
   cursor: pointer;
 }
 
-.orchestration-task-resolve:hover {
-  background: rgba(var(--success-rgb, 57, 181, 74), 0.12);
-  color: var(--success);
-}
-
 .orchestration-task-close:hover {
   background: rgba(var(--danger-rgb, 229, 83, 75), 0.12);
   color: var(--danger, #e5534b);
 }
 
-.orchestration-task-close .lucide,
-.orchestration-task-resolve .lucide {
+.orchestration-task-close .lucide {
   width: 14px;
   height: 14px;
-}
-
-.orchestration-resolution-overlay {
-  position: fixed;
-  z-index: 10020;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(0, 0, 0, 0.58);
-}
-
-.orchestration-resolution-dialog {
-  width: min(440px, 100%);
-  padding: 20px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
-  box-shadow: 0 18px 55px rgba(var(--shadow-rgb), 0.32);
-}
-
-.orchestration-resolution-dialog h3 {
-  margin: 0 0 6px;
-  font-size: 17px;
-}
-
-.orchestration-resolution-dialog p {
-  margin: 0 0 16px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.orchestration-resolution-field {
-  display: block;
-  margin-top: 12px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.orchestration-resolution-field textarea {
-  box-sizing: border-box;
-  width: 100%;
-  margin-top: 5px;
-  padding: 9px 10px;
-  resize: vertical;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  outline: none;
-  background: var(--input-bg);
-  color: var(--text);
-  font: inherit;
-  font-weight: 400;
-}
-
-.orchestration-resolution-field textarea:focus {
-  border-color: var(--accent);
-}
-
-.orchestration-resolution-error {
-  min-height: 18px;
-  margin-top: 8px;
-  color: var(--danger, #e5534b);
-  font-size: 12px;
-}
-
-.orchestration-resolution-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.orchestration-resolution-actions button {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--bg-alt);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.orchestration-resolution-actions .orchestration-resolution-submit {
-  border-color: var(--success);
-  background: var(--success);
-  color: white;
 }
 
 .queued-message-steer:hover {
