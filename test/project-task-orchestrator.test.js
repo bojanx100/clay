@@ -282,6 +282,85 @@ test("does not complete a worker task when the worker only ends with commentary"
   assert.match(parent.orchestrationTasks[0].currentActivity, /Needs coordinator attention/);
   assert.equal(ctx.starts.length, 2);
   assert.match(ctx.starts[1].prompt, /Status: needs_input/);
+  assert.match(ctx.starts[1].prompt, /clay-orchestration\/resolve_task/);
+});
+
+test("owning coordinator resolves a needs-input task after independent verification", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: needs_input\nSUMMARY: Partial fix only.\nVERIFICATION: not run\nESCALATION_REQUIRED: yes",
+  });
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+  assert.equal(task.status, "needs_input");
+
+  var result = ctx.api.resolveFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    summary: "Coordinator finished the reconnect fix and integration.",
+    verification: "node --test test/reconnect.test.js passed",
+    escalationRequired: "no",
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(task.status, "completed");
+  assert.equal(task.currentActivity, "Completed and verified by coordinator");
+  assert.equal(task.progress, 100);
+  assert.equal(task.resolvedByCoordinator, true);
+  assert.match(task.verification, /reconnect\.test\.js passed/);
+});
+
+test("task resolution rejects unverified outcomes and non-owning sessions", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  task.status = "needs_input";
+
+  var unverified = ctx.api.resolveFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    summary: "Probably done.",
+    verification: "not tested",
+    escalationRequired: "no",
+  });
+  assert.equal(unverified.isError, true);
+  assert.equal(task.status, "needs_input");
+
+  parent.coordinationMode = false;
+  var notOwner = ctx.api.resolveFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    summary: "Finished.",
+    verification: "Regression test passed",
+    escalationRequired: "no",
+  });
+  assert.equal(notOwner.isError, true);
+  assert.equal(task.status, "needs_input");
+});
+
+test("task resolution refuses to override a running worker", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+
+  var result = ctx.api.resolveFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    summary: "Coordinator says done.",
+    verification: "Regression test passed",
+    escalationRequired: "no",
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /still running/);
+  assert.equal(task.status, "running");
 });
 
 test("delivers only one terminal update when a worker emits done again", function () {
