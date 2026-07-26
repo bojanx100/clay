@@ -472,10 +472,14 @@ test("closing a coordinated task stops and archives its worker conversation", fu
 
   assert.equal(closed, true);
   assert.equal(parent.orchestrationTasks.length, 0);
+  assert.equal(parent.coordinationMode, false);
   assert.equal(ctx.sessions.has(workerId), true);
   assert.equal(ctx.sessions.get(workerId).hidden, true);
   assert.equal(ctx.sessions.get(workerId).taskStopRequested, true);
-  assert.deepEqual(ctx.events[ctx.events.length - 1].event.tasks, []);
+  var taskStateEvent = ctx.events.findLast(function (entry) {
+    return entry.event && entry.event.type === "orchestration_tasks_state";
+  });
+  assert.deepEqual(taskStateEvent.event.tasks, []);
 });
 
 test("holds worker results while the coordinator is busy", function () {

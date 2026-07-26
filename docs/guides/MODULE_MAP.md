@@ -103,6 +103,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `task-source-worker.js` | Forked worker entrypoint for task launcher source fetches so GitHub scans stay off the daemon event loop |
 | `project-task-launcher.js` | `task_launch` | Task launcher engine: load recipes from `.clay/tasks/*.json`, fetch items, spawn sessions (`startSessionForItem`, `loadRecipe`, `launchExternal`). Completion/needs-input markers; delegates the needs-input ping via the `onNeedsInput` callback |
 | `project-task-orchestrator.js` | `coordinate_queued_message` (via user-message routing), `orchestration_tasks_state` | Coordinator-owned worker execution, recovery, follow-up routing, scheduling, and automatic result return |
+| `project-task-orchestrator-demotion.js` | (called by task orchestrator) | Automatic and deferred coordinator demotion when no owned workers remain |
 | `project-coordinate-queued.js` | `coordinate_queued_message` helper | Converts an explicit Coordinate action into a context-rich owned worker task |
 | `project-session-adoption.js` | `list_orchestration_coordinators`, `propose_session_adoption`; MCP `adopt_session` | Recommends coordinators, builds compact existing-session handoffs, records classification, and binds adopted conversations as task executors |
 | `orchestration-task-graph.js` | (shared graph engine) | Durable task/event schema, dependency readiness, concurrency ownership, transitions, and retry identity |
