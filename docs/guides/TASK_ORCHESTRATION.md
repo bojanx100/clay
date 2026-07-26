@@ -91,6 +91,12 @@ objective, acceptance criteria, ownership boundary, stable task ID, and the
 required completion report. Results return to the owning conversation, which
 integrates them and reports one outcome.
 
+External task producers such as Framer use the task-launch API with a
+`coordinatorSessionId`. Their current selection/page/variant context is stored
+in the task's `context` field and delivered in the worker brief. External
+producers do not create or promote coordinators implicitly: they must target an
+existing coordinator, keeping ownership visible and deterministic.
+
 ## Compatibility and migration
 
 Existing Option B task lists remain valid. Missing graph fields are initialized

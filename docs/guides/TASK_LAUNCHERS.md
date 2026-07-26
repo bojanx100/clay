@@ -55,6 +55,42 @@ Create task launcher files under the project:
 Dashboards can call that URL with a JSON body containing `token`, `recipe`, `issue`, and `vendor`.
 Use `https://` in the URL when the Clay server is running with TLS.
 
+### Framer and other design tools
+
+An integration can route a task through an existing Clay coordinator instead
+of opening an unrelated standalone conversation. Add the coordinator's local
+or storage session ID and the design context to the same launch request:
+
+```json
+{
+  "token": "change-this-local-token",
+  "recipe": "github-bug",
+  "issue": 1782,
+  "source": "framer",
+  "coordinatorSessionId": "019f95a7-f854-7213-bc79-8101f3d43950",
+  "context": "Framer page: Checkout. Selected component: PaymentForm. The attached task refers to the selected error state and must preserve the current desktop and mobile variants.",
+  "acceptanceCriteria": "Match the selected Framer state and verify desktop and mobile behavior.",
+  "ownedPaths": "Checkout payment form UI and its focused tests.",
+  "clientRef": "framer-task-42"
+}
+```
+
+`context` should contain the useful Framer state available when the task is
+created: project/page, selected layer or component, variant/breakpoint, design
+link or node IDs, annotations, and any relevant conversation excerpt. Clay
+stores that context on the durable orchestration task and includes it in the
+worker brief. The worker appears nested under the named coordinator, reports
+progress and results back to it, and the coordinator remains responsible for
+integration and the final answer.
+
+`coordinatorSessionId` must identify an existing coordinator in the same Clay
+project. Clay returns an error rather than silently creating or promoting a
+conversation when the ID is missing or invalid. Omitting
+`coordinatorSessionId` preserves the original behavior and starts a standalone
+task-launcher session. Send a stable `clientRef` for each Framer task: retrying
+the same request returns the already-owned task instead of starting a duplicate
+worker.
+
 The endpoint is gated by both the Clay auth session and the `launchApi.token`
 (constant-time compared). When a request targets a specific `issue`, the
 recipe's `filter` (label/assignee/`skipProjectStatuses`) is intentionally **not**

@@ -34,7 +34,7 @@ function makeItem(number, title) {
   };
 }
 
-function makeHarness(fetchItemsAsync) {
+function makeHarness(fetchItemsAsync, coordinateExternalTask) {
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-tasklauncher-"));
   writeRecipe(cwd);
   var messages = [];
@@ -76,6 +76,7 @@ function makeHarness(fetchItemsAsync) {
     ensureProjectAccessForSession: function () { return "access-ok"; },
     onProcessingChanged: function () { processingChanged++; },
     fetchItemsAsync: fetchItemsAsync,
+    coordinateExternalTask: coordinateExternalTask,
   });
   return {
     cwd: cwd,
@@ -203,6 +204,49 @@ test("launchExternal resolves an error object when async fetch fails", async fun
     var result = await promise;
     assert.deepStrictEqual(result, { ok: false, error: "worker down" });
     assert.strictEqual(h.startQueries.length, 0);
+  } finally {
+    cleanupHarness(h);
+  }
+});
+
+test("launchExternal routes Framer context through an existing coordinator", async function () {
+  var coordinated = [];
+  var h = makeHarness(function () {
+    return Promise.resolve([makeItem(12, "Match payment error state")]);
+  }, function (input) {
+    coordinated.push(input);
+    return {
+      ok: true,
+      coordinatorSessionId: "coordinator-storage",
+      orchestrationTaskId: "task-framer",
+      workerSessionId: 22,
+    };
+  });
+  try {
+    var result = await h.launcher.launchExternal({
+      recipe: "bugs",
+      issue: 12,
+      source: "framer",
+      coordinatorSessionId: "coordinator-storage",
+      context: "Page: Checkout. Selection: PaymentForm/Error.",
+      acceptanceCriteria: "Match desktop and mobile variants.",
+      ownedPaths: "Payment form UI.",
+      clientRef: "framer-42",
+    }, null);
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.orchestrationTaskId, "task-framer");
+    assert.strictEqual(coordinated.length, 1);
+    assert.strictEqual(coordinated[0].coordinatorSessionId, "coordinator-storage");
+    assert.strictEqual(coordinated[0].title, "Issue #12 Match payment error state");
+    assert.ok(coordinated[0].objective.indexOf("Body 12") !== -1);
+    assert.ok(coordinated[0].context.indexOf("Task source: framer.") !== -1);
+    assert.ok(coordinated[0].context.indexOf("PaymentForm/Error") !== -1);
+    assert.strictEqual(coordinated[0].acceptanceCriteria, "Match desktop and mobile variants.");
+    assert.strictEqual(coordinated[0].ownedPaths, "Payment form UI.");
+    assert.strictEqual(coordinated[0].clientRef, "framer-42");
+    assert.strictEqual(h.startQueries.length, 0);
+    assert.strictEqual(h.switched.length, 0);
   } finally {
     cleanupHarness(h);
   }
