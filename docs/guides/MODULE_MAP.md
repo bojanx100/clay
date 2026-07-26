@@ -76,6 +76,9 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | Module | Concern |
 |--------|---------|
 | `project-browser-extension.js` | Browser extension auth token, shared tab state, command dispatch, and tab context request helpers |
+| `server-live-ui-registry.js` | Server-instance Live UI pairing identities, proof, reconnect credentials, deduplication, isolation, and revocation |
+| `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
+| `project-live-ui-context.js` | Bounded selection-packet validation, sensitive-field exclusion, PII scrubbing, and fingerprints |
 | `project-clients.js` | Per-project WebSocket client set, broadcast helpers, admin sends, and session presence payloads |
 | `project-connection.js` | WebSocket connection setup, initial state sync, session restore, presence |
 | `project-context-sources.js` | Context-source active selection persistence shared by connection, sessions, user messages, and email |

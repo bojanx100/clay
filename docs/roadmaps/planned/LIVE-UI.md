@@ -722,6 +722,13 @@ Defer this. The target-page overlay delivers the useful interaction without pret
 
 ## Implementation Roadmap
 
+**Implementation status (2026-07-26): started.** Clay now has the server-scoped
+Phase 0 registry, session/dev-origin authorization, versioned pairing relay,
+bounded and scrubbed selection packets, exactly-once acknowledgments, target
+reload reconnect, control rebind, and revocation tests. The `clay-chrome`
+target overlay and picker remain the next cross-repository slice, so Phase 0 is
+not yet complete.
+
 ### Phase 0: Protocol and threat model
 
 **Goal**: Lock the cross-repository contract before UI work.
