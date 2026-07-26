@@ -265,6 +265,65 @@ test("starts a worker from a complete coordinator brief and returns its result",
   assert.match(ctx.starts[1].prompt, /You own this result/);
 });
 
+test("adaptively routes unpinned coordinator work and records the rationale", function () {
+  var ctx = testContext();
+  ctx.sm.providerRoutes = [{
+    id: "claude-anthropic",
+    vendor: "claude",
+    label: "Claude",
+    enabled: true,
+    health: "healthy",
+  }, {
+    id: "codex-openai",
+    vendor: "codex",
+    label: "Codex",
+    enabled: true,
+    health: "healthy",
+  }];
+  ctx.sm.modelsByVendor = {
+    claude: ["claude-sonnet-4-6", "claude-opus-4-8"],
+    codex: ["gpt-5.6-sol", "gpt-5.6-terra"],
+  };
+  var parent = coordinator(ctx);
+  parent.model = "gpt-5.6-sol";
+  var input = brief(parent);
+  input.title = "Review reconnect architecture";
+  input.objective = "Root cause a cross-cutting reconnect race condition.";
+
+  ctx.api.delegateFromTool(input);
+
+  var task = parent.orchestrationTasks[0];
+  assert.equal(task.routingTier, "strong");
+  assert.equal(task.provider, "codex");
+  assert.equal(task.model, "gpt-5.6-sol");
+  assert.equal(task.providerRouteId, "codex-openai");
+  assert.match(task.routingRationale, /difficult reasoning/);
+  assert.equal(ctx.starts[0].session.providerRouteId, "codex-openai");
+});
+
+test("explicit coordinator route pins bypass adaptive routing", function () {
+  var ctx = testContext();
+  ctx.sm.providerRoutes = [{
+    id: "codex-openai",
+    vendor: "codex",
+    label: "Codex",
+    enabled: true,
+    health: "healthy",
+  }];
+  ctx.sm.modelsByVendor = { codex: ["gpt-5.6-sol", "gpt-5.6-terra"] };
+  var parent = coordinator(ctx);
+  var input = brief(parent);
+  input.provider = "codex";
+  input.model = "gpt-5.6-terra";
+
+  ctx.api.delegateFromTool(input);
+
+  var task = parent.orchestrationTasks[0];
+  assert.equal(task.routingTier, "pinned");
+  assert.equal(task.model, "gpt-5.6-terra");
+  assert.match(task.routingRationale, /pin constrained routing/);
+});
+
 test("does not complete a worker task when the worker only ends with commentary", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
@@ -313,6 +372,27 @@ test("owning coordinator resolves a needs-input task after independent verificat
   assert.equal(task.progress, 100);
   assert.equal(task.resolvedByCoordinator, true);
   assert.match(task.verification, /reconnect\.test\.js passed/);
+});
+
+test("existing needs-input task resolves through the coordinator UI path without recreating its worker", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var originalWorkerId = task.workerSessionId;
+  task.status = "needs_input";
+
+  var result = ctx.api.resolveTask(
+    parent,
+    task.taskId,
+    "Coordinator completed the old task after taking ownership.",
+    "node --test test/project-task-orchestrator.test.js passed"
+  );
+
+  assert.equal(result.isError, undefined);
+  assert.equal(task.status, "completed");
+  assert.equal(task.workerSessionId, originalWorkerId);
+  assert.equal(ctx.starts.length, 1);
 });
 
 test("task resolution rejects unverified outcomes and non-owning sessions", function () {
