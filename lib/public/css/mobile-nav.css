@@ -620,6 +620,68 @@
     font-weight: 600;
   }
 
+  .mobile-coordinator-group {
+    margin-top: 2px;
+  }
+
+  .mobile-coordinator-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 28px;
+    margin: -4px 0 -4px -4px;
+    border-radius: 7px;
+    color: var(--text-dimmer);
+    flex-shrink: 0;
+  }
+
+  .mobile-coordinator-toggle:active {
+    background: rgba(var(--overlay-rgb), 0.08);
+    color: var(--text);
+  }
+
+  .mobile-coordinator-toggle svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .mobile-coordinator-workers {
+    margin-left: 20px;
+    padding-left: 8px;
+    border-left: 2px solid rgba(var(--overlay-rgb), 0.08);
+  }
+
+  .mobile-session-item.mobile-coordinator-worker {
+    min-height: 42px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    font-size: 14px;
+  }
+
+  .mobile-session-role-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 17px;
+    padding: 0 5px;
+    border-radius: 5px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 17px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .mobile-session-role-badge.coordinator {
+    background: rgba(var(--accent-rgb, 88, 87, 252), 0.14);
+    color: var(--accent, #5857fc);
+  }
+
+  .mobile-session-role-badge.worker {
+    background: rgba(var(--overlay-rgb), 0.08);
+    color: var(--text-dimmer);
+  }
+
   .mobile-session-title {
     flex: 1;
     display: inline-flex;
