@@ -265,6 +265,65 @@ test("starts a worker from a complete coordinator brief and returns its result",
   assert.match(ctx.starts[1].prompt, /You own this result/);
 });
 
+test("adaptively routes unpinned coordinator work and records the rationale", function () {
+  var ctx = testContext();
+  ctx.sm.providerRoutes = [{
+    id: "claude-anthropic",
+    vendor: "claude",
+    label: "Claude",
+    enabled: true,
+    health: "healthy",
+  }, {
+    id: "codex-openai",
+    vendor: "codex",
+    label: "Codex",
+    enabled: true,
+    health: "healthy",
+  }];
+  ctx.sm.modelsByVendor = {
+    claude: ["claude-sonnet-4-6", "claude-opus-4-8"],
+    codex: ["gpt-5.6-sol", "gpt-5.6-terra"],
+  };
+  var parent = coordinator(ctx);
+  parent.model = "gpt-5.6-sol";
+  var input = brief(parent);
+  input.title = "Review reconnect architecture";
+  input.objective = "Root cause a cross-cutting reconnect race condition.";
+
+  ctx.api.delegateFromTool(input);
+
+  var task = parent.orchestrationTasks[0];
+  assert.equal(task.routingTier, "strong");
+  assert.equal(task.provider, "codex");
+  assert.equal(task.model, "gpt-5.6-sol");
+  assert.equal(task.providerRouteId, "codex-openai");
+  assert.match(task.routingRationale, /difficult reasoning/);
+  assert.equal(ctx.starts[0].session.providerRouteId, "codex-openai");
+});
+
+test("explicit coordinator route pins bypass adaptive routing", function () {
+  var ctx = testContext();
+  ctx.sm.providerRoutes = [{
+    id: "codex-openai",
+    vendor: "codex",
+    label: "Codex",
+    enabled: true,
+    health: "healthy",
+  }];
+  ctx.sm.modelsByVendor = { codex: ["gpt-5.6-sol", "gpt-5.6-terra"] };
+  var parent = coordinator(ctx);
+  var input = brief(parent);
+  input.provider = "codex";
+  input.model = "gpt-5.6-terra";
+
+  ctx.api.delegateFromTool(input);
+
+  var task = parent.orchestrationTasks[0];
+  assert.equal(task.routingTier, "pinned");
+  assert.equal(task.model, "gpt-5.6-terra");
+  assert.match(task.routingRationale, /pin constrained routing/);
+});
+
 test("does not complete a worker task when the worker only ends with commentary", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
@@ -282,6 +341,106 @@ test("does not complete a worker task when the worker only ends with commentary"
   assert.match(parent.orchestrationTasks[0].currentActivity, /Needs coordinator attention/);
   assert.equal(ctx.starts.length, 2);
   assert.match(ctx.starts[1].prompt, /Status: needs_input/);
+  assert.match(ctx.starts[1].prompt, /clay-orchestration\/resolve_task/);
+});
+
+test("owning coordinator resolves a needs-input task after independent verification", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: needs_input\nSUMMARY: Partial fix only.\nVERIFICATION: not run\nESCALATION_REQUIRED: yes",
+  });
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+  assert.equal(task.status, "needs_input");
+
+  var result = ctx.api.resolveFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    summary: "Coordinator finished the reconnect fix and integration.",
+    verification: "node --test test/reconnect.test.js passed",
+    escalationRequired: "no",
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(task.status, "completed");
+  assert.equal(task.currentActivity, "Completed and verified by coordinator");
+  assert.equal(task.progress, 100);
+  assert.equal(task.resolvedByCoordinator, true);
+  assert.match(task.verification, /reconnect\.test\.js passed/);
+});
+
+test("existing needs-input task resolves through the coordinator UI path without recreating its worker", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var originalWorkerId = task.workerSessionId;
+  task.status = "needs_input";
+
+  var result = ctx.api.resolveTask(
+    parent,
+    task.taskId,
+    "Coordinator completed the old task after taking ownership.",
+    "node --test test/project-task-orchestrator.test.js passed"
+  );
+
+  assert.equal(result.isError, undefined);
+  assert.equal(task.status, "completed");
+  assert.equal(task.workerSessionId, originalWorkerId);
+  assert.equal(ctx.starts.length, 1);
+});
+
+test("task resolution rejects unverified outcomes and non-owning sessions", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  task.status = "needs_input";
+
+  var unverified = ctx.api.resolveFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    summary: "Probably done.",
+    verification: "not tested",
+    escalationRequired: "no",
+  });
+  assert.equal(unverified.isError, true);
+  assert.equal(task.status, "needs_input");
+
+  parent.coordinationMode = false;
+  var notOwner = ctx.api.resolveFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    summary: "Finished.",
+    verification: "Regression test passed",
+    escalationRequired: "no",
+  });
+  assert.equal(notOwner.isError, true);
+  assert.equal(task.status, "needs_input");
+});
+
+test("task resolution refuses to override a running worker", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+
+  var result = ctx.api.resolveFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    summary: "Coordinator says done.",
+    verification: "Regression test passed",
+    escalationRequired: "no",
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /still running/);
+  assert.equal(task.status, "running");
 });
 
 test("delivers only one terminal update when a worker emits done again", function () {

@@ -174,6 +174,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `claude-defaults.js` | Claude-specific default model and mode settings |
 | `model-selection.js` | Shared strongest-available model selection for new sessions and task launches, while respecting configured defaults |
 | `provider-agent-pipeline.js` | Provider-matched worker configuration: Codex roots delegate to Terra workers and Claude roots delegate to Opus workers |
+| `adaptive-worker-routing.js` | Deterministic provider-neutral worker route/model selection for coordinator tasks, preserving explicit pins and recording routing rationale |
 | `recovery-log.js` | Structured recovery-event logging for watchdog stalls, reconnects, and auto-resume diagnostics |
 | `text-title.js` | Shared title cleanup/clamping helpers for session and task titles |
 | `git-accounts.js` | Per-project GitHub account pinning. Lists `gh` CLI accounts and writes/clears a repo-local git credential helper (`gh auth token --user <account>`) so each project pushes/pulls as a chosen account regardless of the globally-active `gh` account. Used by daemon.js relay callbacks (`onListGitAccounts`/`onGetProjectGitAccount`/`onSetProjectGitAccount`); UI in `project-settings.js` |
@@ -294,6 +295,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar-sessions-rename.js` | Inline rename controls for session rows and loop groups |
 | `sidebar-sessions-top-actions.js` | Sidebar session top action buttons and Claude/Codex launch option menus |
 | `queued-messages.js` | Client-side queued/steer message indicators and controls |
+| `orchestration-task-resolution-dialog.js` | Verified coordinator resolution dialog for existing needs-input and failed worker tasks |
 | `sidebar-projects.js` | Project icon strip, context menus, emoji picker, drag-and-drop reorder, worktree modal, project access popover, project rename, project badges |
 | `sidebar-mates.js` | User/mate icon strip, DM picker, user/mate context menus, icon strip tooltips, sidebar presence, DM badges, DM user state |
 | `sidebar-mobile.js` | Mobile sheet overlays (projects, sessions, mate profile, search, tools, settings), mobile tab bar, drag-to-dismiss, mobile loop groups, mobile session rendering |
