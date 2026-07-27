@@ -2,40 +2,38 @@ var test = require("node:test");
 var assert = require("node:assert");
 var daemonNetwork = require("../lib/daemon-network");
 
-test("resolveTailscaleIp returns only an active Tailscale CGNAT address", function () {
-  var interfaces = {
-    en0: [
-      { family: "IPv4", internal: false, address: "192.168.1.10" },
-      { family: "IPv4", internal: false, address: "100.63.2.3" },
-    ],
-    utun4: [
-      { family: "IPv4", internal: false, address: "100.124.11.117" },
-    ],
-  };
-  assert.strictEqual(daemonNetwork.resolveTailscaleIp(interfaces), "100.124.11.117");
-});
-
-test("resolveTailscaleIp stays empty without a connected Tailscale interface", function () {
-  var interfaces = {
-    en0: [{ family: "IPv4", internal: false, address: "192.168.1.10" }],
-    lo0: [{ family: "IPv4", internal: true, address: "100.100.100.100" }],
-  };
-  assert.strictEqual(daemonNetwork.resolveTailscaleIp(interfaces), null);
-});
-
-test("tailscaleUrlForPort exposes the dev port only while Tailscale is connected", function () {
-  var connected = {
-    utun4: [{ family: "IPv4", internal: false, address: "100.124.11.117" }],
-  };
-  var disconnected = {
-    en0: [{ family: "IPv4", internal: false, address: "192.168.1.10" }],
+test("tailscaleServeUrlForPort returns the real HTTPS mapping for a local dev port", function () {
+  var status = {
+    TCP: {
+      "443": { HTTPS: true },
+      "6075": { HTTPS: true },
+      "8443": { HTTPS: true },
+    },
+    Web: {
+      "bojans-macbook-pro-2.taila85e50.ts.net:443": {
+        Handlers: { "/": { Proxy: "http://127.0.0.1:3000" } },
+      },
+      "bojans-macbook-pro-2.taila85e50.ts.net:6075": {
+        Handlers: { "/": { Proxy: "http://127.0.0.1:6075" } },
+      },
+      "bojans-macbook-pro-2.taila85e50.ts.net:8443": {
+        Handlers: { "/": { Proxy: "http://127.0.0.1:3001" } },
+      },
+    },
   };
   assert.strictEqual(
-    daemonNetwork.tailscaleUrlForPort(3000, connected),
-    "http://100.124.11.117:3000"
+    daemonNetwork.tailscaleServeUrlForPort(6075, status),
+    "https://bojans-macbook-pro-2.taila85e50.ts.net:6075/"
   );
-  assert.strictEqual(daemonNetwork.tailscaleUrlForPort(3000, disconnected), null);
-  assert.strictEqual(daemonNetwork.tailscaleUrlForPort(null, connected), null);
+  assert.strictEqual(
+    daemonNetwork.tailscaleServeUrlForPort(3000, status),
+    "https://bojans-macbook-pro-2.taila85e50.ts.net/"
+  );
+  assert.strictEqual(
+    daemonNetwork.tailscaleServeUrlForPort(3001, status),
+    "https://bojans-macbook-pro-2.taila85e50.ts.net:8443/"
+  );
+  assert.strictEqual(daemonNetwork.tailscaleServeUrlForPort(4242, status), null);
 });
 
 test("shouldRefreshBuiltinCert only enables builtin HTTPS refreshes", function () {
