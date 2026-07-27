@@ -14,17 +14,20 @@
 
 The first vertical slice now covers the core Clay-on-Clay interaction:
 
-- server-authoritative pairing tied to the user, project, pinned session, extension instance, target tab, exact loopback origin, and writable root;
+- server-authoritative pairing tied to the user, project, pinned session, extension instance, target tab, exact server-derived development origin, and writable root;
 - reconnect credentials, target reload recovery, control reload rebinding, explicit revocation, and exactly-once target message acceptance;
 - a Workspace **Open Live UI** action;
 - a closed-shadow-root target toolbar with element hover, selection, persistent outline, reselection after reload, and exit;
 - bounded, scrubbed selection context attached to the canonical Clay message path;
+- extension-side screenshot capture with layout-race detection, mandatory masking, and an explicit chat attachment control;
 - compact target-page chat with assistant streaming, working state, errors, and Clay-only approval/input notices;
 - pinned-session dispatch that does not retarget the control tab, plus a busy-session guard that prevents unrelated output from entering the overlay.
+- an extension-popup launcher that shows the current target tab, lets the user choose any server-visible Clay session, pins that choice until Exit, and can dynamically connect a Clay tab opened through a Tailscale address;
+- Clay-managed Tailscale development URLs, with exact origin matching against the server-derived session environment.
 
 This completes the usable pairing/selection/chat slice of Phases 0–2 and the
-selection-context portion of Phase 3. It does not yet complete the screenshot,
-generic source-resolution, operation-journal, compile-generation, diff,
+selection-context portion of Phase 3. It does not yet complete generic
+source-resolution, operation-journal, compile-generation, diff,
 before/after, or verification-predicate work in Phases 1, 3, and 4. React
 instrumentation and the TrialView/Urban Stay rollout remain 0.2 work.
 
@@ -56,13 +59,13 @@ The full roadmap covers three applications, but the first releasable slice is sm
 
 ### Live UI 0.1
 
-- Clay-managed loopback development URLs only.
+- Clay-managed loopback and Tailscale development URLs.
 - Clay editing Clay, using separate control and target tabs.
 - Generic DOM selection and repository source resolution.
 - Target-page chat mirrored to one pinned Clay session.
 - Source-backed edits attributed to the server-resolved project root.
 - Full-reload verification and before/after evidence.
-- No React instrumentation, remote previews, production overlay, touch support, temporary CSS previews, or automatic undo.
+- No React instrumentation, hosted PR previews, production overlay, touch support, temporary CSS previews, or automatic undo.
 
 ### Live UI 0.2
 
@@ -135,7 +138,7 @@ References:
 - Replacing the existing production bug reporters in TrialView or Urban Stay.
 - Treating a temporary browser-side mutation as a completed change.
 
-The existing bug reporters remain the right path when an end user needs to submit an asynchronous production report. Live UI 0.1 is a developer workflow attached to a real Clay coding session and a Clay-managed loopback development URL.
+The existing bug reporters remain the right path when an end user needs to submit an asynchronous production report. Live UI 0.1 is a developer workflow attached to a real Clay coding session and a server-derived development URL, reached locally or through Tailscale.
 
 ## First Three Targets
 
@@ -151,16 +154,27 @@ This split is intentional. “React-only” would exclude Clay itself. The gener
 
 ### Starting Live UI
 
-The Workspace panel gains an **Open Live UI** action beside the current development URL.
+Live UI has two equivalent entry points:
 
-1. Clay verifies that the active session has an authorized writable root and a running development server.
-2. Clay opens the development URL or lets the user choose an already-open matching tab.
-3. The extension pairs that tab with the project and session selected at creation time.
+1. **Workspace**: use **Open Live UI** beside the current development URL for the active Clay session.
+2. **Extension popup**: open the target web-app tab, click the Clay extension, choose a connected Clay project/session, and select **Start Live UI on this tab**.
+
+Both paths use the same server authorization:
+
+1. Clay verifies that the selected session is visible to the authenticated user and has an authorized writable root and a running development server.
+2. Clay derives the allowed local or Tailscale origin from that session's environment.
+3. Clay opens that session in the control tab, and the extension pairs the current target tab with it.
 4. The target page receives a small Live UI toolbar.
 
 The pairing is pinned to the session selected at creation time. Switching sessions in the Clay control tab does not silently retarget an existing Live UI page. The user must explicitly re-pair it.
 
 Pairing is ephemeral session state, not a user preference. The server is authoritative. The extension may keep the minimum pairing key in extension session storage so a Manifest V3 service-worker restart or target reload can reconnect, but it does not store user settings in `localStorage`.
+
+The first popup implementation still requires one authenticated Clay tab to
+remain open on that laptop as the relay. For a custom Tailscale Clay address,
+the user connects that tab once from the extension popup; no Clay browser
+cookie is copied into extension storage. A direct, purpose-scoped extension
+device credential can remove the control-tab dependency in a later release.
 
 ### Selecting an interface element
 
@@ -303,7 +317,7 @@ Rules:
 
 - A pairing is pinned to one user, server instance, project, session, writable root, extension instance, control client, and target tab.
 - Live UI 0.1 allows one pairing per target tab. A new request requires explicit takeover and revokes the old pairing.
-- A target navigation outside the exact allowed loopback origin revokes the pairing. A route change within that origin does not.
+- A target navigation outside the exact server-derived local or Tailscale origin revokes the pairing. A route change within that origin does not.
 - The default idle expiry is eight hours. Closing the session, target tab, or Live UI revokes it immediately.
 - A target or control reload has a 30-second reconnect grace window. At pairing, the server issues a random control reconnect credential whose hash stays in the pairing record and whose raw value stays only in extension session storage. A newly authenticated Clay WebSocket must come through the same extension instance and present that credential to replace `controlClientId`; another same-user Clay tab cannot adopt the pairing without it. The server rotates the credential after a successful rebind.
 - A Clay server restart revokes 0.1 pairings. Durable restart recovery is not required for the first release.
@@ -555,11 +569,14 @@ The system infers intent from language and agent behavior. A visible mode badge 
 
 Live UI 0.1 allows pairing only when:
 
-- The target URL matches the active session's Clay-managed local development URL.
-- The origin is loopback and the server confirms it owns the corresponding development process.
+- The target URL matches the selected session's Clay-managed local or Tailscale development URL.
+- The server confirms it owns the corresponding development process and the authenticated user can access the selected session.
 - For Clay self-editing, the control and target tabs identify the same Clay server instance.
 
-Production and remote preview hosts are rejected entirely in 0.1. Revision-attested preview pairing requires a separate security design before a later release.
+Production and hosted preview origins are rejected unless the workspace exposes
+that exact preview URL as an authorized session target. The protocol supports
+that server-derived field, but automatic PR-preview discovery and revision
+attestation remain later work.
 
 ### Repository boundary
 
@@ -787,7 +804,8 @@ not yet complete.
 **Goal**: Talk to the active Clay agent without leaving the application.
 
 - Add **Open Live UI** to the Workspace panel.
-- Pair only with the active project's Clay-managed loopback development URL.
+- Add the extension-popup project/session picker and pin the chosen session until Exit.
+- Pair only with the selected session's Clay-managed local or Tailscale development URL.
 - Add a compact chat drawer in the target overlay.
 - Route messages through the existing Clay session message path.
 - Stream assistant text, processing state, questions, completion, and errors back to the overlay.
@@ -872,6 +890,7 @@ Final module placement must follow `docs/guides/MODULE_MAP.md` and keep every mo
 |---|---|
 | `lib/server-live-ui-registry.js` | Authenticated extension/control-client connection registry and server-instance identity |
 | `lib/project-live-ui.js` | Pairing lifecycle, session/project authorization, selection state, overlay relay |
+| `lib/project-live-ui-target.js` | Server-visible session resolution and exact local, Tailscale, or configured-preview origin matching |
 | `lib/project-live-ui-context.js` | Selection packet validation, redaction enforcement, agent-facing context formatting |
 | `lib/project-live-ui-operations.js` | Operation journal, file attribution, guarded undo contract |
 | `lib/project-live-ui-verification.js` | Full-reload generation, after capture, predicate recording, result-state derivation |
@@ -886,6 +905,7 @@ Final module placement must follow `docs/guides/MODULE_MAP.md` and keep every mo
 |---|---|
 | `lib/public/modules/live-ui.js` | Workspace entry point, pairing state, open/close actions |
 | `lib/public/modules/live-ui-messages.js` | Route Live UI WebSocket state and extension relay messages |
+| `lib/public/modules/live-ui-extension-picker.js` | Publish visible project/session identity to the extension and route popup pairing status |
 | `lib/public/modules/live-ui-selection.js` | Render the current selection and before/after result inside Clay |
 | `lib/public/css/live-ui.css` | Clay-side Live UI controls, following `DESIGN.md` tokens |
 | `lib/public/modules/store.js` | Shared reactive state only; no module-owned context bag |
@@ -895,6 +915,7 @@ Final module placement must follow `docs/guides/MODULE_MAP.md` and keep every mo
 
 The `clay-chrome` repository owns:
 
+- Extension-popup target/session picker and explicit Exit action.
 - Target-tab content overlay.
 - Element picker and outline.
 - Target-page compact chat rendering inside a closed shadow root. This prevents ordinary style and DOM collisions but is not a confidentiality boundary against a hostile page. Live UI 0.1 trusts its Clay-managed development target and mirrors only minimal current-operation text; the canonical Clay conversation and tool details never enter the target page.
@@ -948,6 +969,8 @@ Reuse the proven redaction rules and diagnostic concepts. Do not move their prod
 - Unmasked screenshot pixels never cross the extension upload boundary or persist to disk.
 - Oversized DOM text, console, and network data are truncated.
 - A production URL cannot enter editable mode.
+- A popup-selected session must still pass server-side user visibility checks.
+- A Tailscale or hosted preview tab must exactly match a URL derived by the selected session's workspace target.
 - A selected element cannot expand filesystem permissions.
 
 ### Selection

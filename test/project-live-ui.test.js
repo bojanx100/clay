@@ -26,6 +26,13 @@ function harness(overrides) {
     title: "Framer workflow",
     hidden: false,
   };
+  var alternateSession = {
+    localId: 8,
+    storageId: "alternate-storage",
+    cliSessionId: "alternate-provider-session",
+    title: "Selected from extension",
+    hidden: false,
+  };
   var browserState = {
     _extensionWs: extensionWs,
     _extensionId: "extension-a",
@@ -68,11 +75,19 @@ function harness(overrides) {
       return Promise.resolve({ ok: true });
     },
     sm: {
-      sessions: new Map([[session.localId, session]]),
+      sessions: new Map([
+        [session.localId, session],
+        [alternateSession.localId, alternateSession],
+      ]),
       subscribeSession: function (sessionId, callback) {
-        assert.strictEqual(sessionId, session.localId);
         sessionSubscriber = callback;
         return function () { sessionSubscriber = null; };
+      },
+    },
+    usersModule: {
+      isMultiUser: function () { return true; },
+      canAccessSession: function (userId, targetSession) {
+        return userId === "user-a" && !targetSession.denied;
       },
     },
     userMessage: {
@@ -88,6 +103,7 @@ function harness(overrides) {
     controlWs: controlWs,
     extensionWs: extensionWs,
     session: session,
+    alternateSession: alternateSession,
     sent: sent,
     commands: commands,
     dispatched: dispatched,
@@ -136,6 +152,8 @@ test("pairs a server-derived session, dev origin, root, extension, and tab", fun
   assert.ok(state.commands[0].args.reconnectCredential);
   assert.strictEqual(state.commands[0].args.projectLabel, "clay");
   assert.strictEqual(state.commands[0].args.sessionLabel, "Framer workflow");
+  assert.strictEqual(state.commands[0].args.projectSlug, "clay");
+  assert.strictEqual(state.commands[0].args.sessionId, "session-storage");
 
   prove(state, paired);
   assert.strictEqual(state.registry.getPair(paired.pairingId).state, "paired");
@@ -144,6 +162,23 @@ test("pairs a server-derived session, dev origin, root, extension, and tab", fun
       entry.message.type === "live_ui_state" &&
       entry.message.state === "paired";
   }));
+});
+
+test("server can pin a visible session selected by the extension", function () {
+  var state = harness();
+  var paired = pair(state, { sessionId: state.alternateSession.localId });
+  assert.ok(paired);
+  assert.strictEqual(paired.sessionId, "alternate-storage");
+  assert.strictEqual(state.commands[0].args.sessionLabel, "Selected from extension");
+});
+
+test("extension picker cannot pin a session hidden by access control", function () {
+  var state = harness();
+  state.alternateSession.denied = true;
+  assert.strictEqual(pair(state, {
+    sessionId: state.alternateSession.localId,
+  }), null);
+  assert.strictEqual(state.sent[0].message.code, "LIVE_UI_SESSION_DENIED");
 });
 
 test("rejects stale session claims, stopped dev servers, and wrong origins", function () {
@@ -158,6 +193,32 @@ test("rejects stale session claims, stopped dev servers, and wrong origins", fun
   var remote = harness({ tabUrl: "https://example.com/pricing" });
   assert.strictEqual(pair(remote), null);
   assert.strictEqual(remote.sent[0].message.code, "LIVE_UI_ORIGIN_DENIED");
+});
+
+test("accepts only a server-derived Tailscale or preview origin", function () {
+  var tailscale = harness({
+    tabUrl: "http://100.124.11.117:4242/pricing",
+    workspace: { tailscaleUrl: "http://100.124.11.117:4242" },
+  });
+  var paired = pair(tailscale);
+  assert.ok(paired);
+  assert.strictEqual(paired.allowedOrigin, "http://100.124.11.117:4242");
+
+  var preview = harness({
+    tabUrl: "https://clay-pr-123.example.dev/pricing",
+    workspace: { previewUrl: "https://clay-pr-123.example.dev" },
+  });
+  var previewPaired = pair(preview);
+  assert.ok(previewPaired);
+  assert.strictEqual(previewPaired.allowedOrigin,
+    "https://clay-pr-123.example.dev");
+
+  var mismatched = harness({
+    tabUrl: "https://attacker.example/pricing",
+    workspace: { previewUrl: "https://clay-pr-123.example.dev" },
+  });
+  assert.strictEqual(pair(mismatched), null);
+  assert.strictEqual(mismatched.sent[0].message.code, "LIVE_UI_ORIGIN_DENIED");
 });
 
 test("relays a sanitized selection once only to the bound control", function () {

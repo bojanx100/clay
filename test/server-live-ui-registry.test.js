@@ -71,6 +71,14 @@ test("rejects remote origins and prevents implicit target takeover", function ()
     }));
   }, { code: "LIVE_UI_ORIGIN_DENIED" });
 
+  var remote = state.registry.create(pairingInput({
+    targetTabId: 43,
+    allowedOrigin: "https://preview.example.dev",
+    allowRemoteOrigin: true
+  }));
+  assert.strictEqual(remote.pairing.allowedOrigin,
+    "https://preview.example.dev");
+
   var first = state.registry.create(pairingInput());
   assert.throws(function () {
     state.registry.create(pairingInput({ sessionId: "session-b" }));
