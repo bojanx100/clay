@@ -182,6 +182,55 @@ test("browser tools reject stale calls after the extension disconnects", async f
   );
 });
 
+test("browser tools are advertised before the extension connects", async function () {
+  var extension = attachProjectBrowserExtension({
+    sendTo: function () {}
+  });
+  var localMcpServers = createProjectLocalMcpServers({
+    adapter: {
+      createToolServer: function (config) {
+        return config;
+      }
+    },
+    isMate: false,
+    isHostAgent: false,
+    slug: "test",
+    sm: {},
+    clients: new Set(),
+    browserState: extension.browserState,
+    sendExtensionCommandAny: extension.sendExtensionCommandAny,
+    loadContextSources: function () { return []; },
+    saveContextSources: function () {},
+    getAllProjectsWithSessions: function () { return []; },
+    pendingDebateProposals: {},
+    email: {
+      createMcpDeps: function () { return {}; },
+      hasEmailCapability: function () { return false; }
+    },
+    mateDatastore: {}
+  });
+  var servers = localMcpServers.getLocalMcpServers();
+  var browserServer = servers && servers["clay-browser"];
+
+  assert.ok(browserServer);
+  assert.equal(browserServer.tools.length, 19);
+
+  var listTabs = browserServer.tools.find(function (tool) {
+    return tool.name === "browser_list_tabs";
+  });
+  var readPage = browserServer.tools.find(function (tool) {
+    return tool.name === "browser_read_page";
+  });
+  await assert.rejects(
+    listTabs.handler({}),
+    /Browser extension not connected/
+  );
+  await assert.rejects(
+    readPage.handler({ tabId: 42 }),
+    /Browser extension not connected/
+  );
+});
+
 test("cached MCP advertisement sends once when the WebSocket reconnects", async function () {
   var sent = [];
   var ws = {
