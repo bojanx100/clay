@@ -78,7 +78,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-browser-extension.js` | Browser extension auth token, shared tab state, command dispatch, and tab context request helpers |
 | `server-live-ui-registry.js` | Server-instance Live UI pairing identities, proof, reconnect credentials, deduplication, isolation, and revocation |
 | `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
-| `project-live-ui-chat.js` | Pinned-session Live UI message dispatch and bounded target-page stream relay |
+| `project-live-ui-reports.js` | Coordinator-owned Live UI report creation, automatic evidence context, compact status relay, and verified worker cleanup |
 | `project-live-ui-context.js` | Bounded selection-packet validation, sensitive-field exclusion, PII scrubbing, and fingerprints |
 | `lib/public/modules/live-ui.js` | Workspace Live UI entry, pairing lifecycle presentation, and current sanitized selection |
 | `lib/public/modules/live-ui-messages.js` | Client routing for Live UI state, selection, and extension relay envelopes |

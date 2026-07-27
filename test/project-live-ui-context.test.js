@@ -2,6 +2,8 @@ var test = require("node:test");
 var assert = require("node:assert");
 var sanitizeSelectionPacket =
   require("../lib/project-live-ui-context").sanitizeSelectionPacket;
+var sanitizeDiagnosticsPacket =
+  require("../lib/project-live-ui-context").sanitizeDiagnosticsPacket;
 
 function validPacket() {
   return {
@@ -47,4 +49,24 @@ test("selection packets reject oversized and incomplete payloads", function () {
   var incomplete = validPacket();
   delete incomplete.documentGeneration;
   assert.match(sanitizeSelectionPacket(incomplete).error, /missing required/);
+});
+
+test("diagnostics are bounded, scrubbed, and remove URL queries", function () {
+  var result = sanitizeDiagnosticsPacket({
+    console: [{
+      level: "error",
+      text: "Request failed for jane@example.com with abcdefghijklmnopqrstuvwxyz123456",
+    }],
+    network: [{
+      method: "POST",
+      url: "https://api.example.com/bookings?authorization=secret",
+      status: 500,
+      duration: 42,
+    }],
+  });
+  assert.strictEqual(result.ok, true);
+  assert.match(result.packet.console[0].text, /\[redacted-email\]/);
+  assert.match(result.packet.console[0].text, /\[redacted-token\]/);
+  assert.strictEqual(result.packet.network[0].url,
+    "https://api.example.com/bookings");
 });

@@ -33,8 +33,8 @@ function testContext(existingSessions) {
   var api = attachTaskOrchestrator({
     sm: sm,
     sdk: {
-      startQuery: function (session, prompt) {
-        starts.push({ session: session, prompt: prompt });
+      startQuery: function (session, prompt, images) {
+        starts.push({ session: session, prompt: prompt, images: images || null });
       },
       pushMessage: function (session, prompt) {
         pushes.push({ session: session, prompt: prompt });
@@ -45,6 +45,11 @@ function testContext(existingSessions) {
     },
     onProcessingChanged: function () {},
     ensureProjectAccessForSession: function () {},
+    loadImagesForSdk: function (refs) {
+      return refs.map(function (ref) {
+        return { mediaType: ref.mediaType, data: "loaded-" + ref.file };
+      });
+    },
   });
   return {
     sm: sm,
@@ -117,6 +122,26 @@ test("coordinates a queued request in a new owned worker without interrupting th
   assert.equal(launchNotice.event.orchestrationTaskId, task.taskId);
   assert.equal(launchNotice.event.workerSessionId, 2);
   assert.equal(parent.history[parent.history.length - 1].type, "system_info");
+});
+
+test("external coordinator tasks load persisted screenshot references for workers", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  var result = ctx.api.coordinateExternalTask({
+    coordinatorSessionId: parent.storageId,
+    title: "Live UI issue",
+    objective: "Fix the selected control.",
+    context: "Masked evidence is attached.",
+    acceptanceCriteria: "Verify the fix.",
+    ownedPaths: "Selected control.",
+    clientRef: "live-ui-report-1",
+    imageRefs: [{ mediaType: "image/png", file: "shot.png" }],
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(ctx.starts[0].images, [{
+    mediaType: "image/png",
+    data: "loaded-shot.png",
+  }]);
 });
 
 test("plans independent work in parallel and releases a dependent task", function () {

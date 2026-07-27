@@ -25,6 +25,8 @@ function harness(overrides) {
     cliSessionId: "provider-session",
     title: "Framer workflow",
     hidden: false,
+    orchestrationTasks: [],
+    orchestrationEvents: [],
   };
   var alternateSession = {
     localId: 8,
@@ -32,6 +34,8 @@ function harness(overrides) {
     cliSessionId: "alternate-provider-session",
     title: "Selected from extension",
     hidden: false,
+    orchestrationTasks: [],
+    orchestrationEvents: [],
   };
   var browserState = {
     _extensionWs: extensionWs,
@@ -50,8 +54,9 @@ function harness(overrides) {
       };
     })(),
   });
-  var sessionSubscriber = null;
-  var dispatched = [];
+  var coordinated = [];
+  var closed = [];
+  var taskSequence = 0;
   var liveUi = attachProjectLiveUi({
     slug: "clay",
     registry: registry,
@@ -79,10 +84,6 @@ function harness(overrides) {
         [session.localId, session],
         [alternateSession.localId, alternateSession],
       ]),
-      subscribeSession: function (sessionId, callback) {
-        sessionSubscriber = callback;
-        return function () { sessionSubscriber = null; };
-      },
     },
     usersModule: {
       isMultiUser: function () { return true; },
@@ -90,9 +91,30 @@ function harness(overrides) {
         return userId === "user-a" && !targetSession.denied;
       },
     },
-    userMessage: {
-      handleUserMessage: function (ws, message) {
-        dispatched.push({ ws: ws, message: message });
+    saveImageFile: function () { return "live-ui-shot.png"; },
+    taskOrchestrator: {
+      coordinateExternalTask: function (input) {
+        taskSequence++;
+        coordinated.push(input);
+        session.coordinationMode = true;
+        var task = {
+          taskId: "task-" + taskSequence,
+          title: input.title,
+          status: "running",
+          currentActivity: "Worker is running",
+        };
+        session.orchestrationTasks.push(task);
+        return {
+          ok: true,
+          orchestrationTaskId: task.taskId,
+          workerSessionId: 100 + taskSequence,
+        };
+      },
+      closeTask: function (parent, taskId) {
+        closed.push(taskId);
+        parent.orchestrationTasks = parent.orchestrationTasks.filter(function (task) {
+          return task.taskId !== taskId;
+        });
         return true;
       },
     },
@@ -106,10 +128,8 @@ function harness(overrides) {
     alternateSession: alternateSession,
     sent: sent,
     commands: commands,
-    dispatched: dispatched,
-    emitSession: function (event) {
-      if (sessionSubscriber) sessionSubscriber(event);
-    },
+    coordinated: coordinated,
+    closed: closed,
   };
 }
 
@@ -382,7 +402,7 @@ test("target exit revokes the pairing and notifies the control", function () {
   }));
 });
 
-test("target chat dispatches to the pinned session and streams only its active turn", function () {
+test("target reports create independent coordinator workers with automatic evidence", async function () {
   var state = harness();
   var paired = pair(state);
   prove(state, paired);
@@ -390,7 +410,7 @@ test("target chat dispatches to the pinned session and streams only its active t
     type: "live_ui_relay",
     protocolVersion: 1,
     pairingId: paired.pairingId,
-    clientMessageId: "selection-chat",
+    clientMessageId: "selection-report",
     event: "selection.update",
     payload: {
       tag: "section",
@@ -405,37 +425,69 @@ test("target chat dispatches to the pinned session and streams only its active t
     type: "live_ui_relay",
     protocolVersion: 1,
     pairingId: paired.pairingId,
-    clientMessageId: "chat-1",
-    event: "chat.message",
+    clientMessageId: "report-1",
+    event: "report.submit",
     payload: {
       text: "Increase the spacing",
       screenshot: {
         mediaType: "image/png",
         data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
       },
+      diagnostics: {
+        console: [{ level: "error", text: "Failed for jane@example.com" }],
+        network: [{
+          method: "GET",
+          url: "https://api.example.com/pricing?token=secret",
+          status: 500,
+          duration: 23,
+        }],
+      },
     },
   });
 
-  assert.strictEqual(state.dispatched.length, 1);
-  assert.strictEqual(state.dispatched[0].ws, state.controlWs);
-  assert.strictEqual(state.dispatched[0].message.sessionId, state.session.localId);
-  assert.strictEqual(state.dispatched[0].message.preserveActiveSession, true);
-  assert.match(state.dispatched[0].message.pastes[0], /#pricing/);
-  assert.deepStrictEqual(state.dispatched[0].message.images, [{
+  assert.strictEqual(state.coordinated.length, 1);
+  assert.strictEqual(state.coordinated[0].coordinatorSessionId, "session-storage");
+  assert.strictEqual(state.coordinated[0].promoteCoordinator, true);
+  assert.match(state.coordinated[0].context, /#pricing/);
+  assert.match(state.coordinated[0].context, /\[redacted-email\]/);
+  assert.match(state.coordinated[0].context, /https:\/\/api\.example\.com\/pricing/);
+  assert.doesNotMatch(state.coordinated[0].context, /token=secret/);
+  assert.deepStrictEqual(state.coordinated[0].imageRefs, [{
     mediaType: "image/png",
-    data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    file: "live-ui-shot.png",
   }]);
-
-  state.emitSession({ type: "delta", text: "I updated it." });
-  state.emitSession({ type: "done", code: 0 });
-  var targetEvents = state.sent.filter(function (entry) {
+  assert.ok(state.sent.some(function (entry) {
     return entry.ws === state.extensionWs &&
       entry.message.type === "live_ui_relay" &&
-      entry.message.event === "chat.stream";
+      entry.message.event === "report.accepted" &&
+      entry.message.payload.status === "working";
+  }));
+
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
+    clientMessageId: "report-2",
+    event: "report.submit",
+    payload: {
+      text: "Fix the mobile label",
+      screenshot: {
+        mediaType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      },
+    },
   });
-  assert.deepStrictEqual(targetEvents.map(function (entry) {
-    return entry.message.payload.type;
-  }), ["delta", "done"]);
+  assert.strictEqual(state.coordinated.length, 2);
+
+  state.session.orchestrationTasks[0].status = "completed";
+  state.session.orchestrationTasks[0].resolvedByCoordinator = true;
+  await new Promise(function (resolve) { setTimeout(resolve, 750); });
+  assert.ok(state.sent.some(function (entry) {
+    return entry.message.type === "live_ui_relay" &&
+      entry.message.event === "report.status" &&
+      entry.message.payload.status === "completed";
+  }));
+  assert.deepStrictEqual(state.closed, ["task-1"]);
 });
 
 test("rejects an unsafe Live UI screenshot payload", function () {
@@ -446,8 +498,8 @@ test("rejects an unsafe Live UI screenshot payload", function () {
     type: "live_ui_relay",
     protocolVersion: 1,
     pairingId: paired.pairingId,
-    clientMessageId: "chat-unsafe-image",
-    event: "chat.message",
+    clientMessageId: "report-unsafe-image",
+    event: "report.submit",
     payload: {
       text: "Inspect this",
       screenshot: {
@@ -456,10 +508,10 @@ test("rejects an unsafe Live UI screenshot payload", function () {
       },
     },
   });
-  assert.strictEqual(state.dispatched.length, 0);
+  assert.strictEqual(state.coordinated.length, 0);
   assert.ok(state.sent.some(function (entry) {
     return entry.message.type === "live_ui_state" &&
-      entry.message.code === "LIVE_UI_SCREENSHOT_INVALID";
+      entry.message.code === "LIVE_UI_SCREENSHOT_REQUIRED";
   }));
 });
 

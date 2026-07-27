@@ -1,6 +1,6 @@
 # Clay Live UI
 
-> Select anything in a running web application, talk to the active Clay coding agent from the page, and watch the agent diagnose or redesign the interface by changing the real source code. The same interaction supports bug investigation and visual editing.
+> Select anything in a running web application, submit independent reports from the page, and let one Clay coordinator diagnose or redesign the interface through verified source-code changes. The same interaction supports bug investigation and visual editing.
 
 **Created**: 2026-07-18
 
@@ -19,13 +19,14 @@ The first vertical slice now covers the core Clay-on-Clay interaction:
 - a Workspace **Open Live UI** action;
 - a closed-shadow-root target toolbar with element hover, selection, persistent outline, reselection after reload, and exit;
 - bounded, scrubbed selection context attached to the canonical Clay message path;
-- extension-side screenshot capture with layout-race detection, mandatory masking, and an explicit chat attachment control;
-- compact target-page chat with assistant streaming, working state, errors, and Clay-only approval/input notices;
-- pinned-session dispatch that does not retarget the control tab, plus a busy-session guard that prevents unrelated output from entering the overlay.
+- automatic extension-side screenshot capture with layout-race detection, mandatory masking, and bounded scrubbed console/network evidence;
+- a compact movable report tray that shows only working, needs-input, failed, and verified-complete states rather than agent/tool transcripts;
+- one coordinator pinned to the pairing, with an independent worker task per report, parallel report intake, coordinator verification, and automatic worker archiving after verified completion;
+- a full-page selection shield that identifies the underlying element without delivering the picking gesture to that application element;
 - an extension-popup launcher that shows the current target tab, lets the user choose any server-visible Clay session, pins that choice until Exit, and can dynamically connect a Clay tab opened through a Tailscale address;
 - Clay-managed Tailscale development URLs, with exact origin matching against the server-derived session environment.
 
-This completes the usable pairing/selection/chat slice of Phases 0–2 and the
+This completes the usable pairing/selection/coordinator-inbox slice of Phases 0–2 and the
 selection-context portion of Phase 3. It does not yet complete generic
 source-resolution, operation-journal, compile-generation, diff,
 before/after, or verification-predicate work in Phases 1, 3, and 4. React
@@ -40,10 +41,15 @@ repository on its `bojan` branch.
 
 Build Live UI as a Clay-owned browser workflow, not as another bug-reporter implementation embedded separately in every application.
 
-The first version has two layers:
+The first version has three layers:
 
-1. A framework-neutral selection and chat layer that works on any normal DOM page. This is how Clay can edit its own vanilla JavaScript interface.
-2. A React source-locator that adds higher-confidence component and file information for the TrialView Vite application and the Urban Stay Next.js application.
+1. A framework-neutral selection and evidence layer that works on any normal DOM page. This is how Clay can edit its own vanilla JavaScript interface.
+2. A coordinator inbox: one paired conversation owns many independent reports and delegates each report to a worker when appropriate.
+3. A React source-locator that adds higher-confidence component and file information for the TrialView Vite application and the Urban Stay Next.js application.
+
+The target overlay is not a second full chat client. It is a fast capture and
+status surface. The user can keep reporting issues while work is active;
+worker chats are implementation details owned by the coordinator.
 
 The user does not choose between a bug-reporting mode and a design mode before starting. Intent is inferred from the conversation:
 
@@ -62,7 +68,9 @@ The full roadmap covers three applications, but the first releasable slice is sm
 - Clay-managed loopback and Tailscale development URLs.
 - Clay editing Clay, using separate control and target tabs.
 - Generic DOM selection and repository source resolution.
-- Target-page chat mirrored to one pinned Clay session.
+- Target-page multi-report inbox owned by one pinned coordinator.
+- Up to the coordinator's configured worker concurrency, with new reports accepted immediately.
+- Automatic masked screenshot plus scrubbed console and network metadata on every report.
 - Source-backed edits attributed to the server-resolved project root.
 - Full-reload verification and before/after evidence.
 - No React instrumentation, hosted PR previews, production overlay, touch support, temporary CSS previews, or automatic undo.
@@ -92,12 +100,13 @@ Live UI collapses that loop:
 ```text
 See problem
   -> select the exact element
-  -> describe the desired outcome
-  -> agent inspects runtime evidence and source
-  -> agent edits through existing session permissions
+  -> describe the desired outcome and immediately continue reporting
+  -> coordinator assigns an independent worker
+  -> workers inspect runtime evidence and source
+  -> workers edit through existing session permissions
   -> dev server refreshes
-  -> Clay verifies the result
-  -> continue the same conversation
+  -> coordinator verifies and integrates the result
+  -> compact status turns green and the worker is archived
 ```
 
 Framer 3.0 demonstrates the value of selection-scoped agent work: its agent reads the current canvas, edits the selected area, and uses branches to isolate changes before they are applied. Clay cannot copy Framer's internal canvas model because Clay operates on arbitrary application source code. It can copy the interaction contract: point, talk, inspect, edit, verify, and approve.
@@ -115,11 +124,12 @@ References:
 
 - A user starts Live UI from an active Clay session.
 - Clay opens or pairs the session with its running development tab.
-- A lightweight toolbar and chat drawer appear inside the target page.
+- A lightweight movable toolbar and report drawer appear inside the target page.
 - Hovering outlines elements; clicking selects one element or a section.
-- The selected element becomes persistent context for the conversation.
-- Messages from the target page are sent to the active Clay coding session.
-- Agent output streams back into both Clay and the target-page drawer.
+- The selected element becomes immutable context for one submitted report.
+- Reports from the target page become coordinator-owned worker tasks.
+- The overlay shows only actionable report status, not tool execution or full assistant output.
+- New reports can be submitted while earlier workers are active.
 - Clay collects sanitized runtime evidence around the selected element.
 - The agent edits the active session's real source tree.
 - Clay waits for refresh, resolves the selected element again, and captures an after state.
@@ -166,7 +176,10 @@ Both paths use the same server authorization:
 3. Clay opens that session in the control tab, and the extension pairs the current target tab with it.
 4. The target page receives a small Live UI toolbar.
 
-The pairing is pinned to the session selected at creation time. Switching sessions in the Clay control tab does not silently retarget an existing Live UI page. The user must explicitly re-pair it.
+The pairing is pinned to the session selected at creation time. Its first
+report promotes an ordinary top-level conversation to coordinator when needed.
+Switching sessions in the Clay control tab does not silently retarget an
+existing Live UI page. The user must explicitly re-pair it.
 
 Pairing is ephemeral session state, not a user preference. The server is authoritative. The extension may keep the minimum pairing key in extension session storage so a Manifest V3 service-worker restart or target reload can reconnect, but it does not store user settings in `localStorage`.
 
@@ -178,22 +191,24 @@ device credential can remove the control-tab dependency in a later release.
 
 ### Selecting an interface element
 
-The toolbar exposes a pointer action:
+The toolbar exposes a pointer action and compact aggregate status:
 
 ```text
-[ Select ] [ Current selection: PricingCard ] [ Chat ] [ Exit ]
+[ ⠿ ] [ ● 2 working · 1 done ] [ Pick element ] [ Exit ]
 ```
 
 While selection is active:
 
 - Hover draws a clear outline without changing layout.
-- Clicking prevents the application's click only for that selection gesture.
+- A full-page interaction shield owns the complete picking gesture. It
+  temporarily removes itself from hit testing to identify the underlying
+  element, so that element never receives the pointer or click event.
 - Escape cancels.
 - The overlay itself is excluded from screenshots and selection.
 - Nested elements can be promoted to a useful parent section.
 - The selected element stays outlined until cleared or replaced.
 
-The chat drawer shows a compact selection card:
+The report drawer shows a compact selection card:
 
 ```text
 PricingCard
@@ -204,11 +219,28 @@ Likely source: src/components/PricingCard.tsx
 
 Low-confidence source matches are labeled as candidates, never presented as fact.
 
-### Talking and editing
+### Reporting and editing
 
-The target-page drawer is another view of the pinned Clay session, not a separate chat system. A message sent from it uses the existing Clay session pipeline and obeys the same provider, model, permissions, instructions, writable root, and repository rules.
+The target-page drawer is a coordinator inbox, not another transcript view.
+Every submission becomes an immutable report with its selected element, masked
+screenshot, recent scrubbed console entries, and recent scrubbed network
+metadata. The report immediately receives a yellow working state and the
+selection clears so the user can capture another issue.
 
-The selection card is attached as structured context to each message until the user clears it. The agent can still ask follow-up questions. Tool approvals that cannot safely fit in the target overlay open in Clay, while the overlay shows “Approval required in Clay.”
+The coordinator creates or reuses workers, reconciles overlaps, and remains the
+owner of verification. Workers obey the same provider routing, permissions,
+instructions, writable root, and repository rules as other coordinated work.
+The overlay never exposes tool names, implementation logs, or assistant prose.
+
+Report states:
+
+- **Working**: pulsing yellow dot.
+- **Needs input**: yellow question mark and a prompt to continue in Clay.
+- **Failed**: red exclamation mark.
+- **Completed**: green check, only after coordinator verification.
+
+Color is never the only signal. A verified worker is archived automatically,
+while its compact report row remains until Live UI exits.
 
 ### Refresh and verification
 
@@ -234,8 +266,8 @@ The user can keep chatting against the re-resolved element.
 │ Live UI overlay                                                  │
 │  - element picker                                               │
 │  - selection card                                               │
-│  - compact streaming chat                                       │
-│  - before/after presentation                                    │
+│  - compact multi-report tray                                    │
+│  - working/input/failure/completion status                      │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │ extension port
                                 ▼
@@ -251,15 +283,15 @@ The user can keep chatting against the re-resolved element.
 │ Clay project server                                             │
 │  - session/project/writable-root binding                        │
 │  - selection lifecycle                                          │
-│  - message context assembly                                     │
-│  - stream relay to target tab                                   │
-│  - verification orchestration                                   │
+│  - automatic evidence context assembly                          │
+│  - coordinator-owned report tasks                               │
+│  - compact task-status relay and verified cleanup               │
 └───────────────────────────────┬─────────────────────────────────┘
-                                │ existing agent/session pipeline
+                                │ existing coordinator/worker pipeline
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ Coding agent                                                    │
-│  inspect source -> edit files -> run checks -> browser verify   │
+│ Coordinator and workers                                         │
+│  triage -> inspect -> edit -> verify -> integrate -> archive    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -269,11 +301,11 @@ Do not render the application inside an iframe in Clay for Live UI 0.1. Authenti
 
 | Process | Trust and responsibility |
 |---|---|
-| Target content script | Render the closed-shadow-root overlay, capture sanitized DOM evidence, and send target-tab events. It never chooses a project, session, or filesystem root. |
+| Target content script | Render the closed-shadow-root overlay and interaction shield, capture sanitized DOM evidence, and submit reports. It never chooses a project, session, worker, or filesystem root. |
 | Extension service worker | Maintain target and Clay-page ports, hold the ephemeral reconnect key, and relay versioned envelopes. It cannot authorize an edit. |
 | Clay control page | Request pairing for its authenticated user and active session, forward extension envelopes over its existing authenticated WebSocket, and render canonical Clay UI. |
-| Clay server | Authorize and own pairings, derive project/session/root identity, deduplicate messages, attach selection context, and revoke invalid connections. |
-| Coding agent | Inspect and edit only through the existing session permission and repository-instruction system. |
+| Clay server | Authorize and own pairings, derive project/session/root identity, deduplicate reports, promote the pinned conversation when needed, create worker tasks, relay compact status, and revoke invalid connections. |
+| Coordinator and workers | Triage, inspect, edit, integrate, and verify only through the existing session permission and repository-instruction system. |
 
 The target packet's `projectSlug`, `sessionId`, `tabId`, URL, and source candidates are claims. The server derives project, session, user, writable root, and allowed origin from the authenticated pairing. It rejects claims that disagree.
 
@@ -335,23 +367,25 @@ Every Live UI relay uses a versioned envelope:
 {
   "protocolVersion": 1,
   "pairingId": "server-generated-id",
-  "operationId": "selection-conversation-operation",
+  "operationId": "coordinator-report-id",
   "clientMessageId": "target-generated-uuid",
   "streamSequence": 17,
-  "event": "chat.user_message",
+  "event": "report.submit",
   "payload": {}
 }
 ```
 
-- The target generates one `clientMessageId` per submitted message and retries it until acknowledged.
+- The target generates one `clientMessageId` per submitted report and retries it until acknowledged.
 - The server stores a bounded deduplication record per pairing and returns the original acknowledgement for retries.
-- Only the server enqueues the canonical Clay user message.
-- Assistant overlay events receive a monotonic `streamSequence` per operation.
-- The target acknowledges the highest contiguous sequence and reconnects with that cursor.
-- The server replays only the bounded current-operation overlay stream. Full history remains canonical in Clay and is not copied into the target overlay.
-- Out-of-order events are buffered briefly; gaps cause a cursor replay request instead of duplicate rendering.
-- Stop, steer, queued-message, question, refusal, completion, and error events carry the same operation identity.
-- The canonical queue item created from a target message carries `operationId` through dispatch, provider query creation, tool lifecycle, questions, approvals, continuation, and completion. Session events without that causal identity, including messages started from Clay, schedules, or other pairings, never enter this target overlay stream.
+- Only the server creates the canonical coordinator-owned task.
+- Task creation uses a stable report reference so a retry cannot create a second worker.
+- The target receives only `report.accepted`, `report.status`, and
+  `reports.snapshot`; full task and conversation histories remain canonical in
+  Clay.
+- Worker tool events and assistant prose never enter the target overlay.
+- A report becomes green only when the task is completed with coordinator
+  verification evidence. The worker is then archived and the report row stays
+  in the pairing-local ledger.
 
 ### Pair and message sequence
 
@@ -365,10 +399,11 @@ Clay server: validate user, extension, tab origin, session, and writable root
 Clay server -> all hops: paired(pairingId, allowed capabilities)
 
 Target overlay -> extension worker -> Clay control page -> Clay server:
-  chat.user_message(clientMessageId, selectionGeneration, text)
-Clay server: dedupe, attach current selection, enqueue exactly one session message
+  report.submit(clientMessageId, selectionGeneration, text, screenshot, diagnostics)
+Clay server: dedupe, attach immutable evidence, create exactly one coordinator task
+Clay coordinator: dispatch or queue a worker and reconcile overlapping work
 Clay server -> Clay control page -> extension worker -> target overlay:
-  chat.stream(operationId, streamSequence, delta/status/question/completion)
+  report.accepted/report.status/reports.snapshot
 ```
 
 ### Reload and verification sequence
@@ -762,12 +797,12 @@ Defer this. The target-page overlay delivers the useful interaction without pret
 
 ## Implementation Roadmap
 
-**Implementation status (2026-07-26): started.** Clay now has the server-scoped
+**Implementation status (2026-07-27): coordinator inbox implemented.** Clay now has the server-scoped
 Phase 0 registry, session/dev-origin authorization, versioned pairing relay,
 bounded and scrubbed selection packets, exactly-once acknowledgments, target
-reload reconnect, control rebind, and revocation tests. The `clay-chrome`
-target overlay and picker remain the next cross-repository slice, so Phase 0 is
-not yet complete.
+reload reconnect, control rebind, report-task routing, automatic evidence,
+compact status relay, verified worker cleanup, and revocation tests. The
+`clay-chrome` overlay and session picker are implemented on its `bojan` branch.
 
 ### Phase 0: Protocol and threat model
 
@@ -799,20 +834,26 @@ not yet complete.
 
 **Exit gate**: A Clay target tab can select an element, produce a bounded packet, and either restore the outline above the confidence threshold after a full reload or explicitly request reselection.
 
-### Phase 2: Session pairing and target-page chat
+### Phase 2: Session pairing and coordinator inbox
 
-**Goal**: Talk to the active Clay agent without leaving the application.
+**Goal**: Report many issues without leaving the application or manually managing agents.
 
 - Add **Open Live UI** to the Workspace panel.
 - Add the extension-popup project/session picker and pin the chosen session until Exit.
 - Pair only with the selected session's Clay-managed local or Tailscale development URL.
-- Add a compact chat drawer in the target overlay.
-- Route messages through the existing Clay session message path.
-- Stream assistant text, processing state, questions, completion, and errors back to the overlay.
-- Represent unsupported approvals with a link back to Clay.
+- Promote the pinned top-level conversation to coordinator on its first report.
+- Add a compact movable report drawer and aggregate status indicator.
+- Attach a masked screenshot plus bounded scrubbed console/network evidence automatically.
+- Create one durable coordinator-owned task per independent report.
+- Accept another report while earlier workers are active.
+- Relay only working, needs-input, failed, and coordinator-verified completion states.
+- Archive verified worker chats automatically while retaining the report row.
 - Keep the full transcript canonical in Clay.
 
-**Exit gate**: A message typed in the Clay target appears in the pinned Clay control session exactly once, and its response streams back to both views. TrialView and Urban Stay repeat the same contract in 0.2.
+**Exit gate**: Three reports submitted rapidly from one Clay target create
+three exactly-once coordinator tasks, respect configured concurrency, show
+independent compact statuses, and archive only workers whose results are
+coordinator-verified. TrialView and Urban Stay repeat the same contract in 0.2.
 
 ### Phase 3: Agent context and generic source resolution
 
@@ -892,6 +933,7 @@ Final module placement must follow `docs/guides/MODULE_MAP.md` and keep every mo
 | `lib/project-live-ui.js` | Pairing lifecycle, session/project authorization, selection state, overlay relay |
 | `lib/project-live-ui-target.js` | Server-visible session resolution and exact local, Tailscale, or configured-preview origin matching |
 | `lib/project-live-ui-context.js` | Selection packet validation, redaction enforcement, agent-facing context formatting |
+| `lib/project-live-ui-reports.js` | Coordinator promotion, report-task creation, evidence context, compact status projection, and verified worker cleanup |
 | `lib/project-live-ui-operations.js` | Operation journal, file attribution, guarded undo contract |
 | `lib/project-live-ui-verification.js` | Full-reload generation, after capture, predicate recording, result-state derivation |
 | `lib/ws-schema.js` | Versioned Live UI client/server message definitions |
@@ -918,7 +960,14 @@ The `clay-chrome` repository owns:
 - Extension-popup target/session picker and explicit Exit action.
 - Target-tab content overlay.
 - Element picker and outline.
-- Target-page compact chat rendering inside a closed shadow root. This prevents ordinary style and DOM collisions but is not a confidentiality boundary against a hostile page. Live UI 0.1 trusts its Clay-managed development target and mirrors only minimal current-operation text; the canonical Clay conversation and tool details never enter the target page.
+- Target-page compact report rendering inside a closed shadow root. This
+  prevents ordinary style and DOM collisions but is not a confidentiality
+  boundary against a hostile page. The target receives report titles and
+  status only; canonical conversation and tool details never enter the page.
+- A full-page interaction shield that consumes selection gestures before the
+  underlying application element can react.
+- Automatic masked screenshot and bounded console/network evidence capture for
+  every submitted report.
 - Selection extraction and client-side redaction.
 - Target-tab pairing and reconnect.
 - New versioned relay message handlers.

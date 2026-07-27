@@ -36,6 +36,7 @@ test("external task context becomes a durable task owned by the coordinator", fu
     acceptanceCriteria: "Match desktop and mobile.",
     ownedPaths: "Payment form UI.",
     clientRef: "framer-42",
+    imageRefs: [{ mediaType: "image/png", file: "shot.png" }],
   });
 
   assert.strictEqual(result.ok, true);
@@ -48,6 +49,10 @@ test("external task context becomes a durable task owned by the coordinator", fu
   assert.strictEqual(coordinator.orchestrationTasks[0].context,
     "Framer page: Checkout. Selection: PaymentForm/Error.");
   assert.strictEqual(coordinator.orchestrationTasks[0].clientRef, "framer-42");
+  assert.deepStrictEqual(coordinator.orchestrationTasks[0].imageRefs, [{
+    mediaType: "image/png",
+    file: "shot.png",
+  }]);
 
   var duplicate = coordinate({
     coordinatorSessionId: "coordinator-storage",
@@ -83,4 +88,32 @@ test("external task rejects a missing or ordinary target conversation", function
     ok: false,
     error: "Coordinator session not found or is not a coordinator",
   });
+});
+
+test("an external Live UI report can promote an ordinary conversation", function () {
+  var ordinary = {
+    localId: 9,
+    storageId: "ordinary-chat",
+    coordinationMode: false,
+    orchestrationTasks: [],
+    orchestrationEvents: [],
+  };
+  var coordinate = createExternalTaskCoordinator({
+    coordinatorForInput: function () { return null; },
+    ensureCoordinatorForInput: function () {
+      ordinary.coordinationMode = true;
+      return ordinary;
+    },
+    schedule: function () {},
+    sm: { saveSessionFile: function () {} },
+  });
+  var result = coordinate({
+    coordinatorSessionId: "ordinary-chat",
+    promoteCoordinator: true,
+    title: "Live UI report",
+    objective: "Fix it.",
+  });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(ordinary.coordinationMode, true);
+  assert.strictEqual(ordinary.orchestrationTasks.length, 1);
 });
