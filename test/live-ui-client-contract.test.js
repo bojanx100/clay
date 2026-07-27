@@ -26,4 +26,6 @@ test("Live UI preferences remain server or session state, never localStorage", f
   assert.doesNotMatch(liveUiMessages, /localStorage/);
   assert.match(liveUi, /live_ui_request_pair/);
   assert.match(liveUi, /control\.unpair/);
+  assert.match(liveUi, /Live UI ended after Clay restarted/);
+  assert.match(liveUi, /transientPairingError \? "paired"/);
 });

@@ -196,6 +196,19 @@ test("relays a sanitized selection once only to the bound control", function () 
   assert.match(selections[0].message.selection.text, /\[redacted-email\]/);
   assert.strictEqual(acknowledgments.length, 2);
   assert.strictEqual(acknowledgments[1].message.duplicate, true);
+
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
+    clientMessageId: "selection-clear-1",
+    event: "selection.clear",
+  });
+  var cleared = state.sent.filter(function (entry) {
+    return entry.message.type === "live_ui_selection" &&
+      entry.message.selection === null;
+  });
+  assert.strictEqual(cleared.length, 1);
 });
 
 test("rejects target events from an unrelated control socket and supports unpair", function () {
@@ -333,7 +346,13 @@ test("target chat dispatches to the pinned session and streams only its active t
     pairingId: paired.pairingId,
     clientMessageId: "chat-1",
     event: "chat.message",
-    payload: { text: "Increase the spacing" },
+    payload: {
+      text: "Increase the spacing",
+      screenshot: {
+        mediaType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      },
+    },
   });
 
   assert.strictEqual(state.dispatched.length, 1);
@@ -341,6 +360,10 @@ test("target chat dispatches to the pinned session and streams only its active t
   assert.strictEqual(state.dispatched[0].message.sessionId, state.session.localId);
   assert.strictEqual(state.dispatched[0].message.preserveActiveSession, true);
   assert.match(state.dispatched[0].message.pastes[0], /#pricing/);
+  assert.deepStrictEqual(state.dispatched[0].message.images, [{
+    mediaType: "image/png",
+    data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  }]);
 
   state.emitSession({ type: "delta", text: "I updated it." });
   state.emitSession({ type: "done", code: 0 });
@@ -352,6 +375,31 @@ test("target chat dispatches to the pinned session and streams only its active t
   assert.deepStrictEqual(targetEvents.map(function (entry) {
     return entry.message.payload.type;
   }), ["delta", "done"]);
+});
+
+test("rejects an unsafe Live UI screenshot payload", function () {
+  var state = harness();
+  var paired = pair(state);
+  prove(state, paired);
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
+    clientMessageId: "chat-unsafe-image",
+    event: "chat.message",
+    payload: {
+      text: "Inspect this",
+      screenshot: {
+        mediaType: "image/svg+xml",
+        data: "PHN2Zz48L3N2Zz4=",
+      },
+    },
+  });
+  assert.strictEqual(state.dispatched.length, 0);
+  assert.ok(state.sent.some(function (entry) {
+    return entry.message.type === "live_ui_state" &&
+      entry.message.code === "LIVE_UI_SCREENSHOT_INVALID";
+  }));
 });
 
 test("loopback origin validation is exact and excludes production URLs", function () {
