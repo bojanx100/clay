@@ -288,6 +288,16 @@
 .ws-dev-restart { border-color: #d4a72c88; color: #bf8700; }
 .ws-devbtns { display: flex; gap: 8px; flex-wrap: wrap; }
 
+.live-ui-controls { margin-top: 10px; }
+.live-ui-open { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); color: var(--accent); }
+.live-ui-open [data-lucide].lucide-loader-circle { animation: ws-spin 0.9s linear infinite; }
+.live-ui-status { display: flex; align-items: center; gap: 7px; color: var(--text); font-size: 12px; font-weight: 600; }
+.live-ui-dot { width: 8px; height: 8px; border-radius: 50%; background: #2da44e; box-shadow: 0 0 0 3px rgba(45,164,78,.14); }
+.live-ui-selection { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-alt); font-size: 11px; }
+.live-ui-selection span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-ui-selection code { color: var(--text-dim); }
+.live-ui-error { margin-top: 7px; color: var(--danger, #cf222e); font-size: 11px; line-height: 1.4; }
+
 .ws-add { display: flex; gap: 6px; margin-top: 8px; }
 .ws-add input {
   flex: 1;

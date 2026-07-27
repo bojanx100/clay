@@ -42,6 +42,8 @@ function harness(overrides) {
       };
     })(),
   });
+  var sessionSubscriber = null;
+  var dispatched = [];
   var liveUi = attachProjectLiveUi({
     slug: "clay",
     registry: registry,
@@ -64,6 +66,20 @@ function harness(overrides) {
       commands.push({ command: command, args: args });
       return Promise.resolve({ ok: true });
     },
+    sm: {
+      sessions: new Map([[session.localId, session]]),
+      subscribeSession: function (sessionId, callback) {
+        assert.strictEqual(sessionId, session.localId);
+        sessionSubscriber = callback;
+        return function () { sessionSubscriber = null; };
+      },
+    },
+    userMessage: {
+      handleUserMessage: function (ws, message) {
+        dispatched.push({ ws: ws, message: message });
+        return true;
+      },
+    },
   });
   return {
     liveUi: liveUi,
@@ -73,6 +89,10 @@ function harness(overrides) {
     session: session,
     sent: sent,
     commands: commands,
+    dispatched: dispatched,
+    emitSession: function (event) {
+      if (sessionSubscriber) sessionSubscriber(event);
+    },
   };
 }
 
@@ -112,6 +132,7 @@ test("pairs a server-derived session, dev origin, root, extension, and tab", fun
   assert.strictEqual(paired.allowedOrigin, "http://localhost:4242");
   assert.strictEqual(paired.serverInstanceId, "server-a");
   assert.strictEqual(state.commands[0].command, "live_ui_pair");
+  assert.ok(state.commands[0].args.reconnectCredential);
 
   prove(state, paired);
   assert.strictEqual(state.registry.getPair(paired.pairingId).state, "paired");
@@ -243,6 +264,72 @@ test("target reload reconnects and a control reload rebinds with rotation", func
   assert.ok(rebound);
   assert.notStrictEqual(rebound.message.reconnectCredential,
     paired.reconnectCredential);
+});
+
+test("target exit revokes the pairing and notifies the control", function () {
+  var state = harness();
+  var paired = pair(state);
+  prove(state, paired);
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
+    event: "target.closed",
+    payload: { reason: "user_exit" },
+  });
+  assert.strictEqual(state.registry.getPair(paired.pairingId).state, "revoked");
+  assert.ok(state.sent.some(function (entry) {
+    return entry.ws === state.controlWs &&
+      entry.message.type === "live_ui_state" &&
+      entry.message.state === "revoked" &&
+      entry.message.reason === "user_exit";
+  }));
+});
+
+test("target chat dispatches to the pinned session and streams only its active turn", function () {
+  var state = harness();
+  var paired = pair(state);
+  prove(state, paired);
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
+    clientMessageId: "selection-chat",
+    event: "selection.update",
+    payload: {
+      tag: "section",
+      text: "Pricing",
+      route: "/pricing",
+      documentGeneration: "document-1",
+      rect: { x: 0, y: 0, width: 600, height: 320 },
+      selectors: ["#pricing"],
+    },
+  });
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
+    clientMessageId: "chat-1",
+    event: "chat.message",
+    payload: { text: "Increase the spacing" },
+  });
+
+  assert.strictEqual(state.dispatched.length, 1);
+  assert.strictEqual(state.dispatched[0].ws, state.controlWs);
+  assert.strictEqual(state.dispatched[0].message.sessionId, state.session.localId);
+  assert.strictEqual(state.dispatched[0].message.preserveActiveSession, true);
+  assert.match(state.dispatched[0].message.pastes[0], /#pricing/);
+
+  state.emitSession({ type: "delta", text: "I updated it." });
+  state.emitSession({ type: "done", code: 0 });
+  var targetEvents = state.sent.filter(function (entry) {
+    return entry.ws === state.extensionWs &&
+      entry.message.type === "live_ui_relay" &&
+      entry.message.event === "chat.stream";
+  });
+  assert.deepStrictEqual(targetEvents.map(function (entry) {
+    return entry.message.payload.type;
+  }), ["delta", "done"]);
 });
 
 test("loopback origin validation is exact and excludes production URLs", function () {

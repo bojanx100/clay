@@ -4,9 +4,32 @@
 
 **Created**: 2026-07-18
 
-**Status**: Planning
+**Status**: Implementation — first end-to-end vertical slice available on `bojan`
 
 **Initial scope**: Development environments, with first-class validation against Clay, the TrialView webapp, and Urban Stay
+
+---
+
+## Implementation Progress
+
+The first vertical slice now covers the core Clay-on-Clay interaction:
+
+- server-authoritative pairing tied to the user, project, pinned session, extension instance, target tab, exact loopback origin, and writable root;
+- reconnect credentials, target reload recovery, control reload rebinding, explicit revocation, and exactly-once target message acceptance;
+- a Workspace **Open Live UI** action;
+- a closed-shadow-root target toolbar with element hover, selection, persistent outline, reselection after reload, and exit;
+- bounded, scrubbed selection context attached to the canonical Clay message path;
+- compact target-page chat with assistant streaming, working state, errors, and Clay-only approval/input notices;
+- pinned-session dispatch that does not retarget the control tab, plus a busy-session guard that prevents unrelated output from entering the overlay.
+
+This completes the usable pairing/selection/chat slice of Phases 0–2 and the
+selection-context portion of Phase 3. It does not yet complete the screenshot,
+generic source-resolution, operation-journal, compile-generation, diff,
+before/after, or verification-predicate work in Phases 1, 3, and 4. React
+instrumentation and the TrialView/Urban Stay rollout remain 0.2 work.
+
+The extension implementation lives in the separate `bojantv/clay-chrome`
+repository on its `bojan` branch.
 
 ---
 
