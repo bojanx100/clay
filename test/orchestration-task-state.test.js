@@ -1,7 +1,10 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var orchestrationTasksForClient = require("../lib/orchestration-task-state").orchestrationTasksForClient;
+var restoreVerifiedWorkerCompletion =
+  require("../lib/orchestration-task-state").restoreVerifiedWorkerCompletion;
 var workerPrompt = require("../lib/orchestration-task-state").workerPrompt;
+var workerResultText = require("../lib/orchestration-task-state").workerResultText;
 var workerStatusFromResult = require("../lib/orchestration-task-state").workerStatusFromResult;
 
 test("task projection exposes stable orchestration identity separately from worker identity", function () {
@@ -59,6 +62,54 @@ test("worker completion requires an explicit verified completion report", functi
     "VERIFICATION: node --test test/orchestration-task-state.test.js passed",
     "ESCALATION_REQUIRED: no",
   ].join("\n")), "completed");
+});
+
+test("worker result preserves text block boundaries around tool calls", function () {
+  var result = workerResultText({
+    history: [
+      { type: "user_message", text: "Finish the task." },
+      { type: "delta", text: "I am confirming the branch before handoff." },
+      { type: "tool_start", id: "tool-1", name: "Bash" },
+      { type: "tool_result", id: "tool-1", content: "clean" },
+      { type: "delta", text: "WORKER_STATUS: completed\n" },
+      { type: "delta", text: "SUMMARY: The fix is pushed.\n" },
+      { type: "delta", text: "VERIFICATION: focused tests and build passed\n" },
+      { type: "delta", text: "ESCALATION_REQUIRED: no" },
+      { type: "done", code: 0 },
+    ],
+  });
+
+  assert.equal(result, [
+    "I am confirming the branch before handoff.",
+    "WORKER_STATUS: completed",
+    "SUMMARY: The fix is pushed.",
+    "VERIFICATION: focused tests and build passed",
+    "ESCALATION_REQUIRED: no",
+  ].join("\n"));
+  assert.equal(workerStatusFromResult(result), "completed");
+});
+
+test("restore repair leaves unverified needs-input results unchanged", function () {
+  var task = { taskId: "task-1", status: "needs_input" };
+  var worker = {
+    history: [
+      { type: "user_message", text: "Finish the task." },
+      { type: "delta", text: "WORKER_STATUS: completed\n" },
+      { type: "delta", text: "SUMMARY: The change is drafted.\n" },
+      { type: "delta", text: "VERIFICATION: not tested\n" },
+      { type: "delta", text: "ESCALATION_REQUIRED: no" },
+      { type: "done", code: 0 },
+    ],
+  };
+  var updates = [];
+
+  var restored = restoreVerifiedWorkerCompletion({}, task, worker, function (parent, taskId, next) {
+    updates.push({ parent: parent, taskId: taskId, next: next });
+  });
+
+  assert.equal(restored, false);
+  assert.deepEqual(updates, []);
+  assert.equal(task.status, "needs_input");
 });
 
 test("ordinary worker replies and plans require coordinator attention", function () {

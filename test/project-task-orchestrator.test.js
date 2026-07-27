@@ -594,6 +594,47 @@ test("restores completed worker ownership for sidebar nesting", function () {
   assert.equal(worker._subscriber, undefined);
 });
 
+test("repairs a persisted needs-input task from a verified split worker result", function () {
+  var sessions = new Map();
+  var worker = {
+    localId: 91,
+    storageId: "worker-split-result",
+    isProcessing: false,
+    history: [
+      { type: "user_message", text: "Finish the task." },
+      { type: "delta", text: "I am confirming the branch before handoff." },
+      { type: "tool_start", id: "tool-1", name: "Bash" },
+      { type: "tool_result", id: "tool-1", content: "clean" },
+      { type: "delta", text: "WORKER_STATUS: completed\n" },
+      { type: "delta", text: "SUMMARY: The fix is pushed.\n" },
+      { type: "delta", text: "VERIFICATION: focused tests and build passed\n" },
+      { type: "delta", text: "ESCALATION_REQUIRED: no" },
+      { type: "done", code: 0 },
+    ],
+  };
+  var parent = {
+    localId: 92,
+    storageId: "parent-split-result",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-split-result",
+      title: "Persist annotation tags on first save",
+      status: "needs_input",
+      workerStorageId: "worker-split-result",
+      resultSummary: "handoff.WORKER_STATUS: completed",
+    }],
+  };
+  sessions.set(parent.localId, parent);
+  sessions.set(worker.localId, worker);
+
+  testContext(sessions);
+
+  assert.equal(parent.orchestrationTasks[0].status, "completed");
+  assert.match(parent.orchestrationTasks[0].resultSummary, /handoff\.\nWORKER_STATUS: completed/);
+  assert.equal(parent.orchestrationTasks[0].verification, "focused tests and build passed");
+});
+
 test("keeps a restart-interrupted worker running until automatic resume completes", function () {
   var sessions = new Map();
   var worker = {
