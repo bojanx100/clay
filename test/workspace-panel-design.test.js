@@ -21,6 +21,7 @@ test("Session Context presents the live environment as its primary status card",
 test("Live UI controls are not wired as development server actions", function () {
   var panel = read("lib/public/modules/workspace-panel.js");
   assert.match(panel, /querySelectorAll\("\.ws-devbtn\[data-dev\]"\)/);
+  assert.match(panel, /source: "workspace-dev-control"/);
 });
 
 test("Workspace panel modules stay below the client module size limit", function () {

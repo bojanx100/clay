@@ -2,6 +2,8 @@ var test = require("node:test");
 var assert = require("node:assert");
 var resolveUnmanagedDevStatus =
   require("../lib/project-workspace-dev-discovery").resolveUnmanagedDevStatus;
+var isWorkspaceDevControl =
+  require("../lib/project-workspace").isWorkspaceDevControl;
 
 function payload(overrides) {
   return Object.assign({
@@ -67,4 +69,14 @@ test("previews the next free port when no external server is running", function 
     assert.deepStrictEqual(status, payload({ port: 3000 }));
     done();
   });
+});
+
+test("rejects stale or unrelated clicks as development server controls", function () {
+  assert.strictEqual(isWorkspaceDevControl({
+    type: "workspace_dev_stop",
+  }), false);
+  assert.strictEqual(isWorkspaceDevControl({
+    type: "workspace_dev_stop",
+    source: "workspace-dev-control",
+  }), true);
 });
