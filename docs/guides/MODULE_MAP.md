@@ -82,6 +82,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-live-ui-context.js` | Bounded selection-packet validation, sensitive-field exclusion, PII scrubbing, and fingerprints |
 | `lib/public/modules/live-ui.js` | Workspace Live UI entry, pairing lifecycle presentation, and current sanitized selection |
 | `lib/public/modules/live-ui-messages.js` | Client routing for Live UI state, selection, and extension relay envelopes |
+| `lib/public/modules/workspace-panel-sections.js` | Pure Session Context card, environment, linked-work, and media markup |
 | `project-clients.js` | Per-project WebSocket client set, broadcast helpers, admin sends, and session presence payloads |
 | `project-connection.js` | WebSocket connection setup, initial state sync, session restore, presence |
 | `project-context-sources.js` | Context-source active selection persistence shared by connection, sessions, user messages, and email |
@@ -127,6 +128,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-pr-review-state.js` | PR-review task state persistence for review/CI/QA follow-up passes |
 | `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
 | `project-workspace.js` | `workspace_get`, `workspace_dev_*` | Session workspace context assembly: repo links, worktree binding, PR/preview metadata, dev server lifecycle, and live workspace context patches |
+| `project-workspace-dev-discovery.js` | (called by project workspace) | Detects configured dev ports started outside Workspace while preserving per-worktree port ownership |
 | `project-workspace-git.js` | Git helpers for workspace context: branch, remote, PR, and repo metadata lookups |
 | `session-worktree.js` | Tracks the active git worktree for a session from write-tool paths and cached worktree scans |
 | `tombstones.js` | Hidden/deleted CLI session tombstones that prevent orphan re-adoption after local removal |

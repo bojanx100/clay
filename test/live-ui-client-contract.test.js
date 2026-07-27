@@ -9,9 +9,10 @@ function read(relative) {
 
 test("Workspace exposes Live UI through dedicated client modules", function () {
   var workspace = read("lib/public/modules/workspace-panel.js");
+  var sections = read("lib/public/modules/workspace-panel-sections.js");
   var messages = read("lib/public/modules/app-messages.js");
   var bridge = read("lib/public/modules/app-misc.js");
-  assert.match(workspace, /liveUiControlsHtml/);
+  assert.match(sections, /liveUiControlsHtml/);
   assert.match(workspace, /wireLiveUiControls/);
   assert.match(messages, /handleLiveUiMessage/);
   assert.match(bridge, /clay_live_ui_relay/);
