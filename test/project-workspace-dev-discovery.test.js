@@ -16,18 +16,27 @@ function payload(overrides) {
 }
 
 test("detects a configured dev server started outside Workspace", function (_, done) {
+  var checkedOwner = false;
   resolveUnmanagedDevStatus({
     det: { basePort: 3000 },
+    boundDir: "/repo/.worktrees/feature-a",
     ownPorts: [],
     payload: payload,
     probePort: function (port, cb) {
       assert.strictEqual(port, 3000);
       cb(true);
     },
+    portBelongsToDir: function (port, dir, cb) {
+      checkedOwner = true;
+      assert.strictEqual(port, 3000);
+      assert.strictEqual(dir, "/repo/.worktrees/feature-a");
+      cb(true);
+    },
     findFreePort: function () {
       assert.fail("a live configured port must not be replaced");
     },
   }, function (status) {
+    assert.strictEqual(checkedOwner, true);
     assert.deepStrictEqual(status, {
       running: true,
       portLive: true,
@@ -35,6 +44,32 @@ test("detects a configured dev server started outside Workspace", function (_, d
       status: "external",
       port: 3000,
     });
+    done();
+  });
+});
+
+test("does not claim a configured port owned by another worktree", function (_, done) {
+  resolveUnmanagedDevStatus({
+    det: { basePort: 3000 },
+    boundDir: "/repo/.worktrees/feature-b",
+    ownPorts: [],
+    payload: payload,
+    probePort: function (port, cb) {
+      assert.strictEqual(port, 3000);
+      cb(true);
+    },
+    portBelongsToDir: function (port, dir, cb) {
+      assert.strictEqual(port, 3000);
+      assert.strictEqual(dir, "/repo/.worktrees/feature-b");
+      cb(false);
+    },
+    findFreePort: function (basePort, ownPorts, cb) {
+      assert.strictEqual(basePort, 3000);
+      assert.deepStrictEqual(ownPorts, []);
+      cb(3001);
+    },
+  }, function (status) {
+    assert.deepStrictEqual(status, payload({ port: 3001 }));
     done();
   });
 });
