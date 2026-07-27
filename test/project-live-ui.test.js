@@ -23,6 +23,7 @@ function harness(overrides) {
     localId: 7,
     storageId: "session-storage",
     cliSessionId: "provider-session",
+    title: "Framer workflow",
     hidden: false,
   };
   var browserState = {
@@ -133,6 +134,8 @@ test("pairs a server-derived session, dev origin, root, extension, and tab", fun
   assert.strictEqual(paired.serverInstanceId, "server-a");
   assert.strictEqual(state.commands[0].command, "live_ui_pair");
   assert.ok(state.commands[0].args.reconnectCredential);
+  assert.strictEqual(state.commands[0].args.projectLabel, "clay");
+  assert.strictEqual(state.commands[0].args.sessionLabel, "Framer workflow");
 
   prove(state, paired);
   assert.strictEqual(state.registry.getPair(paired.pairingId).state, "paired");
@@ -264,6 +267,25 @@ test("target reload reconnects and a control reload rebinds with rotation", func
   assert.ok(rebound);
   assert.notStrictEqual(rebound.message.reconnectCredential,
     paired.reconnectCredential);
+});
+
+test("an unknown rebind revokes the stale extension pairing after restart", function () {
+  var state = harness();
+  state.liveUi.handleLiveUiMessage(state.controlWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    requestId: "rebind-stale",
+    pairingId: "pair-from-previous-server",
+    event: "control.rebind",
+    payload: { reconnectCredential: "stale-reconnect-token" },
+  });
+  assert.ok(state.sent.some(function (entry) {
+    return entry.ws === state.controlWs &&
+      entry.message.type === "live_ui_state" &&
+      entry.message.state === "revoked" &&
+      entry.message.pairingId === "pair-from-previous-server" &&
+      entry.message.reason === "server_restart";
+  }));
 });
 
 test("target exit revokes the pairing and notifies the control", function () {
