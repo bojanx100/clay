@@ -19,6 +19,16 @@ test("Workspace exposes Live UI through dedicated client modules", function () {
   assert.match(bridge, /clay_live_ui_server_event/);
 });
 
+test("Live UI lifecycle bypasses the active-session stale message filter", function () {
+  var messages = read("lib/public/modules/app-messages.js");
+  var liveUi = messages.indexOf("if (handleLiveUiMessage(msg)) return;");
+  var stale = messages.indexOf("if (isStaleSessionMessage(msg))");
+  assert.ok(liveUi >= 0);
+  assert.ok(stale >= 0);
+  assert.ok(liveUi < stale,
+    "Pinned Live UI lifecycle must be routed before active-session filtering");
+});
+
 test("extension picker publishes visible sessions and pins its request", function () {
   var picker = read("lib/public/modules/live-ui-extension-picker.js");
   var messages = read("lib/public/modules/live-ui-messages.js");
