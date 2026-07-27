@@ -14,7 +14,10 @@ test("Session Context presents the live environment as its primary status card",
   assert.match(sections, /Detected from chat, a terminal, or another tool/);
   assert.match(sections, /Managed outside Workspace/);
   assert.match(sections, /liveUiControlsHtml/);
+  assert.match(sections, /dev\.tailscaleUrl/);
+  assert.match(sections, /ws-env-tailscale/);
   assert.match(css, /\.ws-env-beacon/);
+  assert.match(css, /\.ws-env-tailscale/);
   assert.match(css, /prefers-reduced-motion/);
 });
 
