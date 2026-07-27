@@ -28,11 +28,17 @@ test("provider worker definitions route Claude to Opus and Codex to Terra", func
 test("main-agent policy escalates only blocked worker work", function () {
   var policy = pipeline.mainAgentEscalationPolicy();
   var autoLaunchPrompt = pipeline.autoLaunchPipelinePrompt();
+  var visiblePrompt = pipeline.visibleWorkerPrompt("session-stable-id");
 
   assert.ok(policy.indexOf("Accept completed, verified worker results") !== -1);
   assert.ok(policy.indexOf("take over only the blocked portion") !== -1);
   assert.ok(policy.indexOf("Do not repeatedly send the same failed work") !== -1);
   assert.ok(autoLaunchPrompt.indexOf("ESCALATION_REQUIRED: yes") !== -1);
+  assert.ok(autoLaunchPrompt.indexOf("do not launch another provider CLI through Bash") !== -1);
+  assert.ok(visiblePrompt.indexOf("Current Clay session ID: session-stable-id") !== -1);
+  assert.ok(visiblePrompt.indexOf("clay-orchestration/delegate_task") !== -1);
+  assert.ok(visiblePrompt.indexOf("Pin provider to codex") !== -1);
+  assert.ok(visiblePrompt.indexOf("automatically promotes this conversation") !== -1);
 });
 
 test("custom Codex worker configuration overrides Clay defaults", function () {
@@ -105,6 +111,7 @@ test("Claude query startup passes the Opus worker definition to the SDK adapter"
   });
   var session = {
     localId: 1,
+    storageId: "visible-parent",
     vendor: "claude",
     history: [],
     permissionMode: "default",
@@ -113,6 +120,8 @@ test("Claude query startup passes the Opus worker definition to the SDK adapter"
   await bridge.startQuery(session, "Implement the fix", null, null);
 
   assert.strictEqual(captured.adapterOptions.CLAUDE.agents.worker.model, "opus");
+  assert.ok(captured.systemPrompt.indexOf("Current Clay session ID: visible-parent") !== -1);
+  assert.ok(captured.systemPrompt.indexOf("clay-orchestration/plan_task_graph") !== -1);
   assert.strictEqual(pushed, "Implement the fix");
 });
 

@@ -222,15 +222,55 @@ test("offers an existing session to the coordinator and adopts it as a worker", 
   assert.match(ctx.starts[0].prompt, /Implement the identified fix/);
 });
 
-test("rejects delegation from a session that is not the coordinator", function () {
+test("first visible worker delegation promotes an ordinary top-level session", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
   parent.coordinationMode = false;
 
   var result = ctx.api.delegateFromTool(brief(parent));
 
+  assert.equal(result.isError, undefined);
+  assert.equal(parent.coordinationMode, true);
+  assert.equal(parent.orchestrationTasks.length, 1);
+  assert.equal(ctx.starts.length, 1);
+  var promotion = ctx.events.find(function (entry) {
+    return entry.id === parent.localId && entry.event.type === "coordinator_status";
+  });
+  assert.ok(promotion);
+  assert.equal(promotion.event.coordinationMode, true);
+});
+
+test("worker sessions cannot promote themselves and delegate more workers", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  parent.coordinationMode = false;
+  parent.orchestrationParent = {
+    taskId: "owned-task",
+    sessionId: 9,
+    sessionStorageId: "owner",
+  };
+
+  var result = ctx.api.delegateFromTool(brief(parent));
+
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /non-coordinator/);
+  assert.match(result.content[0].text, /worker sessions cannot delegate/);
+  assert.equal(parent.coordinationMode, false);
+  assert.equal(ctx.starts.length, 0);
+});
+
+test("invalid worker briefs do not promote ordinary conversations", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  parent.coordinationMode = false;
+  var input = brief(parent);
+  input.acceptanceCriteria = "";
+
+  var result = ctx.api.delegateFromTool(input);
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /acceptanceCriteria is required/);
+  assert.equal(parent.coordinationMode, false);
+  assert.equal(ctx.starts.length, 0);
 });
 
 test("starts a worker from a complete coordinator brief and returns its result", function () {
@@ -263,6 +303,23 @@ test("starts a worker from a complete coordinator brief and returns its result",
   assert.equal(ctx.starts[1].session, parent);
   assert.match(ctx.starts[1].prompt, /Fixed resume handling/);
   assert.match(ctx.starts[1].prompt, /You own this result/);
+});
+
+test("read-only reviewer workers receive an explicit no-mutation boundary", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  var input = brief(parent);
+  input.provider = "codex";
+  input.title = "Independent Codex review";
+  input.objective = "Review the current diff and report only actionable findings.";
+  input.ownedPaths = "read-only: current repository diff";
+
+  var result = ctx.api.delegateFromTool(input);
+
+  assert.equal(result.isError, undefined);
+  assert.equal(ctx.starts[0].session.vendor, "codex");
+  assert.match(ctx.starts[0].prompt, /read-only: current repository diff/);
+  assert.match(ctx.starts[0].prompt, /do not modify files or external state/);
 });
 
 test("adaptively routes unpinned coordinator work and records the rationale", function () {
