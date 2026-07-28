@@ -15,6 +15,7 @@ test("initial connection orchestration fields are complete before later broadcas
       taskId: "owner-task",
       sessionId: 42,
       sessionStorageId: "coordinator-storage",
+      workerColor: "#A78BFA",
     },
     orchestrationAdoption: { adoptedAt: 123 },
   };
@@ -26,6 +27,7 @@ test("initial connection orchestration fields are complete before later broadcas
     orchestrationParent: {
       taskId: "owner-task",
       sessionId: 42,
+      workerColor: "#A78BFA",
     },
     orchestrationAdoption: { adoptedAt: 123 },
   });

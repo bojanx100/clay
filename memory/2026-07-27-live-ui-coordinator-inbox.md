@@ -24,6 +24,11 @@ integrate worker results.
   - green check: coordinator-verified completion.
 - Color is never the only signal.
 - Agent prose, tool names, and implementation logs remain in Clay.
+- The target can expand into a right-side component inspector. React
+  component/source candidates and worker-colored ownership are shown there;
+  the same color marks the worker beneath its coordinator in Clay.
+- Fast Refresh success is distinct from a full reload. Invalid boundaries and
+  compile failures remain visible instead of being described as live updates.
 
 ## Lifecycle
 

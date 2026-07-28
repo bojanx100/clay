@@ -1025,6 +1025,11 @@
   padding-left: 8px;
   border-radius: 8px;
   font-size: 12px;
+  box-shadow: inset 2px 0 0 var(--worker-color, var(--border));
+}
+
+.session-item.session-coordinator-worker .session-role-badge.worker {
+  color: var(--worker-color, var(--text-dimmer));
 }
 
 .session-item.drag-over-above::before,

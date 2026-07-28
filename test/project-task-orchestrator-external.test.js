@@ -43,12 +43,15 @@ test("external task context becomes a durable task owned by the coordinator", fu
   assert.strictEqual(result.coordinatorSessionId, "coordinator-storage");
   assert.strictEqual(result.workerSessionId, 18);
   assert.strictEqual(result.workerStorageId, "worker-storage");
+  assert.match(result.workerColor, /^#[0-9A-F]{6}$/);
   assert.strictEqual(scheduled.length, 1);
   assert.strictEqual(saves, 1);
   assert.strictEqual(coordinator.orchestrationTasks.length, 1);
   assert.strictEqual(coordinator.orchestrationTasks[0].context,
     "Framer page: Checkout. Selection: PaymentForm/Error.");
   assert.strictEqual(coordinator.orchestrationTasks[0].clientRef, "framer-42");
+  assert.strictEqual(coordinator.orchestrationTasks[0].workerColor,
+    result.workerColor);
   assert.deepStrictEqual(coordinator.orchestrationTasks[0].imageRefs, [{
     mediaType: "image/png",
     file: "shot.png",

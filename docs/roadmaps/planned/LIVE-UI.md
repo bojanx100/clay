@@ -17,20 +17,23 @@ The first vertical slice now covers the core Clay-on-Clay interaction:
 - server-authoritative pairing tied to the user, project, pinned session, extension instance, target tab, exact server-derived development origin, and writable root;
 - reconnect credentials, target reload recovery, control reload rebinding, explicit revocation, and exactly-once target message acceptance;
 - a Workspace **Open Live UI** action;
-- a closed-shadow-root target toolbar with element hover, selection, persistent outline, reselection after reload, and exit;
+- a closed-shadow-root target inspector with element hover, selection, persistent outline, component-replacement recovery, and exit;
 - bounded, scrubbed selection context attached to the canonical Clay message path;
 - automatic extension-side screenshot capture with layout-race detection, mandatory masking, and bounded scrubbed console/network evidence;
-- a compact movable report tray that shows only working, needs-input, failed, and verified-complete states rather than agent/tool transcripts;
+- a collapsible right-side report inspector that shows only working, needs-input, failed, and verified-complete states rather than agent/tool transcripts;
 - one coordinator pinned to the pairing, with an independent worker task per report, parallel report intake, coordinator verification, and automatic worker archiving after verified completion;
 - a full-page selection shield that identifies the underlying element without delivering the picking gesture to that application element;
+- a collapsible right-side component inspector with React component chains, safe source-file candidates, persistent selection across component replacement, and worker-colored report/outline ownership;
+- Vite HMR lifecycle observation plus Next.js Fast Refresh console signals, with live-update success, compile failure, invalid-boundary, and connection states shown without exposing agent plumbing;
 - an extension-popup launcher that shows the current target tab, lets the user choose any server-visible Clay session, pins that choice until Exit, and can dynamically connect a Clay tab opened through a Tailscale address;
 - Clay-managed Tailscale development URLs, with exact origin matching against the server-derived session environment.
 
 This completes the usable pairing/selection/coordinator-inbox slice of Phases 0–2 and the
-selection-context portion of Phase 3. It does not yet complete generic
-source-resolution, operation-journal, compile-generation, diff,
-before/after, or verification-predicate work in Phases 1, 3, and 4. React
-instrumentation and the TrialView/Urban Stay rollout remain 0.2 work.
+React selection-context and HMR-observation portions of Phase 3. It does not
+yet complete generic source-resolution, operation-journal, compile-generation,
+diff, before/after, or verification-predicate work in Phases 1, 3, and 4.
+Build-time React instrumentation and the TrialView/Urban Stay rollout remain
+0.2 work.
 
 The extension implementation lives in the separate `bojantv/clay-chrome`
 repository on its `bojan` branch.
@@ -72,13 +75,17 @@ The full roadmap covers three applications, but the first releasable slice is sm
 - Up to the coordinator's configured worker concurrency, with new reports accepted immediately.
 - Automatic masked screenshot plus scrubbed console and network metadata on every report.
 - Source-backed edits attributed to the server-resolved project root.
-- Full-reload verification and before/after evidence.
-- No React instrumentation, hosted PR previews, production overlay, touch support, temporary CSS previews, or automatic undo.
+- HMR-first in-place verification and before/after evidence without losing page state.
+- Explicit clean-load verification only when a refresh boundary or coordinator
+  requires it.
+- No build-time React instrumentation, hosted PR previews, production overlay,
+  touch support, temporary CSS previews, or automatic undo.
 
 ### Live UI 0.2
 
 - TrialView and Urban Stay dogfood.
-- React/Vite and React/Next source instrumentation prototypes.
+- Build-time React/Vite and React/Next source instrumentation that raises
+  locator confidence beyond the runtime inspection already available.
 - Operation-scoped guarded undo.
 - Responsive verification presets.
 
@@ -89,7 +96,7 @@ The full roadmap covers three applications, but the first releasable slice is sm
 - Optional temporary visual previews.
 - Production bug-report handoff to a live developer session.
 
-This release cut prevents React source instrumentation and remote deployment identity from blocking proof of the core interaction.
+This release cut prevents build-time React instrumentation and remote deployment identity from blocking proof of the core interaction.
 
 ## Why This Is Worth Building
 
@@ -124,7 +131,7 @@ References:
 
 - A user starts Live UI from an active Clay session.
 - Clay opens or pairs the session with its running development tab.
-- A lightweight movable toolbar and report drawer appear inside the target page.
+- A collapsible right-side component rail and inspector appear inside the target page.
 - Hovering outlines elements; clicking selects one element or a section.
 - The selected element becomes immutable context for one submitted report.
 - Reports from the target page become coordinator-owned worker tasks.
@@ -191,10 +198,10 @@ device credential can remove the control-tab dependency in a later release.
 
 ### Selecting an interface element
 
-The toolbar exposes a pointer action and compact aggregate status:
+The target exposes a collapsible right-side component rail and inspector:
 
 ```text
-[ ⠿ ] [ ● 2 working · 1 done ] [ Pick element ] [ Exit ]
+[ ● LIVE UI ]  ->  [ Component + source ] [ Worker changes ] [ Report ]
 ```
 
 While selection is active:
@@ -207,6 +214,9 @@ While selection is active:
 - The overlay itself is excluded from screenshots and selection.
 - Nested elements can be promoted to a useful parent section.
 - The selected element stays outlined until cleared or replaced.
+- React rerenders re-resolve the selected component from its stable locator.
+- Active worker outlines use the same deterministic color as their worker row
+  beneath the Clay coordinator.
 
 The report drawer shows a compact selection card:
 
@@ -246,7 +256,7 @@ while its compact report row remains until Live UI exits.
 
 After an edit:
 
-1. Clay observes the dev server refresh or page navigation.
+1. Clay observes Vite HMR or Next.js Fast Refresh lifecycle signals.
 2. The extension resolves the selection again using stable anchors.
 3. Clay captures the after screenshot and relevant runtime state.
 4. The agent runs repository-appropriate verification.
@@ -254,6 +264,14 @@ After an edit:
    - **Fixed and verified**
    - **Changed, needs your visual approval**
    - **Could not verify** with a specific reason
+
+For Vite, Live UI subscribes to the documented `vite:beforeUpdate`,
+`vite:afterUpdate`, `vite:beforeFullReload`, `vite:invalidate`, `vite:error`,
+and HMR WebSocket events through a dedicated hot context. Next.js currently
+uses its development Fast Refresh console signals plus DOM re-resolution
+because it does not expose the same public page-level lifecycle API. A full
+reload is never presented as successful HMR; the inspector identifies it as
+an invalid refresh boundary.
 
 The user can keep chatting against the re-resolved element.
 
@@ -406,19 +424,22 @@ Clay server -> Clay control page -> extension worker -> target overlay:
   report.accepted/report.status/reports.snapshot
 ```
 
-### Reload and verification sequence
+### HMR-first verification sequence
 
 ```text
 Clay server: open operation journal for every target-originated turn before dispatch
 Agent: inspect, edit, and run repository checks
 Clay server: observe changed files and dev-server readiness
-Clay server -> target: force final full reload
-Target: reconnect using pairing key and new document generation
-Target: report ready only after document complete and compile overlays are absent
-Target: resolve the semantic selection fingerprint in the new generation
+Target: observe the post-mutation HMR/Fast Refresh generation in place
+Target: re-resolve the semantic selection after component replacement
+Target: report ready only after the compile generation succeeds and overlays are absent
 Target: capture sanitized after evidence
 Clay server: evaluate verification predicates and close operation journal
 Clay server -> target and Clay: machine-derived result state
+
+If the edit crosses a refresh boundary, or the coordinator explicitly requires
+a clean-load check, the target then reloads and reconnects through the existing
+pairing recovery path. That check is not part of normal design iteration.
 ```
 
 ### Clay editing Clay
@@ -634,7 +655,8 @@ attestation remain later work.
 ### Change boundary
 
 - Live UI 0.1 does not offer direct browser mutation or temporary CSS preview.
-- Completed work must survive a full reload.
+- Completed work must be source-backed and persist when a clean-load check is
+  explicitly run; Live UI does not force that reload during normal iteration.
 - The result includes the real code diff.
 - Undo is unavailable until operation-scoped patch attribution is implemented. It must never use a broad reset or silently alter unrelated user changes.
 
@@ -686,7 +708,7 @@ Agent prose is not verification evidence. Tools and adapters emit assertion even
       "purpose": "reproduction",
       "reproductionId": "export-button-enabled",
       "phase": "after",
-      "documentGeneration": "post-reload-generation",
+      "documentGeneration": "post-hmr-generation",
       "selectorFingerprint": "selected-element-fingerprint",
       "predicate": "enabled-and-clickable",
       "passed": true,
@@ -698,7 +720,7 @@ Agent prose is not verification evidence. Tools and adapters emit assertion even
 
 Allowed initial assertion types are `command.exit_zero`, `dev.compile_success`, `browser.page_ready`, `browser.selector_state`, `browser.console_absent`, `browser.network_status`, and `user.visual_approval`. Each event names its tool/adapter producer and evidence reference. A repository may declare recommended checks in project instructions later; absent that configuration, the agent selects targeted commands through normal reasoning, but the result remains **Changed, needs review** unless the manifest contains the predicates required for the stronger state.
 
-A bug reproduction assertion also carries `purpose: "reproduction"`, a stable `reproductionId`, and `phase: "before" | "after"`. **Fixed and verified** requires a tool-produced pre-edit assertion that observed the failure and a post-reload assertion that observed the pass for the same reproduction id, semantic target, and predicate. If the original bug cannot be reproduced before editing, the result cannot use that label even when tests pass.
+A bug reproduction assertion also carries `purpose: "reproduction"`, a stable `reproductionId`, and `phase: "before" | "after"`. **Fixed and verified** requires a tool-produced pre-edit assertion that observed the failure and a post-mutation assertion that observed the pass for the same reproduction id, semantic target, and predicate. If the original bug cannot be reproduced before editing, the result cannot use that label even when tests pass.
 
 ### Dev-server build generations
 
@@ -718,11 +740,15 @@ The server derives result states from recorded predicates:
 |---|---|
 | **Edited, verification pending** | Attributed source files changed with no observed out-of-root write |
 | **Build failed** | Dev server or repository check reports a compile/test failure |
-| **Changed, needs review** | Full reload succeeded and after evidence exists, but behavior or visual intent still needs human judgment |
-| **Fixed and verified** | No out-of-root or unattributed safety failure; a post-mutation compile generation succeeded; full reload and page-ready assertions passed; target origin and route are valid; selection restored at confidence `>= 0.80` or the user reselected it; required repository command assertions passed; matching tool-produced before-failure and after-pass reproduction assertions exist; masked after evidence was captured |
+| **Changed, needs review** | A post-mutation compile/HMR generation and after evidence exist, but behavior or visual intent still needs human judgment |
+| **Fixed and verified** | No out-of-root or unattributed safety failure; a post-mutation compile generation succeeded; in-place page-ready assertions passed; target origin and route are valid; selection restored at confidence `>= 0.80` or the user reselected it; required repository command assertions passed; matching tool-produced before-failure and after-pass reproduction assertions exist; masked after evidence was captured; any explicitly required clean-load check passed |
 | **Could not verify** | One or more required predicates is absent, with each missing predicate listed |
 
-Design work ends as **Changed, needs review** until the user visually approves it. Screenshot similarity alone never proves a bug fix. HMR may provide fast intermediate feedback, but final verification always forces a full page reload and a new document generation.
+Design work ends as **Changed, needs review** until the user visually approves
+it. Screenshot similarity alone never proves a bug fix. Live UI never forces a
+reload during the editing loop; final verification uses the applied HMR
+generation plus repository checks. A clean-load verification is an explicit
+user/coordinator action when the change type warrants losing page state.
 
 ### Failure and recovery matrix
 
@@ -842,7 +868,7 @@ compact status relay, verified worker cleanup, and revocation tests. The
 - Add the extension-popup project/session picker and pin the chosen session until Exit.
 - Pair only with the selected session's Clay-managed local or Tailscale development URL.
 - Promote the pinned top-level conversation to coordinator on its first report.
-- Add a compact movable report drawer and aggregate status indicator.
+- Add the collapsible component rail, right inspector, and aggregate status indicator.
 - Attach a masked screenshot plus bounded scrubbed console/network evidence automatically.
 - Create one durable coordinator-owned task per independent report.
 - Accept another report while earlier workers are active.
@@ -879,9 +905,13 @@ coordinator-verified. TrialView and Urban Stay repeat the same contract in 0.2.
 - Capture before/after evidence.
 - Run repository-appropriate targeted checks.
 - Derive the formal verification status from recorded predicates and surface the real diff.
-- Force a full reload for the final gate; HMR is intermediate feedback only.
+- Verify the applied HMR generation in place; request a clean-load check only
+  when the change crosses a refresh boundary or the coordinator needs one.
 
-**Exit gate**: A user can request one Clay bug fix and one Clay visual change, reload fully, and see that the result persists. The system never emits **Fixed and verified** unless every required predicate is recorded.
+**Exit gate**: A user can request one Clay bug fix and one Clay visual change,
+watch both apply through in-place refresh without losing page state, and run an
+explicit clean-load check when required. The system never emits **Fixed and
+verified** unless every required predicate is recorded.
 
 ### Phase 5: React source locator
 
@@ -1090,7 +1120,10 @@ Dogfood metrics matter more than prompt demos:
 
 Build the generic Clay-on-Clay loop before the React source instrumentation.
 
-That sequence proves the product: selection, conversation, source editing, refresh, and verification. React instrumentation then improves location accuracy for TrialView and Urban Stay without becoming a prerequisite for the workflow.
+That sequence proves the product: selection, conversation, source editing,
+refresh, and verification. Build-time React instrumentation can later improve
+source-location confidence for TrialView and Urban Stay without becoming a
+prerequisite for the workflow.
 
 The first real milestone is deliberately small:
 

@@ -102,12 +102,15 @@ function harness(overrides) {
           title: input.title,
           status: "running",
           currentActivity: "Worker is running",
+          workerSessionId: 100 + taskSequence,
+          workerColor: taskSequence === 1 ? "#A78BFA" : "#36C6A7",
         };
         session.orchestrationTasks.push(task);
         return {
           ok: true,
           orchestrationTaskId: task.taskId,
           workerSessionId: 100 + taskSequence,
+          workerColor: task.workerColor,
         };
       },
       closeTask: function (parent, taskId) {
@@ -419,6 +422,16 @@ test("target reports create independent coordinator workers with automatic evide
       documentGeneration: "document-1",
       rect: { x: 0, y: 0, width: 600, height: 320 },
       selectors: ["#pricing"],
+      component: {
+        framework: "react",
+        name: "PricingCard",
+        chain: ["PricingCard", "PricingGrid", "App"],
+        source: {
+          file: "http://localhost:4242/src/components/PricingCard.tsx?t=1",
+          line: 18,
+          column: 3,
+        },
+      },
     },
   });
   state.liveUi.handleLiveUiMessage(state.extensionWs, {
@@ -449,6 +462,13 @@ test("target reports create independent coordinator workers with automatic evide
   assert.strictEqual(state.coordinated[0].coordinatorSessionId, "session-storage");
   assert.strictEqual(state.coordinated[0].promoteCoordinator, true);
   assert.match(state.coordinated[0].context, /#pricing/);
+  assert.match(state.coordinated[0].context, /React component: PricingCard/);
+  assert.match(state.coordinated[0].context,
+    /Likely source: src\/components\/PricingCard\.tsx:18/);
+  assert.match(state.coordinated[0].ownedPaths,
+    /^Live UI report .+ Likely component source: src\/components\/PricingCard\.tsx\./);
+  assert.match(state.coordinated[0].ownedPaths,
+    /Confirm the smallest safe source boundary/);
   assert.match(state.coordinated[0].context, /\[redacted-email\]/);
   assert.match(state.coordinated[0].context, /https:\/\/api\.example\.com\/pricing/);
   assert.doesNotMatch(state.coordinated[0].context, /token=secret/);
@@ -460,7 +480,10 @@ test("target reports create independent coordinator workers with automatic evide
     return entry.ws === state.extensionWs &&
       entry.message.type === "live_ui_relay" &&
       entry.message.event === "report.accepted" &&
-      entry.message.payload.status === "working";
+      entry.message.payload.status === "working" &&
+      entry.message.payload.worker.sessionId === 101 &&
+      entry.message.payload.worker.color === "#A78BFA" &&
+      entry.message.payload.locator.component.name === "PricingCard";
   }));
 
   state.liveUi.handleLiveUiMessage(state.extensionWs, {

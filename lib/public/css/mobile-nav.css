@@ -675,6 +675,7 @@
     padding-top: 8px;
     padding-bottom: 8px;
     font-size: 14px;
+    box-shadow: inset 2px 0 0 var(--worker-color, rgba(var(--overlay-rgb), 0.08));
   }
 
   .mobile-session-role-badge {
@@ -697,7 +698,7 @@
 
   .mobile-session-role-badge.worker {
     background: rgba(var(--overlay-rgb), 0.08);
-    color: var(--text-dimmer);
+    color: var(--worker-color, var(--text-dimmer));
   }
 
   .mobile-session-title {

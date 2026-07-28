@@ -15,6 +15,16 @@ function validPacket() {
     documentGeneration: "document-7",
     rect: { x: 12.25, y: 40, width: 320, height: 180 },
     selectors: ["#pricing-card", "section:nth-of-type(2)"],
+    component: {
+      framework: "react",
+      name: "PricingCard",
+      chain: ["PricingCard", "PricingGrid", "App"],
+      source: {
+        file: "http://localhost:5173/src/components/PricingCard.tsx?t=secret",
+        line: 42,
+        column: 5,
+      },
+    },
   };
 }
 
@@ -25,6 +35,10 @@ test("selection packets are bounded and scrub rendered PII", function () {
   assert.match(result.packet.text, /\[redacted-email\]/);
   assert.match(result.packet.text, /\[redacted-token\]/);
   assert.strictEqual(result.packet.fingerprint.length, 24);
+  assert.strictEqual(result.packet.component.name, "PricingCard");
+  assert.strictEqual(result.packet.component.source.file,
+    "src/components/PricingCard.tsx");
+  assert.strictEqual(result.packet.component.componentId.length, 20);
   assert.deepStrictEqual(result.packet.rect, {
     x: 12.25,
     y: 40,
