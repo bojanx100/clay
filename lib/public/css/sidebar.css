@@ -988,34 +988,24 @@
   position: relative;
 }
 
-.session-coordinator-toggle {
-  width: 18px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-.session-coordinator-toggle:hover {
+.session-item.session-coordinator-parent {
+  background: rgba(var(--accent-rgb, 88, 87, 252), 0.08);
   color: var(--text);
-  background: rgba(var(--overlay-rgb), 0.08);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
-.session-coordinator-toggle svg {
-  width: 13px;
-  height: 13px;
+.session-item.session-coordinator-parent:hover {
+  background: rgba(var(--accent-rgb, 88, 87, 252), 0.12);
+}
+
+.session-item.session-coordinator-parent.active {
+  background: rgba(var(--accent-rgb, 88, 87, 252), 0.16);
 }
 
 .session-coordinator-workers {
   position: relative;
-  margin: 1px 0 3px 17px;
+  margin: 2px 0 4px 17px;
   padding-left: 9px;
   border-left: 1px solid var(--border);
 }

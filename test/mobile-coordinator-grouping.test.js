@@ -26,7 +26,7 @@ test("mobile session sheet nests workers beneath coordinators by default", async
   assert.deepEqual(items[1].children.map(function (session) { return session.id; }), [12, 11]);
 });
 
-test("mobile coordinator grouping has role badges and nested worker styles", function () {
+test("coordinator groups always show workers without collapse controls", function () {
   var source = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"),
     "utf8"
@@ -35,15 +35,28 @@ test("mobile coordinator grouping has role badges and nested worker styles", fun
     path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile-coordinators.js"),
     "utf8"
   );
+  var desktopSource = fs.readFileSync(
+    path.join(__dirname, "..", "lib", "public", "modules", "sidebar-sessions.js"),
+    "utf8"
+  );
   var css = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"),
+    "utf8"
+  );
+  var desktopCss = fs.readFileSync(
+    path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"),
     "utf8"
   );
 
   assert.match(source, /mobile-session-role-badge coordinator/);
   assert.match(source, /mobile-session-role-badge worker/);
-  assert.match(groupingSource, /if \(item\.children\[i\]\.active\) return true/);
-  assert.match(groupingSource, /if \(expanded\) \{\s*var children = document\.createElement\("div"\)/);
+  assert.match(groupingSource, /var children = document\.createElement\("div"\)/);
+  assert.doesNotMatch(groupingSource, /expandedCoordinatorGroups|mobile-coordinator-toggle|aria-expanded/);
+  assert.doesNotMatch(desktopSource, /expandedCoordinatorGroups|session-coordinator-toggle/);
   assert.match(css, /\.mobile-coordinator-workers\s*\{/);
   assert.match(css, /\.mobile-session-item\.mobile-coordinator-worker\s*\{/);
+  assert.match(css, /\.mobile-session-item\.mobile-coordinator-parent\s*\{/);
+  assert.doesNotMatch(css, /\.mobile-coordinator-toggle/);
+  assert.match(desktopCss, /\.session-item\.session-coordinator-parent\s*\{/);
+  assert.doesNotMatch(desktopCss, /\.session-coordinator-toggle/);
 });
