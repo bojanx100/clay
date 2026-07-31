@@ -159,11 +159,54 @@ guard.
 **VERIFIED LIVE (2026-07-31 evening)** — same-day before/after on the
 same click: the unfixed daemon (up 19:23, fix committed 19:35) died on
 a stale Start-debate card at ~19:37; the post-fix daemon (PID 48057, up
-19:38) survived the fresh approval at ~19:41, the debate started, and
-the moderator session ran (`f72bd432…`, active 19:44). The panelist
-resolution layer handled it cleanly — `[WS-HANDLER-ERROR]` stayed at
-**0** (the try/catch armor was never even needed), `[LOOP-LAG]`
-heartbeats continuous with single-digit ms lag.
+19:38) survived the fresh approval at ~19:41. `[WS-HANDLER-ERROR]`
+stayed at **0**, `[LOOP-LAG]` heartbeats continuous with single-digit
+ms lag. The crash fix is verified. *Correction:* the debate itself did
+NOT start on that approval — the "started" report was false success;
+that failure mode is F-6 below. (An earlier revision of this section
+attributed moderator session `f72bd432…` to the debate; that session
+was actually the F-5 worker.)
+
+### F-6: MCP debate approval can silently no-op while reporting success (severity: medium) — FIX LANDED
+
+Found immediately after F-5's fix went live (2026-07-31 ~19:41): the
+user approved the re-fired debate proposal, the daemon survived (F-5
+verified), the MCP tool returned "Debate approved and started" — but
+**no debate session, moderator, or panelist ever existed**. The user
+reported "I have not been involved in the debate at all"; a session
+sweep confirmed no `debate_started` entry anywhere.
+
+**Root cause** (`project-message-router.js` `debate_proposal_response`):
+approval resolution and debate start were not atomic. The router
+resolved the pending MCP proposal with `{action: "start"}`
+unconditionally, while three bail paths no-oped silently:
+1. `getSessionForWs(ws)` null (the click's ws had no resolvable active
+   session — likely here, after the day's restarts/reconnects) →
+   handler skipped, still resolved "start";
+2. `handleMcpDebateApproval`'s "another debate active" guard →
+   `console.warn` only, no user feedback, still resolved "start";
+3. expired proposal after a daemon restart (in-memory registry) →
+   returned without resolving anything; clicking the card did nothing.
+
+**Fix** (`lib/project-debate.js`, `lib/project-message-router.js`,
+`lib/debate-mcp-server.js`): `handleMcpDebateApproval` now returns
+`{ok}` / `{ok:false, reason}` and sends a `debate_error` toast on every
+bail (null session guard added); the router resolves the MCP proposal
+with the real outcome; the MCP server maps `{action:"error"}` to
+"Debate was approved but could NOT start: <reason>" so the proposing
+model is never told a debate is running when it isn't. Stale-card
+clicks after a restart now get an explicit "proposal expired" toast.
+Regression test added (`debate-mcp-server reports error outcomes…`);
+suite 455/455.
+
+**Meta-lesson (CTO roadmap §5 again)**: this is the second false-success
+signal Phase 0 caught (after the worker-status string-counting trap).
+"The tool said it started" is agent prose, not evidence — gates and
+orchestrators must verify observable state (a `debate_started` history
+entry, a live session) before believing any success report.
+
+**Not done until**: a daemon restart picks the fix up and one live
+debate visibly runs end-to-end (the still-outstanding Phase 0 item).
 
 ## Quiet-canary week verification (2026-07-31)
 

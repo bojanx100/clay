@@ -113,3 +113,30 @@ test("getMateDir still throws on null id — callers must guard (documents the c
     h.cleanup();
   }
 });
+
+// --- F-6: approval must report the real outcome ------------------------------
+// The MCP proposal used to resolve {action:"start"} unconditionally: a null
+// ws-session or any handler bail silently no-oped while the proposing model
+// was told "Debate approved and started". The mcp-server must map the new
+// {action:"error"} outcome to an honest tool result.
+
+test("debate-mcp-server reports error outcomes instead of false success", async function () {
+  var debateMcp = require("../lib/debate-mcp-server");
+  var outcomes = [
+    { resolve: { action: "start" }, expect: /approved and started/i },
+    { resolve: { action: "error", reason: "the approving client has no active session" }, expect: /could NOT start: the approving client has no active session/i },
+    { resolve: { action: "error" }, expect: /could NOT start: unknown reason/i },
+    { resolve: { action: "cancel" }, expect: /cancelled/i },
+  ];
+  for (var i = 0; i < outcomes.length; i++) {
+    var o = outcomes[i];
+    var tools = debateMcp.getToolDefs(function () { return Promise.resolve(o.resolve); });
+    var res = await tools[0].handler({ topic: "T", panelists: "[]" });
+    var text = res.content[0].text;
+    assert.ok(o.expect.test(text), "outcome " + JSON.stringify(o.resolve) + " produced: " + text);
+    if (o.resolve.action !== "start") {
+      assert.ok(!/approved and started/i.test(text),
+        "non-start outcome must never read as success: " + text);
+    }
+  }
+});
