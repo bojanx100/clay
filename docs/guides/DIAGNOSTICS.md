@@ -31,7 +31,7 @@ took (watchdog aborts, auto-resumes). Fields:
 
 ## 2. Daemon performance — `~/.clay/diag(-dev).log`
 
-Three marker types, written via `config.diagLog`:
+Four marker types, written via `config.diagLog`:
 
 - `[LOOP-LAG] … max lag last 60s: Nms` — event-loop responsiveness, sampled
   per minute. **Healthy:** single-digit ms, occasional ~100ms. **Sick:**
@@ -44,6 +44,13 @@ Three marker types, written via `config.diagLog`:
   a health problem. Before 2026-07-24 these appeared as gigantic (minutes)
   `[LOOP-LAG]` lines after every laptop sleep — treat any such lines in old
   logs as sleep artifacts, not real stalls.
+- `[WS-HANDLER-ERROR] … type=<msgType> <stack>` — a WebSocket message handler
+  threw synchronously. Before 2026-07-31 such a throw escaped to
+  `uncaughtException` and **restarted the whole daemon** (observed: clicking
+  "Start debate" on an MCP proposal from a project session — F-5 in the
+  Phase 0 audit). Now caught at dispatch: the daemon lives, the sender gets an
+  error toast, and this line records the bug. **Healthy: absent.** Any entry
+  is a real handler bug worth a finding — the stack pinpoints it.
 - `[SAVE-SLOW] … saveSessionFile localId=N items=N bytes=N took=Nms` — a
   session-file rewrite took ≥200ms of synchronous IO. **Healthy: absent.**
   Bursts here correlate 1:1 with `[LOOP-LAG]` spikes. Save coalescing

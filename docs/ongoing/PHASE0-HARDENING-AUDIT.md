@@ -124,6 +124,40 @@ Not a debate-engine bug — but it shows in-flight tool-permission
 streams have no restart survivability, which the Voice roadmap's
 durable-conversation work will need to address anyway.
 
+### F-5: MCP debate approval from a project session crashes the daemon (severity: high) — FIX LANDED
+
+Observed 2026-07-31 ~17:23 UTC (diag heartbeat gap 17:23:40→17:25:06):
+clicking **Start debate** on a `propose_debate` approval card in a
+*project* session killed the whole daemon. Every session died over one
+button click.
+
+**Root cause chain**: the message router sets `moderatorId = null` for
+non-Mate sessions (`isMate ? basename(cwd) : null`), and
+`startDebateLive` then calls `loadMateClaudeMd(mateCtx, null)` →
+`getMateDir` → `path.join(root, null)` → **TypeError**, thrown
+synchronously inside the WS `message` handler — which has no try/catch,
+so it escaped to `uncaughtException` → `gracefulShutdown`. A secondary
+bug: MCP-supplied panelist ids arrive as raw UUIDs while Mate ids are
+`mate_<uuid>`, so every panelist lookup silently missed.
+
+**Fix** (three layers):
+1. `lib/project-connection.js`: WS message dispatch wrapped in
+   try/catch — a handler throw now logs `[WS-HANDLER-ERROR]` to the
+   diag canary and sends the client an error toast; the daemon lives.
+2. `lib/project-debate-utils.js` + `lib/project-debate.js`:
+   `resolveMateId` (accepts raw UUIDs via `mate_` prefix fallback) and
+   `pickFallbackModerator` (prefers the `clay` builtin, skips
+   panelists/interviewing) — project-session proposals now get a real
+   moderator, or a clean `debate_error` when no Mate exists.
+3. `lib/project-mate-interaction.js` / `lib/project-memory.js`:
+   `loadMateClaudeMd` / `loadMateDigests` guard non-string mate ids.
+
+Regression tests in `test/debate-mcp-approval.test.js` (5), including
+one documenting that `getMateDir(null)` still throws so callers must
+guard. **Not done until**: a daemon restart picks the fix up and the
+next project-session debate run starts cleanly; watch
+`[WS-HANDLER-ERROR]` in `diag-dev.log` — it should stay silent.
+
 ## Feature audit — evidence pass (2026-07-24)
 
 Method: instead of synthetic tests, audited 211 session-history files
@@ -164,3 +198,9 @@ principle), never from text matching.
   provider switching, handoffs, failover, and worker delegation all
   verified working in production. Remaining: one live debate run,
   sub-agent UI visual check, ease-of-use pass.
+- 2026-07-31: F-5 opened and fixed — the live debate verification run
+  found a daemon-killing crash (Start debate from a project session);
+  root-caused to null moderatorId + unguarded WS dispatch; fixed with
+  moderator fallback, mate-id normalization, null guards, and a
+  try/catch around WS message handling. Full suite green (454). Needs
+  one daemon restart to go live.
