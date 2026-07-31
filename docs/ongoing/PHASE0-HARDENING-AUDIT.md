@@ -124,7 +124,7 @@ Not a debate-engine bug — but it shows in-flight tool-permission
 streams have no restart survivability, which the Voice roadmap's
 durable-conversation work will need to address anyway.
 
-### F-5: MCP debate approval from a project session crashes the daemon (severity: high) — FIX LANDED
+### F-5: MCP debate approval from a project session crashes the daemon (severity: high) — VERIFIED FIXED
 
 Observed 2026-07-31 ~17:23 UTC (diag heartbeat gap 17:23:40→17:25:06):
 clicking **Start debate** on a `propose_debate` approval card in a
@@ -154,9 +154,16 @@ bug: MCP-supplied panelist ids arrive as raw UUIDs while Mate ids are
 
 Regression tests in `test/debate-mcp-approval.test.js` (5), including
 one documenting that `getMateDir(null)` still throws so callers must
-guard. **Not done until**: a daemon restart picks the fix up and the
-next project-session debate run starts cleanly; watch
-`[WS-HANDLER-ERROR]` in `diag-dev.log` — it should stay silent.
+guard.
+
+**VERIFIED LIVE (2026-07-31 evening)** — same-day before/after on the
+same click: the unfixed daemon (up 19:23, fix committed 19:35) died on
+a stale Start-debate card at ~19:37; the post-fix daemon (PID 48057, up
+19:38) survived the fresh approval at ~19:41, the debate started, and
+the moderator session ran (`f72bd432…`, active 19:44). The panelist
+resolution layer handled it cleanly — `[WS-HANDLER-ERROR]` stayed at
+**0** (the try/catch armor was never even needed), `[LOOP-LAG]`
+heartbeats continuous with single-digit ms lag.
 
 ## Quiet-canary week verification (2026-07-31)
 
@@ -180,9 +187,10 @@ Post-fix week (07-25 → 07-31) vs baseline week:
   cap needs revisiting — no evidence of that yet.
 
 F-1/F-2/F-3 are now **done** per the DIAGNOSTICS.md standard (fix +
-quiet canary). F-4 (headless restart TTY crash) remains open. F-5
-(debate-approval daemon crash) fix landed 07-31, verification pending
-one live debate run after the next daemon restart.
+quiet canary). F-5 is **done** (fix + same-day live before/after proof
+on the exact crashing click). **F-4 (headless restart TTY crash) is the
+only open finding.** Debate-engine feature row: debate started and
+moderator running; final ✅ when the synthesis lands.
 
 ## Feature audit — evidence pass (2026-07-24)
 
