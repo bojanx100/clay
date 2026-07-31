@@ -208,6 +208,49 @@ entry, a live session) before believing any success report.
 **Not done until**: a daemon restart picks the fix up and one live
 debate visibly runs end-to-end (the still-outstanding Phase 0 item).
 
+### F-7: debate proposal cards are effectively invisible after the fact (severity: medium, UX)
+
+Why seven proposal attempts sat unclicked: the inline approval card
+renders only from the **live** `tool_executing` event. History replay
+does include `tool_executing`, but the default replay window is the
+last ~300 events (`sessions-history.js` HISTORY_PAGE_SIZE) and busy
+sessions generate hundreds of events per turn — so after any refresh
+the card is outside the window and gone unless the user scrolls up to
+lazy-load. Combined with the 10-minute tool-active watchdog reaping the
+proposing turn, a card missed live is a card missed forever.
+
+Fix direction: pending approval cards (debate proposals, and any
+blocking MCP approval) should be pinned/re-sent on reconnect like
+`pendingAskUser` mcp-mode entries are, instead of relying on the
+scrollback window. Related: proposals also silently reference stale
+mate ids if built from the flat `~/.clay/mates/` root — in multi-user
+mode the authoritative registry is `~/.clay/mates/<userId>/mates.json`
+(same names, DIFFERENT ids; the flat root is stale migration residue).
+
+### F-8: debate stop is destructive with no confirm, no resume; controls unclear (severity: medium, UX)
+
+The live debate run (2026-07-31 ~23:41 — proposal, approval, moderator
++ panelist sessions, live view all worked) ended when the user clicked
+**Stop** while exploring the controls: "raise hand and stop... it
+wasn't obvious what does what, so stop just stopped and no recovery or
+resume".
+
+Findings:
+1. "Raise hand" (request the floor) and "Stop" (kill the entire
+   multi-agent debate) sit side by side with no explanation and no
+   visual severity difference.
+2. Stop executes immediately — no confirm despite being destructive
+   and unrecoverable, contradicting the destructive-confirm principle
+   (Voice roadmap F13) and the project rule against un-guarded
+   destructive actions.
+3. No resume/restart affordance exists for a stopped debate; all
+   panelist context is discarded.
+
+Fix direction: confirm dialog on stop ("End the debate? Panelists'
+context will be lost."), distinct visual weight for destructive
+controls, tooltips on debate controls, and ideally a "debate ended —
+restart with same brief?" card that reuses the persisted brief.
+
 ## Quiet-canary week verification (2026-07-31)
 
 Post-fix week (07-25 → 07-31) vs baseline week:
@@ -248,7 +291,7 @@ output, so naive string matching lies; see "measurement lesson" below).
 | Handoff packages | **✅ verified in production** | 5 packages on disk, all well-formed (`state.json` with vendor/model/git/tasks/goal metadata + `transcript.md`, 754 B–324 KB). One oldest package has a smaller pre-schema key set — expected. |
 | Provider failover + auto-continue | **✅ verified in production** | The 11 provider-failure switches above all continued working post-switch. Health-signal quality issues tracked separately as F-2 (fixed). |
 | Worker delegation | **✅ working** | ~17 genuine `WORKER_STATUS: complete` vs ~2–4 genuine blocked across recent sessions. (Initial count looked inverted — 41 blocked / 53 escalations — but 37+ of those matches were prompt-boilerplate text recorded in histories, not real outcomes.) |
-| Debate engine | **◐ used, needs one live run** | 17 session files reference debate activity; not yet distinguished from tool-listing noise. Cheap to verify live with one `propose_debate` round. |
+| Debate engine | **✅ verified live (2026-07-31)** | Full path exercised: MCP proposal → approval card → moderator + panelist sessions spawned → live debate view with controls. Ended early via unguarded Stop (F-8); engine itself works. |
 | Sub-agent UI rendering | **◐ not auditable from logs** | Client-side; verify visually during the next worker/debate run. |
 | Ease of use / discoverability | ☐ not started | Needs a fresh-eyes pass over `/provider`, `/switch`, worker and debate entry points. |
 
