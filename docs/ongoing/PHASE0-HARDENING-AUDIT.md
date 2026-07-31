@@ -103,6 +103,27 @@ what it says. New marker documented in `docs/guides/DIAGNOSTICS.md`.
 Verification: next sleep/wake cycle should produce a `[SLEEP-WAKE]`
 line and no giant `[LOOP-LAG]` line.
 
+### F-4: headless daemon restart crashes on interactive ToS prompt (severity: medium)
+
+`~/.clay/daemon-dev-restart.log` (observed 2026-07-24 evening): an
+automated restart attempt rendered the first-run "Type agree to accept"
+ToS prompt and crashed with `TypeError: process.stdin.setRawMode is not
+a function` (`bin/cli.js:902` promptText → setup). A restart path that
+can reach an interactive prompt without a TTY dies instead of starting
+the daemon — silent downtime until someone starts it manually.
+
+Fix direction: `promptText` must detect non-TTY stdin and fail with an
+actionable message (or skip setup when config is already agreed);
+investigate why the restart wrapper reached first-run setup at all
+(config state? recent `bin/cli.js` upstream-merge conflict?).
+
+**Environment note (same evening):** repeated daemon deploy-restarts by
+parallel Live UI / orchestration sessions killed two pending
+`propose_debate` approval cards ("tool permission stream closed").
+Not a debate-engine bug — but it shows in-flight tool-permission
+streams have no restart survivability, which the Voice roadmap's
+durable-conversation work will need to address anyway.
+
 ## Feature audit — evidence pass (2026-07-24)
 
 Method: instead of synthetic tests, audited 211 session-history files
