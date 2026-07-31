@@ -47,6 +47,14 @@ top of Clay, never a rewiring of Clay**:
   verification manifest, the Voice kernel, cross-provider worker routing.
   If the orchestration concept fails, only the routing brain and standup
   composer are discarded — everything else remains in daily use.
+- **Branching policy (owner decision, 2026-07-24).** Development lands on
+  `bojan` behind the CTO-mode flag — no long-lived feature branch. The
+  additive-only rule is proven per-commit (suite green with the flag off);
+  a big branch would verify it once, at merge time, while rotting against
+  `bojan`'s regular upstream merges. Risky experiments use short-lived
+  spike branches/worktrees that are thrown away and re-implemented cleanly.
+  Rule of thumb: branches isolate unfinished code; flags isolate unproven
+  behavior — the CTO's risk is behavioral, so the flag is the tool.
 
 ## 2. Prerequisite: Phase 0 — Harden what exists
 
