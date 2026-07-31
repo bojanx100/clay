@@ -158,6 +158,32 @@ guard. **Not done until**: a daemon restart picks the fix up and the
 next project-session debate run starts cleanly; watch
 `[WS-HANDLER-ERROR]` in `diag-dev.log` — it should stay silent.
 
+## Quiet-canary week verification (2026-07-31)
+
+Post-fix week (07-25 → 07-31) vs baseline week:
+
+- **F-2 → VERIFIED FIXED.** provider_health transitions: **1** all week
+  (vs 193 baseline, peak 143/day on 07-19). provider_failover: 1 (vs 34).
+- **F-3 → VERIFIED FIXED.** 544 `[SLEEP-WAKE]` lines prove sleep is now
+  classified; largest real `[LOOP-LAG]` post-fix is ~25 s (vs ~16.7 min
+  sleep artifacts before). *Watch item:* two ~25 s spikes sit just under
+  the 30 s sleep threshold — either real synchronous stalls worth a
+  finding or short suspends (App Nap) below the classifier; check
+  timestamps if they recur.
+- **F-1 → VERIFIED, behaving as designed.** 25 watchdog fires (vs 35),
+  and the tight barely-over-120s kill-resume loop signature is gone.
+  Escalation ladder observed live: session 789 (07-31) 124 s → 240 s →
+  480 s → 600 s cap — stayed silent even at 10 min, i.e. a genuinely
+  wedged stream correctly reaped; session 319 (07-29) fired once and
+  recovered on first resume (healthy-turn case, one cycle instead of
+  five). *Watch item:* if codex ever reasons silently past 600 s, the
+  cap needs revisiting — no evidence of that yet.
+
+F-1/F-2/F-3 are now **done** per the DIAGNOSTICS.md standard (fix +
+quiet canary). F-4 (headless restart TTY crash) remains open. F-5
+(debate-approval daemon crash) fix landed 07-31, verification pending
+one live debate run after the next daemon restart.
+
 ## Feature audit — evidence pass (2026-07-24)
 
 Method: instead of synthetic tests, audited 211 session-history files
