@@ -340,6 +340,18 @@ Binding decisions (recorded here so neither track builds a duplicate):
    with CTO mode off, Coop is a plain coordinator (find, triage, switch);
    enabling the mode grants backlog ownership, routing, gate enforcement,
    and reporting duties.
+
+   **Persona and naming (owner decision after Mate debate, 2026-08-01):**
+   one person, not two. The user talks to their lead — a second named
+   entity would push a routing decision ("who do I address?") onto the
+   human, the exact load this design removes. Naming follows a
+   person-vs-hat split: the *person* keeps one stable name across modes
+   (a name that changes with permissions confuses); **"Lead" is the role
+   label**, not a proper name — UI badge `Coop — Lead`, spoken "my lead" /
+   "ask the lead". Price of unification, binding rule: **the Lead
+   connects, never gatekeeps** — "get me Ward" hands the user directly to
+   Ward with no summarizing middleman, in every mode. (The naming debate's
+   two-entity reading of Coop-vs-Lead is superseded by this resolution.)
 3. **The CTO's behavioral done-gate adopts Live UI's evidence contract.**
    Live UI's operation journal, typed verification manifest ("agent prose is
    not verification evidence"), and formal result states (including
