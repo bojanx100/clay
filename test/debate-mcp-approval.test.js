@@ -114,6 +114,21 @@ test("getMateDir still throws on null id — callers must guard (documents the c
   }
 });
 
+// --- Debate worker sessions must not leak into the CLI import list ----------
+
+test("isDebateWorkerPrompt recognizes moderator/panelist prompts and nothing else", function () {
+  var u = require("../lib/project-debate-utils");
+  assert.strictEqual(u.isDebateWorkerPrompt(u.DEBATE_MODERATOR_PROMPT_PREFIX + "\n\nTopic: X"), true);
+  assert.strictEqual(u.isDebateWorkerPrompt(u.DEBATE_PANELIST_PROMPT_PREFIX + "\n\nTopic: X"), true);
+  // Injected instructions above the prompt must not defeat detection
+  assert.strictEqual(u.isDebateWorkerPrompt("--- Instructions ---\nrules\n\n" + u.DEBATE_PANELIST_PROMPT_PREFIX), true);
+  // Ordinary sessions stay visible
+  assert.strictEqual(u.isDebateWorkerPrompt("I have a script on desktop that i run"), false);
+  assert.strictEqual(u.isDebateWorkerPrompt("Let's discuss a structured debate feature"), false);
+  assert.strictEqual(u.isDebateWorkerPrompt(""), false);
+  assert.strictEqual(u.isDebateWorkerPrompt(null), false);
+});
+
 // --- F-6: approval must report the real outcome ------------------------------
 // The MCP proposal used to resolve {action:"start"} unconditionally: a null
 // ws-session or any handler bail silently no-oped while the proposing model
