@@ -251,6 +251,27 @@ context will be lost."), distinct visual weight for destructive
 controls, tooltips on debate controls, and ideally a "debate ended —
 restart with same brief?" card that reuses the persisted brief.
 
+### F-9: any client reconnect wiped live debate state (severity: high) — FIX LANDED
+
+Found during the first Debate Workflow v2 live run (2026-08-01): the
+user clicked Pause and nothing happened. `restoreDebateState` — meant
+to clear stale PERSISTED debate state after a daemon restart — runs on
+**every client connection** and also deleted the in-memory
+`session._debate` unconditionally. Any reconnect blip therefore killed
+the live debate's state while the turn chain kept running on captured
+closures: the debate talked on as a ghost, but every user control
+(pause, hand raise, stop, conclude) re-read `session._debate`, found
+nothing, and silently no-oped. Turn-completion handlers also re-read
+it, so the chain could freeze at the next boundary after a wipe.
+
+**Fix** (`lib/project-debate.js`, `lib/public/modules/app-debate-ui.js`):
+restore-on-connect now leaves sessions with a live `_debate` untouched;
+the pause toggle always acks with `debate_pause_state` (no silent
+no-ops) and reports `debate_error` when no live debate is attached; the
+client tracks pause state locally with optimistic flips corrected by
+server acks so the button cannot wedge. Needs a daemon restart —
+deliberately deferred until the in-flight debate finishes.
+
 ## Quiet-canary week verification (2026-07-31)
 
 Post-fix week (07-25 → 07-31) vs baseline week:
