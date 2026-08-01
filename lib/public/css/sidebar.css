@@ -1588,6 +1588,7 @@
 }
 .session-loop-chevron .lucide { width: 14px; height: 14px; }
 .session-loop-chevron:hover { color: var(--text); }
+.session-loop-chevron.spacer { visibility: hidden; pointer-events: none; }
 .session-loop-group.expanded .session-loop-chevron { transform: rotate(90deg); }
 
 /* Children container */
