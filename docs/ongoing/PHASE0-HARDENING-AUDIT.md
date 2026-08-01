@@ -1,12 +1,32 @@
 # Phase 0 Hardening Audit
 
-Status: **in progress**
+Status: **COMPLETE** (2026-08-02) — carry-over items below feed the CTO's
+first backlog, as planned from the start.
 Started: 2026-07-24
 Purpose: shared precondition for the CTO Orchestrator, Voice/Coop, and
 Live UI roadmaps (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-ROADMAP.md`
 §2 and §11.1). Every finding here becomes a tracked backlog item; the
 audit is complete when all features pass verification and the canaries
 stay quiet.
+
+## Completion summary (2026-08-02)
+
+Eleven findings (F-1..F-11) opened; ten fixed and verified, one
+(F-7) specced for later. Canary quiet-week passed (health transitions
+193/wk -> 1/wk). Every audited feature verified: provider switching,
+handoff, failover, workers, debate engine (incl. machine-verified
+pause/resume), sub-agent UI. Two false-success traps caught and turned
+into design law ("agent prose is not evidence"). The F-5 [WS-HANDLER-ERROR]
+canary installed mid-audit caught F-11 — the audit's tooling debugged
+the audit.
+
+**Carry-over backlog (CTO's inheritance):**
+- F-7: pin pending approval cards across reconnects/scrollback (specced)
+- Debate v2: "restart with same brief" card after a stopped debate
+- Debate v2: one live hand-raise floor exercise (pause/resume already
+  machine-verified; hand-raise mechanism verified in code, not live)
+- Voice roadmap dependency: tool-permission streams have no restart
+  survivability (noted under F-4)
 
 ## Canary baseline (recorded 2026-07-24)
 
