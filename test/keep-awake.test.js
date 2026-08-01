@@ -57,7 +57,31 @@ test("Keep Awake starts once, stops its assertion, and can restart", function ()
   assert.strictEqual(controller.isActive(), false);
 });
 
-test("Keep Awake is a no-op outside macOS", function () {
+test("Keep Awake drives SetThreadExecutionState via hidden PowerShell on Windows", function () {
+  var calls = [];
+  var proc = createFakeProcess();
+  var controller = createKeepAwakeController({
+    platform: "win32",
+    spawn: function (command, args, options) {
+      calls.push({ command: command, args: args, options: options });
+      return proc;
+    },
+  });
+
+  controller.setEnabled(true);
+
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].command, "powershell.exe");
+  assert.ok(calls[0].args.indexOf("-WindowStyle") !== -1);
+  assert.ok(calls[0].args.indexOf("Hidden") !== -1);
+  var scriptArg = calls[0].args[calls[0].args.length - 1];
+  assert.ok(scriptArg.indexOf("SetThreadExecutionState") !== -1);
+  assert.ok(scriptArg.indexOf("0x80000003") !== -1);
+  assert.deepStrictEqual(calls[0].options, { stdio: "ignore", detached: false, windowsHide: true });
+  assert.strictEqual(controller.isActive(), true);
+});
+
+test("Keep Awake is a no-op on unsupported platforms", function () {
   var spawnCount = 0;
   var controller = createKeepAwakeController({
     platform: "linux",
