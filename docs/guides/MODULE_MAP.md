@@ -134,6 +134,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `session-worktree.js` | Tracks the active git worktree for a session from write-tool paths and cached worktree scans |
 | `tombstones.js` | Hidden/deleted CLI session tombstones that prevent orphan re-adoption after local removal |
 | `daemon-network.js` | Daemon startup networking helpers: TLS certificate selection/loading and LAN IP detection for share URLs |
+| `keep-awake.js` | macOS Keep Awake process lifecycle and display, idle, and AC system-sleep assertions |
 | `sessions-broadcast.js` | Session list client mapping, loop display resolution, debounced session list fanout |
 | `sessions-cli-descriptors.js` | Claude CLI JSONL and Codex rollout descriptor discovery, Codex thread index/cache, and import previews |
 | `sessions-cli-import.js` | CLI/Codex/GitHub Copilot orphan adoption, import picker rows, hidden-session restore, and import materialization |
