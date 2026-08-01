@@ -272,6 +272,25 @@ client tracks pause state locally with optimistic flips corrected by
 server acks so the button cannot wedge. Needs a daemon restart —
 deliberately deferred until the in-flight debate finishes.
 
+## Debate Workflow v2 — first full live run (2026-08-01)
+
+The §12.3 debate (fixed thresholds vs ratchet; Arch/Ward/Rush, Clay
+moderating) ran **end-to-end to a natural conclusion**: proposal →
+approval → three structured plain-language rounds → closing synthesis.
+The result is recorded as the resolution of CTO roadmap open question
+12.3 (ratchet + hard floor + escape hatches; flex the gameable metric,
+hold the un-gameable one).
+
+v2 features verified in this run: plain language ✓ (short jargon-free
+turns throughout), turn-taking ✓, natural conclusion ✓, sidebar debate
+row ✓ (chevron fix landed mid-run). The moderator's own closing QA
+note: pause and hand-raise "never fired during the run, so they're
+untested here rather than confirmed working" — accurate: pause was
+clicked but hit the F-9 ghost state (fix landed, restart pending), and
+hand-raise went unused. **Remaining v2 verification: one deliberate
+pause/resume + hand-raise exercise in a future debate, after the F-9
+fix is live.**
+
 ## Quiet-canary week verification (2026-07-31)
 
 Post-fix week (07-25 → 07-31) vs baseline week:

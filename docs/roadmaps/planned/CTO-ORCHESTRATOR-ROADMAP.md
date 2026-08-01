@@ -375,8 +375,23 @@ backlog aggregation, and the standup composer.
 2. **Cross-project access mechanism** — how does an HQ session enumerate and
    message other projects' sessions? (Debate engine does it within one
    project; needs a workspace-scoped equivalent.)
-3. **Metric thresholds** — per-project baselines for coverage/mutation/
-   complexity: fixed numbers vs. ratcheting ("never worse than yesterday").
+3. ~~**Metric thresholds**~~ Resolved (Mate debate, 2026-08-01 —
+   Arch/Ward/Rush panel, unanimous): **ratchet, not fixed numbers — with
+   a hard floor and escape hatches.** "Never worse than the last green
+   build", so every project climbs from its own real baseline. Concretely:
+   - *Per commit (fast)*: mutation-test only changed files against a
+     floor; coverage never below last-green minus a small slack; no new
+     file over the complexity ceiling.
+   - *Nightly (slow)*: full mutation run averaged over the last 5 green
+     builds — fails only on sustained drops, not noise.
+   - *Slack budget*: ~2 coverage points/week for honest refactors —
+     logged, auto-refilling, never silent.
+   - *Day-one values*: Clay — mutation floor 70, coverage frozen at
+     current level; new apps — mutation floor 45, coverage ratchet from
+     the actual baseline (~30%).
+   - *Core principle*: let the agent flex the gameable metric (coverage)
+     but hold the line on the un-gameable one (mutation score) — that is
+     what keeps the gate trustworthy when no human reads the code.
 4. **Copilot's role** — with a 1-turn handoff budget and no worker route
    today, where does Copilot fit in the team?
 5. **Standup delivery** — CTO chat only, or also push/Slack once Slack is
