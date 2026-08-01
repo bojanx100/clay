@@ -103,7 +103,7 @@ what it says. New marker documented in `docs/guides/DIAGNOSTICS.md`.
 Verification: next sleep/wake cycle should produce a `[SLEEP-WAKE]`
 line and no giant `[LOOP-LAG]` line.
 
-### F-4: headless daemon restart crashes on interactive ToS prompt (severity: medium)
+### F-4: headless daemon restart crashes on interactive ToS prompt (severity: medium) — FIX LANDED
 
 `~/.clay/daemon-dev-restart.log` (observed 2026-07-24 evening): an
 automated restart attempt rendered the first-run "Type agree to accept"
@@ -112,10 +112,14 @@ a function` (`bin/cli.js:902` promptText → setup). A restart path that
 can reach an interactive prompt without a TTY dies instead of starting
 the daemon — silent downtime until someone starts it manually.
 
-Fix direction: `promptText` must detect non-TTY stdin and fail with an
-actionable message (or skip setup when config is already agreed);
-investigate why the restart wrapper reached first-run setup at all
-(config state? recent `bin/cli.js` upstream-merge conflict?).
+**Root cause + fix (2026-08-02, `a3fb6870e1`)**: dev mode deliberately
+cleared the config when no daemon was alive ("so setup runs fresh") —
+which is exactly the headless-restart situation, dropping it into
+interactive setup with no TTY. Dev mode now reuses the existing config
+when stdin is not a TTY, and all raw-mode prompts (promptText /
+promptToggle / promptPin) fail fast with an actionable message instead
+of a TypeError. Verified basis: piped stdin has no `setRawMode`
+(undefined), so the guard fires exactly on the crash condition.
 
 **Environment note (same evening):** repeated daemon deploy-restarts by
 parallel Live UI / orchestration sessions killed two pending
