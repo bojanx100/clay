@@ -794,6 +794,11 @@ function printLogo() {
 
 // --- Interactive prompts ---
 function promptToggle(title, desc, defaultValue, callback) {
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
+    log(sym.end + "  Interactive input required (stdin is not a TTY).");
+    process.exit(1);
+    return;
+  }
   var value = defaultValue || false;
 
   function renderToggle() {
@@ -847,6 +852,11 @@ function promptToggle(title, desc, defaultValue, callback) {
 }
 
 function promptPin(callback) {
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
+    log(sym.end + "  Interactive input required (stdin is not a TTY).");
+    process.exit(1);
+    return;
+  }
   log(sym.pointer + "  " + a.bold + "PIN protection" + a.reset);
   log(sym.bar + "  " + a.dim + "Require a 6-digit PIN to access the web UI. Enter to skip." + a.reset);
   process.stdout.write("  " + sym.bar + "  ");
@@ -903,6 +913,16 @@ function promptPin(callback) {
  * Tab completes directory paths.
  */
 function promptText(title, placeholder, callback, opts) {
+  // Headless guard (F-4): setRawMode does not exist when stdin is not a
+  // TTY — an automated restart that reaches an interactive prompt used to
+  // die with a TypeError and leave the daemon down. Fail with an
+  // actionable message instead.
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
+    log(sym.end + "  Interactive input required (stdin is not a TTY).");
+    log(sym.end + "  Run clay from a terminal to complete setup.");
+    process.exit(1);
+    return;
+  }
   var prefix = "  " + sym.bar + "  ";
   var hintLine = "";
   var lineCount = 2;
@@ -2715,10 +2735,17 @@ var currentVersion = require("../package.json").version;
       clearStaleConfig();
       await new Promise(function (resolve) { setTimeout(resolve, 500); });
     }
-    // No running daemon — clear config so setup runs fresh
+    // No running daemon: interactively we clear the config so setup runs
+    // fresh, but a HEADLESS invocation (automated restart, no TTY) must
+    // reuse the existing config — dropping into interactive setup without
+    // a TTY crashed the restart and left the daemon down (F-4).
     if (!devAlive && devConfig) {
-      if (devConfig.pid) clearStaleConfig();
-      devConfig = null;
+      if (process.stdin.isTTY) {
+        if (devConfig.pid) clearStaleConfig();
+        devConfig = null;
+      } else {
+        console.log("[dev] Headless restart: reusing existing config.");
+      }
     }
     // No config — go through setup (disclaimer, port, mode, etc.)
     if (!devConfig) {
