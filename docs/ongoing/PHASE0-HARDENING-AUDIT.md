@@ -272,6 +272,30 @@ client tracks pause state locally with optimistic flips corrected by
 server acks so the button cannot wedge. Needs a daemon restart —
 deliberately deferred until the in-flight debate finishes.
 
+### F-11: pause handler unreachable — missing re-export through project wrappers (severity: medium) — VERIFIED FIXED
+
+The real reason every pause click died after F-9's fix: the router calls
+`debate.handleDebatePauseToggle`, but the debate module's API passes
+through TWO curation layers (`project-interactions.js` and
+`project.js`'s `debate: {...}` wrapper) and neither re-exported the new
+method — every click threw `TypeError: … is not a function`. **Caught
+red-handed by the F-5 `[WS-HANDLER-ERROR]` armor** during a headless
+verification run (the canary logged the exact type and stack; the
+daemon survived). Fixed by threading the method through both layers.
+
+**Pause/resume VERIFIED end-to-end (2026-08-02 00:39, headless client
+test #3):** click ack (`paused=true holding=false`) → hold engaged at
+the turn boundary (`holding=true`, server breadcrumb "holding at turn
+boundary") → 12 s of proven silence → resume → next turn fired. Server
+breadcrumbs show clean session resolution (`wsActive=190 (number)
+sessionFound=true hasDebate=true phase=live`). Exit 0.
+
+Also fixed en route: **F-10** (native `debate_start` accepted
+unresolvable mate ids and dead-ended after one turn — now validates and
+errors early) and **import-list leakage** (debate moderator/panelist
+worker sessions no longer appear as cryptic rows in the CLI import
+panel).
+
 ## Debate Workflow v2 — first full live run (2026-08-01)
 
 The §12.3 debate (fixed thresholds vs ratchet; Arch/Ward/Rush, Clay
