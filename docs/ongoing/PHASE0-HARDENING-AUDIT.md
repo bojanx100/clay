@@ -11,8 +11,8 @@ stay quiet.
 
 ## Completion summary (2026-08-02)
 
-Eleven findings (F-1..F-11) opened; ten fixed and verified, one
-(F-7) specced for later. Canary quiet-week passed (health transitions
+Eleven findings (F-1..F-11) opened; all eleven fixed (ten verified
+live, F-7's verification rides with the next real proposal). Canary quiet-week passed (health transitions
 193/wk -> 1/wk). Every audited feature verified: provider switching,
 handoff, failover, workers, debate engine (incl. machine-verified
 pause/resume), sub-agent UI. Two false-success traps caught and turned
@@ -21,7 +21,10 @@ canary installed mid-audit caught F-11 — the audit's tooling debugged
 the audit.
 
 **Carry-over backlog (CTO's inheritance):**
-- F-7: pin pending approval cards across reconnects/scrollback (specced)
+- ~~F-7~~ FIX LANDED 2026-08-02 (`b2b0f62748`): pending debate proposals
+  are re-sent to every (re)connecting client (`debate_proposal_pending`),
+  deduped by proposalId — cards now survive reloads and scrollback.
+  Live verification rides along with the next real proposal.
 - Debate v2: "restart with same brief" card after a stopped debate
 - Debate v2: one live hand-raise floor exercise (pause/resume already
   machine-verified; hand-raise mechanism verified in code, not live)
