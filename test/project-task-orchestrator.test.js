@@ -426,6 +426,25 @@ test("does not complete a worker task when the worker only ends with commentary"
   assert.match(ctx.starts[1].prompt, /clay-orchestration\/resolve_task/);
 });
 
+test("marks verified worker escalation for coordinator review", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var worker = ctx.starts[0].session;
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Coverage audit finished.\n" +
+      "VERIFICATION: 6/14 paths covered\nESCALATION_REQUIRED: yes",
+  });
+  worker.isProcessing = false;
+
+  worker._subscriber({ type: "done" });
+
+  assert.equal(parent.orchestrationTasks[0].status, "reviewing");
+  assert.match(parent.orchestrationTasks[0].currentActivity, /coordinator action required/);
+  assert.match(ctx.starts[1].prompt, /Status: reviewing/);
+});
+
 test("owning coordinator resolves a needs-input task after independent verification", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
@@ -541,6 +560,32 @@ test("direct worker follow-up marks its completed parent task running again", fu
   assert.equal(parent.orchestrationTasks[0].status, "running");
   assert.equal(parent.orchestrationTasks[0].resultSummary, "");
   assert.equal(worker._orchestrationWatcherAttached, true);
+});
+
+test("send task message does not restart a completed worker", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Finished once.\n" +
+      "VERIFICATION: regression test passed\nESCALATION_REQUIRED: no",
+  });
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+
+  var result = ctx.api.messageFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    message: "Please finalize now.",
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /already completed/);
+  assert.equal(task.status, "completed");
+  assert.equal(ctx.starts.length, 2);
 });
 
 test("closing a coordinated task stops and archives its worker conversation", function () {

@@ -463,6 +463,19 @@ test("Codex resume handle ignores pre-bind events from other threads", function 
   assert.strictEqual(ok, false);
 });
 
+test("Codex new-thread handle ignores shared events before thread binding", function () {
+  var state = { threadId: null, turnId: null };
+
+  assert.strictEqual(routing.shouldRouteServerEvent(state, {}, "item/agentMessage/delta", {
+    threadId: "thread-other",
+    turnId: "turn-other",
+    delta: "foreign output",
+  }), false);
+  assert.strictEqual(routing.shouldRouteServerEvent(state, {}, "turn/completed", {
+    turn: { id: "turn-other", status: "completed" },
+  }), false);
+});
+
 test("Codex context usage uses current context tokens, not cumulative total tokens", function () {
   var state = {
     _tokenUsageShapeLogged: true,
