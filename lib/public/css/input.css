@@ -839,6 +839,25 @@
   height: 13px;
 }
 
+.orchestration-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-height: 0;
+  max-height: min(240px, 30dvh);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  .orchestration-task-list {
+    max-height: min(168px, 22dvh);
+  }
+}
+
 .orchestration-task-item {
   display: flex;
   align-items: center;
