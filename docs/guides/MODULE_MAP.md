@@ -215,6 +215,8 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 | `lead-ledger.js` | Durable typed memory: every orchestration decision/outcome appended as a JSONL event under `~/.clay/lead/`; survives restarts |
 | `lead-loop.js` | The heartbeat as a pure decision function: given portfolio, in-flight work, failure history, and the autonomy dial, decide staff/give_up/compose_standup/wait |
 | `lead-exec.js` | Per-repo gh credentials wrapper: resolves `gh auth token --user <account>` per source and injects GH_TOKEN into that invocation's env only |
+| `lead-metrics.js` | Pure done-gate structural metrics: coverage baseline ratchet (never-worse-than-last-green), ESLint complexity ceiling on changed files, typed `metrics_report` composition |
+| `scripts/lead-metrics-nightly.js` | Nightly metrics runner: measures coverage (c8 over the suite) and complexity (ESLint, `scripts/lead-complexity.eslint.config.js`) on files changed since the last report, persists the baseline, appends `metrics_report` to the lead ledger; exit 0 green / 1 red / 2 error for cron |
 | `.claude/skills/lead-tick` | The Lead's operating procedure as a skill: one tick = scan portfolio, staff/propose, verify against the gate, report via typed events |
 
 ### YOKE Adapters (lib/yoke/)
