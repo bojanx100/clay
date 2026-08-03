@@ -1,6 +1,7 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var attachSessionQueuedMessages = require("../lib/sessions-queued-messages").attachSessionQueuedMessages;
+var hasStaleProcessingState = require("../lib/sessions-queued-messages").hasStaleProcessingState;
 var attachUserMessage = require("../lib/project-user-message").attachUserMessage;
 var shouldQueueMessage = require("../lib/project-user-message").shouldQueueMessage;
 
@@ -68,6 +69,102 @@ test("an idle session with a pending backlog keeps new messages queued", functio
     isProcessing: false,
     pendingUserMessageQueue: [],
   }), false);
+});
+
+test("processing-state reconciliation preserves a genuinely active follow-on turn", function () {
+  assert.equal(hasStaleProcessingState({
+    isProcessing: true,
+    _queryStartTs: 201,
+    history: [{ type: "done", code: 0, _ts: 200 }],
+  }), false);
+  assert.equal(hasStaleProcessingState({
+    isProcessing: true,
+    _queryStartTs: 100,
+    history: [
+      { type: "done", code: 0, _ts: 200 },
+      { type: "user_message", text: "Next turn", _ts: 201 },
+    ],
+  }), false);
+});
+
+test("a completed turn does not trap a follow-up behind a stale processing flag", async function () {
+  var session = {
+    localId: 42,
+    title: "Existing session",
+    vendor: "codex",
+    isProcessing: true,
+    _queryStartTs: 100,
+    _lastStreamEventAt: 200,
+    history: [
+      { type: "user_message", text: "Earlier request", _ts: 100 },
+      { type: "done", code: 0, _ts: 200 },
+    ],
+    pendingUserMessageQueue: [],
+  };
+  var dispatched = [];
+  var sm = {
+    sessions: new Map([[session.localId, session]]),
+    queuedUserMessagesForClient: function () { return []; },
+    appendToSessionFile: function () {},
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+  };
+  var handler = attachUserMessage({
+    cwd: process.cwd(),
+    slug: "test",
+    isMate: false,
+    osUsers: false,
+    sm: sm,
+    sdk: {
+      startQuery: function (targetSession, text) {
+        dispatched.push(text);
+      },
+      pushMessage: function (targetSession, text) {
+        dispatched.push(text);
+      },
+    },
+    nm: {},
+    tm: {},
+    send: function () {},
+    sendTo: function () {},
+    sendToSession: function () {},
+    sendToSessionOthers: function () {},
+    clients: new Set(),
+    opts: {},
+    usersModule: { isMultiUser: function () { return false; } },
+    matesModule: {},
+    getSessionForWs: function () { return session; },
+    getLinuxUserForSession: function () { return null; },
+    ensureProjectAccessForSession: function () {},
+    getOsUserInfoForWs: function () { return null; },
+    hydrateImageRefs: function (item) { return item; },
+    saveImageFile: function () { return null; },
+    imagesDir: process.cwd(),
+    onProcessingChanged: function () {},
+    onUserMessageDispatched: function () { return ""; },
+    _loop: { handleLoopMessage: function () { return false; } },
+    browserState: {},
+    scheduleMessage: function () {},
+    cancelScheduledMessage: function () {},
+    loadContextSources: function () { return []; },
+    saveContextSources: function () {},
+    adapter: {},
+  });
+
+  handler.handleUserMessage({ _clayActiveSession: session.localId }, {
+    type: "message",
+    text: "Follow up",
+    intent: "chat",
+    sessionId: session.localId,
+  });
+
+  await new Promise(function (resolve) { setImmediate(resolve); });
+
+  assert.deepEqual(dispatched, ["Follow up"]);
+  assert.deepEqual(session.pendingUserMessageQueue, []);
+  assert.equal(session.isProcessing, true);
+  assert.equal(session._queryStartTs > 200, true);
+  assert.equal(session.history[session.history.length - 1].queuedPending, undefined);
 });
 
 test("steering one queued message resumes the remaining queue automatically", async function () {
