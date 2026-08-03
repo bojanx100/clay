@@ -202,6 +202,21 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `daemon-projects.js` | Worktree tracking (scan, rescan, cleanup), removed project filtering |
 | `ws-schema.js` | WebSocket message type registry (328 message types, informational) |
 
+### Lead Modules (CTO Orchestrator)
+
+The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-ROADMAP.md`). Decision modules are pure (no I/O, injected clocks/exec) so every decision is replayable; state is isolated under `~/.clay/lead/`.
+
+| Module | Concern |
+|--------|---------|
+| `lead-routing.js` | Pure routing brain: classify a work item (class/risk/complexity), route to cheapest-capable provider/model with explicit verification depth |
+| `lead-backlog.js` | Portfolio assembly: normalize, classify, and priority-order work items across projects (GitHub issues via injected exec + pre-fetched collections) |
+| `lead-staffing.js` | Turns a routed item into a full `delegate_task` delegation: worker brief, ownership boundaries, acceptance criteria per verification depth |
+| `lead-standup.js` | Composes the boss's daily digest from typed ledger events only — worker prose never enters the standup |
+| `lead-ledger.js` | Durable typed memory: every orchestration decision/outcome appended as a JSONL event under `~/.clay/lead/`; survives restarts |
+| `lead-loop.js` | The heartbeat as a pure decision function: given portfolio, in-flight work, failure history, and the autonomy dial, decide staff/give_up/compose_standup/wait |
+| `lead-exec.js` | Per-repo gh credentials wrapper: resolves `gh auth token --user <account>` per source and injects GH_TOKEN into that invocation's env only |
+| `.claude/skills/lead-tick` | The Lead's operating procedure as a skill: one tick = scan portfolio, staff/propose, verify against the gate, report via typed events |
+
 ### YOKE Adapters (lib/yoke/)
 
 YOKE is the vendor-agnostic interface layer. Each adapter implements the same contract (init, createQuery, etc.) for a specific agent runtime.
