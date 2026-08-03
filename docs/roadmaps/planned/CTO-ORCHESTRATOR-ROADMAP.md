@@ -310,7 +310,7 @@ What the CTO composes (all present today):
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **0 — Harden** | Audit + fix existing features (§2) | All §2 features verified working, canaries quiet, usable without reading source |
-| **1 — One project, one item** | CTO reads one project's backlog, proposes, staffs one item, runs full done-gate, reports | One item end-to-end with zero human line-reading; Bojan touched it only at propose + merge |
+| **1 — One project, one item** | CTO reads one project's backlog, proposes, staffs one item, runs full done-gate, reports | ✅ **DONE 2026-08-03**: "restart with same brief" (from Phase 0 carry-over) went portfolio → classify → route (codex/terra tier 3) → staff (delegate_task) → full gate (suite 503/503 Lead-verified, regression test, boundaries held, canaries explained) → standup. Owner touched it exactly twice (approve staffing, accept result); no human read a line of the diff. Modules: lead-routing, lead-backlog, lead-staffing, lead-standup + leadMode flag — all additive-only. |
 | **2 — Full queue, one project** | Ralph-Loop-driven queue processing, cross-provider staffing, nightly metrics, daily standup | A week of queue processing with gates catching ≥1 real problem; standup accurate |
 | **3 — Portfolio** | Workspace-level CTO across all projects; unified backlog; portfolio metrics | Multi-project standup; correct cross-project prioritization |
 | **4 — Widen autonomy** | Auto-to-merge, then optional auto-merge on green | Deliberate loosening only after demonstrated gate reliability |
