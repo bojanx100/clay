@@ -24,7 +24,7 @@ test("normalizeGithubIssue lowercases labels and parses dates", function () {
 
 test("githubSourcesFromTaskConfigs extracts repos and filters, dedupes", function () {
   var configs = [
-    { id: "assigned-to-me", source: { provider: "github", kind: "issue", repo: "trialview/v2" }, filter: { state: "open", assigned: "me", type: "bug" } },
+    { id: "assigned-to-me", source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv" }, filter: { state: "open", assigned: "me", type: "bug" } },
     { id: "dup", source: { provider: "github", repo: "trialview/v2" } },
     { id: "not-github", source: { provider: "linear", repo: "x" } },
     { id: "no-source" },
@@ -33,13 +33,64 @@ test("githubSourcesFromTaskConfigs extracts repos and filters, dedupes", functio
   assert.strictEqual(sources.length, 1);
   assert.strictEqual(sources[0].repo, "trialview/v2");
   assert.strictEqual(sources[0].filters.assigned, "me");
+  // ghAccount must survive extraction — lead-exec needs it for repos
+  // invisible to the globally active gh account.
+  assert.strictEqual(sources[0].ghAccount, "bojantv");
+});
+
+test("githubSourcesFromTaskConfigs defaults ghAccount to null", function () {
+  var sources = backlog.githubSourcesFromTaskConfigs([
+    { id: "a", source: { provider: "github", repo: "o/r" } },
+  ]);
+  assert.strictEqual(sources[0].ghAccount, null);
 });
 
 test("ghIssueArgs builds the exact gh invocation", function () {
   var args = backlog.ghIssueArgs({ repo: "trialview/v2", filters: { state: "open", assigned: "me", type: "bug" } });
+  // type "bug" is NOT a label filter (launcher semantics: bug = not
+  // feature/legacy, applied post-fetch); no --label here.
   assert.deepStrictEqual(args, ["issue", "list", "--repo", "trialview/v2",
     "--json", "number,title,body,labels,state,updatedAt,url", "--limit", "100",
-    "--state", "open", "--assignee", "@me", "--label", "bug"]);
+    "--state", "open", "--assignee", "@me"]);
+});
+
+test("ghIssueArgs maps concrete types to a label filter", function () {
+  var args = backlog.ghIssueArgs({ repo: "o/r", filters: { type: "feature" } });
+  assert.ok(args.indexOf("--label") !== -1);
+  assert.strictEqual(args[args.indexOf("--label") + 1], "feature");
+});
+
+test("collectGithubIssues bug type excludes feature/legacy labels post-fetch", function (t, done) {
+  var fakeExec = function (cmd, args, cb) {
+    cb(null, JSON.stringify([
+      { number: 1, title: "Crash on save", state: "OPEN", labels: [], updatedAt: "2026-08-01T00:00:00Z", url: "u1" },
+      { number: 2, title: "New widget", state: "OPEN", labels: [{ name: "feature" }], updatedAt: "2026-08-01T00:00:00Z", url: "u2" },
+      { number: 3, title: "Old flow", state: "OPEN", labels: [{ name: "Legacy" }], updatedAt: "2026-08-01T00:00:00Z", url: "u3" },
+    ]));
+  };
+  backlog.collectGithubIssues(fakeExec, { repo: "o/r", filters: { type: "bug" } }, "webapp", function (err, items) {
+    assert.strictEqual(err, null);
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(items[0].title, "Crash on save");
+    done();
+  });
+});
+
+test("collectGithubIssues honours excludeLabels and titleExcludePrefixes", function (t, done) {
+  var fakeExec = function (cmd, args, cb) {
+    cb(null, JSON.stringify([
+      { number: 1, title: "BE: Server-only fix", state: "OPEN", labels: [], updatedAt: "2026-08-01T00:00:00Z", url: "u1" },
+      { number: 2, title: "Blocked thing", state: "OPEN", labels: [{ name: "Blocked" }], updatedAt: "2026-08-01T00:00:00Z", url: "u2" },
+      { number: 3, title: "Real frontend bug", state: "OPEN", labels: [], updatedAt: "2026-08-01T00:00:00Z", url: "u3" },
+    ]));
+  };
+  var filters = { excludeLabels: ["blocked", "backend"], titleExcludePrefixes: ["BE:"] };
+  backlog.collectGithubIssues(fakeExec, { repo: "o/r", filters: filters }, "webapp", function (err, items) {
+    assert.strictEqual(err, null);
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(items[0].title, "Real frontend bug");
+    done();
+  });
 });
 
 test("collectGithubIssues degrades to empty on gh failure (issues disabled)", function (t, done) {
