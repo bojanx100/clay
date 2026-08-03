@@ -51,6 +51,11 @@ The decisions array is your work order for this tick.
 - **staff, needsApproval: true** — present the brief to the boss in plain
   terms (item, route, gate, boundaries) and ask for approval. Only staff
   after an explicit yes; record the same ledger event.
+- **SELF-MODIFICATION RULE (absolute)**: any item whose ownedPaths touch
+  the Lead's own machinery — `lib/lead-*.js`, `test/lead-*.test.js`,
+  `.claude/skills/lead-tick/`, or the leadMode setting plumbing — is
+  approval-class REGARDLESS of the tick's needsApproval flag. A manager
+  never quietly rewrites his own contract.
 - **give_up** — append `{type:"blocked", item, reason}` and tell the boss
   in one line what is stuck and why.
 - **compose_standup** — build events via
