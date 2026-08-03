@@ -1,6 +1,12 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var buildOrchestrationSessionGroups =
+  require("../lib/orchestration-task-state").buildOrchestrationSessionGroups;
+var orchestrationGroupParentForClient =
+  require("../lib/orchestration-task-state").orchestrationGroupParentForClient;
 var orchestrationTasksForClient = require("../lib/orchestration-task-state").orchestrationTasksForClient;
+var orchestrationParentForClient =
+  require("../lib/orchestration-task-state").orchestrationParentForClient;
 var restoreVerifiedWorkerCompletion =
   require("../lib/orchestration-task-state").restoreVerifiedWorkerCompletion;
 var workerPrompt = require("../lib/orchestration-task-state").workerPrompt;
@@ -54,6 +60,76 @@ test("task projection exposes stable orchestration identity separately from work
     createdAt: 100,
     updatedAt: 200,
   }]);
+});
+
+test("retry attempts retain coordinator grouping with distinct attempt numbers", function () {
+  var taskId = "task-review";
+  var coordinator = {
+    localId: 10,
+    orchestrationTasks: [{ taskId: taskId, workerColor: "#F0B35A" }],
+  };
+  var firstAttempt = {
+    localId: 11,
+    createdAt: 100,
+    history: [{
+      type: "user_message",
+      orchestrationTaskId: taskId,
+      origin: { kind: "coordinator" },
+    }],
+  };
+  var secondAttempt = {
+    localId: 12,
+    createdAt: 200,
+    history: [{
+      type: "user_message",
+      orchestrationTaskId: taskId,
+      origin: { kind: "coordinator" },
+    }],
+  };
+  var currentAttempt = {
+    localId: 13,
+    createdAt: 300,
+    orchestrationParent: { taskId: taskId, sessionId: 10, workerColor: "#F0B35A" },
+    history: [],
+  };
+  var groups = buildOrchestrationSessionGroups([
+    secondAttempt,
+    coordinator,
+    currentAttempt,
+    firstAttempt,
+  ]);
+
+  assert.equal(orchestrationParentForClient(firstAttempt), null);
+  assert.deepEqual(orchestrationGroupParentForClient(firstAttempt, groups), {
+    taskId: taskId,
+    sessionId: 10,
+    workerColor: "#F0B35A",
+    attempt: 1,
+    attemptCount: 3,
+    historical: true,
+  });
+  assert.equal(orchestrationParentForClient(secondAttempt), null);
+  assert.deepEqual(orchestrationGroupParentForClient(secondAttempt, groups), {
+    taskId: taskId,
+    sessionId: 10,
+    workerColor: "#F0B35A",
+    attempt: 2,
+    attemptCount: 3,
+    historical: true,
+  });
+  assert.deepEqual(orchestrationParentForClient(currentAttempt), {
+    taskId: taskId,
+    sessionId: 10,
+    workerColor: "#F0B35A",
+  });
+  assert.deepEqual(orchestrationGroupParentForClient(currentAttempt, groups), {
+    taskId: taskId,
+    sessionId: 10,
+    workerColor: "#F0B35A",
+    attempt: 3,
+    attemptCount: 3,
+    historical: false,
+  });
 });
 
 test("worker completion requires an explicit verified completion report", function () {

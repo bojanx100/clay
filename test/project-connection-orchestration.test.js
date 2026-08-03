@@ -29,6 +29,7 @@ test("initial connection orchestration fields are complete before later broadcas
       sessionId: 42,
       workerColor: "#A78BFA",
     },
+    orchestrationGroupParent: null,
     orchestrationAdoption: { adoptedAt: 123 },
   });
 });
@@ -39,6 +40,7 @@ test("initial connection orchestration fields default without waiting for hydrat
     demotionPending: false,
     orchestrationActiveCount: 0,
     orchestrationParent: null,
+    orchestrationGroupParent: null,
     orchestrationAdoption: null,
   });
 });

@@ -8,7 +8,7 @@ test("mobile session sheet nests workers beneath coordinators by default", async
   var modulePath = path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile-coordinators.js");
   var coordinatorModule = await import(pathToFileURL(modulePath).href);
   var coordinator = { id: 10, coordinationMode: true, lastActivity: 30 };
-  var olderWorker = { id: 11, orchestrationParent: { sessionId: 10 }, lastActivity: 10 };
+  var olderWorker = { id: 11, orchestrationGroupParent: { sessionId: 10 }, lastActivity: 10 };
   var newerWorker = { id: 12, orchestrationParent: { sessionId: 10 }, lastActivity: 20 };
   var ordinary = { id: 13, lastActivity: 15 };
   var items = coordinatorModule.buildMobileCoordinatorItems([
@@ -50,6 +50,8 @@ test("coordinator groups always show workers without collapse controls", functio
 
   assert.match(source, /mobile-session-role-badge coordinator/);
   assert.match(source, /mobile-session-role-badge worker/);
+  assert.match(source, /"Worker " \+ attempt \+ "\/" \+ attemptCount/);
+  assert.match(desktopSource, /"Worker " \+ attempt \+ "\/" \+ attemptCount/);
   assert.match(groupingSource, /var children = document\.createElement\("div"\)/);
   assert.doesNotMatch(groupingSource, /expandedCoordinatorGroups|mobile-coordinator-toggle|aria-expanded/);
   assert.doesNotMatch(desktopSource, /expandedCoordinatorGroups|session-coordinator-toggle/);
