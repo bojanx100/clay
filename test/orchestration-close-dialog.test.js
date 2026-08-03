@@ -15,3 +15,22 @@ test("orchestration close confirmation presents two distinct choices", function 
   assert.doesNotMatch(html, /confirm-secondary/);
   assert.doesNotMatch(modalSource, /confirmSecondary|secondaryLabel|onSecondary/);
 });
+
+test("coordinator close confirmation warns about every worker that is not complete", function () {
+  var source = fs.readFileSync(
+    path.join(__dirname, "../lib/public/modules/app-messages-sessions.js"),
+    "utf8"
+  );
+  var sidebarSource = fs.readFileSync(
+    path.join(__dirname, "../lib/public/modules/sidebar-sessions-delete.js"),
+    "utf8"
+  );
+  var caseStart = source.indexOf('case "coordinator_close_required"');
+  var caseEnd = source.indexOf('case "orchestration_coordinator_candidates"', caseStart);
+  var closeCoordinatorSource = source.slice(caseStart, caseEnd);
+
+  assert.match(closeCoordinatorSource, /msg\.atRiskWorkerCount \|\| msg\.activeWorkerCount/);
+  assert.match(closeCoordinatorSource, /still running or need attention/);
+  assert.match(closeCoordinatorSource, /every worker conversation/);
+  assert.match(sidebarSource, /archive every worker conversation/);
+});

@@ -23,7 +23,9 @@ function setup(session) {
     usersModule: {
       isMultiUser: function () { return false; },
     },
-    userPresence: {},
+    userPresence: {
+      clearPresence: function () {},
+    },
     adapter: {},
     loadContextSources: function () { return []; },
     stopTitleWatcher: function () {},
@@ -97,4 +99,64 @@ test("an active coordinator can wait, cancel, or stop workers before demotion", 
   assert.equal(task.status, "cancelled");
   assert.equal(worker.aborted, true);
   assert.deepEqual(state.hidden, [worker.localId]);
+});
+
+test("closing a coordinator archives completed workers without cancelling their results", function () {
+  var worker = {
+    localId: 13,
+    orchestrationParent: { taskId: "completed", sessionId: 12 },
+  };
+  var task = { taskId: "completed", status: "completed", workerSessionId: worker.localId };
+  var session = {
+    localId: 12,
+    title: "Owner",
+    coordinationMode: true,
+    orchestrationTasks: [task],
+  };
+  var state = setup(session);
+  state.sm.sessions.set(worker.localId, worker);
+
+  state.handler.handleRecordsMessage({}, {
+    type: "hide_session",
+    id: session.localId,
+  });
+
+  assert.deepEqual(state.hidden, [worker.localId, session.localId]);
+  assert.equal(worker.orchestrationParent, null);
+  assert.equal(task.status, "completed");
+});
+
+test("closing a coordinator asks before archiving a worker that needs attention", function () {
+  var worker = {
+    localId: 13,
+    orchestrationParent: { taskId: "needs-attention", sessionId: 12 },
+  };
+  var task = { taskId: "needs-attention", status: "needs_input", workerSessionId: worker.localId };
+  var session = {
+    localId: 12,
+    title: "Owner",
+    coordinationMode: true,
+    orchestrationTasks: [task],
+  };
+  var state = setup(session);
+  state.sm.sessions.set(worker.localId, worker);
+
+  state.handler.handleRecordsMessage({}, {
+    type: "hide_session",
+    id: session.localId,
+  });
+
+  assert.equal(state.direct.at(-1).type, "coordinator_close_required");
+  assert.equal(state.direct.at(-1).atRiskWorkerCount, 1);
+  assert.deepEqual(state.hidden, []);
+
+  state.handler.handleRecordsMessage({}, {
+    type: "hide_session",
+    id: session.localId,
+    closeWorkers: true,
+  });
+
+  assert.deepEqual(state.hidden, [worker.localId, session.localId]);
+  assert.equal(worker.orchestrationParent, null);
+  assert.equal(task.status, "cancelled");
 });
