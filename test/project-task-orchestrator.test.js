@@ -588,6 +588,127 @@ test("send task message does not restart a completed worker", function () {
   assert.equal(ctx.starts.length, 2);
 });
 
+test("retrying a completed task reuses its idle worker conversation", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+  var workerId = worker.localId;
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: First pass.\n" +
+      "VERIFICATION: first-pass tests passed\nESCALATION_REQUIRED: no",
+  });
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+  var sessionCount = ctx.sessions.size;
+
+  var result = ctx.api.retryFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+  });
+
+  assert.match(result.content[0].text, /existing worker session/);
+  assert.equal(ctx.sessions.size, sessionCount);
+  assert.equal(task.workerSessionId, workerId);
+  assert.equal(task.attempt, 2);
+  assert.equal(task.status, "running");
+  assert.equal(task.resultSummary, "");
+  assert.equal(task.verification, "");
+  assert.equal(worker.orchestrationParent.taskId, task.taskId);
+  assert.equal(worker._orchestrationTaskClosed, undefined);
+  assert.equal(worker._orchestrationWatcherAttached, true);
+  assert.equal(ctx.starts.at(-1).session, worker);
+  assert.match(worker.history.at(-1).text, /Retry this task in the same worker conversation/);
+  var retryEvent = parent.orchestrationEvents.findLast(function (event) {
+    return event.type === "task_retry_requested";
+  });
+  assert.equal(retryEvent.data.reusedWorkerSessionId, workerId);
+
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Second pass.\n" +
+      "VERIFICATION: second-pass tests passed\nESCALATION_REQUIRED: no",
+  });
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+  assert.equal(task.status, "completed");
+
+  ctx.api.retryFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+  });
+
+  assert.equal(ctx.sessions.size, sessionCount);
+  assert.equal(task.workerSessionId, workerId);
+  assert.equal(task.attempt, 3);
+  assert.equal(ctx.starts.at(-1).session, worker);
+  var retryPrompts = worker.history.filter(function (item) {
+    return item.type === "user_message" &&
+      String(item.text || "").indexOf("Retry this task in the same worker conversation") !== -1;
+  });
+  assert.equal(retryPrompts.length, 2);
+});
+
+test("retrying a failed task starts a fresh worker conversation", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var failedWorker = ctx.starts[0].session;
+  failedWorker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: failed\nSUMMARY: Provider failed.\n" +
+      "VERIFICATION: retry required\nESCALATION_REQUIRED: no",
+  });
+  failedWorker.isProcessing = false;
+  failedWorker._subscriber({ type: "done" });
+  assert.equal(task.status, "failed");
+
+  var result = ctx.api.retryFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+  });
+
+  var freshWorker = ctx.starts.at(-1).session;
+  assert.match(result.content[0].text, /Retry scheduled/);
+  assert.notEqual(freshWorker, failedWorker);
+  assert.notEqual(task.workerSessionId, failedWorker.localId);
+  assert.equal(task.workerSessionId, freshWorker.localId);
+  assert.equal(task.attempt, 2);
+  assert.equal(task.status, "running");
+  assert.equal(failedWorker.orchestrationParent, null);
+  assert.equal(failedWorker._orchestrationTaskClosed, true);
+});
+
+test("retrying a completed task can explicitly request an independent worker", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var firstWorker = ctx.starts[0].session;
+  firstWorker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: First opinion.\n" +
+      "VERIFICATION: review completed\nESCALATION_REQUIRED: no",
+  });
+  firstWorker.isProcessing = false;
+  firstWorker._subscriber({ type: "done" });
+
+  ctx.api.retryFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    freshSession: true,
+  });
+
+  var independentWorker = ctx.starts.at(-1).session;
+  assert.notEqual(independentWorker, firstWorker);
+  assert.equal(task.workerSessionId, independentWorker.localId);
+  assert.equal(firstWorker.orchestrationParent, null);
+  assert.equal(firstWorker._orchestrationTaskClosed, true);
+});
+
 test("closing a coordinated task stops and archives its worker conversation", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
