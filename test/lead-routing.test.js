@@ -26,10 +26,24 @@ test("classification: keyword inference covers the main classes", function () {
 
 test("risk: migrations/auth/daemon are high; security is never low", function () {
   assert.strictEqual(routing.classifyWorkItem({ title: "Add schema migration for users table" }).risk, "high");
-  assert.strictEqual(routing.classifyWorkItem({ title: "Fix crash in daemon restart path" }).risk, "high");
   var sec = routing.classifyWorkItem({ title: "Tighten xss escaping in tooltip" });
   assert.strictEqual(sec.taskClass, "security");
   assert.notStrictEqual(sec.risk, "low");
+});
+
+test("risk: restart is high only with nearby runtime context", function () {
+  assert.deepStrictEqual(
+    routing.classifyWorkItem({ title: "Fix crash in daemon restart path" }),
+    { taskClass: "debugging", risk: "high", effort: "medium" }
+  );
+  assert.deepStrictEqual(
+    routing.classifyWorkItem({ title: "Make tool-permission streams survive daemon restarts" }),
+    { taskClass: "implementation", risk: "high", effort: "medium" }
+  );
+  assert.deepStrictEqual(
+    routing.classifyWorkItem({ title: "Offer restart with same brief after a debate ends" }),
+    { taskClass: "implementation", risk: "low", effort: "medium" }
+  );
 });
 
 test("routing: cheapest capable — mechanical low-risk goes to tier 1", function () {
