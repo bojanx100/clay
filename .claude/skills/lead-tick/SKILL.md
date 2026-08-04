@@ -31,8 +31,13 @@ Never orchestrate with the switch off (§1.1).
   plus any GitHub sources from project task configs
   (`githubSourcesFromTaskConfigs` + `collectGithubIssues`; wrap exec with
   per-repo credentials when the active gh account cannot see a repo).
-- **Provider health**: inject the current snapshot if available; missing
-  health data means assume healthy.
+- **Provider health**: derive the live snapshot from the recovery log —
+  `require("./lib/lead-health").readHealthSnapshot(require("./lib/config").recoveryLogPath())`
+  — and inject it into every `routeWorkItem` call. Missing/empty data
+  means assume healthy. NEVER route to a vendor the snapshot marks
+  unhealthy (boss incident 2026-08-04: Claude credits exhausted for 64h;
+  ticks must survive a vendor-wide outage by failing over, or `wait` with
+  the reason when no vendor can serve the tier).
 
 ## 2. Decide
 
