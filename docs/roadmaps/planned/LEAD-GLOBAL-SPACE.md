@@ -39,7 +39,7 @@ identity. It should ride the same rails.
 
 ## Proposal
 
-### Slice 1 — Lead as a pseudo-project (backend)
+### Slice 1 — Lead as a pseudo-project (backend) — SHIPPED
 
 - Register slug `lead` at daemon boot via `addProject()`, flagged
   `isLead: true`, exactly as Mates do. WS scope: `/p/lead/ws`.
