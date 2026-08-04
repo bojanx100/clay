@@ -30,6 +30,14 @@ The original client sent `create_project` with only a `name`. Both WebSocket han
 
 `test/project-creation-path.test.js` covers explicit path resolution, legacy compatibility, normal folder names, containment boundaries, handler forwarding, non-admin restrictions, and the client folder-picker contract.
 
+## Runtime follow-up
+
+After the implementation shipped, the New project modal accepted a full path but returned the legacy `Invalid name` error. The running daemon had started before the server handler changed, while the browser was already loading the updated client files from disk. Because the dev CLI was launched without `--watch`, this produced a split runtime: new client code connected to the old name-only server handler.
+
+Clay's built-in dev restart replaced the stale daemon. A browser probe using `/tmp/__clay_missing_parent__/waze` returned the legacy name error before restart and the expected `Parent folder does not exist` validation afterward. The nonexistent probe path remained absent, and the browser console was clean after reconnect.
+
+Post-restart verification passed the focused path suite (7/7) and the full repository suite (600/600).
+
 ## Related
 
 The implementation originated in commit `9c7bf96919` (`feat(project): add empty project creation and GitHub clone modes`). It intentionally introduced a name-only form and daemon-selected default, so this was a missing product capability rather than a later rendering regression.
