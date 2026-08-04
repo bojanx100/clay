@@ -28,18 +28,32 @@ test("collapsed coordinator workers show at most three current workers", async f
   assert.equal(display.hiddenResolved, 1);
 });
 
-test("collapsed coordinator workers hide resolved work but preserve the selected worker", async function () {
+test("collapsed coordinator workers show recent resolved work when none are current", async function () {
   var modulePath = path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coordinator-workers.js");
   var workers = await import(pathToFileURL(modulePath).href);
   var display = workers.coordinatorWorkerDisplay([
     worker(1, "completed", 10),
     worker(2, "dismissed", 20),
-    worker(3, "completed", 30, true)
+    worker(3, "completed", 30),
+    worker(4, "completed", 40),
+    worker(5, "completed", 50)
   ], 100, false);
 
-  assert.deepEqual(display.workers.map(function (session) { return session.id; }), [3]);
+  assert.deepEqual(display.workers.map(function (session) { return session.id; }), [5, 4, 3]);
   assert.equal(display.hiddenActive, 0);
   assert.equal(display.hiddenResolved, 2);
+});
+
+test("a selected resolved session does not outrank current work", async function () {
+  var modulePath = path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coordinator-workers.js");
+  var workers = await import(pathToFileURL(modulePath).href);
+  var display = workers.coordinatorWorkerDisplay([
+    worker(1, "completed", 50, true),
+    worker(2, "running", 10)
+  ], 103, false);
+
+  assert.deepEqual(display.workers.map(function (session) { return session.id; }), [2]);
+  assert.equal(display.hiddenResolved, 1);
 });
 
 test("attention states appear before ordinary active work", async function () {
