@@ -10,6 +10,7 @@ function harness(slug, multiUser) {
   var saved = [];
   var switched = [];
   var messages = [];
+  var broadcasts = [];
   var nextId = 1;
   var projects = [
     { slug: "lead", project: "Coop", path: "/tmp/lead", isLead: true },
@@ -26,6 +27,7 @@ function harness(slug, multiUser) {
     },
     saveSessionFile: function (session) { saved.push(session); },
     switchSession: function (id) { switched.push(id); },
+    broadcastSessionList: function () { broadcasts.push(true); },
   };
   var api = coopChannels.attachCoopChannels({
     slug: slug || "lead",
@@ -38,8 +40,23 @@ function harness(slug, multiUser) {
     sendTo: function (ws, message) { messages.push(message); },
     usersModule: { isMultiUser: function () { return !!multiUser; } },
   });
-  return { api: api, sessions: sessions, saved: saved, switched: switched, messages: messages, projects: projects };
+  return { api: api, sessions: sessions, saved: saved, switched: switched,
+    messages: messages, broadcasts: broadcasts, projects: projects };
 }
+
+test("Coop can request an authoritative channel-aware session list", function () {
+  var state = harness("lead");
+  assert.strictEqual(state.api.handleCoopChannelMessage({}, {
+    type: "refresh_coop_channels",
+  }), true);
+  assert.strictEqual(state.broadcasts.length, 1);
+
+  var ordinaryProject = harness("webapp");
+  assert.strictEqual(ordinaryProject.api.handleCoopChannelMessage({}, {
+    type: "refresh_coop_channels",
+  }), true);
+  assert.strictEqual(ordinaryProject.broadcasts.length, 0);
+});
 
 test("Coop creates one durable scoped channel per accessible base project", function () {
   var state = harness("lead", true);

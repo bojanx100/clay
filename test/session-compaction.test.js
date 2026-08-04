@@ -224,3 +224,90 @@ test("compaction transfers a scoped Coop channel into a distinct provider thread
   assert.match(started.prompt, /Canonical project checkout: \/repos\/webapp/);
   assert.match(started.prompt, /Continue the release/);
 });
+
+test("compaction refuses to orphan unresolved coordinator workers", function () {
+  var source = {
+    localId: 1,
+    storageId: "coop-channel-active",
+    coopChannel: { projectSlug: "webapp", projectTitle: "Web App" },
+    coordinationMode: true,
+    orchestrationTasks: [{ taskId: "task-active", status: "running" }],
+    history: [{ type: "user_message", text: "Continue", _ts: 1 }],
+  };
+  var created = 0;
+  var errors = [];
+  var api = compaction.attachSessionCompaction({
+    cwd: "/tmp/lead",
+    sm: {
+      sessions: new Map([[source.localId, source]]),
+      createSessionRaw: function () { created++; return {}; },
+    },
+    sdk: { startQuery: function () {} },
+    sendToSession: function (id, message) { errors.push([id, message]); },
+  });
+
+  assert.strictEqual(api.compactAndContinue(source, { reason: "manual" }), null);
+  assert.strictEqual(created, 0);
+  assert.ok(source.coopChannel);
+  assert.strictEqual(source.hidden, undefined);
+  assert.match(errors[0][1].text, /worker tasks still need attention/);
+});
+
+test("compaction moves a settled coordinator graph and retargets worker lineage", function () {
+  var source = {
+    localId: 1,
+    storageId: "coop-channel-settled",
+    coopChannel: { projectSlug: "webapp", projectTitle: "Web App" },
+    coordinationMode: true,
+    orchestrationGraphId: "graph-1",
+    orchestrationTasks: [{
+      taskId: "task-done",
+      status: "completed",
+      workerSessionId: 99,
+      workerStorageId: "worker-1",
+    }],
+    orchestrationEvents: [{ type: "task_completed" }],
+    orchestrationPolicy: { maxParallel: 2 },
+    history: [{ type: "user_message", text: "Summarize the completed work", _ts: 1 }],
+  };
+  var worker = {
+    localId: 2,
+    storageId: "worker-1",
+    orchestrationParent: {
+      taskId: "task-done",
+      sessionId: source.localId,
+      sessionStorageId: source.storageId,
+    },
+  };
+  var sessions = new Map([[source.localId, source], [worker.localId, worker]]);
+  var saved = [];
+  var nextLocalId = 3;
+  var api = compaction.attachSessionCompaction({
+    cwd: "/tmp/lead",
+    sm: {
+      sessions: sessions,
+      createSessionRaw: function (options) {
+        var session = Object.assign({ localId: nextLocalId++, history: [] }, options);
+        sessions.set(session.localId, session);
+        return session;
+      },
+      sendAndRecord: function (session, event) { session.history.push(event); },
+      saveSessionFile: function (session) { saved.push(session); },
+      switchSession: function () {},
+      broadcastSessionList: function () {},
+    },
+    sdk: { startQuery: function () {} },
+    sendToSession: function () {},
+  });
+
+  var continuation = api.compactAndContinue(source, { reason: "manual" });
+
+  assert.strictEqual(continuation.coordinationMode, true);
+  assert.strictEqual(continuation.orchestrationGraphId, "graph-1");
+  assert.strictEqual(continuation.orchestrationTasks[0].taskId, "task-done");
+  assert.strictEqual(source.coordinationMode, undefined);
+  assert.strictEqual(source.orchestrationTasks, undefined);
+  assert.strictEqual(worker.orchestrationParent.sessionId, continuation.localId);
+  assert.strictEqual(worker.orchestrationParent.sessionStorageId, continuation.storageId);
+  assert.ok(saved.indexOf(worker) !== -1);
+});

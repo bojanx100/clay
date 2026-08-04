@@ -16,9 +16,17 @@ test("the sidebar exposes no ordinary close, move, delete, or group-clear path f
   assert.match(menuSource, /!isPermanentCoopConversation/);
   assert.match(menuSource,
     /!isPermanentCoopConversation && store\.get\('isMultiUserMode'\)/);
+  assert.match(menuSource,
+    /if \(!isPermanentCoopConversation\) \{\s+var bookmarkItem/);
   assert.match(listSource, /cachedSessions\[si\]\.coopHome \|\| cachedSessions\[si\]\.coopChannel/);
+  assert.match(listSource,
+    /if \(!s\.coopHome && !s\.coopChannel\) setupSessionDragHandlers/);
   assert.match(listSource, /createSessionGroupHeader\(group\.name, deletableIds\)/);
-  assert.match(source("sidebar-coop-channels.js"), /sidebarTitle: "All Projects"/);
+  var channelSource = source("sidebar-coop-channels.js");
+  assert.match(channelSource, /sidebarTitle: "All Projects"/);
+  assert.match(channelSource, /matchesProjectSearch\(project, query\)/);
+  assert.match(channelSource, /type: "refresh_coop_channels"/);
+  assert.match(listSource, /waitForCoopSessionMetadata\(cachedSessions/);
 });
 
 test("the project router rejects moving Coop home and channels", function () {
