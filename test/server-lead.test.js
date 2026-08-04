@@ -52,7 +52,7 @@ test("registerLeadProject registers lead pseudo-project when lead mode is enable
   assert.strictEqual(h.calls[0].cwd, serverLead.getLeadWorkspaceDir());
   assert.notStrictEqual(h.calls[0].cwd, h.clayCwd);
   assert.strictEqual(h.calls[0].slug, "lead");
-  assert.strictEqual(h.calls[0].name, "Lead");
+  assert.strictEqual(h.calls[0].name, "Coop");
   assert.strictEqual(h.calls[0].ownerId, "owner-1");
   assert.deepStrictEqual(h.calls[0].extra, { isLead: true });
   assert.strictEqual(h.projects[0].isLead, true);
