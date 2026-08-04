@@ -12,6 +12,18 @@ test("worker preview defaults to one compact expandable row", function () {
     path.join(__dirname, "../lib/public/css/input.css"),
     "utf8"
   );
+  var sidebarSource = fs.readFileSync(
+    path.join(__dirname, "../lib/public/modules/sidebar-sessions.js"),
+    "utf8"
+  );
+  var sidebarCss = fs.readFileSync(
+    path.join(__dirname, "../lib/public/css/sidebar.css"),
+    "utf8"
+  );
+  var orchestratorSource = fs.readFileSync(
+    path.join(__dirname, "../lib/project-task-orchestrator.js"),
+    "utf8"
+  );
 
   assert.match(source, /var MAX_PREVIEW_WORKERS = 3/);
   assert.match(source, /summary\.setAttribute\("aria-expanded", isExpanded \? "true" : "false"\)/);
@@ -21,4 +33,9 @@ test("worker preview defaults to one compact expandable row", function () {
   assert.match(css, /\.orchestration-task-summary\s*\{[^}]*min-height:\s*42px[^}]*overflow:\s*hidden/s);
   assert.match(css, /\.orchestration-task-list\s*\{[^}]*max-height:\s*min\(240px,\s*30dvh\)[^}]*overflow-y:\s*auto/s);
   assert.match(css, /@media\s*\(max-width:\s*768px\)[\s\S]*\.orchestration-task-list\s*\{[^}]*max-height:\s*min\(168px,\s*22dvh\)/);
+  assert.match(sidebarSource, /worker-status-" \+ orchestrationParent\.taskStatus/);
+  assert.match(sidebarCss, /\.session-vendor-dot\.worker-status-completed\s*\{[^}]*background:\s*var\(--success\)/s);
+  assert.match(sidebarCss, /\.session-item\.worker-status-completed\s*\{[^}]*--worker-state-color:\s*var\(--success\)/s);
+  assert.match(sidebarCss, /box-shadow:[^;]*var\(--worker-state-color,\s*var\(--worker-color/s);
+  assert.match(orchestratorSource, /if \(statusChanged\) sm\.broadcastSessionList\(\)/);
 });

@@ -104,6 +104,7 @@ test("retry attempts retain coordinator grouping with distinct attempt numbers",
     taskId: taskId,
     sessionId: 10,
     workerColor: "#F0B35A",
+    taskStatus: null,
     attempt: 1,
     attemptCount: 3,
     historical: true,
@@ -113,6 +114,7 @@ test("retry attempts retain coordinator grouping with distinct attempt numbers",
     taskId: taskId,
     sessionId: 10,
     workerColor: "#F0B35A",
+    taskStatus: null,
     attempt: 2,
     attemptCount: 3,
     historical: true,
@@ -126,10 +128,34 @@ test("retry attempts retain coordinator grouping with distinct attempt numbers",
     taskId: taskId,
     sessionId: 10,
     workerColor: "#F0B35A",
+    taskStatus: null,
     attempt: 3,
     attemptCount: 3,
     historical: false,
   });
+});
+
+test("worker grouping projects the coordinator task status for sidebar parity", function () {
+  var coordinator = {
+    localId: 20,
+    orchestrationTasks: [{
+      taskId: "task-complete",
+      status: "completed",
+      workerColor: "#36C6A7",
+    }],
+  };
+  var worker = {
+    localId: 21,
+    orchestrationParent: {
+      taskId: "task-complete",
+      sessionId: 20,
+      workerColor: "#36C6A7",
+    },
+  };
+
+  var groups = buildOrchestrationSessionGroups([coordinator, worker]);
+
+  assert.equal(groups[21].taskStatus, "completed");
 });
 
 test("worker completion requires an explicit verified completion report", function () {

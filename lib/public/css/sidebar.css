@@ -1015,12 +1015,21 @@
   padding-left: 8px;
   border-radius: 8px;
   font-size: 12px;
-  box-shadow: inset 2px 0 0 var(--worker-color, var(--border));
+  box-shadow: inset 2px 0 0 var(--worker-state-color, var(--worker-color, var(--border)));
 }
 
 .session-item.session-coordinator-worker .session-role-badge.worker {
-  color: var(--worker-color, var(--text-dimmer));
+  color: var(--worker-state-color, var(--worker-color, var(--text-dimmer)));
 }
+
+.session-item.worker-status-queued { --worker-state-color: var(--text-muted); }
+.session-item.worker-status-ready,
+.session-item.worker-status-running { --worker-state-color: var(--accent); }
+.session-item.worker-status-completed { --worker-state-color: var(--success); }
+.session-item.worker-status-failed { --worker-state-color: var(--danger, #e5534b); }
+.session-item.worker-status-blocked,
+.session-item.worker-status-reviewing,
+.session-item.worker-status-needs_input { --worker-state-color: var(--warning, #d99824); }
 
 .session-item.drag-over-above::before,
 .session-item.drag-over-below::after {
@@ -1065,6 +1074,19 @@
 }
 .session-vendor-dot.codex { background: #4a9eff; }
 .session-vendor-dot.claude { background: #da7756; }
+.session-vendor-dot.worker-status-queued { background: var(--text-muted); }
+.session-vendor-dot.worker-status-ready,
+.session-vendor-dot.worker-status-running {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-15, rgba(255, 184, 108, 0.15));
+}
+.session-vendor-dot.worker-status-completed { background: var(--success); }
+.session-vendor-dot.worker-status-failed { background: var(--danger, #e5534b); }
+.session-vendor-dot.worker-status-blocked,
+.session-vendor-dot.worker-status-reviewing,
+.session-vendor-dot.worker-status-needs_input {
+  background: var(--warning, #d99824);
+}
 .session-vendor-dot.processing {
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.14);
   animation: vendor-dot-pulse 1.1s ease-in-out infinite;
