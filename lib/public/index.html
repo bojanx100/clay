@@ -1865,15 +1865,14 @@
       <button class="add-project-mode-btn" data-mode="clone">Clone from GitHub</button>
     </div>
     <div class="add-project-body">
-      <div class="add-project-panel active" data-panel="existing">
+      <div class="add-project-panel active" data-panel="path">
+        <label class="add-project-field-label" id="add-project-path-label" for="add-project-input">Existing project folder</label>
         <div class="add-project-input-wrap">
           <span id="add-project-prefix" class="add-project-prefix hidden"></span>
-          <input type="text" id="add-project-input" placeholder="/" autocomplete="off" spellcheck="false">
+          <input type="text" id="add-project-input" placeholder="/path/to/project" autocomplete="off" spellcheck="false">
           <div id="add-project-suggestions" class="hidden"></div>
         </div>
-      </div>
-      <div class="add-project-panel" data-panel="create">
-        <input type="text" id="add-project-create-input" placeholder="Project name" autocomplete="off" spellcheck="false">
+        <div class="add-project-field-hint" id="add-project-path-hint">Select the folder that already contains your project.</div>
       </div>
       <div class="add-project-panel" data-panel="clone">
         <input type="text" id="add-project-clone-input" placeholder="https://github.com/user/repo" autocomplete="off" spellcheck="false">

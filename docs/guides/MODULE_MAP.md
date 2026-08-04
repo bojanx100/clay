@@ -103,6 +103,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-scheduled-messages.js` | Scheduled message queue dispatch, manual send-now, usage-credit continues, restart auto-resume, and timer restoration |
 | `project-provider-failover.js` | Healthy fallback-route selection, automatic provider switch, and interrupted-turn continuation |
 | `lib/public/modules/project-settings-continuation.js` | Per-project comparable-model auto-continue toggle state and WebSocket round trip |
+| `lib/public/modules/add-project-modal.js` | Add-project modal modes, shared existing/new folder picker, clone input, and project creation result handling |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
