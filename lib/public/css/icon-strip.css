@@ -221,9 +221,7 @@
   transition: opacity 0.2s, background 0.3s;
 }
 
-/* Show dot only on active item or when processing */
-.icon-strip-item.active .icon-strip-status,
-.icon-strip-wt-item.active .icon-strip-status,
+/* Show the dot only while the project or Mate is actively working. */
 .icon-strip-status.processing {
   opacity: 1;
 }
@@ -279,10 +277,6 @@
   pointer-events: none;
 }
 
-.icon-strip-mate.active .icon-strip-status {
-  opacity: 1;
-  background: var(--success);
-}
 @keyframes permShake {
   0%, 8% { transform: translateX(0); }
   1% { transform: translateX(-2px); }
