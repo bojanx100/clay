@@ -63,7 +63,7 @@ test("the project router rejects moving Coop home and channels", function () {
   assert.strictEqual(sm.sessions.get(channel.localId), channel);
 });
 
-test("Coop role labels switch back to ordinary session language without changing actions", async function () {
+test("Coop hides unsupported task controls and keeps Prioritize role language", async function () {
   var labels = await import("../lib/public/modules/queued-messages.js");
   var span = { textContent: "" };
   var attributes = { "data-tip": "" };
@@ -77,17 +77,18 @@ test("Coop role labels switch back to ordinary session language without changing
   };
 
   labels.applyComposerActionLabels(button, { activeCoopHome: true });
-  assert.strictEqual(span.textContent, "Delegate");
-  assert.match(attributes["aria-label"], /Delegate/);
-  assert.match(button.title, /Delegate/);
-  assert.match(attributes["data-tip"], /Delegate/);
+  assert.strictEqual(button.hidden, true);
+  assert.strictEqual(button.disabled, true);
+  assert.strictEqual(attributes["aria-hidden"], "true");
+  assert.strictEqual(span.textContent, "Task");
+  assert.strictEqual(attributes["aria-label"], "Send as task");
+  assert.strictEqual(labels.canUseTaskIntent({ activeCoopHome: true }), false);
 
   var coopQueue = labels.coopActionLabels({
     activeCoopChannel: { projectSlug: "webapp" },
   });
-  assert.strictEqual(coopQueue.queuedCoordinateLabel, "Delegate now");
-  assert.strictEqual(coopQueue.queuedCoordinateTitle,
-    "Delegate this queued message to a background worker now");
+  assert.strictEqual(coopQueue.queuedCoordinateVisible, false);
+  assert.strictEqual(labels.canUseTaskIntent({ activeCoopChannel: {} }), false);
   assert.strictEqual(coopQueue.queuedSteerLabel, "Prioritize");
   assert.strictEqual(coopQueue.queuedSteerTitle,
     "Interrupt the active response and make this queued message the next priority");
@@ -96,10 +97,15 @@ test("Coop role labels switch back to ordinary session language without changing
     activeCoopHome: false,
     activeCoopChannel: null,
   });
+  assert.strictEqual(button.hidden, false);
+  assert.strictEqual(button.disabled, false);
+  assert.strictEqual(attributes["aria-hidden"], "false");
   assert.strictEqual(span.textContent, "Task");
   assert.strictEqual(attributes["aria-label"], "Send as task");
   assert.strictEqual(button.title, "Send as task (Option/Alt+Enter)");
   var ordinaryQueue = labels.coopActionLabels({});
+  assert.strictEqual(labels.canUseTaskIntent({}), true);
+  assert.strictEqual(ordinaryQueue.queuedCoordinateVisible, true);
   assert.strictEqual(ordinaryQueue.queuedCoordinateLabel, "Coordinate");
   assert.strictEqual(ordinaryQueue.queuedCoordinateTitle,
     "Run this in a background worker with conversation context");
@@ -116,7 +122,33 @@ test("Coop role labels switch back to ordinary session language without changing
   assert.match(queueSource,
     /applyComposerActionLabels\(document\.getElementById\("task-btn"\), state\)/);
   assert.match(queueSource, /state\.activeCoopChannel !== prev\.activeCoopChannel/);
-  assert.match(inputSource, /sendMessage\(\{ intent: "task" \}\)/);
+  assert.match(inputSource,
+    /e\.altKey && canUseTaskIntent\(store\.snap\(\)\) \? "task" : "chat"/);
+  assert.match(inputSource,
+    /hasSendableContent\(\) && canUseTaskIntent\(store\.snap\(\)\)/);
+  assert.match(inputSource,
+    /taskIntentAvailable = canUseTaskIntent\(store\.snap\(\)\)/);
+  assert.match(queueSource, /if \(!actionLabels\.queuedCoordinateVisible\) return null/);
+  assert.match(queueSource, /if \(taskBtn\) row\.appendChild\(taskBtn\)/);
   assert.match(queueSource, /type: "coordinate_queued_message"/);
   assert.match(queueSource, /type: "steer_queued_message"/);
+});
+
+test("Delegate stays gated until Coop task intent reaches the canonical project coordinator", async function () {
+  var actions = await import("../lib/public/modules/queued-messages.js");
+  assert.strictEqual(actions.coopTaskIntentRoutesToCanonicalProjectCoordinator(), false);
+  var home = actions.coopActionLabels({ activeCoopHome: true });
+  var channel = actions.coopActionLabels({
+    activeCoopChannel: { projectSlug: "webapp" },
+  });
+  assert.strictEqual(home.composerTaskVisible, false);
+  assert.strictEqual(home.queuedCoordinateVisible, false);
+  assert.strictEqual(channel.composerTaskVisible, false);
+  assert.strictEqual(channel.queuedCoordinateVisible, false);
+
+  var queueSource = source("queued-messages.js");
+  assert.match(queueSource,
+    /return true only after Coop task intent routes[\s\S]*canonical coordinator/);
+  assert.match(queueSource,
+    /return coopTaskIntentRoutesToCanonicalProjectCoordinator\(\)/);
 });
