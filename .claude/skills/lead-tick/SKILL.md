@@ -38,6 +38,16 @@ Never orchestrate with the switch off (§1.1).
   unhealthy (boss incident 2026-08-04: Claude credits exhausted for 64h;
   ticks must survive a vendor-wide outage by failing over, or `wait` with
   the reason when no vendor can serve the tier).
+- **Budget**: build today's burn snapshot with
+  `require("./lib/lead-budget").buildDailyBudget(sessions, { dayStartAt: <local midnight epoch-ms>, vendorCostRank: { codex: 1, claude: 2 } })`
+  where `sessions` are `[{ vendor, createdAt, history }]` loaded from
+  `~/.clay/sessions/<scope>/*.jsonl` — line 1 is the meta object
+  (supplies `vendor`/`createdAt`), remaining lines are history events;
+  the typed `result` events carry cost/usage. Pass the result as
+  `opts.budget` to every `routeWorkItem` call — active pressure reorders
+  vendors toward cheaper-capable and flags tier-4 staffings for
+  approval. Include `formatBurnRate(budget)` in every standup. Missing
+  telemetry means pressure UNKNOWN, never "fine".
 
 ## 2. Decide
 
