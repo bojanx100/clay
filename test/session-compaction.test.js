@@ -159,6 +159,51 @@ test("compaction transfers the permanent Coop-home role to its continuation", fu
   assert.match(started.prompt, /Continue the CTO work/);
 });
 
+test("compaction carries coopControlledBy onto the continuation session", function () {
+  var sessions = new Map();
+  var source = {
+    localId: 1,
+    storageId: "old-worker",
+    coopControlledBy: {
+      coopSessionStorageId: "coop-home",
+      since: 5,
+    },
+    title: "Controlled worker",
+    vendor: "codex",
+    history: [{ type: "user_message", text: "Continue", _ts: 1 }],
+  };
+  sessions.set(source.localId, source);
+  var sm = {
+    sessions: sessions,
+    createSessionRaw: function (opts) {
+      var session = Object.assign({
+        localId: 2,
+        history: [],
+        pendingPermissions: {},
+      }, opts);
+      sessions.set(session.localId, session);
+      return session;
+    },
+    sendAndRecord: function () {},
+    saveSessionFile: function () {},
+    switchSession: function () {},
+    broadcastSessionList: function () {},
+  };
+  var api = compaction.attachSessionCompaction({
+    cwd: process.cwd(),
+    sm: sm,
+    sdk: { startQuery: function () {} },
+    sendToSession: function () {},
+  });
+
+  var continuation = api.compactAndContinue(source, { reason: "manual" });
+
+  assert.deepEqual(continuation.coopControlledBy, {
+    coopSessionStorageId: "coop-home",
+    since: 5,
+  });
+});
+
 test("compaction transfers a scoped Coop channel into a distinct provider thread", function () {
   var sessions = new Map();
   var source = {

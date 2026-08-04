@@ -2,7 +2,8 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
 
-function testContext(existingSessions) {
+function testContext(existingSessions, options) {
+  options = options || {};
   var sessions = existingSessions || new Map();
   var nextId = 2;
   var events = [];
@@ -45,6 +46,7 @@ function testContext(existingSessions) {
     },
     onProcessingChanged: function () {},
     ensureProjectAccessForSession: function () {},
+    usersModule: options.usersModule,
     loadImagesForSdk: function (refs) {
       return refs.map(function (ref) {
         return { mediaType: ref.mediaType, data: "loaded-" + ref.file };
@@ -258,11 +260,25 @@ test("first visible worker delegation promotes an ordinary top-level session", f
   assert.equal(parent.coordinationMode, true);
   assert.equal(parent.orchestrationTasks.length, 1);
   assert.equal(ctx.starts.length, 1);
-  var promotion = ctx.events.find(function (entry) {
-    return entry.id === parent.localId && entry.event.type === "coordinator_status";
+});
+
+test("workers spawned under Coop inherit explicit control provenance", function () {
+  var ctx = testContext(undefined, {
+    usersModule: {
+      getLeadMode: function () { return true; },
+    },
   });
-  assert.ok(promotion);
-  assert.equal(promotion.event.coordinationMode, true);
+  var parent = coordinator(ctx);
+  parent.coopHome = true;
+
+  ctx.api.delegateFromTool(brief(parent));
+
+  var worker = ctx.starts[0].session;
+  assert.deepEqual(worker.coopControlledBy, {
+    coopSessionStorageId: parent.storageId,
+    since: worker.coopControlledBy.since,
+  });
+  assert.equal(typeof worker.coopControlledBy.since, "number");
 });
 
 test("worker sessions cannot promote themselves and delegate more workers", function () {
