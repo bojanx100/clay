@@ -158,3 +158,69 @@ test("compaction transfers the permanent Coop-home role to its continuation", fu
   assert.strictEqual(started.session, continuation);
   assert.match(started.prompt, /Continue the CTO work/);
 });
+
+test("compaction transfers a scoped Coop channel into a distinct provider thread", function () {
+  var sessions = new Map();
+  var source = {
+    localId: 1,
+    storageId: "old-webapp-channel",
+    cliSessionId: "provider-thread-old",
+    coopChannel: {
+      projectSlug: "webapp",
+      projectTitle: "Web App",
+      projectPath: "/repos/webapp",
+    },
+    ownerId: "owner-1",
+    sessionVisibility: "private",
+    title: "Web App",
+    titleManuallySet: true,
+    vendor: "codex",
+    history: [{ type: "user_message", text: "Continue the release", _ts: 1 }],
+  };
+  sessions.set(source.localId, source);
+  var nextLocalId = 2;
+  var started = null;
+  var sm = {
+    sessions: sessions,
+    createSessionRaw: function (opts) {
+      var session = Object.assign({
+        localId: nextLocalId++,
+        history: [],
+        pendingPermissions: {},
+      }, opts);
+      sessions.set(session.localId, session);
+      return session;
+    },
+    sendAndRecord: function (session, event) { session.history.push(event); },
+    saveSessionFile: function () {},
+    switchSession: function () {},
+    broadcastSessionList: function () {},
+  };
+  var api = compaction.attachSessionCompaction({
+    cwd: "/tmp/lead",
+    sm: sm,
+    sdk: {
+      startQuery: function (session, prompt) {
+        started = { session: session, prompt: prompt };
+      },
+    },
+    sendToSession: function () {},
+  });
+
+  var continuation = api.compactAndContinue(source, { reason: "manual" });
+
+  assert.deepEqual(continuation.coopChannel, {
+    projectSlug: "webapp",
+    projectTitle: "Web App",
+    projectPath: "/repos/webapp",
+  });
+  assert.strictEqual(source.coopChannel, undefined);
+  assert.strictEqual(source.hidden, true);
+  assert.strictEqual(continuation.ownerId, "owner-1");
+  assert.strictEqual(continuation.sessionVisibility, "private");
+  assert.strictEqual(continuation.cliSessionId, undefined);
+  assert.notStrictEqual(continuation.storageId, source.storageId);
+  assert.match(started.prompt, /^<coop_project_channel>/);
+  assert.match(started.prompt, /Canonical project checkout: \/repos\/webapp/);
+  assert.match(started.prompt, /Continue the release/);
+});

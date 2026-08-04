@@ -1016,6 +1016,46 @@
   position: relative;
 }
 
+.session-coop-channels {
+  margin: 2px 0 8px;
+}
+
+.session-coop-channels-header {
+  margin-top: 8px;
+}
+
+.session-item.session-coop-home {
+  background: rgba(var(--accent-rgb, 88, 87, 252), 0.1);
+  color: var(--text);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.session-coop-channel-list {
+  margin: 3px 0 4px 17px;
+  padding-left: 9px;
+  border-left: 1px solid var(--border);
+}
+
+.session-item.session-coop-channel {
+  height: 31px;
+  padding-left: 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.session-item.session-coop-channel.pending {
+  color: var(--text-dimmer);
+  font-weight: 500;
+}
+
+.session-item.session-coop-channel.pending svg {
+  width: 13px;
+  height: 13px;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+
 .session-item.session-coordinator-parent {
   background: rgba(var(--accent-rgb, 88, 87, 252), 0.08);
   color: var(--text);

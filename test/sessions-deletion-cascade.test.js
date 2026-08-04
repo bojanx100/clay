@@ -90,11 +90,13 @@ test("hiding a plain session does not touch other sessions", function () {
   assert.strictEqual(other.hidden, undefined);
 });
 
-test("the Coop home cannot be hidden or deleted through deletion APIs", function () {
+test("Coop home and project channels cannot be hidden or deleted through deletion APIs", function () {
   var sessions = new Map();
   var home = { localId: 1, storageId: "coop-home", coopHome: true };
-  var ordinary = { localId: 2, storageId: "ordinary" };
+  var channel = { localId: 2, storageId: "coop-webapp", coopChannel: { projectSlug: "webapp" } };
+  var ordinary = { localId: 3, storageId: "ordinary" };
   sessions.set(home.localId, home);
+  sessions.set(channel.localId, channel);
   sessions.set(ordinary.localId, ordinary);
 
   var saved = [];
@@ -103,10 +105,14 @@ test("the Coop home cannot be hidden or deleted through deletion APIs", function
   api.hideSessionForActiveClients(home.localId);
   api.deleteSession(home.localId, null);
   api.deleteSessionQuiet(home.localId);
-  api.deleteSessionsBulk([home.localId, ordinary.localId], null);
+  api.hideSession(channel.localId, null);
+  api.deleteSession(channel.localId, null);
+  api.deleteSessionsBulk([home.localId, channel.localId, ordinary.localId], null);
 
   assert.strictEqual(home.hidden, undefined);
   assert.strictEqual(sessions.get(home.localId), home);
+  assert.strictEqual(channel.hidden, undefined);
+  assert.strictEqual(sessions.get(channel.localId), channel);
   assert.strictEqual(sessions.has(ordinary.localId), false);
   assert.strictEqual(saved.indexOf(home), -1);
 });

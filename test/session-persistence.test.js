@@ -110,6 +110,39 @@ test("Lead upgrade promotes the most recently viewed ordinary root session", asy
   }
 });
 
+test("project-scoped Coop channels persist separately from Coop home", async function () {
+  var h = makeSessionHarness({ isLead: true });
+  try {
+    var channel = h.sm.createSessionRaw({
+      storageId: "coop-webapp-channel",
+      coopChannel: {
+        projectSlug: "webapp",
+        projectTitle: "Web App",
+        projectPath: "/repos/webapp",
+      },
+    });
+    channel.title = "Web App";
+    h.sm.saveSessionFile(channel);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var homes = [...restored.sessions.values()].filter(function (session) { return session.coopHome; });
+    var channels = [...restored.sessions.values()].filter(function (session) { return session.coopChannel; });
+    assert.strictEqual(homes.length, 1);
+    assert.strictEqual(channels.length, 1);
+    assert.strictEqual(channels[0].storageId, "coop-webapp-channel");
+    assert.strictEqual(channels[0].coopChannel.projectPath, "/repos/webapp");
+    assert.notStrictEqual(homes[0].localId, channels[0].localId);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
 function sessionFile(h, storageId) {
   return path.join(h.sessionsDir, storageId + ".jsonl");
 }
