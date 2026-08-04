@@ -63,6 +63,43 @@ test("collectItemSessionIds: loop item collects only numeric-id visible children
   assert.deepEqual(m.collectItemSessionIds(item, new Set([5])), [5]);
 });
 
+test("collectItemSessionIds: unknown item type contributes no ids", async function () {
+  var m = await loadModel();
+  assert.deepEqual(m.collectItemSessionIds({ type: "unknown" }, null), []);
+  assert.deepEqual(m.collectItemSessionIds(null, null), []);
+});
+
+test("buildSessionListItems: coordinator children are sorted by recency, most recent first", async function () {
+  var m = await loadModel();
+  var coordinator = { id: 1, coordinationMode: true, lastActivity: 1 };
+  var olderWorker = { id: 2, orchestrationParent: { sessionId: 1 }, lastActivity: 5 };
+  var newerWorker = { id: 3, orchestrationParent: { sessionId: 1 }, lastActivity: 50 };
+  var partition = m.partitionSessionList([coordinator, olderWorker, newerWorker]);
+  var items = m.buildSessionListItems(partition.normalSessions, partition.loopGroups);
+  var coordinatorItem = items.find(function (i) { return i.type === "coordinator"; });
+  assert.deepEqual(coordinatorItem.children.map(function (c) { return c.id; }), [3, 2]);
+});
+
+test("buildSessionListModel: a coordinator whose parent row is filtered by search still surfaces via a visible child", async function () {
+  var m = await loadModel();
+  var coordinator = { id: 1, coordinationMode: true, lastActivity: 1 };
+  var worker = { id: 2, orchestrationParent: { sessionId: 1 }, lastActivity: 10 };
+  var getDateGroup = function () { return "Today"; };
+
+  var model = m.buildSessionListModel([coordinator, worker], {
+    frozenOrder: null,
+    frozenOrderSlug: null,
+    currentSlug: "slug-1",
+    // Coordinator id 1 itself is not a search match, but its child (2) is.
+    searchMatchIds: new Set([2]),
+    getDateGroup: getDateGroup,
+  });
+
+  var coordinatorItem = model.regularItems.find(function (i) { return i.type === "coordinator"; });
+  assert.ok(coordinatorItem, "coordinator item should remain visible via its matching child");
+  assert.equal(coordinatorItem.data.id, 1);
+});
+
 test("sessionListSignature: differs when active loop/coordinator state changes", async function () {
   var m = await loadModel();
   var base = [{ id: 1, lastActivity: 1, active: true, loop: { loopId: "loop-a" } }];
