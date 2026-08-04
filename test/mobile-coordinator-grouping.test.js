@@ -26,6 +26,47 @@ test("mobile session sheet nests workers beneath coordinators by default", async
   assert.deepEqual(items[1].children.map(function (session) { return session.id; }), [12, 11]);
 });
 
+test("mobile coordinator grouping leaves orphaned and non-coordinator children visible", async function () {
+  var modulePath = path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile-coordinators.js");
+  var coordinatorModule = await import(pathToFileURL(modulePath).href);
+  var ordinaryParent = { id: 20, lastActivity: 30 };
+  var ordinaryChild = { id: 21, orchestrationParent: { sessionId: 20 }, lastActivity: 20 };
+  var orphanedWorker = { id: 22, orchestrationParent: { sessionId: 999 }, lastActivity: 10 };
+
+  var items = coordinatorModule.buildMobileCoordinatorItems([
+    ordinaryParent,
+    ordinaryChild,
+    orphanedWorker
+  ]);
+
+  assert.deepEqual(items.map(function (item) { return item.data.id; }), [20, 21, 22]);
+  assert.ok(items.every(function (item) { return item.type === "session"; }));
+});
+
+test("mobile coordinator grouping prefers the durable group parent", async function () {
+  var modulePath = path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile-coordinators.js");
+  var coordinatorModule = await import(pathToFileURL(modulePath).href);
+  var firstCoordinator = { id: 30, coordinationMode: true, lastActivity: 30 };
+  var secondCoordinator = { id: 31, coordinationMode: true, lastActivity: 20 };
+  var worker = {
+    id: 32,
+    orchestrationGroupParent: { sessionId: 31 },
+    orchestrationParent: { sessionId: 30 },
+    lastActivity: 10
+  };
+
+  var items = coordinatorModule.buildMobileCoordinatorItems([
+    firstCoordinator,
+    secondCoordinator,
+    worker
+  ]);
+
+  assert.equal(items[0].type, "session");
+  assert.equal(items[0].data.id, 30);
+  assert.equal(items[1].type, "coordinator");
+  assert.deepEqual(items[1].children.map(function (session) { return session.id; }), [32]);
+});
+
 test("coordinator groups collapse worker overflow behind shared controls", function () {
   var source = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"),
