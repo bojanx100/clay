@@ -92,3 +92,42 @@ test("routing: rationale is always present and human-readable", function () {
   assert.ok(r.rationale.indexOf("->") !== -1);
   assert.ok(/escalated/.test(r.rationale));
 });
+
+// --- Backtest calibration (f39716873c follow-up) ------------------------------
+// The title drives high risk; machine-generated bodies (stack traces, Sentry
+// dumps) that name-drop auth/security must not push a fix to tier 4.
+
+test("calibration: body-only high-risk match caps at medium", function () {
+  var c = routing.classifyWorkItem({
+    title: "Dropdown inconsistency",
+    body: "Stack trace mentions authentication middleware and security headers",
+  });
+  assert.strictEqual(c.risk, "medium");
+});
+
+test("calibration: high-risk keyword in the title still routes high", function () {
+  var c = routing.classifyWorkItem({ title: "Auth: stale session expiry epochs" });
+  assert.strictEqual(c.risk, "high");
+});
+
+test("calibration: title class wins over a different body class", function () {
+  var c = routing.classifyWorkItem({
+    title: "Review the audit trail export",
+    body: "There is a bug and a crash in the report generation",
+  });
+  // both match: title says review, body says debugging — title wins
+  assert.strictEqual(c.taskClass, "review");
+});
+
+test("calibration: body class is still the fallback for a classless title", function () {
+  var c = routing.classifyWorkItem({
+    title: "Left align column names",
+    body: "This causes a crash in the grid renderer",
+  });
+  assert.strictEqual(c.taskClass, "debugging");
+});
+
+test("calibration: clean item stays low risk", function () {
+  var c = routing.classifyWorkItem({ title: "Left align column names", body: "" });
+  assert.strictEqual(c.risk, "low");
+});
