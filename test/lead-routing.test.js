@@ -93,6 +93,43 @@ test("routing: rationale is always present and human-readable", function () {
   assert.ok(/escalated/.test(r.rationale));
 });
 
+test("routing: budget pressure prefers the cheaper capable vendor at the same tier", function () {
+  var r = routing.routeWorkItem({ taskClass: "debugging", risk: "low" }, {
+    budgetPressure: {
+      active: true,
+      vendorCostRank: { codex: 1, claude: 2 },
+      cheaperVendor: "codex",
+    },
+  });
+  assert.strictEqual(r.vendor, "codex", "debugging normally prefers claude");
+  assert.strictEqual(r.model, routing.MODEL_TABLE.codex[2]);
+  assert.strictEqual(r.tier, 2, "budget pressure must not downgrade capability");
+  assert.ok(/cheaper capable vendor/.test(r.rationale));
+});
+
+test("routing: cheaper vendor must still be healthy and capable at the requested tier", function () {
+  var r = routing.routeWorkItem({ taskClass: "debugging", risk: "medium" }, {
+    health: { codex: "unhealthy" },
+    budgetPressure: { active: true, cheaperVendor: "codex" },
+  });
+  assert.strictEqual(r.vendor, "claude");
+  assert.strictEqual(r.tier, 3);
+  assert.strictEqual(r.model, routing.MODEL_TABLE.claude[3]);
+});
+
+test("routing: tier-4 staffing emits an approval signal under budget pressure", function () {
+  var pressured = routing.routeWorkItem({ taskClass: "design", risk: "low" }, {
+    budgetPressure: { active: true, vendorCostRank: { codex: 1, claude: 2 } },
+  });
+  assert.strictEqual(pressured.tier, 4);
+  assert.strictEqual(pressured.needsApproval, true);
+  assert.ok(/tier-4 staffing/.test(pressured.approvalReason));
+
+  var normal = routing.routeWorkItem({ taskClass: "design", risk: "low" }, {});
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(normal, "needsApproval"), false,
+    "default route shape stays backward compatible");
+});
+
 // --- Backtest calibration (f39716873c follow-up) ------------------------------
 // The title drives high risk; machine-generated bodies (stack traces, Sentry
 // dumps) that name-drop auth/security must not push a fix to tier 4.

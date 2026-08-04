@@ -84,3 +84,35 @@ test("noisy canaries poison trust explicitly", function () {
   assert.ok(/NOT quiet/.test(out.text));
   assert.ok(/investigate before trusting green gates/.test(out.text));
 });
+
+test("Health renders typed daily vendor burn rate and pressure", function () {
+  var out = standup.composeStandup({
+    now: NOW,
+    events: [],
+    canaries: { recoveryEvents: 0, wsHandlerErrors: 0 },
+    budget: {
+      type: "daily_vendor_usage",
+      dataAvailable: true,
+      byVendor: {
+        claude: {
+          turns: 2, spendUsd: 4.5, spendAvailable: true, spendComplete: true,
+          totalTokens: 12000, usageAvailable: true, usageComplete: true,
+        },
+        codex: {
+          turns: 1, spendUsd: 0, spendAvailable: false, spendComplete: false,
+          totalTokens: 3000, usageAvailable: true, usageComplete: true,
+        },
+      },
+      pressure: { active: true, known: true, ratio: 0.84 },
+    },
+  });
+  assert.ok(/## Health/.test(out.text));
+  assert.ok(/burn rate today: claude \$4\.50, 12,000 tokens \(2 turns\)/.test(out.text));
+  assert.ok(/codex spend unavailable, 3,000 tokens \(1 turn\)/.test(out.text));
+  assert.ok(/budget pressure 84%/.test(out.text));
+});
+
+test("Health states when burn-rate data is unavailable", function () {
+  var out = standup.composeStandup({ now: NOW, events: [] });
+  assert.ok(/burn rate unavailable/.test(out.text));
+});
