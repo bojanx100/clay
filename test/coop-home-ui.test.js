@@ -62,3 +62,61 @@ test("the project router rejects moving Coop home and channels", function () {
   assert.match(messages[1].text, /cannot be moved/);
   assert.strictEqual(sm.sessions.get(channel.localId), channel);
 });
+
+test("Coop role labels switch back to ordinary session language without changing actions", async function () {
+  var labels = await import("../lib/public/modules/queued-messages.js");
+  var span = { textContent: "" };
+  var attributes = { "data-tip": "" };
+  var button = {
+    title: "",
+    querySelector: function () { return span; },
+    setAttribute: function (name, value) { attributes[name] = value; },
+    hasAttribute: function (name) {
+      return Object.prototype.hasOwnProperty.call(attributes, name);
+    },
+  };
+
+  labels.applyComposerActionLabels(button, { activeCoopHome: true });
+  assert.strictEqual(span.textContent, "Delegate");
+  assert.match(attributes["aria-label"], /Delegate/);
+  assert.match(button.title, /Delegate/);
+  assert.match(attributes["data-tip"], /Delegate/);
+
+  var coopQueue = labels.coopActionLabels({
+    activeCoopChannel: { projectSlug: "webapp" },
+  });
+  assert.strictEqual(coopQueue.queuedCoordinateLabel, "Delegate now");
+  assert.strictEqual(coopQueue.queuedCoordinateTitle,
+    "Delegate this queued message to a background worker now");
+  assert.strictEqual(coopQueue.queuedSteerLabel, "Prioritize");
+  assert.strictEqual(coopQueue.queuedSteerTitle,
+    "Interrupt the active response and make this queued message the next priority");
+
+  labels.applyComposerActionLabels(button, {
+    activeCoopHome: false,
+    activeCoopChannel: null,
+  });
+  assert.strictEqual(span.textContent, "Task");
+  assert.strictEqual(attributes["aria-label"], "Send as task");
+  assert.strictEqual(button.title, "Send as task (Option/Alt+Enter)");
+  var ordinaryQueue = labels.coopActionLabels({});
+  assert.strictEqual(ordinaryQueue.queuedCoordinateLabel, "Coordinate");
+  assert.strictEqual(ordinaryQueue.queuedCoordinateTitle,
+    "Run this in a background worker with conversation context");
+  assert.strictEqual(ordinaryQueue.queuedSteerLabel, "Steer");
+  assert.strictEqual(ordinaryQueue.queuedSteerTitle,
+    "Send this queued message into the active response");
+
+  var sessionSource = source("app-messages-sessions.js");
+  var inputSource = source("input.js");
+  var queueSource = source("queued-messages.js");
+  assert.match(sessionSource, /activeCoopHome: !!msg\.coopHome/);
+  assert.match(sessionSource, /activeCoopChannel: msg\.coopChannel \|\| null/);
+  assert.match(sessionSource, /syncActiveCoopConversation\(msg\.sessions \|\| \[\]\)/);
+  assert.match(queueSource,
+    /applyComposerActionLabels\(document\.getElementById\("task-btn"\), state\)/);
+  assert.match(queueSource, /state\.activeCoopChannel !== prev\.activeCoopChannel/);
+  assert.match(inputSource, /sendMessage\(\{ intent: "task" \}\)/);
+  assert.match(queueSource, /type: "coordinate_queued_message"/);
+  assert.match(queueSource, /type: "steer_queued_message"/);
+});
