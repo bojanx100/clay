@@ -6,11 +6,15 @@ function setup(session) {
   var direct = [];
   var sessionMessages = [];
   var hidden = [];
+  var deleted = [];
+  var bulkDeleted = [];
   var sm = {
     sessions: new Map([[session.localId, session]]),
     saveSessionFile: function () {},
     broadcastSessionList: function () {},
     hideSession: function (id) { hidden.push(id); },
+    deleteSession: function (id) { deleted.push(id); },
+    deleteSessionsBulk: function (ids) { bulkDeleted.push(ids.slice()); },
   };
   var handler = attachProjectSessionsRecords({
     cwd: process.cwd(),
@@ -30,7 +34,7 @@ function setup(session) {
     loadContextSources: function () { return []; },
     stopTitleWatcher: function () {},
   });
-  return { handler: handler, direct: direct, sessionMessages: sessionMessages, hidden: hidden, sm: sm };
+  return { handler: handler, direct: direct, sessionMessages: sessionMessages, hidden: hidden, deleted: deleted, bulkDeleted: bulkDeleted, sm: sm };
 }
 
 test("an idle coordinator demotes immediately without losing task history", function () {
@@ -159,4 +163,24 @@ test("closing a coordinator asks before archiving a worker that needs attention"
   assert.deepEqual(state.hidden, [worker.localId, session.localId]);
   assert.equal(worker.orchestrationParent, null);
   assert.equal(task.status, "cancelled");
+});
+
+test("record handlers reject hide, delete, and bulk-delete of the Coop home", function () {
+  var home = { localId: 12, title: "Coop", coopHome: true };
+  var ordinary = { localId: 13, title: "Ordinary" };
+  var state = setup(home);
+  state.sm.sessions.set(ordinary.localId, ordinary);
+
+  state.handler.handleRecordsMessage({}, { type: "hide_session", id: home.localId });
+  assert.match(state.direct.at(-1).text, /cannot be hidden/);
+  state.handler.handleRecordsMessage({}, { type: "delete_session", id: home.localId });
+  assert.match(state.direct.at(-1).text, /cannot be deleted/);
+  state.handler.handleRecordsMessage({}, {
+    type: "bulk_delete_sessions",
+    sessionIds: [home.localId, ordinary.localId],
+  });
+
+  assert.deepEqual(state.hidden, []);
+  assert.deepEqual(state.deleted, []);
+  assert.deepEqual(state.bulkDeleted, [[ordinary.localId]]);
 });

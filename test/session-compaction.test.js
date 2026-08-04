@@ -109,3 +109,52 @@ test("Codex empty zero-usage turn triggers compact-and-continue once", function 
     return item.type === "info" && String(item.text || "").indexOf("Clay is compacting") !== -1;
   }));
 });
+
+test("compaction transfers the permanent Coop-home role to its continuation", function () {
+  var sessions = new Map();
+  var source = {
+    localId: 1,
+    storageId: "old-home",
+    coopHome: true,
+    title: "Coop",
+    titleManuallySet: true,
+    vendor: "codex",
+    history: [{ type: "user_message", text: "Continue the CTO work", _ts: 1 }],
+  };
+  sessions.set(source.localId, source);
+  var nextLocalId = 2;
+  var switchedTo = null;
+  var started = null;
+  var sm = {
+    sessions: sessions,
+    createSessionRaw: function (opts) {
+      var session = Object.assign({
+        localId: nextLocalId++,
+        history: [],
+        pendingPermissions: {},
+      }, opts);
+      sessions.set(session.localId, session);
+      return session;
+    },
+    sendAndRecord: function (session, event) { session.history.push(event); },
+    saveSessionFile: function () {},
+    switchSession: function (id) { switchedTo = id; },
+    broadcastSessionList: function () {},
+  };
+  var api = compaction.attachSessionCompaction({
+    cwd: "/tmp/project",
+    sm: sm,
+    sdk: { startQuery: function (session, prompt) { started = { session: session, prompt: prompt }; } },
+    sendToSession: function () {},
+  });
+
+  var continuation = api.compactAndContinue(source, { reason: "manual" });
+
+  assert.strictEqual(continuation.coopHome, true);
+  assert.strictEqual(source.coopHome, undefined);
+  assert.strictEqual(source.hidden, true);
+  assert.strictEqual(continuation.title, "Coop");
+  assert.strictEqual(switchedTo, continuation.localId);
+  assert.strictEqual(started.session, continuation);
+  assert.match(started.prompt, /Continue the CTO work/);
+});

@@ -89,3 +89,24 @@ test("hiding a plain session does not touch other sessions", function () {
   assert.strictEqual(plain.hidden, true);
   assert.strictEqual(other.hidden, undefined);
 });
+
+test("the Coop home cannot be hidden or deleted through deletion APIs", function () {
+  var sessions = new Map();
+  var home = { localId: 1, storageId: "coop-home", coopHome: true };
+  var ordinary = { localId: 2, storageId: "ordinary" };
+  sessions.set(home.localId, home);
+  sessions.set(ordinary.localId, ordinary);
+
+  var saved = [];
+  var api = sessionsDeletion.attachSessionDeletion(makeCtx(sessions, saved));
+  api.hideSession(home.localId, null);
+  api.hideSessionForActiveClients(home.localId);
+  api.deleteSession(home.localId, null);
+  api.deleteSessionQuiet(home.localId);
+  api.deleteSessionsBulk([home.localId, ordinary.localId], null);
+
+  assert.strictEqual(home.hidden, undefined);
+  assert.strictEqual(sessions.get(home.localId), home);
+  assert.strictEqual(sessions.has(ordinary.localId), false);
+  assert.strictEqual(saved.indexOf(home), -1);
+});

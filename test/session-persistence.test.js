@@ -10,7 +10,7 @@ function clearSessionModuleCache() {
   delete require.cache[require.resolve("../lib/sessions")];
 }
 
-function makeSessionHarness() {
+function makeSessionHarness(managerOverrides) {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
   var oldClayHome = process.env.CLAY_HOME;
@@ -19,10 +19,11 @@ function makeSessionHarness() {
 
   var utils = require("../lib/utils");
   var sessionsDir = path.join(tmpHome, "sessions", utils.encodeCwd(projectDir));
-  var sm = require("../lib/sessions").createSessionManager({
+  var managerOptions = Object.assign({
     cwd: projectDir,
     send: function () {},
-  });
+  }, managerOverrides || {});
+  var sm = require("../lib/sessions").createSessionManager(managerOptions);
 
   return {
     tmpHome: tmpHome,
@@ -39,6 +40,75 @@ function makeSessionHarness() {
     },
   };
 }
+
+test("Lead sessions keep exactly one durable, protected Coop home", async function () {
+  var h = makeSessionHarness({ isLead: true });
+  try {
+    var home = [...h.sm.sessions.values()].find(function (session) { return session.coopHome; });
+    assert.ok(home, "initial Lead session is the Coop home");
+    assert.strictEqual(h.sm.activeSessionId, home.localId);
+
+    home.storageId = "coop-home";
+    home.title = "Coop";
+    h.sm.saveSessionFile(home);
+    assert.strictEqual(readSessionMeta(h, "coop-home").coopHome, true);
+
+    h.sm.hideSession(home.localId, null);
+    assert.notStrictEqual(home.hidden, true);
+    h.sm.deleteSession(home.localId, null);
+    assert.strictEqual(h.sm.sessions.get(home.localId), home);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var restoredHomes = [...restored.sessions.values()].filter(function (session) { return session.coopHome; });
+    assert.strictEqual(restoredHomes.length, 1);
+    assert.strictEqual(restoredHomes[0].storageId, "coop-home");
+    assert.strictEqual(restored.activeSessionId, restoredHomes[0].localId);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("Lead upgrade promotes the most recently viewed ordinary root session", async function () {
+  var h = makeSessionHarness();
+  try {
+    var older = [...h.sm.sessions.values()][0];
+    older.storageId = "older-root";
+    older.title = "Older root";
+    older.lastViewedAt = 10;
+    h.sm.saveSessionFile(older);
+
+    var current = h.sm.createSessionRaw({ storageId: "current-root" });
+    current.title = "Current root";
+    current.lastViewedAt = 20;
+    h.sm.saveSessionFile(current);
+
+    var worker = h.sm.createSessionRaw({ storageId: "worker-root" });
+    worker.title = "Worker";
+    worker.lastViewedAt = 30;
+    worker.orchestrationParent = { taskId: "task-1", sessionId: current.localId };
+    h.sm.saveSessionFile(worker);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var homes = [...restored.sessions.values()].filter(function (session) { return session.coopHome; });
+    assert.strictEqual(homes.length, 1);
+    assert.strictEqual(homes[0].storageId, "current-root");
+    assert.strictEqual(restored.activeSessionId, homes[0].localId);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
 
 function sessionFile(h, storageId) {
   return path.join(h.sessionsDir, storageId + ".jsonl");
