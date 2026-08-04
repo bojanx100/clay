@@ -1,0 +1,84 @@
+var test = require("node:test");
+var assert = require("node:assert");
+var os = require("os");
+var path = require("path");
+var fs = require("fs");
+
+process.env.CLAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-"));
+
+var config = require("../lib/config");
+var { createCrossProjectRouter } = require("../lib/server-cross-project");
+
+function readDeadLetters() {
+  var file = config.recoveryLogPath();
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, "utf8").split("\n").filter(Boolean)
+    .map(function (line) { return JSON.parse(line); })
+    .filter(function (e) { return e.kind === "cross_project_dead_letter"; });
+}
+
+test("deliver routes an update into the target project context", function () {
+  var delivered = [];
+  var router = createCrossProjectRouter({
+    getProjectContext: function (slug) {
+      if (slug !== "lead") return null;
+      return {
+        deliverCoordinatorUpdate: function (storageId, text) {
+          delivered.push({ storageId: storageId, text: text });
+          return true;
+        },
+      };
+    },
+  });
+  var result = router.deliver("lead", "sess-1", "[Clay worker update] hello");
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(delivered.length, 1);
+  assert.strictEqual(delivered[0].storageId, "sess-1");
+  assert.strictEqual(delivered[0].text, "[Clay worker update] hello");
+});
+
+test("unknown project slug dead-letters instead of throwing", function () {
+  var before = readDeadLetters().length;
+  var router = createCrossProjectRouter({
+    getProjectContext: function () { return null; },
+  });
+  var result = router.deliver("ghost", "sess-2", "text");
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, "unknown-project");
+  var events = readDeadLetters();
+  assert.strictEqual(events.length, before + 1);
+  assert.strictEqual(events[events.length - 1].targetSlug, "ghost");
+  assert.strictEqual(events[events.length - 1].sessionStorageId, "sess-2");
+});
+
+test("missing target session dead-letters as session-not-found", function () {
+  var router = createCrossProjectRouter({
+    getProjectContext: function () {
+      return { deliverCoordinatorUpdate: function () { return false; } };
+    },
+  });
+  var result = router.deliver("lead", "gone", "text");
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, "session-not-found");
+});
+
+test("delivery exceptions are contained and dead-lettered", function () {
+  var router = createCrossProjectRouter({
+    getProjectContext: function () {
+      return { deliverCoordinatorUpdate: function () { throw new Error("boom"); } };
+    },
+  });
+  var result = router.deliver("lead", "sess-3", "text");
+  assert.strictEqual(result.ok, false);
+  assert.match(result.reason, /delivery-error: boom/);
+});
+
+test("missing slug or session id dead-letters as missing-target", function () {
+  var router = createCrossProjectRouter({
+    getProjectContext: function () {
+      throw new Error("should not be called");
+    },
+  });
+  assert.strictEqual(router.deliver("", "sess", "t").reason, "missing-target");
+  assert.strictEqual(router.deliver("lead", "", "t").reason, "missing-target");
+});

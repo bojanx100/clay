@@ -78,6 +78,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-browser-extension.js` | Browser extension auth token, shared tab state, command dispatch, and tab context request helpers |
 | `server-live-ui-registry.js` | Server-instance Live UI pairing identities, proof, reconnect credentials, deduplication, isolation, and revocation |
 | `server-lead.js` | Lead pseudo-project registration and owner/lead-mode gating helpers |
+| `server-cross-project.js` | Cross-project coordinator-update router with dead-letter logging for unroutable deliveries |
 | `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
 | `project-live-ui-reports.js` | Coordinator-owned Live UI report creation, React/source context, worker-color identity, compact status relay, and verified worker cleanup |
 | `project-live-ui-context.js` | Bounded DOM/React selection-packet validation, safe source paths, sensitive-field exclusion, PII scrubbing, and fingerprints |

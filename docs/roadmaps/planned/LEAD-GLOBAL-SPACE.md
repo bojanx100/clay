@@ -61,15 +61,20 @@ identity. It should ride the same rails.
 - Standups render in the Lead space; a small unread badge when a new
   standup or approval request lands.
 
-### Slice 3 — Cross-project worker updates (the real gap)
+### Slice 3 — Cross-project worker updates (the real gap) — SHIPPED (router primitive)
 
 - Today `[Clay worker update]` injection is same-project only
   (`lib/project-task-orchestrator.js:113-130`).
-- Add a daemon-level router: when a worker's coordinator lives in another
-  scope, look up the target context in the `projects` Map by slug
-  (`lib/server.js:168`) and call that context's `sendToSession`.
-- This unlocks the roadmap's cross-repo staffing: Lead staffs a worker in
-  webapp's checkout; the result routes back to `/p/lead`.
+- Shipped: daemon-level router `lib/server-cross-project.js` — server.js
+  binds it to the `projects` Map and passes it into every project context
+  (`ctx.crossProject.deliver(slug, sessionStorageId, text)`); each context
+  exposes `deliverCoordinatorUpdate(sessionStorageId, text)` which queues a
+  coordinator update on the target session. Unroutable deliveries are
+  recorded as `cross_project_dead_letter` events in the recovery log.
+- Remaining (migration step): producers — tag cross-scope workers with the
+  coordinator's project slug and call the router from the worker-completion
+  path so Lead staffs a worker in another checkout and the result routes
+  back to `/p/lead`.
 
 ### Non-goals
 
