@@ -372,6 +372,31 @@ Binding decisions (recorded here so neither track builds a duplicate):
    backlog; CTO design items ending "Changed, needs review" surface to the
    boss as Live UI review sessions; Coop speaks the daily standup and takes
    spoken approvals.
+7. **Three-axis model (owner decision, 2026-08-04).** Scope, initiative,
+   and channel are separate axes; "two power levels" understates it.
+   - *Scope*: one agent above all projects (the Coop/Lead space).
+   - *Initiative*: a **dial per decision class**, not a binary. The
+     approval gate sits at **backlog admission**: work is discussed with
+     the boss (plan, iterate, check — confirm goals, straighten problem
+     understanding) and admitted to the backlog; once admitted, execution
+     is autonomous — no per-item "may I take it". The boss's touchpoints
+     are plan/goal discussions and accepting verified results, not
+     dispatch. Classes are promoted from gated to autonomous as measured
+     trust (backtest alignment, gate pass rate) earns it. Self-modification
+     and spend beyond the budget dial stay approval-class regardless.
+   - *Channel*: text or voice carry the SAME decision engine, but
+     autonomy is **not channel-blind**: trust is measured per class ×
+     channel (voice approvals review less evidence, so voice-gated classes
+     promote more slowly), and reports must compose per channel (a spoken
+     digest is not a rendered table).
+   - **Stale-premise rule (binding)**: decisions must never execute
+     against stale state. Before acting on any command or queued
+     decision, Coop re-derives current state (in-flight work, provider
+     health, item status); when a command's premise has expired — the
+     item is done, superseded, blocked, or reality moved since the boss
+     last looked — Coop refuses and re-confirms instead of executing.
+     Commands inherit the boss's context staleness; the refusal duty is
+     what makes admission-time approval safe.
 
 Sequencing consequence: the CTO is the **capstone**, not a parallel track.
 Voice Phase 1a (text-only kernel: ledger, typed gateway, snapshot,

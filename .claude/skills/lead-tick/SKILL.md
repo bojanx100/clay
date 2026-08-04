@@ -56,6 +56,19 @@ The decisions array is your work order for this tick.
 - **staff, needsApproval: true** — present the brief to the boss in plain
   terms (item, route, gate, boundaries) and ask for approval. Only staff
   after an explicit yes; record the same ledger event.
+- **ADMISSION-GATE RULE (owner decision 2026-08-04)**: the approval gate
+  sits at backlog admission, not dispatch. An item that was discussed
+  with the boss and admitted to `items.json` is pre-approved — staff it
+  without asking again, even if the tick flags needsApproval, UNLESS it
+  is self-modification class or exceeds the spend budget. Items that
+  arrived WITHOUT boss discussion (auto-collected from GitHub sources)
+  keep the needsApproval flag's meaning.
+- **STALE-PREMISE RULE (binding)**: never execute against stale state.
+  Before staffing or acting on a boss command, re-derive current state
+  (this tick's fresh portfolio, in-flight ledger entries, provider
+  health). If the premise expired — item already done, superseded,
+  blocked, or in flight — refuse and re-confirm with the boss in one
+  line instead of executing.
 - **SELF-MODIFICATION RULE (absolute)**: any item whose ownedPaths touch
   the Lead's own machinery — `lib/lead-*.js`, `test/lead-*.test.js`,
   `.claude/skills/lead-tick/`, or the leadMode setting plumbing — is
@@ -96,8 +109,10 @@ backlog only in conversation memory), then run a tick.
 
 Plain language, short. Evidence strings are concrete (counts, commits,
 paths). Big-ticket news (blocked, gate failure, standup) leads; routine
-staffing is one line. The boss touches work exactly twice: approve
-staffing of big items, accept verified results.
+staffing is one line. The boss's touchpoints are plan/goal discussions
+at admission time and accepting verified results — not dispatch. The
+standup is a report, never a permission gate: admitted work proceeds
+without waiting for it.
 
 ## Scheduling
 
