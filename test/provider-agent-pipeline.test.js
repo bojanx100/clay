@@ -39,6 +39,9 @@ test("main-agent policy escalates only blocked worker work", function () {
   assert.ok(visiblePrompt.indexOf("clay-orchestration/delegate_task") !== -1);
   assert.ok(visiblePrompt.indexOf("Pin provider to codex") !== -1);
   assert.ok(visiblePrompt.indexOf("automatically promotes this conversation") !== -1);
+  assert.ok(visiblePrompt.indexOf("cannot report overall completion") !== -1);
+  assert.ok(visiblePrompt.indexOf("dismiss_task") !== -1);
+  assert.ok(visiblePrompt.indexOf("request_task_input") !== -1);
 });
 
 test("custom Codex worker configuration overrides Clay defaults", function () {

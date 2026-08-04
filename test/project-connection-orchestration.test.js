@@ -24,6 +24,8 @@ test("initial connection orchestration fields are complete before later broadcas
     coordinationMode: true,
     demotionPending: true,
     orchestrationActiveCount: 2,
+    orchestrationPhase: "executing",
+    orchestrationUnresolvedCount: 2,
     orchestrationParent: {
       taskId: "owner-task",
       sessionId: 42,
@@ -39,6 +41,8 @@ test("initial connection orchestration fields default without waiting for hydrat
     coordinationMode: false,
     demotionPending: false,
     orchestrationActiveCount: 0,
+    orchestrationPhase: "complete",
+    orchestrationUnresolvedCount: 0,
     orchestrationParent: null,
     orchestrationGroupParent: null,
     orchestrationAdoption: null,

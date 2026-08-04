@@ -24,12 +24,18 @@ test("worker preview defaults to one compact expandable row", function () {
     path.join(__dirname, "../lib/project-task-orchestrator.js"),
     "utf8"
   );
+  var runtimeSource = fs.readFileSync(
+    path.join(__dirname, "../lib/project-runtime.js"),
+    "utf8"
+  );
 
   assert.match(source, /var MAX_PREVIEW_WORKERS = 3/);
   assert.match(source, /summary\.setAttribute\("aria-expanded", isExpanded \? "true" : "false"\)/);
   assert.match(source, /store\.set\(\{ orchestrationTaskPreviewExpanded: !isExpanded \}\)/);
   assert.match(source, /if \(!store\.get\("orchestrationTaskPreviewExpanded"\)\) \{/);
-  assert.match(source, /metrics\.completed \+ " completed"/);
+  assert.match(source, /state\.phase === "complete"/);
+  assert.match(source, /Reconciliation stalled/);
+  assert.match(source, /retry_orchestration_reconciliation/);
   assert.match(css, /\.orchestration-task-summary\s*\{[^}]*min-height:\s*42px[^}]*overflow:\s*hidden/s);
   assert.match(css, /\.orchestration-task-list\s*\{[^}]*max-height:\s*min\(240px,\s*30dvh\)[^}]*overflow-y:\s*auto/s);
   assert.match(css, /@media\s*\(max-width:\s*768px\)[\s\S]*\.orchestration-task-list\s*\{[^}]*max-height:\s*min\(168px,\s*22dvh\)/);
@@ -38,4 +44,7 @@ test("worker preview defaults to one compact expandable row", function () {
   assert.match(sidebarCss, /\.session-item\.worker-status-completed\s*\{[^}]*--worker-state-color:\s*var\(--success\)/s);
   assert.match(sidebarCss, /box-shadow:[^;]*var\(--worker-state-color,\s*var\(--worker-color/s);
   assert.match(orchestratorSource, /if \(statusChanged\) sm\.broadcastSessionList\(\)/);
+  assert.match(runtimeSource, /taskOrchestrator\.handleCoordinatorTurnDone\(session\)/);
+  assert.match(css, /\.orchestration-task-status-waiting_user/);
+  assert.match(css, /\.orchestration-task-status-dismissed/);
 });

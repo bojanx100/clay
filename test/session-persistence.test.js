@@ -734,6 +734,11 @@ test("orchestration ownership and pending messages survive a session-manager res
       workerSessionId: worker.localId,
       workerStorageId: "worker-stable",
     }];
+    parent.orchestrationReconciliation = {
+      lastDigest: "task-stable:running",
+      noProgressTurns: 2,
+      stalled: false,
+    };
     parent.pendingCoordinatorUpdates = [{ text: "Result waiting", queuedAt: 10 }];
     parent.history.push({
       type: "user_message",
@@ -774,6 +779,7 @@ test("orchestration ownership and pending messages survive a session-manager res
     assert.strictEqual(restoredParent.orchestrationPolicy.maxParallel, 4);
     assert.strictEqual(restoredParent.orchestrationEvents[0].eventId, "event-stable");
     assert.strictEqual(restoredParent.orchestrationTasks[0].workerStorageId, "worker-stable");
+    assert.strictEqual(restoredParent.orchestrationReconciliation.noProgressTurns, 2);
     assert.strictEqual(restoredParent.pendingCoordinatorUpdates[0].text, "Result waiting");
     assert.strictEqual(restoredParent.history[0].internalOnly, true);
     assert.strictEqual(restoredWorker.orchestrationParent.sessionStorageId, "coordinator-stable");

@@ -523,6 +523,95 @@ test("task resolution refuses to override a running worker", function () {
   assert.equal(task.status, "running");
 });
 
+test("coordinator dismisses obsolete work with a durable reason", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+  task.status = "needs_input";
+  worker.isProcessing = false;
+
+  var result = ctx.api.dismissFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    reason: "A newer worker already covered the same implementation.",
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(task.status, "dismissed");
+  assert.equal(task.resolutionReason, "A newer worker already covered the same implementation.");
+  assert.ok(task.resolvedAt);
+  assert.equal(worker.hidden, true);
+  assert.equal(worker.taskStopRequested, true);
+  assert.equal(parent.orchestrationTasks.length, 1);
+});
+
+test("coordinator records one precise user decision and resumes it on the answer", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+  task.status = "needs_input";
+  worker.isProcessing = false;
+
+  var result = ctx.api.requestInputFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskIds: [task.taskId],
+    question: "Should the compatibility shim remain enabled?",
+    reason: "Both behaviors are valid product choices.",
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(task.status, "waiting_user");
+  assert.equal(task.userQuestion, "Should the compatibility shim remain enabled?");
+  assert.equal(task.waitingReason, "Both behaviors are valid product choices.");
+
+  var directive = ctx.api.resumeWaitingCoordinator(parent, "Remove the shim.");
+
+  assert.match(directive, /compatibility shim/);
+  assert.equal(task.status, "reviewing");
+  assert.ok(task.userAnsweredAt);
+});
+
+test("coordinator cannot record two different pending user decisions", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.planFromTool({
+    coordinatorSessionId: parent.storageId,
+    tasks: [{
+      ref: "first", title: "Choose storage", objective: "Choose storage", ownedPaths: "read-only: storage",
+    }, {
+      ref: "second", title: "Choose rollout", objective: "Choose rollout", ownedPaths: "read-only: rollout",
+    }],
+  });
+  var first = parent.orchestrationTasks[0];
+  var second = parent.orchestrationTasks[1];
+  ctx.starts[0].session.isProcessing = false;
+  ctx.starts[1].session.isProcessing = false;
+  first.status = "needs_input";
+  second.status = "needs_input";
+
+  var firstResult = ctx.api.requestInputFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskIds: [first.taskId],
+    question: "Use local or hosted storage?",
+    reason: "This changes the product boundary.",
+  });
+  var secondResult = ctx.api.requestInputFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskIds: [second.taskId],
+    question: "Roll out now or next week?",
+    reason: "This changes the release date.",
+  });
+
+  assert.equal(firstResult.isError, undefined);
+  assert.equal(secondResult.isError, true);
+  assert.match(secondResult.content[0].text, /one user decision is already pending/);
+  assert.equal(second.status, "needs_input");
+});
+
 test("delivers only one terminal update when a worker emits done again", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
@@ -719,15 +808,18 @@ test("closing a coordinated task stops and archives its worker conversation", fu
   var closed = ctx.api.closeTask(parent, task.taskId, null);
 
   assert.equal(closed, true);
-  assert.equal(parent.orchestrationTasks.length, 0);
-  assert.equal(parent.coordinationMode, false);
+  assert.equal(parent.orchestrationTasks.length, 1);
+  assert.equal(parent.orchestrationTasks[0].status, "dismissed");
+  assert.equal(parent.orchestrationTasks[0].resolutionReason, "Dismissed by user");
+  assert.equal(parent.coordinationMode, true);
   assert.equal(ctx.sessions.has(workerId), true);
   assert.equal(ctx.sessions.get(workerId).hidden, true);
   assert.equal(ctx.sessions.get(workerId).taskStopRequested, true);
   var taskStateEvent = ctx.events.findLast(function (entry) {
     return entry.event && entry.event.type === "orchestration_tasks_state";
   });
-  assert.deepEqual(taskStateEvent.event.tasks, []);
+  assert.equal(taskStateEvent.event.tasks.length, 1);
+  assert.equal(taskStateEvent.event.tasks[0].status, "dismissed");
 });
 
 test("holds worker results while the coordinator is busy", function () {

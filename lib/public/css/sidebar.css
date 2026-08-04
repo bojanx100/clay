@@ -1057,7 +1057,10 @@
 .session-item.worker-status-failed { --worker-state-color: var(--danger, #e5534b); }
 .session-item.worker-status-blocked,
 .session-item.worker-status-reviewing,
-.session-item.worker-status-needs_input { --worker-state-color: var(--warning, #d99824); }
+.session-item.worker-status-needs_input,
+.session-item.worker-status-waiting_user { --worker-state-color: var(--warning, #d99824); }
+.session-item.worker-status-dismissed,
+.session-item.worker-status-cancelled { --worker-state-color: var(--text-dimmer); }
 
 .session-item.drag-over-above::before,
 .session-item.drag-over-below::after {
@@ -1112,8 +1115,13 @@
 .session-vendor-dot.worker-status-failed { background: var(--danger, #e5534b); }
 .session-vendor-dot.worker-status-blocked,
 .session-vendor-dot.worker-status-reviewing,
-.session-vendor-dot.worker-status-needs_input {
+.session-vendor-dot.worker-status-needs_input,
+.session-vendor-dot.worker-status-waiting_user {
   background: var(--warning, #d99824);
+}
+.session-vendor-dot.worker-status-dismissed,
+.session-vendor-dot.worker-status-cancelled {
+  background: var(--text-dimmer);
 }
 .session-vendor-dot.processing {
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.14);
