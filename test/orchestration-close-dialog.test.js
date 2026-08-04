@@ -4,7 +4,10 @@ var fs = require("node:fs");
 var path = require("node:path");
 
 test("orchestration close confirmation presents two distinct choices", function () {
-  var source = fs.readFileSync(path.join(__dirname, "../lib/public/modules/queued-messages.js"), "utf8");
+  var source = fs.readFileSync(
+    path.join(__dirname, "../lib/public/modules/orchestration-task-preview.js"),
+    "utf8"
+  );
   var html = fs.readFileSync(path.join(__dirname, "../lib/public/index.html"), "utf8");
   var modalSource = fs.readFileSync(path.join(__dirname, "../lib/public/modules/app-misc.js"), "utf8");
   var closeTaskStart = source.indexOf("function closeTask(task)");
