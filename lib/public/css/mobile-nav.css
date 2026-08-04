@@ -689,6 +689,29 @@
     box-shadow: inset 2px 0 0 var(--worker-color, rgba(var(--overlay-rgb), 0.08));
   }
 
+  .mobile-coordinator-workers-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-dimmer);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+  }
+
+  .mobile-coordinator-workers-toggle:active {
+    background: rgba(var(--overlay-rgb), 0.08);
+    color: var(--text);
+  }
+
   .mobile-session-role-badge {
     display: inline-flex;
     align-items: center;

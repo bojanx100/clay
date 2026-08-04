@@ -26,7 +26,7 @@ test("mobile session sheet nests workers beneath coordinators by default", async
   assert.deepEqual(items[1].children.map(function (session) { return session.id; }), [12, 11]);
 });
 
-test("coordinator groups always show workers without collapse controls", function () {
+test("coordinator groups collapse worker overflow behind shared controls", function () {
   var source = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"),
     "utf8"
@@ -53,12 +53,14 @@ test("coordinator groups always show workers without collapse controls", functio
   assert.match(source, /"Worker " \+ attempt \+ "\/" \+ attemptCount/);
   assert.match(desktopSource, /"Worker " \+ attempt \+ "\/" \+ attemptCount/);
   assert.match(groupingSource, /var children = document\.createElement\("div"\)/);
-  assert.doesNotMatch(groupingSource, /expandedCoordinatorGroups|mobile-coordinator-toggle|aria-expanded/);
-  assert.doesNotMatch(desktopSource, /expandedCoordinatorGroups|session-coordinator-toggle/);
+  assert.match(groupingSource, /coordinatorWorkerDisplay/);
+  assert.match(groupingSource, /mobile-coordinator-workers-toggle/);
+  assert.match(desktopSource, /coordinatorWorkerDisplay/);
+  assert.match(desktopSource, /session-coordinator-workers-toggle/);
   assert.match(css, /\.mobile-coordinator-workers\s*\{/);
   assert.match(css, /\.mobile-session-item\.mobile-coordinator-worker\s*\{/);
   assert.match(css, /\.mobile-session-item\.mobile-coordinator-parent\s*\{/);
-  assert.doesNotMatch(css, /\.mobile-coordinator-toggle/);
+  assert.match(css, /\.mobile-coordinator-workers-toggle/);
   assert.match(desktopCss, /\.session-item\.session-coordinator-parent\s*\{/);
-  assert.doesNotMatch(desktopCss, /\.session-coordinator-toggle/);
+  assert.match(desktopCss, /\.session-coordinator-workers-toggle/);
 });
