@@ -52,7 +52,7 @@ identity. It should ride the same rails.
   as today; the two cron schedules re-point `linkedTaskId` at the new
   scope (one-line change per record in the loop registry).
 
-### Slice 2 — Sidebar surface (frontend)
+### Slice 2 — Sidebar surface (frontend) — SHIPPED
 
 - Desktop: a pinned "Lead" entry ABOVE the projects panel (or first in
   the Mates strip with a distinct badge) — one click, no scrolling.

@@ -179,6 +179,24 @@
     color: #fff;
   }
 
+  .mobile-lead-project-item {
+    margin-bottom: 6px;
+    background: rgba(var(--accent-rgb), 0.08);
+    color: var(--text);
+  }
+
+  .mobile-lead-project-badge {
+    margin-left: 4px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(var(--accent-rgb), 0.14);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
   .mobile-project-name {
     flex: 1;
     overflow: hidden;

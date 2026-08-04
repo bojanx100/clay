@@ -132,6 +132,34 @@
   font-weight: 600;
 }
 
+.project-list-lead-item {
+  margin-bottom: 4px;
+  border-left-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--text);
+}
+
+.project-list-lead-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.project-list-lead-badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .pd-name {
   flex: 1;
   font-size: 13px;
