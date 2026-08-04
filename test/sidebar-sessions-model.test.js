@@ -117,7 +117,7 @@ test("sessionListSignature: differs when active loop/coordinator state changes",
   );
 });
 
-test("sessionListSignature: differs on search query/match-id inputs and expanded-worker state", async function () {
+test("sessionListSignature: differs on search and expanded-group state", async function () {
   var m = await loadModel();
   var sessions = [{ id: 1, lastActivity: 1 }];
   assert.notEqual(
@@ -131,6 +131,14 @@ test("sessionListSignature: differs on search query/match-id inputs and expanded
   assert.notEqual(
     m.sessionListSignature(sessions, "", null, { "worker-1": true }),
     m.sessionListSignature(sessions, "", null, { "worker-1": false })
+  );
+  assert.notEqual(
+    m.sessionListSignature(sessions, "", null, {}, new Set(["loop-1"]), new Set()),
+    m.sessionListSignature(sessions, "", null, {}, new Set(), new Set())
+  );
+  assert.notEqual(
+    m.sessionListSignature(sessions, "", null, {}, new Set(), new Set(["run-1"])),
+    m.sessionListSignature(sessions, "", null, {}, new Set(), new Set())
   );
 });
 
