@@ -1481,3 +1481,22 @@ select.wt-modal-input {
     display: none;
   }
 }
+
+/* --- Pinned Lead item: accent ring + divider below --- */
+.icon-strip-lead-item::before {
+  box-shadow: 0 0 0 1.5px rgba(var(--accent-rgb), 0.55);
+}
+
+.icon-strip-lead-item {
+  margin-bottom: 10px;
+}
+
+.icon-strip-lead-item::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background: var(--border, rgba(255, 255, 255, 0.12));
+}
