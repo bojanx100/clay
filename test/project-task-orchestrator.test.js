@@ -1137,8 +1137,9 @@ test("retrying a failed task starts a fresh worker conversation", function () {
   assert.equal(task.workerSessionId, freshWorker.localId);
   assert.equal(task.attempt, 2);
   assert.equal(task.status, "running");
-  assert.equal(failedWorker.orchestrationParent, null);
+  assert.equal(failedWorker.orchestrationParent.taskId, task.taskId);
   assert.equal(failedWorker._orchestrationTaskClosed, true);
+  assert.ok(failedWorker.orchestrationDetachedAt);
   assert.equal(failedWorker.hidden, true);
 });
 
@@ -1165,8 +1166,10 @@ test("retrying a completed task can explicitly request an independent worker", f
   var independentWorker = ctx.starts.at(-1).session;
   assert.notEqual(independentWorker, firstWorker);
   assert.equal(task.workerSessionId, independentWorker.localId);
-  assert.equal(firstWorker.orchestrationParent, null);
+  assert.equal(firstWorker.orchestrationParent.taskId, task.taskId);
   assert.equal(firstWorker._orchestrationTaskClosed, true);
+  assert.ok(firstWorker.orchestrationDetachedAt);
+  assert.equal(firstWorker.hidden, true);
 });
 
 test("closing a coordinated task stops and archives its worker conversation", function () {
@@ -1423,7 +1426,7 @@ test("startup archives terminal and safe orphan workers without touching active 
     localId: 7,
     storageId: "worker-orphan",
     isProcessing: false,
-    history: [{ type: "delta", text: "orphan transcript" }],
+    history: [{ type: "delta", text: "orphan transcript" }, { type: "done" }],
     orchestrationParent: { taskId: "task-orphan", sessionStorageId: "missing-parent" },
   };
   var emptyHistoryOrphan = {
@@ -1437,8 +1440,8 @@ test("startup archives terminal and safe orphan workers without touching active 
     localId: 18,
     storageId: "worker-interrupted-orphan",
     isProcessing: false,
-    workerStatus: "interrupted",
-    history: [{ type: "delta", text: "The worker was interrupted." }],
+    interruptedByRestart: true,
+    history: [{ type: "delta", text: "The worker was interrupted." }, { type: "done" }],
     orchestrationParent: { taskId: "task-interrupted-orphan", sessionStorageId: "missing-parent" },
   };
   var activeOrphan = {

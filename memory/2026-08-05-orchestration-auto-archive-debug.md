@@ -15,7 +15,7 @@ Task resolution updated the canonical task but did not archive its worker or rec
 
 - Added idempotent task-worker archive evidence and normal `hideSession` use for resolved and recovered terminal workers.
 - Added non-Lead startup reconciliation for terminal and safe orphan workers. Running, reviewing, needs-input, and waiting-user workers remain visible. Legacy Lead terminal workers are skipped without metadata rewrites.
-- Failed, interrupted, and blocked workers are excluded from archive decisions; parent-missing workers require non-empty durable history before cleanup. Retry detachment hides the old worker through the normal session API before clearing its orchestration provenance.
+- Failed, interrupted, and blocked workers are excluded from archive decisions; parent-missing workers require a persisted completed-turn marker before cleanup. Retry detachment hides the old worker through the normal session API while preserving its orchestration provenance.
 - Finalized project execution metadata on verified typed completion. Coop-controlled project coordinators archive themselves and their descendants only after graph completion and `ESCALATION_REQUIRED: no`; owner-created coordinators remain visible.
 - Completed Coop-controlled `direct_leaf` executions now set terminal timestamps, hide on live completion, and reconcile on target-project startup; failed and reviewing leaves remain visible.
 - Excluded hidden Coop-controlled coordinators, direct leaves, and workers from all CLI/Codex/Copilot and hidden fallback import candidates.
