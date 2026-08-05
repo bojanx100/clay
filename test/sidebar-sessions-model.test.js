@@ -155,6 +155,11 @@ test("sessionListSignature: stable for equivalent input, changes when a tracked 
     m.sessionListSignature([sessionA], "", null, {}),
     m.sessionListSignature([changed], "", null, {})
   );
+  var ownershipChanged = { id: 1, title: "A", unread: 0, lastActivity: 1, leadOwned: true };
+  assert.notEqual(
+    m.sessionListSignature([sessionA], "", null, {}),
+    m.sessionListSignature([ownershipChanged], "", null, {})
+  );
 });
 
 test("partitionSessionList: separates loop sessions from normal sessions and drops hidden crafting sessions", async function () {
@@ -251,4 +256,69 @@ test("buildSessionListModel: respects search visibility when splitting and group
 
   assert.deepEqual(model.regularItems.map(function (i) { return i.data.id; }), [1]);
   assert.deepEqual(model.dateGroups[0].sessionIds, [1]);
+});
+
+test("buildSessionListModel: keeps Favorites first and partitions roots into ME then Lead", async function () {
+  var m = await loadModel();
+  var favorite = { id: 1, bookmarked: true, lastActivity: 50 };
+  var coordinator = { id: 2, coordinationMode: true, lastActivity: 40 };
+  var leadWorker = {
+    id: 3,
+    leadOwned: true,
+    lastActivity: 35,
+    orchestrationParent: { sessionId: 2 },
+  };
+  var directMe = { id: 4, lastActivity: 30 };
+  var directLead = { id: 5, leadOwned: true, lastActivity: 20 };
+  var getDateGroup = function (timestamp) { return timestamp >= 30 ? "Today" : "Older"; };
+
+  var model = m.buildSessionListModel([favorite, coordinator, leadWorker, directMe, directLead], {
+    frozenOrder: null,
+    frozenOrderSlug: null,
+    currentSlug: "slug-1",
+    searchMatchIds: null,
+    getDateGroup: getDateGroup,
+  });
+
+  assert.deepEqual(model.bookmarkedItems.map(function (item) { return item.data.id; }), [1]);
+  assert.deepEqual(model.ownershipSections.map(function (section) { return section.key; }), ["me", "lead"]);
+  assert.deepEqual(model.ownershipSections[0].items.map(function (item) { return item.data.id; }), [2, 4]);
+  assert.equal(model.ownershipSections[0].items[0].type, "coordinator");
+  assert.deepEqual(model.ownershipSections[0].items[0].children.map(function (session) { return session.id; }), [3]);
+  assert.deepEqual(model.ownershipSections[1].items.map(function (item) { return item.data.id; }), [5]);
+  assert.deepEqual(model.ownershipSections[0].dateGroups.map(function (group) { return group.name; }), ["Today"]);
+  assert.deepEqual(model.ownershipSections[1].dateGroups.map(function (group) { return group.name; }), ["Older"]);
+});
+
+test("buildSessionListModel: omits empty ownership sections and preserves a searched coordinator root", async function () {
+  var m = await loadModel();
+  var coordinator = { id: 1, coordinationMode: true, lastActivity: 20 };
+  var leadWorker = {
+    id: 2,
+    leadOwned: true,
+    lastActivity: 10,
+    orchestrationParent: { sessionId: 1 },
+  };
+  var directLead = { id: 3, leadOwned: true, lastActivity: 30 };
+  var getDateGroup = function () { return "Today"; };
+
+  var searched = m.buildSessionListModel([coordinator, leadWorker, directLead], {
+    frozenOrder: null,
+    frozenOrderSlug: null,
+    currentSlug: "slug-1",
+    searchMatchIds: new Set([2, 3]),
+    getDateGroup: getDateGroup,
+  });
+  assert.deepEqual(searched.ownershipSections.map(function (section) { return section.key; }), ["me", "lead"]);
+  assert.equal(searched.ownershipSections[0].items[0].type, "coordinator");
+  assert.deepEqual(searched.ownershipSections[0].dateGroups[0].sessionIds, [2]);
+
+  var onlyLead = m.buildSessionListModel([directLead], {
+    frozenOrder: null,
+    frozenOrderSlug: null,
+    currentSlug: "slug-2",
+    searchMatchIds: null,
+    getDateGroup: getDateGroup,
+  });
+  assert.deepEqual(onlyLead.ownershipSections.map(function (section) { return section.key; }), ["lead"]);
 });

@@ -1,6 +1,7 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var state = require("../lib/project-connection-state");
+var attachSessionBroadcast = require("../lib/sessions-broadcast").attachSessionBroadcast;
 
 function restoreOptions(overrides) {
   var sessions = new Map([
@@ -178,7 +179,7 @@ test("vendor, route, and Codex fallback model selection is deterministic", funct
   assert.ok(copilot.models.indexOf("claude-sonnet-4.6") !== -1);
 });
 
-test("session-list serialization preserves loop, orchestration, and launcher fields", function () {
+test("session-list serialization exposes validated Lead ownership without Coop identifiers", function () {
   var session = {
     localId: 4,
     cliSessionId: "cli-4",
@@ -201,6 +202,7 @@ test("session-list serialization preserves loop, orchestration, and launcher fie
     taskLauncher: { autoLaunch: true, autoKind: "pr", workflowCompleted: true },
     coordinationMode: true,
     orchestrationTasks: [{ taskId: "task-4", status: "running" }],
+    coopControlledBy: { coopSessionStorageId: "coop-home-private", since: 123 },
   };
   var record = state.serializeSessionListEntry(session, {
     restoredActive: session,
@@ -214,4 +216,39 @@ test("session-list serialization preserves loop, orchestration, and launcher fie
   assert.equal(record.orchestrationActiveCount, 1);
   assert.equal(record.vendor, "codex");
   assert.equal(record.runtimeTerminalId, 6);
+  assert.equal(record.leadOwned, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(record, "coopControlledBy"), false);
+  assert.equal(JSON.stringify(record).includes("coop-home-private"), false);
+
+  var directRecord = state.serializeSessionListEntry({ localId: 5, coopControlledBy: { coopSessionStorageId: "missing-since" } }, {
+    restoredActive: null,
+    activeSessionId: null,
+    loopRegistry: null,
+    orchestrationGroups: {},
+  });
+  assert.equal(directRecord.leadOwned, false);
+});
+
+test("session-list broadcasts expose Lead ownership without Coop identifiers", async function () {
+  var messages = [];
+  var controlled = {
+    localId: 1,
+    title: "Lead controlled",
+    coopControlledBy: { coopSessionStorageId: "coop-home-private", since: 1 },
+  };
+  var direct = { localId: 2, title: "Direct" };
+  var broadcast = attachSessionBroadcast({
+    send: function (message) { messages.push(message); },
+    getVisibleSessions: function () { return [controlled, direct]; },
+    getActiveSessionId: function () { return 1; },
+    getSingleUserUnread: function () { return {}; },
+    getEffectiveAutomationMode: function () { return "ask"; },
+  });
+  broadcast.broadcastSessionList();
+  await new Promise(function (resolve) { setTimeout(resolve, 80); });
+
+  assert.equal(messages.length, 1);
+  assert.deepEqual(messages[0].sessions.map(function (session) { return session.leadOwned; }), [true, false]);
+  assert.equal(JSON.stringify(messages[0]).includes("coop-home-private"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(messages[0].sessions[0], "coopControlledBy"), false);
 });

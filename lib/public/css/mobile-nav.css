@@ -729,29 +729,6 @@
     color: var(--text);
   }
 
-  .mobile-session-role-badge {
-    display: inline-flex;
-    align-items: center;
-    height: 17px;
-    padding: 0 5px;
-    border-radius: 5px;
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 17px;
-    text-transform: uppercase;
-    flex-shrink: 0;
-  }
-
-  .mobile-session-role-badge.coordinator {
-    background: rgba(var(--accent-rgb, 88, 87, 252), 0.14);
-    color: var(--accent, #5857fc);
-  }
-
-  .mobile-session-role-badge.worker {
-    background: rgba(var(--overlay-rgb), 0.08);
-    color: var(--worker-color, var(--text-dimmer));
-  }
-
   .mobile-session-title {
     flex: 1;
     display: inline-flex;
@@ -760,6 +737,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .mobile-session-lead-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    color: var(--accent);
+    font-size: 13px;
+    line-height: 1;
+    flex: 0 0 auto;
   }
 
   .mobile-session-action {
