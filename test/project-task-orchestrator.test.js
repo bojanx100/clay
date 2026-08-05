@@ -458,6 +458,56 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.equal(target.sessions.size, 3);
 });
 
+test("a reviewing target execution blocks an ordinary replacement revision", function () {
+  var projectId = "55f216da-1d17-5c92-a283-11fe13c6e3f2";
+  var sessions = new Map();
+  var reviewingLeaf = {
+    localId: 41,
+    storageId: "reviewing-project-leaf",
+    title: "Reviewing project leaf",
+    history: [],
+    isProcessing: false,
+    coordinationMode: false,
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-reviewing-leaf",
+        bindingRevision: 1,
+        idempotencyKey: "reviewing-original",
+        mode: "direct_leaf",
+        status: "reviewing",
+      },
+    },
+  };
+  sessions.set(reviewingLeaf.localId, reviewingLeaf);
+  var target = testContext(sessions, { projectId: projectId });
+
+  var result = target.api.deliverCrossProjectEnvelope({
+    schema: "clay.project_execution_command",
+    schemaVersion: 1,
+    eventId: "replace-reviewing-execution",
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    destination: { projectId: projectId, sessionStorageId: "project-execution-control" },
+    bindingRevision: 2,
+    createdAt: 1,
+    payload: {
+      type: "portfolio_execution_create",
+      portfolioTaskId: "portfolio-reviewing-leaf",
+      bindingRevision: 2,
+      idempotencyKey: "reviewing-replacement",
+      mode: "direct_leaf",
+      targetProject: { projectId: projectId },
+      title: "Replacement leaf",
+      objective: "Replace an execution only after it reaches a terminal state.",
+    },
+  });
+
+  assert.deepEqual(result, { ok: false, reason: "active_binding_exists" });
+  assert.equal(sessions.size, 1);
+  assert.equal(target.starts.length, 0);
+  assert.equal(reviewingLeaf.orchestrationPolicy.portfolioExecution.status, "reviewing");
+  assert.equal(reviewingLeaf.taskStopRequested, undefined);
+});
+
 test("target-project routing failure never falls back to a Lead-local worker", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-route-fail-"));
   var router = createCrossProjectRouter({
