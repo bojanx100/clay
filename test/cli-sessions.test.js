@@ -129,6 +129,120 @@ test("hidden sessions are surfaced for import and can be restored", function () 
   }
 });
 
+test("orchestration workers stay out of every CLI import candidate path", function () {
+  var tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-worker-import-"));
+  var cliDir = path.join(tmpDir, "claude");
+  fs.mkdirSync(cliDir, { recursive: true });
+  fs.writeFileSync(path.join(cliDir, "worker-claude.jsonl"), "worker claude\n");
+  fs.writeFileSync(path.join(cliDir, "direct-untracked.jsonl"), "direct session\n");
+
+  var workerClaude = {
+    cliSessionId: "worker-claude",
+    storageId: "worker-claude-storage",
+    hidden: true,
+    history: [{ type: "session_id", cliSessionId: "worker-claude-history" }],
+    orchestrationParent: { taskId: "task-claude" },
+  };
+  var workerCodex = {
+    cliSessionId: "worker-codex",
+    storageId: "worker-codex-storage",
+    hidden: true,
+    history: [{ type: "result", sessionId: "worker-codex-history" }],
+    orchestrationParent: { taskId: "task-codex" },
+  };
+  var workerCopilot = {
+    cliSessionId: "worker-copilot",
+    storageId: "worker-copilot-storage",
+    hidden: true,
+    history: [{ type: "session_id", cliSessionId: "worker-copilot-history" }],
+    orchestrationParent: { taskId: "task-copilot" },
+  };
+  var workerFallback = {
+    cliSessionId: "worker-fallback",
+    storageId: "worker-fallback-storage",
+    title: "Worker fallback",
+    hidden: true,
+    history: [],
+    orchestrationParent: { taskId: "task-fallback" },
+  };
+  var coordinator = {
+    cliSessionId: "coordinator-hidden",
+    title: "Hidden coordinator",
+    hidden: true,
+    coordinationMode: true,
+    history: [],
+  };
+  var directHidden = {
+    cliSessionId: "direct-hidden",
+    title: "Hidden direct session",
+    hidden: true,
+    history: [],
+  };
+  var sessions = new Map([
+    [1, workerClaude],
+    [2, workerCodex],
+    [3, workerCopilot],
+    [4, workerFallback],
+    [5, coordinator],
+    [6, directHidden],
+  ]);
+  var descriptors = {
+    "worker-claude": {
+      cliSid: "worker-claude", title: "Worker Claude", preview: "worker", createdAt: 1, lastActivity: 10,
+    },
+    "direct-untracked": {
+      cliSid: "direct-untracked", title: "Direct untracked", preview: "direct", createdAt: 1, lastActivity: 5,
+    },
+  };
+  var codexDescriptor = {
+    cliSid: "worker-codex", title: "Worker Codex", preview: "worker", createdAt: 1, lastActivity: 9,
+  };
+  var copilotSessions = require("../lib/copilot-sessions");
+  var originalCopilotList = copilotSessions.listCopilotSessionDescriptors;
+
+  copilotSessions.listCopilotSessionDescriptors = function () {
+    return [{
+      cliSid: "worker-copilot", title: "Worker Copilot", preview: "worker",
+      createdAt: 1, lastActivity: 8, copilotFamily: "codex", model: "gpt-5.5",
+    }];
+  };
+
+  try {
+    var cliImport = require("../lib/sessions-cli-import").attachSessionCliImport({
+      cwd: tmpDir,
+      sessions: sessions,
+      allocateLocalId: function () { return 100; },
+      saveSessionFile: function () {},
+      broadcastSessionList: function () {},
+      isValidCliSessionId: function () { return true; },
+      cliSessionsDir: function () { return cliDir; },
+      readCliSessionDescriptor: function (cliSid) { return descriptors[cliSid] || null; },
+      readCodexThreadNames: function () { return new Map(); },
+      listCodexRolloutFiles: function () { return ["worker-codex-rollout"]; },
+      readCodexSessionDescriptor: function () { return codexDescriptor; },
+      findCodexRolloutByThreadId: function () { return null; },
+    });
+    var listed = cliImport.listAdoptableCliSessions();
+    var workerIds = [
+      "worker-claude", "worker-claude-storage", "worker-claude-history",
+      "worker-codex", "worker-codex-storage", "worker-codex-history",
+      "worker-copilot", "worker-copilot-storage", "worker-copilot-history",
+      "worker-fallback", "worker-fallback-storage",
+    ];
+    var listedWorkerIds = listed.filter(function (item) {
+      return workerIds.indexOf(item.cliSessionId) !== -1;
+    });
+
+    assert.deepStrictEqual(listedWorkerIds, [], "orchestration workers must not be import candidates");
+    assert.ok(listed.some(function (item) { return item.cliSessionId === "coordinator-hidden"; }));
+    assert.ok(listed.some(function (item) { return item.cliSessionId === "direct-hidden"; }));
+    assert.ok(listed.some(function (item) { return item.cliSessionId === "direct-untracked"; }));
+  } finally {
+    copilotSessions.listCopilotSessionDescriptors = originalCopilotList;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("CLI session import preserves original message timestamps as _ts", function () {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-cli-ts-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
