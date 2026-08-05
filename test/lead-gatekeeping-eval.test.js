@@ -28,9 +28,23 @@ function navigation(targetOverride) {
 
 test("recognizes explicit owner asks to get, open, or go to a worker/session", function () {
   assert.strictEqual(gatekeeping.isDirectHandoffAsk("get me Ward"), true);
+  assert.strictEqual(gatekeeping.isDirectHandoffAsk("get me Alice"), true);
+  assert.strictEqual(gatekeeping.isDirectHandoffAsk("show me Alice Jones"), true);
   assert.strictEqual(gatekeeping.isDirectHandoffAsk("open the session working on X"), true);
   assert.strictEqual(gatekeeping.isDirectHandoffAsk("go to that worker"), true);
   assert.strictEqual(gatekeeping.isDirectHandoffAsk("summarize Ward's work"), false);
+  assert.strictEqual(gatekeeping.isDirectHandoffAsk("get me a summary"), false);
+  assert.strictEqual(gatekeeping.isDirectHandoffAsk("get me status"), false);
+  assert.strictEqual(gatekeeping.isDirectHandoffAsk("show me the report"), false);
+});
+
+test("a generalized named target completes the same direct-handoff evaluation", function () {
+  var result = gatekeeping.evaluateCase(runtimeCase({
+    ask: "get me Alice",
+    trace: { events: [navigation()] },
+  }));
+  assert.strictEqual(result.verdict, "GREEN");
+  assert.strictEqual(result.assistantMiddlemanTurns, 0);
 });
 
 test("typed switch action is a direct handoff pass with zero middleman assistant turns", function () {
