@@ -23,6 +23,14 @@ function createScratchDir(name) {
   return dir;
 }
 
+function createRecoveryEventSink() {
+  var events = [];
+  return {
+    events: events,
+    record: function (event) { events.push(event); },
+  };
+}
+
 function minimalDestroyCtx(overrides) {
   var timers = {};
   var base = {
@@ -86,6 +94,7 @@ test("destroy() tolerates a project with no task orchestrator wired at all", fun
 
 test("removing a project from the registry (post-destroy) makes cross-project delivery dead-letter safely, not crash", function () {
   var scratch = createScratchDir("teardown-cross-project");
+  var sink = createRecoveryEventSink();
   try {
     // Simulate server.js's projects Map: register "lead", then remove it
     // the same way removeProject() does -- ctx.destroy() happens first,
@@ -106,6 +115,7 @@ test("removing a project from the registry (post-destroy) makes cross-project de
     var projects = new Map();
     projects.set("lead", leadCtx);
     var crossProject = createCrossProjectRouter({
+      recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return projects.get(slug) || null; },
     });
 
@@ -144,6 +154,12 @@ test("removing a project from the registry (post-destroy) makes cross-project de
     assert.equal(result.delivered, false);
     assert.equal(result.pending, true);
     assert.deepEqual(fanIn.getPendingEventIds(), ["post-teardown-event"]);
+    assert.deepEqual(sink.events, [{
+      kind: "cross_project_dead_letter",
+      targetSlug: "lead",
+      sessionStorageId: "coop-home",
+      reason: "unknown-project",
+    }]);
     // Never silently lost: it is durably queued for retry.
     var onDisk = JSON.parse(fs.readFileSync(path.join(scratch, "coop-fanin-delivery.json"), "utf8"));
     assert.equal(onDisk.pending.length, 1);

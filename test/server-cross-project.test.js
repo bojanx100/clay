@@ -17,6 +17,14 @@ function readDeadLetters() {
     .filter(function (e) { return e.kind === "cross_project_dead_letter"; });
 }
 
+function createRecoveryEventSink() {
+  var events = [];
+  return {
+    events: events,
+    record: function (event) { events.push(event); },
+  };
+}
+
 test("deliver routes an update into the target project context", function () {
   var delivered = [];
   var router = createCrossProjectRouter({
@@ -49,10 +57,13 @@ test("unknown project slug dead-letters instead of throwing", function () {
   assert.strictEqual(events.length, before + 1);
   assert.strictEqual(events[events.length - 1].targetSlug, "ghost");
   assert.strictEqual(events[events.length - 1].sessionStorageId, "sess-2");
+  assert.strictEqual(events[events.length - 1].reason, "unknown-project");
 });
 
 test("missing target session dead-letters as session-not-found", function () {
+  var sink = createRecoveryEventSink();
   var router = createCrossProjectRouter({
+    recordRecoveryEvent: sink.record,
     getProjectContext: function () {
       return { deliverCoordinatorUpdate: function () { return false; } };
     },
@@ -60,10 +71,18 @@ test("missing target session dead-letters as session-not-found", function () {
   var result = router.deliver("lead", "gone", "text");
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.reason, "session-not-found");
+  assert.deepStrictEqual(sink.events, [{
+    kind: "cross_project_dead_letter",
+    targetSlug: "lead",
+    sessionStorageId: "gone",
+    reason: "session-not-found",
+  }]);
 });
 
 test("delivery exceptions are contained and dead-lettered", function () {
+  var sink = createRecoveryEventSink();
   var router = createCrossProjectRouter({
+    recordRecoveryEvent: sink.record,
     getProjectContext: function () {
       return { deliverCoordinatorUpdate: function () { throw new Error("boom"); } };
     },
@@ -71,14 +90,33 @@ test("delivery exceptions are contained and dead-lettered", function () {
   var result = router.deliver("lead", "sess-3", "text");
   assert.strictEqual(result.ok, false);
   assert.match(result.reason, /delivery-error: boom/);
+  assert.deepStrictEqual(sink.events, [{
+    kind: "cross_project_dead_letter",
+    targetSlug: "lead",
+    sessionStorageId: "sess-3",
+    reason: "delivery-error: boom",
+  }]);
 });
 
 test("missing slug or session id dead-letters as missing-target", function () {
+  var sink = createRecoveryEventSink();
   var router = createCrossProjectRouter({
+    recordRecoveryEvent: sink.record,
     getProjectContext: function () {
       throw new Error("should not be called");
     },
   });
   assert.strictEqual(router.deliver("", "sess", "t").reason, "missing-target");
   assert.strictEqual(router.deliver("lead", "", "t").reason, "missing-target");
+  assert.deepStrictEqual(sink.events, [{
+    kind: "cross_project_dead_letter",
+    targetSlug: null,
+    sessionStorageId: "sess",
+    reason: "missing-target",
+  }, {
+    kind: "cross_project_dead_letter",
+    targetSlug: "lead",
+    sessionStorageId: null,
+    reason: "missing-target",
+  }]);
 });

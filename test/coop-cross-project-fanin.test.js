@@ -24,6 +24,14 @@ function createScratchDir(name) {
   return dir;
 }
 
+function createRecoveryEventSink() {
+  var events = [];
+  return {
+    events: events,
+    record: function (event) { events.push(event); },
+  };
+}
+
 // Builds a minimal fake "lead" project ctx exposing exactly the
 // deliverCoordinatorUpdate contract server-cross-project.js relies on,
 // backed by its own independent session manager (a distinct Map instance,
@@ -45,6 +53,7 @@ function makeFakeLeadProjectCtx(leadSm) {
 
 test("a worker fan-in event in a non-lead project is delivered cross-project to the real Coop session", function () {
   var scratch = createScratchDir("cross-project-fanin");
+  var sink = createRecoveryEventSink();
   try {
     var coopSession = { localId: 1, storageId: "coop-home", pendingCoordinatorUpdates: [] };
     var leadSm = { sessions: new Map([[1, coopSession]]) };
@@ -54,6 +63,7 @@ test("a worker fan-in event in a non-lead project is delivered cross-project to 
     projects.set("lead", leadProjectCtx);
 
     var crossProject = createCrossProjectRouter({
+      recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return projects.get(slug) || null; },
     });
 
@@ -96,9 +106,11 @@ test("a worker fan-in event in a non-lead project is delivered cross-project to 
 
 test("cross-project delivery to a not-yet-registered lead project stays durably pending, never lost", function () {
   var scratch = createScratchDir("cross-project-fanin-pending");
+  var sink = createRecoveryEventSink();
   try {
     var projects = new Map(); // "lead" is NOT registered yet
     var crossProject = createCrossProjectRouter({
+      recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return projects.get(slug) || null; },
     });
     var claySm = { sessions: new Map() };
@@ -132,6 +144,12 @@ test("cross-project delivery to a not-yet-registered lead project stays durably 
     assert.equal(onDisk.pending.length, 1);
     assert.equal(onDisk.pending[0].eventId, "cross-event-pending");
     assert.equal(onDisk.delivered.length, 0);
+    assert.deepEqual(sink.events, [{
+      kind: "cross_project_dead_letter",
+      targetSlug: "lead",
+      sessionStorageId: "coop-home",
+      reason: "unknown-project",
+    }]);
 
     // Now the lead project attaches (as it would once the daemon finishes
     // registering it) and the watchdog's retryPending() runs.
@@ -152,9 +170,11 @@ test("cross-project delivery to a not-yet-registered lead project stays durably 
 test("a pending cross-project event survives a restart (fresh module instance reloads and retries it)", function () {
   var scratch = createScratchDir("cross-project-fanin-restart");
   var deliveryFile = path.join(scratch, "coop-fanin-delivery.json");
+  var sink = createRecoveryEventSink();
   try {
     var emptyProjects = new Map();
     var crossProjectDown = createCrossProjectRouter({
+      recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return emptyProjects.get(slug) || null; },
     });
     var claySm = { sessions: new Map() };
@@ -184,6 +204,7 @@ test("a pending cross-project event survives a restart (fresh module instance re
     var leadSm = { sessions: new Map([[1, coopSession]]) };
     var projectsAfterRestart = new Map([["lead", makeFakeLeadProjectCtx(leadSm)]]);
     var crossProjectAfterRestart = createCrossProjectRouter({
+      recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return projectsAfterRestart.get(slug) || null; },
     });
     var fanInAfterRestart = attachCoopFanIn({
@@ -198,6 +219,12 @@ test("a pending cross-project event survives a restart (fresh module instance re
     var delivered = fanInAfterRestart.retryPending();
     assert.deepEqual(delivered, ["restart-event-1"]);
     assert.equal(coopSession.pendingCoordinatorUpdates.length, 1);
+    assert.deepEqual(sink.events, [{
+      kind: "cross_project_dead_letter",
+      targetSlug: "lead",
+      sessionStorageId: "coop-home",
+      reason: "unknown-project",
+    }]);
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
