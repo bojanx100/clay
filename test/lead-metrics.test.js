@@ -100,6 +100,29 @@ test("report is green only when both gates pass", function () {
   assert.strictEqual(red.pass, false);
 });
 
+test("gatekeeping evidence is a distinct trend and cannot alter the structural done-gate", function () {
+  var structural = metrics.composeReport({
+    project: "clay", now: 1785800000000,
+    coverage: metrics.evaluateCoverage(38, 37.78),
+    complexity: metrics.evaluateComplexity([], []),
+  });
+  var gatekeeping = metrics.composeGatekeepingEval({
+    now: 1785800000000,
+    cases: [{
+      id: "no-runtime-trace",
+      ask: "get me the session working on X",
+      channel: "text",
+      evidenceSource: "runtime_trace",
+      resolution: { status: "unmeasurable" },
+      trace: { events: [] },
+    }],
+  });
+  assert.strictEqual(structural.pass, true);
+  assert.strictEqual(gatekeeping.type, "gatekeeping_eval");
+  assert.strictEqual(gatekeeping.verdict, "UNMEASURABLE");
+  assert.match(metrics.formatGatekeepingEvalLine(gatekeeping), /MISSING_RUNTIME_EVIDENCE/);
+});
+
 test("formatReportLine states verdict, ratchet and ceiling", function () {
   var report = metrics.composeReport({
     project: "clay", now: 0,

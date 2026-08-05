@@ -221,12 +221,14 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 | `lead-standup.js` | Composes the boss's daily digest from typed ledger events only — worker prose never enters the standup |
 | `lead-ledger.js` | Durable typed memory: every orchestration decision/outcome appended as a JSONL event under `~/.clay/lead/`; survives restarts |
 | `lead-loop.js` | The heartbeat as a pure decision function: given portfolio, in-flight work, failure history, and the autonomy dial, decide staff/give_up/compose_standup/wait |
+| `lead-gatekeeping-eval.js` | Pure connect-never-gatekeep trace evaluator: validates direct session/worker asks, exact stable handoff evidence, zero assistant middleman turns, and typed green/red/unmeasurable reason codes |
 | `lead-exec.js` | Per-repo gh credentials wrapper: resolves `gh auth token --user <account>` per source and injects GH_TOKEN into that invocation's env only |
 | `lead-metrics.js` | Pure done-gate structural metrics: coverage baseline ratchet (never-worse-than-last-green), ESLint complexity ceiling on changed files, typed `metrics_report` composition |
 | `lead-health.js` | Derives the { vendor: state } provider-health snapshot lead-routing expects by replaying typed `provider_health` transitions from the recovery log (24h staleness window; daemon restarts reset silently) |
 | `lead-budget.js` | Pure daily budget snapshot: folds per-turn `result` cost/usage events from session histories into per-vendor burn, evaluates budget pressure for lead-routing, formats the standup burn-rate line |
 | `lead-backtest.js` | Pure routing backtest: replay closed issues through the classifier/router and score predicted tier against the merged fix PR's actual effort (files/lines), typed `backtest_report` |
-| `scripts/lead-metrics-nightly.js` | Nightly metrics runner: measures coverage (c8 over the suite) and complexity (ESLint, `scripts/lead-complexity.eslint.config.js`) on files changed since the last report, persists the baseline, appends `metrics_report` to the lead ledger; exit 0 green / 1 red / 2 error for cron |
+| `scripts/lead-metrics-nightly.js` | Nightly structural metrics runner: measures coverage (c8 over the suite) and complexity (ESLint, `scripts/lead-complexity.eslint.config.js`) on files changed since the last report, persists the baseline, appends `metrics_report`, and separately appends the non-gating `gatekeeping_eval` runtime-trace trend; exit status remains the structural gate |
+| `scripts/lead-gatekeeping-eval.js` | Deterministic runtime-trace adapter for the connect-never-gatekeep evaluator; reads `~/.clay/lead/gatekeeping-eval-traces.json` (or `--traces`), prints/appends `gatekeeping_eval`, and records an unmeasurable baseline when no trace exists |
 | `scripts/lead-backtest.js` | Backtest runner: fetches closed issues + merged PRs (per-repo gh credentials), joins on branch/title issue refs, prints the scored comparison, appends `backtest_report` summary to the lead ledger |
 | `.claude/skills/lead-tick` | The Lead's operating procedure as a skill: one tick = scan portfolio, staff/propose, verify against the gate, report via typed events |
 

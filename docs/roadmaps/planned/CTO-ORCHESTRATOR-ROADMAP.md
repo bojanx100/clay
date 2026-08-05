@@ -352,6 +352,20 @@ Binding decisions (recorded here so neither track builds a duplicate):
    connects, never gatekeeps** — "get me Ward" hands the user directly to
    Ward with no summarizing middleman, in every mode. (The naming debate's
    two-entity reading of Coop-vs-Lead is superseded by this resolution.)
+
+   **Behavioral evidence (admitted 2026-08-05):** direct asks such as "get
+   me Ward", "open the session working on X", and "go to that worker" are
+   evaluated from recorded owner-to-session traces. Green requires an exact,
+   actionable stable session reference (clickable `projectSlug +
+   sessionStorageId`) or a typed switch/navigation action, with zero earlier
+   assistant middleman turns. Summary-before-handoff, summary-only, wrong
+   project/session, and no-match traces are explicit failures. Prompt or
+   source-text presence is supporting evidence only and can never produce
+   green. The nightly `gatekeeping_eval` ledger event trends its own typed
+   cases, channels, counts, and reason codes; it is intentionally separate
+   from the structural coverage/complexity done-gate. Until a captured runtime
+   trace exists, the baseline is `UNMEASURABLE` with
+   `MISSING_RUNTIME_EVIDENCE`, not green.
 3. **The CTO's behavioral done-gate adopts Live UI's evidence contract.**
    Live UI's operation journal, typed verification manifest ("agent prose is
    not verification evidence"), and formal result states (including

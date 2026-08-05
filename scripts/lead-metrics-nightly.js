@@ -10,6 +10,8 @@
 //   node scripts/lead-metrics-nightly.js --dry-run  # run, print report, persist nothing
 //   node scripts/lead-metrics-nightly.js --trust-policy path.json
 //                                                   # explicitly gate on trust
+//   node scripts/lead-metrics-nightly.js --gatekeeping-traces path.json
+//                                                   # runtime handoff traces
 //
 // Gate values (debate-resolved):
 //   - Coverage: c8 over the full node:test suite, lib/** only. Baseline is
@@ -29,11 +31,14 @@ var { execFileSync } = require("child_process");
 
 var metrics = require("../lib/lead-metrics");
 var ledger = require("../lib/lead-ledger");
+var gatekeepingRunner = require("./lead-gatekeeping-eval");
 
 var repoRoot = path.join(__dirname, "..");
 var dryRun = process.argv.indexOf("--dry-run") !== -1;
 var trustPolicyFlag = process.argv.indexOf("--trust-policy");
 var trustPolicyPath = trustPolicyFlag >= 0 ? process.argv[trustPolicyFlag + 1] : null;
+var gatekeepingTraceFlag = process.argv.indexOf("--gatekeeping-traces");
+var gatekeepingTracePath = gatekeepingTraceFlag >= 0 ? process.argv[gatekeepingTraceFlag + 1] : null;
 var projectName = path.basename(repoRoot);
 var baselinePath = path.join(ledger.leadDir(), "metrics-baseline.json");
 var coverageDir = path.join(os.tmpdir(), "lead-metrics-coverage-" + process.pid);
@@ -56,6 +61,11 @@ function loadTrustPolicy() {
   } catch (e) {
     fail("trust policy is not valid JSON", e);
   }
+}
+
+function loadGatekeepingTracePath() {
+  if (gatekeepingTraceFlag >= 0 && !gatekeepingTracePath) fail("--gatekeeping-traces requires a JSON path");
+  return gatekeepingTracePath || gatekeepingRunner.defaultTracePath();
 }
 
 // --- Coverage via c8 over the full suite -------------------------------------
@@ -179,10 +189,15 @@ var eslintResults = measureComplexity(changed);
 var cxDecision = metrics.evaluateComplexity(eslintResults, changed);
 var trustObservations = ledger.readTrustObservations();
 var trustPolicy = loadTrustPolicy();
+var reportNow = Date.now();
+var gatekeepingReport = gatekeepingRunner.evaluate({
+  now: reportNow,
+  tracePath: loadGatekeepingTracePath(),
+});
 
 var report = metrics.composeReport({
   project: projectName,
-  now: Date.now(),
+  now: reportNow,
   coverage: covDecision,
   complexity: cxDecision,
   trustObservations: trustObservations,
@@ -194,6 +209,7 @@ if (cov.suiteFailed) {
 }
 
 log(metrics.formatReportLine(report));
+log(metrics.formatGatekeepingEvalLine(gatekeepingReport));
 if (trustPolicy) log("trust promotion policy supplied explicitly from " + trustPolicyPath);
 if (cov.suiteFailed) log("RED: the test suite itself is failing — coverage measured but not trusted");
 for (var vi = 0; vi < cxDecision.violations.length; vi++) {
@@ -206,6 +222,7 @@ try { fs.rmSync(coverageDir, { recursive: true, force: true }); } catch (e) {}
 if (dryRun) {
   log("dry run — nothing persisted");
   console.log(JSON.stringify(report, null, 1));
+  console.log(JSON.stringify(gatekeepingReport, null, 1));
   process.exit(report.pass ? 0 : 1);
 }
 
@@ -222,6 +239,8 @@ if (covDecision.pass) {
   }
 }
 
+ledger.appendEvent(gatekeepingReport, { now: gatekeepingReport.at });
+log("gatekeeping_eval appended to lead ledger");
 ledger.appendEvent(report, { now: report.at });
 log("metrics_report appended to lead ledger");
 process.exit(report.pass ? 0 : 1);
