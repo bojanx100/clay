@@ -58,6 +58,26 @@ test("a resolved global SessionRef persists its stable id across the project swi
   delete global.sessionStorage;
 });
 
+test("project navigation uses pushState normally and replaceState in a PWA", async function () {
+  var state = await import("../lib/public/modules/session-tab-state.js");
+  var ref = { projectId: "8c1d8aa6-58b1-5645-85ef-bfcf229e53f9", sessionStorageId: "restart-safe" };
+  var calls = [];
+  var fakeHistory = {
+    pushState: function (_, __, url) { calls.push({ method: "pushState", url: url }); },
+    replaceState: function (_, __, url) { calls.push({ method: "replaceState", url: url }); },
+  };
+
+  var ordinaryUpdate = state.projectNavigationHistoryUpdate("clay", null, false);
+  fakeHistory[ordinaryUpdate.method](null, "", ordinaryUpdate.url);
+  var pwaUpdate = state.projectNavigationHistoryUpdate("clay", { sessionRef: ref }, true);
+  fakeHistory[pwaUpdate.method](null, "", pwaUpdate.url);
+
+  assert.deepEqual(calls, [{ method: "pushState", url: "/p/clay/" }, {
+    method: "replaceState",
+    url: "/p/clay/?sessionRef=8c1d8aa6-58b1-5645-85ef-bfcf229e53f9~restart-safe",
+  }]);
+});
+
 test("cross-project navigation leaves the canonical Lead Coop tab selection intact", async function () {
   var values = new Map();
   global.sessionStorage = {
