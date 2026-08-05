@@ -2,7 +2,7 @@
   "name": "Clay",
   "short_name": "Clay",
   "id": "/",
-  "start_url": "/",
+  "start_url": "/p/lead/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#282a36",
