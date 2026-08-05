@@ -114,6 +114,43 @@ test("out-of-order delivery buffers until the source sequence gap is filled", fu
   });
 });
 
+test("the envelope factory reserves source sequences before multiple events are sent", function () {
+  withTransport({}, function (scratch) {
+    var applied = [];
+    var delivery = createDurableDelivery({
+      deliveryFile: scratch.file,
+      getProjectContextById: function () {
+        return { deliverCrossProjectEnvelope: function (item) {
+          applied.push(item.eventId);
+          return { ok: true };
+        } };
+      },
+    });
+    var first = delivery.createEnvelope({
+      eventId: "factory-first",
+      source: SOURCE,
+      destination: TARGET,
+      bindingRevision: 1,
+      createdAt: 100,
+      payload: { type: "coordinator_update", text: "first" },
+    });
+    var second = delivery.createEnvelope({
+      eventId: "factory-second",
+      source: SOURCE,
+      destination: TARGET,
+      bindingRevision: 1,
+      createdAt: 101,
+      payload: { type: "coordinator_update", text: "second" },
+    });
+
+    assert.equal(first.sourceSeq, 1);
+    assert.equal(second.sourceSeq, 2);
+    assert.equal(delivery.deliverEnvelope(second).reason, "sequence_gap");
+    assert.equal(delivery.deliverEnvelope(first).ok, true);
+    assert.deepEqual(applied, ["factory-first", "factory-second"]);
+  });
+});
+
 test("unacknowledged events survive restart and apply once when the project returns", function () {
   withTransport({}, function (scratch) {
     var clock = 100;
@@ -173,6 +210,23 @@ test("bounded transient retries dead-letter once with observable reason evidence
     assert.equal(recovery.length, 1);
     assert.equal(delivery.deliverEnvelope(envelope("bounded-retry", 1)).deadLettered, true);
     assert.equal(delivery.getDeadLetters().length, 1);
+  });
+});
+
+test("a conflicting event-id reuse does not poison the acknowledged envelope", function () {
+  withTransport({}, function (scratch) {
+    var delivery = createDurableDelivery({
+      deliveryFile: scratch.file,
+      getProjectContextById: function () {
+        return { deliverCrossProjectEnvelope: function () { return { ok: true }; } };
+      },
+    });
+    var original = envelope("immutable-event", 1, "original");
+    var conflicting = envelope("immutable-event", 1, "tampered");
+
+    assert.equal(delivery.deliverEnvelope(original).ok, true);
+    assert.equal(delivery.deliverEnvelope(conflicting).reason, "invalid_payload");
+    assert.equal(delivery.deliverEnvelope(original).acknowledged, true);
   });
 });
 

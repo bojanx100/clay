@@ -88,3 +88,35 @@ test("fan-in delivery queues an event once and persists the delivered id", funct
     assert.equal(saved.delivered[0].eventId, "event-1");
   });
 });
+
+test("a terminal typed delivery failure is persisted once and stops fan-in replay", function () {
+  withDeliveryHarness(function (h) {
+    var api = h.attach({
+      sm: { sessions: new Map(), getProjectId: function () { return "system-source"; } },
+      slug: "source-project",
+      now: function () { return 1000; },
+      queueCoordinatorUpdate: function () {},
+      crossProject: {
+        deliver: function () { return { ok: false }; },
+        createEnvelope: function (spec) { return spec; },
+        deliverEnvelope: function () {
+          return { ok: false, reason: "access_denied", deadLettered: true };
+        },
+      },
+    });
+    var event = {
+      eventId: "terminal-event",
+      coopSessionStorageId: "coop-home",
+      sessionStorageId: "source-worker",
+      taskId: "task-1",
+      status: "completed",
+      occurredAt: 1000,
+    };
+
+    assert.equal(api.deliverEvent(event).deadLettered, true);
+    assert.deepEqual(api.getPendingEventIds(), []);
+    assert.equal(api.hasDelivered("terminal-event"), false);
+    assert.deepEqual(api.getDeliveredEventIds(), ["terminal-event"]);
+    assert.equal(api.deliverEvent(event).failed, true);
+  });
+});
