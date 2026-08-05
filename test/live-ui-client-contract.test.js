@@ -53,3 +53,14 @@ test("Live UI preferences remain server or session state, never localStorage", f
   assert.match(liveUi, /Live UI ended after Clay restarted/);
   assert.match(liveUi, /transientPairingError \? "paired"/);
 });
+
+test("Coop handoff intent is routed to the ephemeral switch correlator", function () {
+  var sessions = read("lib/public/modules/app-messages-sessions.js");
+  var connection = read("lib/public/modules/app-connection.js");
+  var correlation = read("lib/public/modules/coop-handoff-client.js");
+  assert.match(sessions, /case "coop_handoff_intent"/);
+  assert.match(sessions, /rememberCoopHandoffIntent\(msg\)/);
+  assert.match(connection, /attachPendingHandoffTrace\(obj\)/);
+  assert.match(connection, /clearSentHandoffTrace\(action\)/);
+  assert.doesNotMatch(correlation, /localStorage|sessionStorage/);
+});

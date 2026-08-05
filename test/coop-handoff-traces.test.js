@@ -1,6 +1,7 @@
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
+var childProcess = require("child_process");
 var test = require("node:test");
 var assert = require("node:assert/strict");
 
@@ -131,17 +132,20 @@ test("a typed navigation after an observed assistant response cannot become gree
     observeAssistantTurns: function () { return 1; },
   });
   store.recordNavigation({ intentId: intent.id, ownerId: "owner-a", action: "switch_session", target: target() });
-  var result = gatekeeping.evaluateCase(store.loadRuntimeTrace().cases[0]);
+  var captured = store.loadRuntimeTrace().cases[0];
+  var result = gatekeeping.evaluateCase(captured);
   assert.deepEqual(result.reasonCodes, ["MIDDLEMAN_ASSISTANT_TURN"]);
 });
 
-test("a navigation without a pre-resolved stable target remains unmeasurable", function () {
+test("a navigation without an independently pre-resolved stable target remains unmeasurable", function () {
   var filePath = tempTracePath();
   var now = { value: 1700 };
   var store = storeAt(filePath, now, { makeId: function () { return handoffId(5); } });
   var intent = store.recordIntent({ ownerId: "owner-a" });
   store.recordNavigation({ intentId: intent.id, ownerId: "owner-a", action: "switch_session", target: target() });
-  var result = gatekeeping.evaluateCase(store.loadRuntimeTrace().cases[0]);
+  var captured = store.loadRuntimeTrace().cases[0];
+  assert.equal(captured.expectedTarget, null, "the actual navigation never becomes its own expected target");
+  var result = gatekeeping.evaluateCase(captured);
   assert.deepEqual(result.reasonCodes, ["MISSING_RUNTIME_EVIDENCE"]);
 });
 
@@ -200,7 +204,7 @@ test("owner-scoped intent ids cannot be consumed across users and remain stable 
   assert.equal(gatekeeping.evaluateCase(caseAfterRestart).verdict, "GREEN");
 });
 
-test("wrong target and clickable references use the same normalized runtime contract", function () {
+test("wrong targets and exact pre-resolved clickable references use the same normalized runtime contract", function () {
   var filePath = tempTracePath();
   var now = { value: 3500 };
   var sequence = 0;
@@ -209,7 +213,12 @@ test("wrong target and clickable references use the same normalized runtime cont
   store.recordNavigation({
     intentId: wrongTarget.id, ownerId: "owner-a", action: "switch_session", target: target("actual"),
   });
-  var clickable = store.recordIntent({ ownerId: "owner-a", expectedTarget: target("clickable") });
+  var clickable = store.recordIntent({
+    ownerId: "owner-a",
+    expectedTarget: target("clickable"),
+    requiresAssistantObservation: true,
+    observeAssistantTurns: function () { return 1; },
+  });
   store.recordNavigation({
     intentId: clickable.id, ownerId: "owner-a", action: "clickable_session_ref", target: target("clickable"),
   });
@@ -218,6 +227,7 @@ test("wrong target and clickable references use the same normalized runtime cont
   assert.deepEqual(outcomes[0].reasonCodes, ["WRONG_SESSION"]);
   assert.equal(outcomes[1].directHandoff.kind, "clickable_session_ref");
   assert.equal(outcomes[1].verdict, "GREEN");
+  assert.equal(outcomes[1].assistantMiddlemanTurns, 0);
 });
 
 test("a clickable reference ignores only its own final assistant turn", function () {
@@ -233,7 +243,31 @@ test("a clickable reference ignores only its own final assistant turn", function
   store.recordNavigation({
     intentId: intent.id, ownerId: "owner-a", action: "clickable_session_ref", target: target("clickable-after-summary"),
   });
-  assert.deepEqual(gatekeeping.evaluateCase(store.loadRuntimeTrace().cases[0]).reasonCodes, ["MIDDLEMAN_ASSISTANT_TURN"]);
+  var result = gatekeeping.evaluateCase(store.loadRuntimeTrace().cases[0]);
+  assert.equal(result.assistantMiddlemanTurns, 1);
+  assert.deepEqual(result.reasonCodes, ["MIDDLEMAN_ASSISTANT_TURN"]);
+});
+
+test("a clickable reference without its live observer remains unmeasurable", function () {
+  var filePath = tempTracePath();
+  var now = { value: 3700 };
+  var intentId = handoffId(36);
+  var traceModule = path.join(__dirname, "..", "lib", "coop-handoff-traces");
+  var childSource = "var traces=require(" + JSON.stringify(traceModule) + ");" +
+    "var store=traces.createStore({filePath:" + JSON.stringify(filePath) +
+    ",now:function(){return 3700},makeId:function(){return " + JSON.stringify(intentId) + "}});" +
+    "store.recordIntent({ownerId:'owner-a',expectedTarget:{projectSlug:'clay',sessionStorageId:'clickable-after-restart'},requiresAssistantObservation:true,observeAssistantTurns:function(){return 1}});";
+  childProcess.execFileSync(process.execPath, ["-e", childSource]);
+  var restartedStore = storeAt(filePath, now);
+  restartedStore.recordNavigation({
+    intentId: intentId,
+    ownerId: "owner-a",
+    action: "clickable_session_ref",
+    target: target("clickable-after-restart"),
+  });
+  var result = gatekeeping.evaluateCase(restartedStore.loadRuntimeTrace().cases[0]);
+  assert.equal(result.verdict, "UNMEASURABLE");
+  assert.deepEqual(result.reasonCodes, ["MISSING_RUNTIME_EVIDENCE"]);
 });
 
 test("malformed runtime state fails closed and is never overwritten", function () {

@@ -94,7 +94,7 @@ function traceLifecycleHarness(session, store, canAccess) {
   return { lifecycle: lifecycle, sm: sm, switched: switched };
 }
 
-test("authorized stable switches complete a correlated handoff after access validation", function () {
+test("an authorized client-correlated stable switch completes a handoff after access validation", async function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-lifecycle-trace-"));
   var tracePath = path.join(dir, "traces.json");
   var store = traces.createStore({ filePath: tracePath, makeId: function () {
@@ -108,10 +108,12 @@ test("authorized stable switches complete a correlated handoff after access vali
   var harness = traceLifecycleHarness(target, store, function (ownerId, session) {
     return ownerId === session.ownerId;
   });
+  var client = await import("../lib/public/modules/coop-handoff-client.js");
+  assert.strictEqual(client.rememberCoopHandoffIntent({ handoffTraceId: intent.id }), true);
+  var outboundSwitch = client.attachPendingHandoffTrace({ type: "switch_session", storageId: "stable-worker" });
+  client.clearSentHandoffTrace(outboundSwitch);
 
-  harness.lifecycle.handleLifecycleMessage({ _clayUser: { id: "owner-a" } }, {
-    type: "switch_session", storageId: "stable-worker", handoffTraceId: intent.id,
-  });
+  harness.lifecycle.handleLifecycleMessage({ _clayUser: { id: "owner-a" } }, outboundSwitch);
 
   assert.deepStrictEqual(harness.switched, [7]);
   var captured = store.loadRuntimeTrace().cases[0];
