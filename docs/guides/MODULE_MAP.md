@@ -134,6 +134,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-issue-launch-state.js` | Issue/task launch state persistence used to avoid duplicate launches and track workflow state |
 | `project-pr-review-state.js` | PR-review task state persistence for review/CI/QA follow-up passes |
 | `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
+| `coop-self-cleanup-runtime.js` | Project-scoped, Lead-mode-gated Coop projection cleanup, compaction scheduling, and durable audit replay |
 | `project-workspace.js` | `workspace_get`, `workspace_dev_*` | Session workspace context assembly: repo links, worktree binding, PR/preview metadata, dev server lifecycle, and live workspace context patches |
 | `project-workspace-dev-discovery.js` | (called by project workspace) | Detects configured dev ports started outside Workspace while preserving per-worktree port ownership |
 | `project-workspace-git.js` | Git helpers for workspace context: branch, remote, PR, and repo metadata lookups |

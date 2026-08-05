@@ -56,6 +56,19 @@ test("destroy() stops the Coop watchdog timer via getTaskOrchestrator().stopCoop
   assert.equal(stopCalls, 1, "destroy() must stop the watchdog exactly once");
 });
 
+test("destroy() stops the project-local self-cleanup runtime", function () {
+  var stopCalls = 0;
+  var timers = {
+    coopSelfCleanupRuntime: { stop: function () { stopCalls++; } },
+  };
+  var destroy = createProjectDestroy(minimalDestroyCtx({ timers: timers }));
+
+  destroy();
+
+  assert.equal(stopCalls, 1);
+  assert.equal(timers.coopSelfCleanupRuntime, null);
+});
+
 test("destroy() does not throw when the watchdog stop function itself throws", function () {
   var taskOrchestrator = {
     stopCoopWatchdog: function () { throw new Error("boom"); },

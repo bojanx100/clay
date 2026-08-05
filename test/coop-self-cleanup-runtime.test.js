@@ -1,0 +1,305 @@
+var test = require("node:test");
+var assert = require("node:assert/strict");
+
+var runtimeModule = require("../lib/coop-self-cleanup-runtime");
+var deletionModule = require("../lib/sessions-deletion");
+
+var NOW = 1_000_000;
+var THRESHOLDS = {
+  workerArchiveAgeMs: 100,
+  predecessorPruneAgeMs: 100,
+  channelCompactAgeMs: 100,
+  channelCompactMessageCount: 10,
+  channelRotateDepth: 3,
+};
+
+function controlledBy() {
+  return { coopSessionStorageId: "coop-home", since: 1 };
+}
+
+function worker(id, overrides) {
+  return Object.assign({
+    localId: id,
+    storageId: "worker-" + id,
+    orchestrationParent: { taskId: "task-" + id, taskStatus: "completed" },
+    resolvedAt: NOW - 100,
+    coopControlledBy: controlledBy(),
+  }, overrides || {});
+}
+
+function makeHarness(sessions, overrides) {
+  var map = new Map();
+  for (var i = 0; i < sessions.length; i++) map.set(sessions[i].localId, sessions[i]);
+  var events = [];
+  var hides = [];
+  var timers = [];
+  var clears = [];
+  var options = overrides || {};
+  var sm = {
+    sessions: map,
+    getActiveSession: function () { return options.activeSession || null; },
+    hideSession: function (localId) {
+      var session = map.get(localId);
+      if (session) {
+        session.hidden = true;
+        hides.push(session);
+      }
+    },
+  };
+  var persistence = {
+    load: function () { return events; },
+    append: function (event) { events.push(event); },
+  };
+  var runtime = runtimeModule.attachCoopSelfCleanupRuntime(Object.assign({
+    sm: sm,
+    projectSlug: options.projectSlug || "test-project",
+    now: function () { return NOW; },
+    getLeadMode: function () { return options.leadMode === true; },
+    thresholds: THRESHOLDS,
+    persistence: persistence,
+    setInterval: function (fn) { timers.push(fn); return fn; },
+    clearInterval: function (id) { clears.push(id); },
+  }, options.runtime || {}));
+  return { runtime: runtime, sessions: map, events: events, hides: hides, timers: timers, clears: clears };
+}
+
+test("Lead mode off records a typed skip and performs no cleanup mutation", function () {
+  var harness = makeHarness([worker(1)]);
+
+  var result = harness.runtime.tick();
+
+  assert.equal(result.leadMode, false);
+  assert.equal(harness.hides.length, 0);
+  assert.equal(harness.events.length, 1);
+  assert.equal(harness.events[0].type, runtimeModule.AUDIT_TYPE);
+  assert.equal(harness.events[0].reasonCode, "lead_mode_off");
+});
+
+test("a non-lead project starts its local runtime and cleans a controlled worker", function () {
+  var harness = makeHarness([worker(9)], { leadMode: true, projectSlug: "webapp" });
+
+  harness.runtime.start();
+  harness.timers[0]();
+
+  assert.deepEqual(harness.hides.map(function (session) { return session.localId; }), [9]);
+  assert.equal(harness.events[0].projectSlug, "webapp");
+  assert.match(harness.events[1].actionKey, /^webapp\|/);
+  harness.runtime.stop();
+});
+
+test("runtime archives only aged Coop-controlled projections and protects direct owners and unread state", function () {
+  var sessions = [
+    worker(1),
+    worker(2, { ownerId: "owner-1", coopControlledBy: null }),
+    worker(3, { unread: 1 }),
+    worker(4, { attention: true }),
+    worker(5, { resolvedAt: NOW - 99 }),
+  ];
+  var harness = makeHarness(sessions, { leadMode: true });
+
+  harness.runtime.tick();
+
+  assert.deepEqual(harness.hides.map(function (session) { return session.localId; }), [1]);
+  assert.equal(sessions[1].hidden, undefined);
+  assert.equal(sessions[2].hidden, undefined);
+  assert.equal(sessions[3].hidden, undefined);
+  assert.equal(sessions[4].hidden, undefined);
+});
+
+test("projection pruning hides only the predecessor and never deletes its transcript", function () {
+  var files = { "predecessor-1": "canonical transcript" };
+  var predecessor = {
+    localId: 1,
+    storageId: "predecessor-1",
+    compactedIntoLocalId: 2,
+    compactedAt: NOW - 100,
+    compactionDepth: 0,
+  };
+  var home = {
+    localId: 2,
+    storageId: "coop-home",
+    coopHome: true,
+    compactionDepth: 1,
+    createdAt: NOW,
+  };
+  var harness = makeHarness([predecessor, home], { leadMode: true });
+  var deleteCalls = 0;
+  harness.runtime = runtimeModule.attachCoopSelfCleanupRuntime({
+    sm: harness.runtime ? {
+      sessions: harness.sessions,
+      getActiveSession: function () { return null; },
+      hideSession: function (id) { harness.sessions.get(id).hidden = true; },
+    } : null,
+    now: function () { return NOW; },
+    getLeadMode: function () { return true; },
+    thresholds: THRESHOLDS,
+    persistence: { load: function () { return []; }, append: function () {} },
+    mutations: {
+      pruneProjection: function (session) {
+        session.hidden = true;
+        return { ok: true };
+      },
+      deleteSession: function () { deleteCalls++; return { ok: true }; },
+    },
+  });
+
+  harness.runtime.tick();
+
+  assert.equal(predecessor.hidden, true);
+  assert.equal(files["predecessor-1"], "canonical transcript");
+  assert.equal(deleteCalls, 0);
+});
+
+test("due compaction and rotation dispatch through the existing path", function () {
+  var calls = [];
+  var home = {
+    localId: 1,
+    storageId: "coop-home",
+    coopHome: true,
+    createdAt: NOW - 100,
+    messageCount: 10,
+    compactionDepth: 0,
+  };
+  var rotation = {
+    localId: 2,
+    storageId: "coop-channel",
+    coopChannel: { projectSlug: "webapp" },
+    createdAt: NOW,
+    messageCount: 0,
+    compactionDepth: 3,
+  };
+  var harness = makeHarness([home, rotation], {
+    leadMode: true,
+    runtime: {
+      compactAndContinue: function (session, options) {
+        calls.push({ session: session, options: options });
+        return { localId: session.localId + 10 };
+      },
+    },
+  });
+
+  harness.runtime.tick();
+
+  assert.deepEqual(calls.map(function (call) { return call.session.localId; }), [1, 2]);
+  assert.equal(calls[0].options.rotation, false);
+  assert.equal(calls[1].options.rotation, true);
+  assert.equal(calls[0].options.reason, "coop_cleanup_compaction");
+  assert.equal(calls[1].options.reason, "coop_cleanup_rotation");
+});
+
+test("repeated ticks and restart replay do not repeat applied actions", function () {
+  var harness = makeHarness([worker(1)], { leadMode: true });
+
+  harness.runtime.tick();
+  harness.runtime.tick();
+  var firstHideCount = harness.hides.length;
+  var replay = makeHarness([worker(1)], {
+    leadMode: true,
+    runtime: {},
+  });
+  replay.events.push.apply(replay.events, harness.events);
+  replay.runtime = runtimeModule.attachCoopSelfCleanupRuntime({
+    sm: {
+      sessions: replay.sessions,
+      getActiveSession: function () { return null; },
+      hideSession: function (id) {
+        replay.sessions.get(id).hidden = true;
+        replay.hides.push(replay.sessions.get(id));
+      },
+    },
+    projectSlug: "test-project",
+    now: function () { return NOW; },
+    getLeadMode: function () { return true; },
+    thresholds: THRESHOLDS,
+    persistence: { load: function () { return replay.events; }, append: function (event) { replay.events.push(event); } },
+  });
+  replay.runtime.tick();
+
+  assert.equal(firstHideCount, 1);
+  assert.equal(replay.hides.length, 0);
+  assert.ok(harness.events.some(function (event) { return event.outcome === "applied"; }));
+});
+
+test("restart replay namespaces equal worker ids and timestamps by project slug", function () {
+  var events = [];
+  var hides = {};
+
+  function makeProject(slug) {
+    var session = worker(1);
+    var map = new Map([[1, session]]);
+    hides[slug] = 0;
+    return runtimeModule.attachCoopSelfCleanupRuntime({
+      sm: {
+        sessions: map,
+        getActiveSession: function () { return null; },
+        hideSession: function () { hides[slug]++; session.hidden = true; },
+      },
+      projectSlug: slug,
+      now: function () { return NOW; },
+      getLeadMode: function () { return true; },
+      thresholds: THRESHOLDS,
+      persistence: {
+        load: function () { return events; },
+        append: function (event) { events.push(event); },
+      },
+    });
+  }
+
+  makeProject("clay").tick();
+  makeProject("webapp").tick();
+
+  assert.equal(hides.clay, 1);
+  assert.equal(hides.webapp, 1);
+  assert.deepEqual(events.filter(function (event) {
+    return event.operation === "tick";
+  }).map(function (event) { return event.projectSlug; }), ["clay", "webapp"]);
+});
+
+test("start and stop tear down the runtime timer", function () {
+  var harness = makeHarness([], { leadMode: false });
+
+  harness.runtime.start();
+  assert.equal(harness.runtime.isRunning(), true);
+  harness.runtime.stop();
+  assert.equal(harness.runtime.isRunning(), false);
+  assert.equal(harness.clears.length, 1);
+});
+
+test("projection-only hiding does not cascade or delete through session deletion", function () {
+  var sessions = new Map([
+    [1, { localId: 1, storageId: "coordinator" }],
+    [2, { localId: 2, storageId: "child" }],
+  ]);
+  sessions.get(1).coordinationMode = true;
+  sessions.get(1).orchestrationTasks = [{ workerSessionId: 2, workerStorageId: "child" }];
+  var saved = [];
+  var deleted = false;
+  var api = deletionModule.attachSessionDeletion({
+    sessions: sessions,
+    send: function () {},
+    sendTo: function () {},
+    sendEach: null,
+    getSingleUserUnread: function () { return {}; },
+    getSessionStorageId: function (session) { return session.storageId; },
+    sessionFilePath: function () { return "/never-used"; },
+    saveSessionFile: function (session) { saved.push(session); },
+    getActiveSessionId: function () { return null; },
+    setActiveSessionId: function () {},
+    switchSession: function () {},
+    createSession: function () {},
+    broadcastSessionList: function () {},
+    mostRecentVisibleSessionForWs: function () { return null; },
+  });
+  var originalUnlink = require("fs").unlinkSync;
+  require("fs").unlinkSync = function () { deleted = true; };
+  try {
+    api.hideSession(1, null, { projectionOnly: true });
+  } finally {
+    require("fs").unlinkSync = originalUnlink;
+  }
+
+  assert.equal(sessions.get(1).hidden, true);
+  assert.equal(sessions.get(2).hidden, undefined);
+  assert.equal(deleted, false);
+  assert.equal(saved.length, 1);
+});

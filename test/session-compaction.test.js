@@ -298,6 +298,40 @@ test("compaction refuses to orphan unresolved coordinator workers", function () 
   assert.match(errors[0][1].text, /worker tasks still need attention/);
 });
 
+test("Coop rotation resets compaction depth through the existing compaction path", function () {
+  var source = {
+    localId: 1,
+    storageId: "rotation-source",
+    coopHome: true,
+    compactionDepth: 3,
+    history: [{ type: "user_message", text: "Rotate this context", _ts: 1 }],
+  };
+  var sessions = new Map([[source.localId, source]]);
+  var api = compaction.attachSessionCompaction({
+    cwd: "/tmp/project",
+    sm: {
+      sessions: sessions,
+      createSessionRaw: function (options) {
+        var next = Object.assign({ localId: 2, history: [] }, options);
+        sessions.set(next.localId, next);
+        return next;
+      },
+      sendAndRecord: function (session, event) { session.history.push(event); },
+      saveSessionFile: function () {},
+      switchSession: function () {},
+      broadcastSessionList: function () {},
+    },
+    sdk: { startQuery: function () {} },
+    sendToSession: function () {},
+    now: function () { return 12345; },
+  });
+
+  var continuation = api.compactAndContinue(source, { rotation: true, reason: "coop_cleanup_rotation" });
+
+  assert.equal(continuation.compactionDepth, 0);
+  assert.equal(continuation.compactedAt, 12345);
+});
+
 test("compaction moves a settled coordinator graph and retargets worker lineage", function () {
   var source = {
     localId: 1,
