@@ -60,7 +60,7 @@ test("Coop handoff intent is routed to the ephemeral switch correlator", functio
   var correlation = read("lib/public/modules/coop-handoff-client.js");
   assert.match(sessions, /case "coop_handoff_intent"/);
   assert.match(sessions, /rememberCoopHandoffIntent\(msg\)/);
-  assert.match(connection, /attachPendingHandoffTrace\(obj\)/);
-  assert.match(connection, /clearSentHandoffTrace\(action\)/);
+  assert.match(connection, /sendCorrelatedAction\(ws, obj\)/);
+  assert.match(correlation, /export function sendCorrelatedAction\(ws, action\)/);
   assert.doesNotMatch(correlation, /localStorage|sessionStorage/);
 });

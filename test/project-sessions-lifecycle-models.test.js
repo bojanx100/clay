@@ -109,9 +109,12 @@ test("an authorized client-correlated stable switch completes a handoff after ac
     return ownerId === session.ownerId;
   });
   var client = await import("../lib/public/modules/coop-handoff-client.js");
-  assert.strictEqual(client.rememberCoopHandoffIntent({ handoffTraceId: intent.id }), true);
-  var outboundSwitch = client.attachPendingHandoffTrace({ type: "switch_session", storageId: "stable-worker" });
-  client.clearSentHandoffTrace(outboundSwitch);
+  var serializedSwitch = null;
+  assert.strictEqual(client.rememberCoopHandoffIntent({ type: "coop_handoff_intent", handoffTraceId: intent.id }), true);
+  assert.strictEqual(client.sendCorrelatedAction({ send: function (serialized) {
+    serializedSwitch = serialized;
+  } }, { type: "switch_session", storageId: "stable-worker" }), true);
+  var outboundSwitch = JSON.parse(serializedSwitch);
 
   harness.lifecycle.handleLifecycleMessage({ _clayUser: { id: "owner-a" } }, outboundSwitch);
 

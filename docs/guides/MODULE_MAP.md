@@ -302,6 +302,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | Module | Concern |
 |--------|---------|
 | `app-connection.js` | WebSocket creation, reconnect with exponential backoff, connection status UI, disconnect/restore notifications |
+| `coop-handoff-client.js` | Ephemeral one-shot correlation between a server `coop_handoff_intent` and the next successful session switch; keeps only a validated opaque trace ID in memory and never uses browser persistence |
 | `connection-policy.js` | Shared WebSocket reconnect and connection-health policy thresholds |
 | `app-messages.js` | WebSocket message router (`processMessage`). Dispatches all incoming message types to appropriate handlers |
 | `app-dm.js` | DM mode (open/enter/exit), mate project switching, mate onboarding, DM message rendering, typing indicators |
