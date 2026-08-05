@@ -120,3 +120,29 @@ test("missing slug or session id dead-letters as missing-target", function () {
     reason: "missing-target",
   }]);
 });
+
+test("typed delivery resolves a dynamically registered project by ProjectRef", function () {
+  var delivered = [];
+  var projectId = "system-target";
+  var router = createCrossProjectRouter({
+    getProjectContext: function () { return null; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function (envelope) {
+      delivered.push(envelope.eventId);
+      return { ok: true };
+    },
+  });
+  var envelope = router.createEnvelope({
+    eventId: "resolver-project-ref",
+    source: { projectId: "system-source", sessionStorageId: "source" },
+    destination: { projectId: "system-target", sessionStorageId: "target" },
+    bindingRevision: 1,
+    createdAt: 1,
+    payload: { type: "coordinator_update", text: "hello" },
+  });
+
+  assert.equal(router.deliverEnvelope(envelope).acknowledged, true);
+  assert.deepEqual(delivered, ["resolver-project-ref"]);
+});

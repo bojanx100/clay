@@ -86,7 +86,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `server-live-ui-registry.js` | Server-instance Live UI pairing identities, proof, reconnect credentials, deduplication, isolation, and revocation |
 | `server-lead.js` | Permanent Coop pseudo-project registration and designated-owner resolution helpers |
 | `lead-mode.js` | Server-authoritative Coop Lead mode: one-time owner-preference migration, designated Clay-owner mutation authority, durable audit trail, and cross-project state fanout; it gates autonomous powers, not Coop persistence |
-| `server-cross-project.js` | Cross-project coordinator-update router with dead-letter logging for unroutable deliveries |
+| `server-cross-project.js` | Daemon cross-project router: legacy text compatibility plus typed durable delivery by stable ProjectRef/SessionRef |
+| `cross-project-delivery.js` | Typed delivery envelopes, atomic bounded outbox/inbox/cursor persistence, acknowledgement, ordered replay/retry, and dead-letter state |
 | `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
 | `project-live-ui-reports.js` | Coordinator-owned Live UI report creation, React/source context, worker-color identity, compact status relay, and verified worker cleanup |
 | `project-live-ui-context.js` | Bounded DOM/React selection-packet validation, safe source paths, sensitive-field exclusion, PII scrubbing, and fingerprints |

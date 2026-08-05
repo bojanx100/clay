@@ -104,6 +104,48 @@ test("a worker fan-in event in a non-lead project is delivered cross-project to 
   }
 });
 
+test("fan-in uses a durable typed envelope when project identities are available", function () {
+  var scratch = createScratchDir("typed-cross-project-fanin");
+  try {
+    var received = [];
+    var projects = new Map([["system-lead", {
+      deliverCrossProjectEnvelope: function (envelope) {
+        received.push(envelope);
+        return { ok: true };
+      },
+    }]]);
+    var crossProject = createCrossProjectRouter({
+      deliveryFile: path.join(scratch, "transport.json"),
+      getProjectContext: function () { return null; },
+      getProjectContextById: function (projectId) { return projects.get(projectId) || null; },
+    });
+    var fanIn = attachCoopFanIn({
+      sm: { sessions: new Map(), getProjectId: function () { return "system-source"; } },
+      slug: "renamed-source-project",
+      crossProject: crossProject,
+      now: function () { return 1000; },
+      queueCoordinatorUpdate: function () { assert.fail("typed cross-project delivery must not queue locally"); },
+      deliveryFile: path.join(scratch, "fan-in.json"),
+    });
+    var result = fanIn.deliverEvent({
+      eventId: "typed-fanin-event",
+      coopSessionStorageId: "coop-home",
+      sessionStorageId: "source-worker",
+      taskId: "task-1",
+      status: "completed",
+      occurredAt: 999,
+    });
+
+    assert.deepEqual(result, { ok: true, delivered: true });
+    assert.equal(received.length, 1);
+    assert.equal(received[0].destination.projectId, "system-lead");
+    assert.equal(received[0].source.projectId, "system-source");
+    assert.equal(received[0].sourceSeq, 1);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 test("cross-project delivery to a not-yet-registered lead project stays durably pending, never lost", function () {
   var scratch = createScratchDir("cross-project-fanin-pending");
   var sink = createRecoveryEventSink();

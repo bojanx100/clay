@@ -4,6 +4,7 @@ var attachSessionQueuedMessages = require("../lib/sessions-queued-messages").att
 var hasStaleProcessingState = require("../lib/sessions-queued-messages").hasStaleProcessingState;
 var attachUserMessage = require("../lib/project-user-message").attachUserMessage;
 var shouldQueueMessage = require("../lib/project-user-message").shouldQueueMessage;
+var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
 
 function queuedHistoryItem(queueId, text, options) {
   options = options || {};
@@ -14,6 +15,35 @@ function queuedHistoryItem(queueId, text, options) {
     queuedPending: !options.steerPending,
     steerPending: !!options.steerPending,
   };
+}
+
+function crossProjectEnvelope(eventId) {
+  return {
+    eventId: eventId,
+    destination: { projectId: "system-target", sessionStorageId: "target-session" },
+    payload: { type: "coordinator_update", text: "[durable update] " + eventId },
+  };
+}
+
+function typedDeliveryOrchestrator(session, starts) {
+  var sessions = new Map([[session.localId, session]]);
+  var sm = {
+    sessions: sessions,
+    appendToSessionFile: function () {},
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+    subscribeSession: function () { return function () {}; },
+  };
+  return attachTaskOrchestrator({
+    sm: sm,
+    sdk: {
+      startQuery: function (target, text) { starts.push({ target: target, text: text }); },
+      pushMessage: function (target, text) { starts.push({ target: target, text: text }); },
+    },
+    sendToSession: function () {},
+    onProcessingChanged: function () {},
+    ensureProjectAccessForSession: function () {},
+  });
 }
 
 test("queue state serialization preserves a selected steer at the front", function () {
@@ -69,6 +99,43 @@ test("an idle session with a pending backlog keeps new messages queued", functio
     isProcessing: false,
     pendingUserMessageQueue: [],
   }), false);
+});
+
+test("replayed typed delivery uses the durable pending/history event id and never reinjects it", function () {
+  var starts = [];
+  var original = {
+    localId: 7,
+    storageId: "target-session",
+    history: [],
+    pendingCoordinatorUpdates: [],
+    isProcessing: true,
+  };
+  var event = crossProjectEnvelope("restart-safe-event");
+  var first = typedDeliveryOrchestrator(original, starts);
+  assert.equal(first.deliverCrossProjectEnvelope(event).ok, true);
+  assert.equal(original.pendingCoordinatorUpdates.length, 1);
+  assert.match(original.pendingCoordinatorUpdates[0].text, /restart-safe-event/);
+
+  // Simulate daemon restart after application was persisted but before the
+  // coordinator was available to run it. Replaying flushes that one queued
+  // update; it does not start a worker or add a second transcript item.
+  var restored = {
+    localId: 9,
+    storageId: "target-session",
+    history: original.history.slice(),
+    pendingCoordinatorUpdates: original.pendingCoordinatorUpdates.slice(),
+    isProcessing: false,
+  };
+  var afterRestart = typedDeliveryOrchestrator(restored, starts);
+  assert.equal(afterRestart.deliverCrossProjectEnvelope(event).duplicate, true);
+  assert.equal(starts.length, 1);
+  assert.equal(restored.pendingCoordinatorUpdates.length, 0);
+  assert.match(restored.history[0].text, /restart-safe-event/);
+
+  restored.isProcessing = false;
+  assert.equal(afterRestart.deliverCrossProjectEnvelope(event).duplicate, true);
+  assert.equal(starts.length, 1);
+  assert.equal(restored.history.length, 1);
 });
 
 test("processing-state reconciliation preserves a genuinely active follow-on turn", function () {
