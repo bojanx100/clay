@@ -4,11 +4,9 @@
 // a navigation. With no trace artifact, it emits an explicit UNMEASURABLE
 // baseline rather than inferring a pass from prompt or source text.
 
-var fs = require("fs");
-var path = require("path");
-
 var gatekeeping = require("../lib/lead-gatekeeping-eval");
 var ledger = require("../lib/lead-ledger");
+var handoffTraces = require("../lib/coop-handoff-traces");
 
 function optionValue(argv, flag) {
   var index = argv.indexOf(flag);
@@ -16,7 +14,7 @@ function optionValue(argv, flag) {
 }
 
 function defaultTracePath() {
-  return path.join(ledger.leadDir(), "gatekeeping-eval-traces.json");
+  return handoffTraces.defaultTracePath();
 }
 
 function malformedCase(reason, tracePath) {
@@ -44,15 +42,15 @@ function normalizeLoadedCases(parsed, tracePath) {
 }
 
 function loadCases(tracePath) {
-  if (!fs.existsSync(tracePath)) {
+  var runtimeStore = handoffTraces.createStore({ filePath: tracePath });
+  var runtimeTrace = runtimeStore.loadRuntimeTrace();
+  if (!runtimeTrace.ok) {
+    return { source: "runtime_trace_invalid", cases: [malformedCase("Trace state is malformed.", tracePath)] };
+  }
+  if (!runtimeTrace.exists) {
     return { source: "runtime_trace_absent", cases: [gatekeeping.currentBaselineCase(tracePath)] };
   }
-  try {
-    var parsed = JSON.parse(fs.readFileSync(tracePath, "utf8"));
-    return { source: "runtime_trace", cases: normalizeLoadedCases(parsed, tracePath) };
-  } catch (e) {
-    return { source: "runtime_trace_invalid", cases: [malformedCase(e.message || "Trace JSON could not be read.", tracePath)] };
-  }
+  return { source: "runtime_trace", cases: runtimeTrace.cases };
 }
 
 function evaluate(options) {

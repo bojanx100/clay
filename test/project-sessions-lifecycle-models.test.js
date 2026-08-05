@@ -1,7 +1,12 @@
 var test = require("node:test");
 var assert = require("node:assert");
+var fs = require("fs");
+var os = require("os");
+var path = require("path");
 
 var { attachProjectSessionsLifecycle } = require("../lib/project-sessions-lifecycle");
+var traces = require("../lib/coop-handoff-traces");
+var gatekeeping = require("../lib/lead-gatekeeping-eval");
 
 function makeLifecycle(modelsByVendor, serverDefaults) {
   var created = [];
@@ -58,4 +63,84 @@ test("ordinary new sessions preserve a configured model default", function () {
   h.lifecycle.handleLifecycleMessage({}, { type: "new_session", vendor: "claude" });
 
   assert.strictEqual(h.created[0].model, "claude-opus-4-8");
+});
+
+function traceLifecycleHarness(session, store, canAccess) {
+  var switched = [];
+  var sm = {
+    sessions: new Map([[session.localId, session]]),
+    modelsByVendor: {},
+    switchSession: function (id) { switched.push(id); },
+  };
+  var lifecycle = attachProjectSessionsLifecycle({
+    slug: "clay",
+    sm: sm,
+    tm: { list: function () { return []; } },
+    sendTo: function () {},
+    usersModule: {
+      isMultiUser: function () { return true; },
+      canAccessSession: function (ownerId, target) { return canAccess(ownerId, target); },
+    },
+    userPresence: { setPresence: function () {} },
+    getSessionForWs: function () { return null; },
+    getOsUserInfoForWs: function () { return null; },
+    hydrateImageRefs: function () {}, broadcastPresence: function () {},
+    loadContextSources: function () { return []; }, saveContextSources: function () {},
+    getClaudeOpenModeForWs: function () { return "gui"; },
+    viewHandlers: { resolveSessionForView: function () {} }, tuiHandlers: {},
+    email: { getEmailDefaults: function () { return []; } },
+    coopHandoffTraceStore: store,
+  });
+  return { lifecycle: lifecycle, sm: sm, switched: switched };
+}
+
+test("authorized stable switches complete a correlated handoff after access validation", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-lifecycle-trace-"));
+  var tracePath = path.join(dir, "traces.json");
+  var store = traces.createStore({ filePath: tracePath, makeId: function () {
+    return "handoff-00000000-0000-4000-8000-000000000101";
+  } });
+  var intent = store.recordIntent({ ownerId: "owner-a" });
+  var target = { localId: 7, storageId: "stable-worker", ownerId: "owner-a", history: [] };
+  var harness = traceLifecycleHarness(target, store, function (ownerId, session) {
+    return ownerId === session.ownerId;
+  });
+
+  harness.lifecycle.handleLifecycleMessage({ _clayUser: { id: "owner-a" } }, {
+    type: "switch_session", storageId: "stable-worker", handoffTraceId: intent.id,
+  });
+
+  assert.deepStrictEqual(harness.switched, [7]);
+  var captured = store.loadRuntimeTrace().cases[0];
+  assert.deepStrictEqual(captured.expectedTarget, { projectSlug: "clay", sessionStorageId: "stable-worker" });
+  assert.strictEqual(gatekeeping.evaluateCase(captured).verdict, "GREEN");
+});
+
+test("rejected and missing handoff switches leave deterministic non-green evidence", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-lifecycle-trace-"));
+  var tracePath = path.join(dir, "traces.json");
+  var ids = 0;
+  var store = traces.createStore({ filePath: tracePath, makeId: function () {
+    ids++;
+    return "handoff-00000000-0000-4000-8000-" + String(200 + ids).padStart(12, "0");
+  } });
+  var rejected = store.recordIntent({ ownerId: "owner-a" });
+  var deniedTarget = { localId: 7, storageId: "denied-worker", ownerId: "owner-b", history: [] };
+  var harness = traceLifecycleHarness(deniedTarget, store, function (ownerId, session) {
+    return ownerId === session.ownerId;
+  });
+
+  harness.lifecycle.handleLifecycleMessage({ _clayUser: { id: "owner-a" } }, {
+    type: "switch_session", storageId: "denied-worker", handoffTraceId: rejected.id,
+  });
+  var missing = store.recordIntent({ ownerId: "owner-a" });
+  harness.lifecycle.handleLifecycleMessage({ _clayUser: { id: "owner-a" } }, {
+    type: "switch_session", storageId: "missing-worker", handoffTraceId: missing.id,
+  });
+
+  var outcomes = store.loadRuntimeTrace().cases.map(gatekeeping.evaluateCase);
+  assert.deepStrictEqual(outcomes.map(function (result) { return result.reasonCodes[0]; }), [
+    "ACCESS_REJECTED", "NO_MATCHING_SESSION",
+  ]);
+  assert.deepStrictEqual(harness.switched, []);
 });

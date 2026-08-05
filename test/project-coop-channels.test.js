@@ -5,7 +5,7 @@ var coopChannels = require("../lib/project-coop-channels");
 var applyCoopChannelScope = require("../lib/project-user-message").applyCoopChannelScope;
 var canAccessCoopChannel = require("../lib/project-user-message").canAccessCoopChannel;
 
-function harness(slug, multiUser) {
+function harness(slug, multiUser, coopHandoffTraceStore) {
   var sessions = new Map();
   var saved = [];
   var switched = [];
@@ -39,6 +39,7 @@ function harness(slug, multiUser) {
     },
     sendTo: function (ws, message) { messages.push(message); },
     usersModule: { isMultiUser: function () { return !!multiUser; } },
+    coopHandoffTraceStore: coopHandoffTraceStore,
   });
   return { api: api, sessions: sessions, saved: saved, switched: switched,
     messages: messages, broadcasts: broadcasts, projects: projects };
@@ -144,6 +145,23 @@ test("Coop channel switching revalidates project and owner access", function () 
     _clayUser: { id: "owner-2" },
   }, { type: "switch_session", id: channel.localId }), true);
   assert.match(state.messages.at(-1).text, /unavailable or inaccessible/);
+});
+
+test("rejected Coop-channel switches resolve only the matching owner's handoff trace", function () {
+  var rejected = [];
+  var state = harness("lead", true, {
+    recordRejectedAccess: function (input) { rejected.push(input); },
+  });
+  var ownerOne = { _clayUser: { id: "owner-1" } };
+  state.api.handleCoopChannelMessage(ownerOne, {
+    type: "ensure_coop_channel", projectSlug: "webapp",
+  });
+  var channel = [...state.sessions.values()][0];
+
+  state.api.handleCoopChannelMessage({ _clayUser: { id: "owner-2" } }, {
+    type: "switch_session", id: channel.localId, handoffTraceId: "handoff-owner-2",
+  });
+  assert.deepEqual(rejected, [{ intentId: "handoff-owner-2", ownerId: "owner-2" }]);
 });
 
 test("Coop channels inherit routing policy without sharing provider threads", function () {

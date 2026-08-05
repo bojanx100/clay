@@ -365,7 +365,12 @@ Binding decisions (recorded here so neither track builds a duplicate):
    cases, channels, counts, and reason codes; it is intentionally separate
    from the structural coverage/complexity done-gate. Until a captured runtime
    trace exists, the baseline is `UNMEASURABLE` with
-   `MISSING_RUNTIME_EVIDENCE`, not green.
+   `MISSING_RUNTIME_EVIDENCE`, not green. Runtime capture persists only the
+   normalized direct-owner intent, opaque owner correlation, stable target
+   identifiers, channel, timestamps, and reason codes in an atomic bounded
+   artifact. It records a navigation only after access validation; malformed,
+   rejected, unresolved, expired, or non-stable results remain non-green, and
+   raw conversation text, prompts, transcripts, and summaries are excluded.
 3. **The CTO's behavioral done-gate adopts Live UI's evidence contract.**
    Live UI's operation journal, typed verification manifest ("agent prose is
    not verification evidence"), and formal result states (including
