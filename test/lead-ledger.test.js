@@ -113,3 +113,77 @@ test("trust observations persist, read back, and reject malformed records", func
     assert.strictEqual(observations[1].metric, "backtest_alignment");
   });
 });
+
+function completionBinding(id, revision, mode) {
+  var direct = mode === "direct_leaf";
+  return {
+    portfolioTaskId: id,
+    bindingRevision: revision,
+    mode: direct ? "direct_leaf" : "project_coordinator",
+    status: "active",
+    targetProject: { projectId: "project-" + id },
+    coordinator: direct ? undefined : {
+      projectId: "project-" + id, sessionStorageId: "coordinator-" + id,
+    },
+    worker: direct ? {
+      projectId: "project-" + id, sessionStorageId: "worker-" + id,
+    } : undefined,
+  };
+}
+
+test("Coop closes a multi-project portfolio only after project and direct-leaf evidence", function () {
+  withDir(function (dir) {
+    var bindings = [
+      completionBinding("portfolio-project", 2, "project_coordinator"),
+      completionBinding("portfolio-leaf", 1, "direct_leaf"),
+    ];
+    var events = [
+      {
+        type: "project_completed", portfolioTaskId: "portfolio-project", bindingRevision: 2,
+        completionRevision: 3, graphDigest: "terminal-graph", summary: "Integrated project.",
+        verification: "project suite passed", integrationVerification: "yes",
+        escalationRequired: "no",
+      },
+      {
+        type: "worker_completed", portfolioTaskId: "portfolio-leaf", bindingRevision: 1,
+        summary: "Bounded leaf done.", verification: "leaf test passed", escalationRequired: "no",
+      },
+    ];
+    var gate = ledger.portfolioCompletionGate({ bindings: bindings, events: events });
+    assert.equal(gate.eligible, true);
+    assert.equal(ledger.appendPortfolioCompletion({
+      owner: "project_coordinator", bindings: bindings, events: events,
+    }, { dir: dir, now: 1 }).reason, "owner_required");
+
+    var completed = ledger.appendPortfolioCompletion({
+      owner: "coop", portfolioTaskId: "portfolio-root", bindings: bindings, events: events,
+      verification: "portfolio checks passed",
+    }, { dir: dir, now: 2 });
+    assert.equal(completed.ok, true);
+    assert.equal(completed.event.type, "portfolio_completed");
+    assert.equal(ledger.readEvents({ dir: dir })[0].owner, "coop");
+  });
+});
+
+test("delivery, reference, revocation, and active execution failures block portfolio closure", function () {
+  var binding = completionBinding("portfolio-blocked", 1, "project_coordinator");
+  var completed = {
+    type: "project_completed", portfolioTaskId: "portfolio-blocked", bindingRevision: 1,
+    completionRevision: 1, graphDigest: "graph", summary: "Complete.",
+    verification: "suite passed", integrationVerification: "yes", escalationRequired: "no",
+  };
+  assert.equal(ledger.portfolioCompletionGate({
+    bindings: [binding], events: [completed], deliveryState: { deadLetters: [{ reason: "access_denied" }] },
+  }).reason, "delivery_failure");
+  assert.equal(ledger.portfolioCompletionGate({
+    bindings: [binding], events: [completed], referenceFailures: ["missing session"],
+  }).reason, "reference_failure");
+  assert.equal(ledger.portfolioCompletionGate({
+    bindings: [binding], events: [completed, {
+      type: "project_completion_revoked", portfolioTaskId: "portfolio-blocked", bindingRevision: 1,
+    }],
+  }).reason, "completion_revoked");
+  binding.executionStatus = "running";
+  assert.equal(ledger.portfolioCompletionGate({ bindings: [binding], events: [completed] }).reason,
+    "active_execution");
+});

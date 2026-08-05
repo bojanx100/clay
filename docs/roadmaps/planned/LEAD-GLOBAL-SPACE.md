@@ -324,6 +324,15 @@ completion. Retrying or adding local work after completion increments the
 project completion revision and emits `project_completion_revoked` before new
 execution starts.
 
+**Shipped Slice 8 contract:** the canonical project coordinator must emit an
+explicit `PROJECT_COMPLETED: yes` declaration with summary, project
+verification, and `INTEGRATION_VERIFIED: yes`; its persisted state records the
+terminal graph digest and completion revision. A bare `WORKER_STATUS:
+completed` report remains task evidence. Graph creation, a retry, or any
+non-terminal transition revokes a prior completion before work runs again;
+restart reconciliation preserves one verified completion event without
+duplicating it.
+
 In `direct_leaf` mode there is deliberately no project-completion authority.
 The leaf emits `worker_completed` with evidence directly to Coop.
 
@@ -457,7 +466,7 @@ and preserve the portfolio audit link.
 | 5. Read-only global projection and navigation | Group every project coordinator/worker and direct leaf in Coop; click through to its canonical scope. | `lib/orchestration-task-state.js`, `lib/project-sessions-view.js`, `lib/public/modules/sidebar-sessions.js`, `lib/public/modules/sidebar-mobile-coordinators.js`, `lib/public/modules/orchestration-task-preview.js` | Projection contains no transcript/execution state; desktop/mobile open the exact referenced session. |
 | 6. Typed cross-project delivery — SHIPPED | Durable versioned envelopes, event IDs, per-source cursors, acknowledgement-after-application, replay, bounded retry, and observable dead letters behind the legacy router adapter. | `lib/server-cross-project.js`, `lib/cross-project-delivery.js`, `lib/recovery-log.js`, `lib/project.js`, `lib/project-task-orchestrator-followup.js` | Duplicate/out-of-order/restart replay is idempotent and observable; no completion is lost silently. |
 | 7. Project coordinator and direct-leaf routing — SHIPPED | Add explicit binding modes, idempotent target-project creation, scope-expansion promotion, and no Lead-local fallback. | `lib/portfolio-execution-bindings.js`, `lib/project-task-orchestrator.js`, `lib/project-task-orchestrator-external.js`, `lib/project-task-orchestrator-coordinator.js`, `lib/project-session-adoption.js`, `lib/server-cross-project.js` | Coordinated effort creates/reuses one project coordinator; leaf creates one target-project worker; replay creates neither twice. |
-| 8. Two-level completion gates | Separate worker, project, and portfolio completion; revoke stale project completion on new work. | `lib/orchestration-task-graph.js`, `lib/orchestration-task-state.js`, `lib/project-task-orchestrator-completion.js`, `lib/lead-ledger.js` | Worker completion alone never completes project/portfolio; each owner writes only its level. |
+| 8. Two-level completion gates — SHIPPED | Separate worker, project, and portfolio completion; revoke stale project completion on new work. | `lib/orchestration-task-graph.js`, `lib/orchestration-task-state.js`, `lib/project-task-orchestrator-completion.js`, `lib/portfolio-execution-bindings.js`, `lib/lead-ledger.js` | Worker completion alone never completes project/portfolio; project closure needs an explicit integration-verified coordinator record; Coop's gate requires every bound project/direct leaf plus clear delivery/reference health. |
 | 9. Legacy cutover and hardening | Drain/supersede Lead-local workers, surface legacy references, enforce dead-letter attention, and remove text routing as authority. | `lib/server-lead.js`, `lib/server-cross-project.js`, `lib/lead-staffing.js`, `lib/lead-ledger.js` | New work always executes in the target project; legacy history remains reachable without copied state. |
 
 Each slice is independently testable. Slices 4–5 are read-only with respect to

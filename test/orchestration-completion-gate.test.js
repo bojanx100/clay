@@ -196,3 +196,104 @@ test("retrying a stalled reconciliation starts one fresh bounded pass", function
   assert.equal(h.session.orchestrationReconciliation.noProgressTurns, 0);
   assert.equal(h.session.orchestrationReconciliation.stalled, false);
 });
+
+test("only a portfolio project coordinator can emit verified project completion", function () {
+  var h = gateHarness([task("worker-evidence", "completed", {
+    resolutionReason: "Verified worker completion",
+    verification: "worker test passed",
+  })]);
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-completion",
+      bindingRevision: 4,
+      mode: "project_coordinator",
+    },
+  };
+  h.session.history.push({ type: "user_message", text: "Coordinate the project." });
+  h.session.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Worker evidence only.\n" +
+      "VERIFICATION: worker test passed\nESCALATION_REQUIRED: no",
+  });
+
+  h.gate.handleTurnDone(h.session);
+  assert.equal(taskGraph.projectCompletionState(h.session).status, "pending");
+
+  h.session.history.push({ type: "user_message", text: "Finish local integration." });
+  h.session.history.push({
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Integrated project outcome.\n" +
+      "VERIFICATION: node --test project suite passed\n" +
+      "INTEGRATION_VERIFIED: yes\nESCALATION_REQUIRED: no",
+  });
+  h.gate.handleTurnDone(h.session);
+
+  var completion = taskGraph.projectCompletionState(h.session);
+  assert.equal(completion.status, "completed");
+  assert.equal(completion.portfolioTaskId, "portfolio-completion");
+  assert.equal(completion.bindingRevision, 4);
+  assert.equal(h.session.orchestrationEvents.at(-1).type, "project_completed");
+
+  var workerAttempt = {
+    orchestrationParent: { taskId: "worker-evidence" },
+    orchestrationTasks: [task("worker-evidence", "completed")],
+    orchestrationEvents: [],
+  };
+  assert.equal(taskGraph.completeProject(workerAttempt, {
+    summary: "Worker cannot close the project.", verification: "worker check passed",
+    integrationVerification: "yes", integrationVerified: true,
+  }).reason, "project_owner_required");
+});
+
+test("new or retried work revokes project completion before another attempt", function () {
+  var session = {
+    orchestrationGraphId: "project-revoke",
+    coordinationMode: true,
+    orchestrationTasks: [task("stable-task", "completed")],
+    orchestrationEvents: [],
+  };
+  var completed = taskGraph.completeProject(session, {
+    summary: "Integrated output.",
+    verification: "project suite passed",
+    integrationVerification: "yes",
+    integrationVerified: true,
+    portfolioTaskId: "portfolio-revoke",
+    bindingRevision: 2,
+  });
+  assert.equal(completed.ok, true);
+
+  taskGraph.retryTask(session, session.orchestrationTasks[0]);
+  assert.equal(taskGraph.projectCompletionState(session).status, "pending");
+  assert.ok(session.orchestrationEvents.some(function (event) {
+    return event.type === "project_completion_revoked";
+  }));
+  assert.equal(session.orchestrationEvents.at(-1).type, "task_retry_requested");
+  assert.equal(taskGraph.completeProject(session, {
+    summary: "Late worker result.", verification: "late test", integrationVerification: "yes",
+    integrationVerified: true,
+  }).reason, "graph_unresolved");
+});
+
+test("restart restores an already emitted project completion without duplicating it", function () {
+  var h = gateHarness([task("done", "completed")]);
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-restart",
+      bindingRevision: 1,
+      mode: "project_coordinator",
+    },
+  };
+  h.session.history = [{ type: "user_message", text: "Complete it." }, {
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Restart-safe completion.\n" +
+      "VERIFICATION: restart suite passed\nINTEGRATION_VERIFIED: yes\n" +
+      "ESCALATION_REQUIRED: no",
+  }];
+
+  h.gate.restore(h.session);
+  h.gate.restore(h.session);
+  assert.equal(taskGraph.projectCompletionState(h.session).status, "completed");
+  assert.equal(h.session.orchestrationEvents.filter(function (event) {
+    return event.type === "project_completed";
+  }).length, 1);
+});

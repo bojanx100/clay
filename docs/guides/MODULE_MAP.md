@@ -118,7 +118,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef`/`TaskRef` construction and read-only resolution helpers |
 | `global-coop-projection.js` | Read-only ACL-filtered global Coop projection of canonical project/session/task refs and worker attempts |
-| `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable SessionRefs, supersession, and unavailable/deleted tombstones |
+| `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable SessionRefs, supersession/tombstones, and project-coordinator completion projection |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
 | `project-vendor-models.js` | Vendor model-list message handling, lazy adapter initialization, and model-info responses |
@@ -128,17 +128,17 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-task-launcher.js` | `task_launch` | Task launcher engine: load recipes from `.clay/tasks/*.json`, fetch items, spawn sessions (`startSessionForItem`, `loadRecipe`, `launchExternal`). Completion/needs-input markers; delegates the needs-input ping via the `onNeedsInput` callback |
 | `project-task-launcher-external.js` | (called by task launcher) | Builds external design-tool requests that target an existing coordinator |
 | `project-task-orchestrator.js` | `coordinate_queued_message` (via user-message routing), `orchestration_tasks_state` | Project-local worker execution plus target-owned portfolio execution command dispatch, recovery, scheduling, and automatic result return |
-| `project-task-orchestrator-completion.js` | (called by task orchestrator) | Server-authoritative graph completion phases, bounded reconciliation, stalled recovery, and waiting-user resumption |
+| `project-task-orchestrator-completion.js` | (called by task orchestrator) | Server-authoritative graph reconciliation plus coordinator-only verified project completion and restart-safe revocation handling |
 | `project-task-orchestrator-coordinator.js` | (called by task orchestrator) | Stable coordinator/worker lookup, direct-leaf delegation guard, and on-demand promotion for eligible top-level sessions |
 | `project-task-orchestrator-demotion.js` | (called by task orchestrator) | Automatic and deferred coordinator demotion when no owned workers remain |
 | `project-task-orchestrator-external.js` | (called by task orchestrator) | Local external-task routing plus canonical target-project coordinator/direct-leaf creation, reuse, messaging, stop, and restart recovery |
 | `project-task-orchestrator-followup.js` | (called by task orchestrator) | Existing-worker follow-ups, retries, direct task messages, and cross-project coordinator update delivery |
 | `project-coordinate-queued.js` | `coordinate_queued_message` helper | Converts an explicit Coordinate action into a context-rich owned worker task |
 | `project-session-adoption.js` | `list_orchestration_coordinators`, `propose_session_adoption`; MCP `adopt_session` | Recommends coordinators, builds compact existing-session handoffs, records classification, and binds adopted conversations as task executors |
-| `orchestration-task-graph.js` | (shared graph engine) | Durable task/event schema, dependency readiness, concurrency ownership, transitions, and retry identity |
+| `orchestration-task-graph.js` | (shared graph engine) | Durable task/event schema, dependency readiness, concurrency ownership, retries, and revocable project-completion records |
 | `orchestration-tool-handlers.js` | (called by orchestration MCP tools) | Coordinator graph planning/delegation and worker progress/retry handlers |
 | `orchestration-mcp-server.js` | MCP `delegate_task`, `plan_task_graph`, `send_task_message`, `retry_task`, `report_task_progress`, `adopt_session` | Provider-neutral coordinator and worker task controls |
-| `orchestration-task-state.js` | (shared serializer) | Provider-neutral coordinator prompts, worker-result parsing, and task projection |
+| `orchestration-task-state.js` | (shared serializer) | Provider-neutral prompts, worker/project result parsing, and task plus project-completion projection |
 | `project-task-dashboard-page.js` | HTTP `GET /p/:slug/dashboard/` | Serves the project-owned task dashboard and its assets through Clay's authenticated HTTPS listener; rewrites legacy loopback launch URLs to same-origin project routes |
 | `project-task-launcher-completion.js` | (called from `project-task-launcher.js`) | Task launcher completion marker matching, including PR-review fallback markers |
 | `project-auto-launch.js` | `get_auto_launch`, `set_auto_launch` (→ `auto_launch_state`) | Scheduled auto-start: `launchScheduled` (fetch + dedup + start), `notifyNeedsInput` (confidence-gate ping). Config in `.clay/tasks/config.json` (`autoLaunch`); registers an `autolaunch` record in the loop registry (triggered via `onScheduledTrigger`); UI toggle round-trips here |
@@ -233,8 +233,8 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 | `lead-routing.js` | Pure routing brain: classify a work item (class/risk/complexity), route to cheapest-capable provider/model with explicit verification depth |
 | `lead-backlog.js` | Portfolio assembly: normalize, classify, and priority-order work items across projects (GitHub issues via injected exec + pre-fetched collections) |
 | `lead-staffing.js` | Turns a routed item into a full `delegate_task` delegation: worker brief, ownership boundaries, acceptance criteria per verification depth |
-| `lead-standup.js` | Composes the boss's daily digest from typed ledger events only — worker prose never enters the standup |
-| `lead-ledger.js` | Durable typed memory: every orchestration decision/outcome appended as a JSONL event under `~/.clay/lead/`; survives restarts |
+| `lead-standup.js` | Composes the boss's daily digest from typed ledger events only, including distinct worker, project, and Coop portfolio completion levels |
+| `lead-ledger.js` | Durable typed memory plus the Coop-only portfolio-completion gate over current bindings, verified evidence, and transport/reference health |
 | `lead-loop.js` | The heartbeat as a pure decision function: given portfolio, in-flight work, failure history, and the autonomy dial, decide staff/give_up/compose_standup/wait |
 | `lead-gatekeeping-eval.js` | Pure connect-never-gatekeep trace evaluator: validates direct session/worker asks, exact stable handoff evidence, zero assistant middleman turns, and typed green/red/unmeasurable reason codes |
 | `coop-handoff-traces.js` | Atomic, bounded runtime evidence store for Coop handoffs: records normalized direct-owner intent plus an authorized navigation that exactly matches a pre-resolved stable target; rejects malformed state and never persists conversation text, prompts, transcripts, or summaries |

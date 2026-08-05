@@ -116,3 +116,21 @@ test("Health states when burn-rate data is unavailable", function () {
   var out = standup.composeStandup({ now: NOW, events: [] });
   assert.ok(/burn rate unavailable/.test(out.text));
 });
+
+test("standup reports separate worker, project, and Coop portfolio completion levels", function () {
+  var out = standup.composeStandup({
+    now: NOW,
+    events: [
+      { type: "worker_completed", portfolioTaskId: "leaf", bindingRevision: 1 },
+      { type: "project_completed", portfolioTaskId: "project", bindingRevision: 2 },
+      { type: "project_completion_revoked", portfolioTaskId: "project", completionRevision: 3,
+        reason: "task_retry_requested" },
+      { type: "portfolio_completed", portfolioTaskId: "portfolio-root", owner: "coop" },
+    ],
+  });
+
+  assert.ok(/WORKER EVIDENCE: leaf rev 1 \(does not close project or portfolio\)/.test(out.text));
+  assert.ok(/PROJECT VERIFIED: project rev 2/.test(out.text));
+  assert.ok(/PROJECT REVOKED: project rev 3 — task_retry_requested/.test(out.text));
+  assert.ok(/PORTFOLIO CLOSED BY COOP: portfolio-root/.test(out.text));
+});

@@ -7,6 +7,10 @@ var orchestrationGroupParentForClient =
 var orchestrationTasksForClient = require("../lib/orchestration-task-state").orchestrationTasksForClient;
 var orchestrationParentForClient =
   require("../lib/orchestration-task-state").orchestrationParentForClient;
+var orchestrationStateForClient =
+  require("../lib/orchestration-task-state").orchestrationStateForClient;
+var projectCompletionFromResult =
+  require("../lib/orchestration-task-state").projectCompletionFromResult;
 var restoreVerifiedWorkerCompletion =
   require("../lib/orchestration-task-state").restoreVerifiedWorkerCompletion;
 var workerPrompt = require("../lib/orchestration-task-state").workerPrompt;
@@ -268,4 +272,35 @@ test("worker prompt defines green as finished and verifiable", function () {
 
   assert.match(prompt, /Use completed only when the requested result is finished/);
   assert.match(prompt, /unstructured or unverifiable report will be treated as/);
+});
+
+test("project completion requires a separate coordinator integration declaration", function () {
+  var workerOnly = projectCompletionFromResult([
+    "WORKER_STATUS: completed",
+    "SUMMARY: Worker evidence.",
+    "VERIFICATION: focused test passed",
+    "ESCALATION_REQUIRED: no",
+  ].join("\n"));
+  var project = projectCompletionFromResult([
+    "PROJECT_COMPLETED: yes",
+    "SUMMARY: Integrated result.",
+    "VERIFICATION: full project suite passed",
+    "INTEGRATION_VERIFIED: yes",
+    "ESCALATION_REQUIRED: no",
+  ].join("\n"));
+
+  assert.equal(workerOnly.requested, false);
+  assert.equal(project.requested, true);
+  assert.equal(project.integrationVerified, true);
+  assert.equal(project.integrationVerification, "yes");
+});
+
+test("client state distinguishes pending project completion from worker task completion", function () {
+  var state = orchestrationStateForClient({
+    orchestrationTasks: [{ taskId: "worker-done", status: "completed" }],
+  });
+
+  assert.equal(state.phase, "complete");
+  assert.equal(state.projectCompletion.status, "pending");
+  assert.equal(state.projectCompletion.completionRevision, 0);
 });
