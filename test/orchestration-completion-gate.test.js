@@ -261,6 +261,31 @@ test("only a portfolio project coordinator can emit verified project completion"
   }).reason, "project_owner_required");
 });
 
+test("a portfolio project coordinator can complete after verified direct integration with no child tasks", function () {
+  var h = gateHarness([]);
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-direct-integration",
+      bindingRevision: 1,
+      mode: "project_coordinator",
+    },
+  };
+  h.session.history = [{ type: "user_message", text: "Integrate the project directly." }, {
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Direct integration completed.\n" +
+      "VERIFICATION: focused project suite passed\nINTEGRATION_VERIFIED: yes\n" +
+      "ESCALATION_REQUIRED: no",
+  }];
+
+  h.gate.handleTurnDone(h.session);
+
+  var completion = taskGraph.projectCompletionState(h.session);
+  assert.equal(completion.status, "completed");
+  assert.equal(completion.portfolioTaskId, "portfolio-direct-integration");
+  assert.equal(completion.bindingRevision, 1);
+  assert.equal(h.session.orchestrationEvents.at(-1).type, "project_completed");
+});
+
 test("new or retried work revokes project completion before another attempt", function () {
   var session = {
     orchestrationGraphId: "project-revoke",
