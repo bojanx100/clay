@@ -114,6 +114,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `lib/public/modules/project-settings-continuation.js` | Per-project comparable-model auto-continue toggle state and WebSocket round trip |
 | `lib/public/modules/add-project-modal.js` | Add-project modal modes, shared existing/new folder picker, clone input, and project creation result handling |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
+| `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef` construction and read-only resolution helpers |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
 | `project-vendor-models.js` | Vendor model-list message handling, lazy adapter initialization, and model-info responses |
@@ -161,6 +162,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-lifecycle.js` | Session creation, raw/background session creation, switching/replay fanout, and CLI resume materialization |
 | `sessions-loader.js` | Persisted session JSONL loading, restart-interruption recovery, legacy history relabeling, moved session file adoption |
 | `sessions-persistence.js` | Session JSONL meta rewrites, heavy-save coalescing, atomic tmp+rename writes, append high-water marks |
+| `sessions.js` | Per-project session manager, persistence wiring, and project-scoped `SessionRef` resolution |
 | `sessions-queued-messages.js` | Pending queued/steer user message reconstruction for session switch payloads, including image ref hydration |
 | `sessions-records.js` | Session record metadata updates: visibility, favorites/bookmark ordering, and owner assignment |
 | `sessions-search.js` | Session title/content search and per-session content hit extraction |

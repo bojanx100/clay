@@ -5,6 +5,40 @@ var path = require("node:path");
 var config = require("../lib/config");
 var { resolveCreateProjectRequest, isPathInside } = require("../lib/project-path-utils");
 var { attachGlobalWs } = require("../lib/server-global-ws");
+var projectIdentity = require("../lib/project-identity");
+
+test("project identity migration is stable across reorder, presentation changes, and relocation", function () {
+  var configData = {
+    projects: [
+      { path: "/work/alpha", slug: "alpha", title: "Alpha", icon: "rocket" },
+      { path: "/work/beta", slug: "beta" },
+    ],
+  };
+
+  assert.equal(projectIdentity.migrateProjectIdentities(configData).changed, true);
+  var alphaId = configData.projects[0].projectId;
+  var betaId = configData.projects[1].projectId;
+  assert.match(alphaId, /^[0-9a-f-]{36}$/);
+  assert.notEqual(alphaId, betaId);
+
+  configData.projects.reverse();
+  configData.projects[1].slug = "renamed-alpha";
+  configData.projects[1].title = "Renamed Alpha";
+  configData.projects[1].icon = "sparkles";
+  configData.projects[1].path = "/relocated/alpha";
+  assert.equal(projectIdentity.migrateProjectIdentities(configData).changed, false);
+  assert.equal(configData.projects[1].projectId, alphaId);
+  assert.equal(configData.projects[0].projectId, betaId);
+});
+
+test("re-adding a removed project retains its durable project identity", function () {
+  var projectId = projectIdentity.deterministicProjectId({ path: "/work/removed" });
+  var entry = projectIdentity.createProjectEntry({ path: "/work/removed", slug: "restored" }, [
+    { path: "/work/removed", projectId: projectId },
+  ]);
+
+  assert.equal(entry.projectId, projectId);
+});
 
 test("resolves an explicit new-project folder into its exact name and parent", function () {
   var request = resolveCreateProjectRequest({ path: "~/projects/career-agent" }, config.REAL_HOME);

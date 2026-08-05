@@ -893,6 +893,38 @@ test("orchestration ownership and pending messages survive a session-manager res
   }
 });
 
+test("a SessionRef resolves the same persisted session after local IDs are reassigned", function () {
+  var projectId = "d57aab03-8a7a-53d1-8d77-7c90bf6de291";
+  var h = makeSessionHarness({ projectId: projectId });
+  try {
+    var original = h.sm.createSessionRaw({ storageId: "restart-safe-session" });
+    original.title = "Restart safe";
+    original.history.push({ type: "user_message", text: "keep this history", _ts: 1000 });
+    original.history.push({ type: "done", code: 0, _ts: 1001 });
+    h.sm.saveSessionFile(original);
+    var ref = h.sm.getSessionRef(original);
+    assert.deepStrictEqual(ref, {
+      projectId: projectId,
+      sessionStorageId: "restart-safe-session",
+    });
+    assert.strictEqual(original.localId, 2);
+
+    clearSessionModuleCache();
+    var restoredManager = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      projectId: projectId,
+      send: function () {},
+    });
+    var restored = restoredManager.resolveSessionRef(ref);
+    assert.ok(restored);
+    assert.strictEqual(restored.localId, 1);
+    assert.strictEqual(restored.storageId, ref.sessionStorageId);
+    assert.deepStrictEqual(restored.history, original.history);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test("heavy session save bursts write immediately once and coalesce trailing metadata", async function () {
   var h = makeSessionHarness();
   var counter = countSessionTempWrites(h);

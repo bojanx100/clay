@@ -2,6 +2,7 @@ var test = require("node:test");
 var assert = require("node:assert");
 
 var serverLead = require("../lib/server-lead");
+var projectIdentity = require("../lib/project-identity");
 
 function makeHarness(leadMode, existingLead) {
   var calls = [];
@@ -56,6 +57,10 @@ test("registerLeadProject registers lead pseudo-project when lead mode is enable
   assert.strictEqual(h.calls[0].ownerId, "owner-1");
   assert.deepStrictEqual(h.calls[0].extra, { isLead: true });
   assert.strictEqual(h.projects[0].isLead, true);
+  assert.strictEqual(
+    projectIdentity.projectIdForRuntime(h.calls[0].extra, h.calls[0].cwd, h.calls[0].slug),
+    projectIdentity.LEAD_PROJECT_ID
+  );
 });
 
 test("registerLeadProject skips lead pseudo-project when lead mode is disabled", function () {
