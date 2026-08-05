@@ -24,7 +24,7 @@ test("normalizeGithubIssue lowercases labels and parses dates", function () {
 
 test("githubSourcesFromTaskConfigs extracts repos and filters, dedupes", function () {
   var configs = [
-    { id: "assigned-to-me", source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv" }, filter: { state: "open", assigned: "me", type: "bug" } },
+    { id: "assigned-to-me", source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv" }, filter: { state: "open", assigned: "me", type: "bug", skipProjectStatuses: ["In progress", "Done"] } },
     { id: "dup", source: { provider: "github", repo: "trialview/v2" } },
     { id: "not-github", source: { provider: "linear", repo: "x" } },
     { id: "no-source" },
@@ -33,6 +33,7 @@ test("githubSourcesFromTaskConfigs extracts repos and filters, dedupes", functio
   assert.strictEqual(sources.length, 1);
   assert.strictEqual(sources[0].repo, "trialview/v2");
   assert.strictEqual(sources[0].filters.assigned, "me");
+  assert.deepStrictEqual(sources[0].filters.skipProjectStatuses, ["In progress", "Done"]);
   // ghAccount must survive extraction — lead-exec needs it for repos
   // invisible to the globally active gh account.
   assert.strictEqual(sources[0].ghAccount, "bojantv");
@@ -58,6 +59,45 @@ test("ghIssueArgs maps concrete types to a label filter", function () {
   var args = backlog.ghIssueArgs({ repo: "o/r", filters: { type: "feature" } });
   assert.ok(args.indexOf("--label") !== -1);
   assert.strictEqual(args[args.indexOf("--label") + 1], "feature");
+});
+
+test("ghIssueArgs requests projectItems when recipe status exclusions require them", function () {
+  var args = backlog.ghIssueArgs({ repo: "o/r", filters: { skipProjectStatuses: ["In progress", "Done"] } });
+  var jsonIndex = args.indexOf("--json");
+  assert.ok(jsonIndex !== -1);
+  assert.strictEqual(args[jsonIndex + 1], "number,title,body,labels,state,updatedAt,url,projectItems");
+});
+
+test("collectGithubIssues rejects any issue with a skipped project item status", function (t, done) {
+  var calls = 0;
+  var fakeExec = function (cmd, args, cb) {
+    calls++;
+    assert.ok(args[args.indexOf("--json") + 1].indexOf("projectItems") !== -1, "status-filtered recipes must request projectItems");
+    cb(null, JSON.stringify([
+      { number: 1453, title: "In progress issue", state: "OPEN", labels: [], projectItems: [
+        { status: { name: "Backlog" } },
+        { status: { name: "In progress" } },
+      ] },
+      { number: 1933, title: "Done issue", state: "OPEN", labels: [], projectItems: [
+        { status: { name: "Done" } },
+        { status: { name: "DONE" } },
+      ] },
+      { number: 2001, title: "Ready issue", state: "OPEN", labels: [], projectItems: [
+        { status: { name: "Backlog" } },
+        { status: { name: "Ready" } },
+      ] },
+      { number: 2002, title: "No board issue", state: "OPEN", labels: [] },
+    ]));
+  };
+  backlog.collectGithubIssues(fakeExec, {
+    repo: "o/r",
+    filters: { skipProjectStatuses: ["in progress", "done"] },
+  }, "webapp", function (err, items) {
+    assert.strictEqual(err, null);
+    assert.strictEqual(calls, 1);
+    assert.deepStrictEqual(items.map(function (item) { return item.number; }), [2001, 2002]);
+    done();
+  });
 });
 
 test("collectGithubIssues bug type excludes feature/legacy labels post-fetch", function (t, done) {
