@@ -546,6 +546,51 @@ test("target-project routing failure never falls back to a Lead-local worker", f
   assert.equal(router.getExecutionBindings().length, 0);
 });
 
+test("delegate tool routes a typed binding into the target project without a Lead-local worker", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-tool-route-"));
+  var targetProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+
+  var result = lead.api.delegateFromTool({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-tool-route",
+    bindingRevision: 1,
+    idempotencyKey: "staff-portfolio-tool-route-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+    title: "Canonical project coordinator",
+    objective: "Coordinate the bounded target-project implementation.",
+    context: "Coop owns integration while project work stays in the target project.",
+    acceptanceCriteria: "The target owns the execution and Lead owns no worker.",
+    ownedPaths: "lib/target.js and focused tests",
+    provider: "codex",
+    model: "gpt-5.6-terra",
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /Started project-owned project_coordinator/);
+  assert.equal(lead.sessions.size, 1);
+  assert.equal(lead.starts.length, 0);
+  assert.equal(coop.orchestrationTasks.length, 0);
+  assert.equal(target.sessions.size, 1);
+  assert.equal(target.starts.length, 1);
+  var binding = router.getExecutionBinding("portfolio-tool-route", 1);
+  assert.equal(binding.targetProject.projectId, targetProjectId);
+  assert.equal(binding.mode, "project_coordinator");
+  assert.ok(binding.coordinator);
+});
+
 test("an explicitly selected target coordinator is bound and reused without selecting an unrelated chat", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-existing-coordinator-"));
   var projectId = "d8af2cc1-ea08-5b4c-82e6-e729d3a7dcef";
