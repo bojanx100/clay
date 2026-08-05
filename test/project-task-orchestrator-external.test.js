@@ -1,8 +1,9 @@
 var test = require("node:test");
 var assert = require("node:assert");
 
-var createExternalTaskCoordinator =
-  require("../lib/project-task-orchestrator-external").createExternalTaskCoordinator;
+var externalOrchestration = require("../lib/project-task-orchestrator-external");
+var createExternalTaskCoordinator = externalOrchestration.createExternalTaskCoordinator;
+var attachPortfolioExecutionTarget = externalOrchestration.attachPortfolioExecutionTarget;
 
 test("external task context becomes a durable task owned by the coordinator", function () {
   var coordinator = {
@@ -119,4 +120,71 @@ test("an external Live UI report can promote an ordinary conversation", function
   assert.strictEqual(result.ok, true);
   assert.strictEqual(ordinary.coordinationMode, true);
   assert.strictEqual(ordinary.orchestrationTasks.length, 1);
+});
+
+test("completed Coop direct leaves deliver their result before terminal archival", function () {
+  var timeline = [];
+  var session = {
+    localId: 7,
+    storageId: "direct-leaf-storage",
+    history: [],
+    isProcessing: false,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-direct-leaf",
+        bindingRevision: 1,
+        idempotencyKey: "direct-leaf-1",
+        mode: "direct_leaf",
+        status: "running",
+        source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+      },
+    },
+  };
+  var sessions = new Map([[session.localId, session]]);
+  var metadata = session.orchestrationPolicy.portfolioExecution;
+  var sm = {
+    sessions: sessions,
+    getProjectId: function () { return "target-project"; },
+    subscribeSession: function (id, callback) {
+      session._subscriber = callback;
+      return function () { timeline.push("unsubscribe"); };
+    },
+    saveSessionFile: function () { timeline.push("save:" + metadata.status); },
+    broadcastSessionList: function () {},
+    hideSession: function (id) {
+      timeline.push("hide");
+      sessions.get(id).hidden = true;
+    },
+  };
+  attachPortfolioExecutionTarget({
+    slug: "webapp",
+    sm: sm,
+    sdk: {},
+    onProcessingChanged: function () {},
+    crossProject: {
+      createEnvelope: function (input) {
+        timeline.push("envelope");
+        return input;
+      },
+      deliverEnvelope: function () {
+        timeline.push("deliver:" + metadata.status);
+        assert.equal(metadata.status, "running");
+        assert.equal(session.hidden, undefined);
+        return { ok: true, delivered: true, acknowledged: true };
+      },
+    },
+  });
+
+  session.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Direct leaf finished.\n" +
+      "VERIFICATION: durable result delivery passed\nESCALATION_REQUIRED: no",
+  });
+  session._subscriber({ type: "done" });
+
+  assert.equal(metadata.status, "completed");
+  assert.equal(session.hidden, true);
+  assert.ok(timeline.indexOf("deliver:running") < timeline.indexOf("save:completed"));
+  assert.ok(timeline.indexOf("save:completed") < timeline.indexOf("hide"));
 });

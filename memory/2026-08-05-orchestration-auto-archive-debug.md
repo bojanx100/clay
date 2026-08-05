@@ -18,6 +18,7 @@ Task resolution updated the canonical task but did not archive its worker or rec
 - Failed, interrupted, and blocked workers are excluded from archive decisions; parent-missing workers require a persisted completed-turn marker before cleanup. Retry detachment hides the old worker through the normal session API while preserving its orchestration provenance.
 - Finalized project execution metadata on verified typed completion. Coop-controlled project coordinators archive themselves and their descendants only after graph completion and `ESCALATION_REQUIRED: no`; owner-created coordinators remain visible.
 - Completed Coop-controlled `direct_leaf` executions now set terminal timestamps, hide on live completion, and reconcile on target-project startup; failed and reviewing leaves remain visible.
+- Direct-leaf completion now durably delivers the structured result while the execution remains active, then persists terminal metadata and hides through the normal session API.
 - Excluded hidden Coop-controlled coordinators, direct leaves, and workers from all CLI/Codex/Copilot and hidden fallback import candidates.
 - Kept `lib/project-task-orchestrator.js` below the 500-line project limit by placing shared lifecycle helpers in `lib/project-task-orchestrator-helpers.js`.
 
@@ -25,13 +26,13 @@ Task resolution updated the canonical task but did not archive its worker or rec
 
 Before the fix, the new acceptance regressions failed in six places: missing task `archivedAt`, visible resolved worker, visible terminal worker after restart, missing Coop project archive, missing completion metadata, and visible hidden Coop coordinator in the import picker. The pre-fix focused run reported 57 passed and 6 failed.
 
-The queued review regressions then failed before the correction pass in three tests: retry detach did not hide, startup cleanup archived invalid worker states, and completed direct leaves remained visible.
+The queued review regressions then failed before the correction pass in three tests: retry detach did not hide, startup cleanup archived invalid worker states, and completed direct leaves remained visible. The follow-up direct-leaf ordering regression also failed before the correction: delivery observed terminal metadata before the durable result was sent.
 
 After the correction pass:
 
 - Focused orchestration/import suite: 65 passed, 0 failed.
 - Persistence, deletion, task-state, and connection orchestration suite: 41 passed, 0 failed.
-- Full repository suite: 944 passed, 0 failed.
+- Full repository suite: 945 passed, 0 failed.
 - Fixture restart recovery: zero terminal/orphan worker leaks; active and attention states remained visible; repeated attach produced no duplicate archive event.
 - `git diff --check`: clean.
 
