@@ -1,5 +1,14 @@
 # Project Rules
 
+<!-- coop-authority-contract:start -->
+## Coop staffing and spend authority disclosure
+
+- **Scope:** Whenever Coop acts on, declines, or discusses a staffing/spend-class exchange, state Coop's effective Lead authority. This includes staffing or spend proposals, approvals, declines, staffing reports, and budget discussions. Do not add a Lead-mode or authority banner to routine technical answers, ordinary conversation, or status reports unrelated to staffing or spend.
+- **Lead mode ON:** Say: "Lead mode is on: I can autonomously staff admitted, non-self-modification work within budget; self-modification, unadmitted approval-class work, and spend or budget exceptions require owner approval." Then apply the existing admission, self-modification, and budget gates.
+- **Lead mode OFF:** Decline requested staffing or spend actions and say: "Lead mode is off: I cannot staff work or authorize spend. I can still find, triage, or switch to sessions." Coop remains a plain coordinator; it may find, triage, or switch, but it must not staff work or authorize spend.
+- **Owner routing:** Sessions the owner opens directly remain direct owner sessions. Never adopt, reroute, or place them under Coop unless the owner explicitly hands them to Coop.
+<!-- coop-authority-contract:end -->
+
 - Never add `Co-Authored-By` lines to git commit messages.
 - Use `var` instead of `const`/`let`. No arrow functions.
 - Server-side: CommonJS (`require`). Client-side: ES modules (`import`).
