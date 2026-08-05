@@ -1178,6 +1178,10 @@ test("closing a coordinated task stops and archives its worker conversation", fu
   ctx.api.delegateFromTool(brief(parent));
   var task = parent.orchestrationTasks[0];
   var workerId = task.workerSessionId;
+  var worker = ctx.sessions.get(workerId);
+  worker.storageId = "worker-close-stable";
+  task.workerSessionId = 999;
+  task.workerStorageId = worker.storageId;
 
   var closed = ctx.api.closeTask(parent, task.taskId, null);
 
@@ -1189,6 +1193,7 @@ test("closing a coordinated task stops and archives its worker conversation", fu
   assert.equal(ctx.sessions.has(workerId), true);
   assert.equal(ctx.sessions.get(workerId).hidden, true);
   assert.equal(ctx.sessions.get(workerId).taskStopRequested, true);
+  assert.equal(ctx.sessions.get(workerId).orchestrationParent.taskId, task.taskId);
   var taskStateEvent = ctx.events.findLast(function (entry) {
     return entry.event && entry.event.type === "orchestration_tasks_state";
   });
@@ -1444,6 +1449,16 @@ test("startup archives terminal and safe orphan workers without touching active 
     history: [{ type: "delta", text: "The worker was interrupted." }, { type: "done" }],
     orchestrationParent: { taskId: "task-interrupted-orphan", sessionStorageId: "missing-parent" },
   };
+  var failedOrphan = {
+    localId: 20,
+    storageId: "worker-failed-orphan",
+    isProcessing: false,
+    history: [
+      { type: "delta", text: "WORKER_STATUS: failed\nSUMMARY: Provider failed." },
+      { type: "done" },
+    ],
+    orchestrationParent: { taskId: "task-failed-orphan", sessionStorageId: "missing-parent" },
+  };
   var activeOrphan = {
     localId: 8,
     storageId: "worker-active-orphan",
@@ -1505,6 +1520,7 @@ test("startup archives terminal and safe orphan workers without touching active 
   sessions.set(orphanWorker.localId, orphanWorker);
   sessions.set(emptyHistoryOrphan.localId, emptyHistoryOrphan);
   sessions.set(interruptedOrphan.localId, interruptedOrphan);
+  sessions.set(failedOrphan.localId, failedOrphan);
   sessions.set(activeOrphan.localId, activeOrphan);
 
   testContext(sessions);
@@ -1520,6 +1536,7 @@ test("startup archives terminal and safe orphan workers without touching active 
   assert.equal(orphanWorker.hidden, true);
   assert.equal(emptyHistoryOrphan.hidden, undefined);
   assert.equal(interruptedOrphan.hidden, undefined);
+  assert.equal(failedOrphan.hidden, undefined);
   assert.equal(activeOrphan.hidden, undefined);
 
   var archiveEventCount = terminalParent.orchestrationEvents.length;

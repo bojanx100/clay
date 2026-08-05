@@ -104,12 +104,20 @@ test("dispatches every records family and rejects invalid or inherited handler n
 });
 
 test("headless lifecycle dispatches visibility, bookmarks, reorder, and coordinator demotion", function () {
-  var worker = { localId: 3, orchestrationParent: { taskId: "active" }, abortController: { abort: function () {} } };
+  var worker = {
+    localId: 3,
+    storageId: "worker-records-stable",
+    orchestrationParent: { taskId: "active" },
+    abortController: { abort: function () {} },
+  };
   var coordinator = {
     localId: 2,
     title: "Coordinator",
     coordinationMode: true,
-    orchestrationTasks: [{ taskId: "active", status: "running", workerSessionId: 3 }],
+    orchestrationTasks: [{
+      taskId: "active", status: "running", workerSessionId: 999,
+      workerStorageId: "worker-records-stable",
+    }],
   };
   var ordinary = { localId: 1, bookmarked: false };
   var favorite = { localId: 4, bookmarked: true, favoriteOrder: 0 };

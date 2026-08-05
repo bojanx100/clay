@@ -165,6 +165,15 @@ test("orchestration workers stay out of every CLI import candidate path", functi
     history: [],
     orchestrationParent: { taskId: "task-fallback" },
   };
+  var detachedWorker = {
+    cliSessionId: "worker-detached",
+    storageId: "worker-detached-storage",
+    title: "Detached retry attempt",
+    hidden: true,
+    orchestrationDetachedAt: 10,
+    history: [{ type: "done" }],
+    orchestrationParent: { taskId: "task-detached" },
+  };
   var coopControlledLeaf = {
     cliSessionId: "coop-controlled-leaf",
     storageId: "coop-controlled-leaf-storage",
@@ -195,6 +204,7 @@ test("orchestration workers stay out of every CLI import candidate path", functi
     [5, coopControlledLeaf],
     [6, coordinator],
     [7, directHidden],
+    [8, detachedWorker],
   ]);
   var descriptors = {
     "worker-claude": {
@@ -238,6 +248,7 @@ test("orchestration workers stay out of every CLI import candidate path", functi
       "worker-codex", "worker-codex-storage", "worker-codex-history",
       "worker-copilot", "worker-copilot-storage", "worker-copilot-history",
       "worker-fallback", "worker-fallback-storage",
+      "worker-detached", "worker-detached-storage",
       "coop-controlled-leaf", "coop-controlled-leaf-storage",
     ];
     var listedWorkerIds = listed.filter(function (item) {
