@@ -165,11 +165,20 @@ test("orchestration workers stay out of every CLI import candidate path", functi
     history: [],
     orchestrationParent: { taskId: "task-fallback" },
   };
+  var coopControlledLeaf = {
+    cliSessionId: "coop-controlled-leaf",
+    storageId: "coop-controlled-leaf-storage",
+    title: "Coop-controlled direct leaf",
+    hidden: true,
+    history: [],
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
   var coordinator = {
     cliSessionId: "coordinator-hidden",
     title: "Hidden coordinator",
     hidden: true,
     coordinationMode: true,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
     history: [],
   };
   var directHidden = {
@@ -183,8 +192,9 @@ test("orchestration workers stay out of every CLI import candidate path", functi
     [2, workerCodex],
     [3, workerCopilot],
     [4, workerFallback],
-    [5, coordinator],
-    [6, directHidden],
+    [5, coopControlledLeaf],
+    [6, coordinator],
+    [7, directHidden],
   ]);
   var descriptors = {
     "worker-claude": {
@@ -228,12 +238,14 @@ test("orchestration workers stay out of every CLI import candidate path", functi
       "worker-codex", "worker-codex-storage", "worker-codex-history",
       "worker-copilot", "worker-copilot-storage", "worker-copilot-history",
       "worker-fallback", "worker-fallback-storage",
+      "coop-controlled-leaf", "coop-controlled-leaf-storage",
     ];
     var listedWorkerIds = listed.filter(function (item) {
       return workerIds.indexOf(item.cliSessionId) !== -1;
     });
 
     assert.deepStrictEqual(listedWorkerIds, [], "orchestration workers must not be import candidates");
+    assert.ok(!listed.some(function (item) { return item.cliSessionId === "coop-controlled-leaf"; }));
     assert.ok(listed.some(function (item) { return item.cliSessionId === "coordinator-hidden"; }));
     assert.ok(listed.some(function (item) { return item.cliSessionId === "direct-hidden"; }));
     assert.ok(listed.some(function (item) { return item.cliSessionId === "direct-untracked"; }));
