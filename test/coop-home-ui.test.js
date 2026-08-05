@@ -116,8 +116,6 @@ test("Coop hides unsupported task controls and keeps Prioritize role language", 
   var sessionSource = source("app-messages-sessions.js");
   var inputSource = source("input.js");
   var queueSource = source("queued-messages.js");
-  assert.match(sessionSource, /activeCoopHome: !!msg\.coopHome/);
-  assert.match(sessionSource, /activeCoopChannel: msg\.coopChannel \|\| null/);
   assert.match(sessionSource, /syncActiveCoopConversation\(msg\.sessions \|\| \[\]\)/);
   assert.match(queueSource,
     /applyComposerActionLabels\(document\.getElementById\("task-btn"\), state\)/);

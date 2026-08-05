@@ -28,9 +28,9 @@ test("coordinator close confirmation warns about every worker that is not comple
     path.join(__dirname, "../lib/public/modules/sidebar-sessions-delete.js"),
     "utf8"
   );
-  var caseStart = source.indexOf('case "coordinator_close_required"');
-  var caseEnd = source.indexOf('case "orchestration_coordinator_candidates"', caseStart);
-  var closeCoordinatorSource = source.slice(caseStart, caseEnd);
+  var handlerStart = source.indexOf("function handleCoordinatorCloseRequired(msg)");
+  var handlerEnd = source.indexOf("\n}\n\nfunction handleSessionList", handlerStart);
+  var closeCoordinatorSource = source.slice(handlerStart, handlerEnd);
 
   assert.match(closeCoordinatorSource, /msg\.atRiskWorkerCount \|\| msg\.activeWorkerCount/);
   assert.match(closeCoordinatorSource, /still running or need attention/);

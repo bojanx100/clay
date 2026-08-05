@@ -119,8 +119,8 @@ test("queue notifications reconcile a stale optimistic sender bubble", function 
   var source = fs.readFileSync(sourcePath, "utf8");
 
   assert.match(source, /import \{ removeOptimisticUserMessage \} from '\.\/app-rendering\.js';/);
-  assert.match(source, /case "queued_user_message":[\s\S]*?removeOptimisticUserMessage\(msg\.clientMessageId\);[\s\S]*?handleQueuedUserMessage\(msg\);/);
-  assert.match(source, /case "queued_user_messages_state":[\s\S]*?removeQueuedOptimisticMessages\(msg\.queuedUserMessages \|\| \[\]\);[\s\S]*?setQueuedUserMessages/);
+  assert.match(source, /function handleQueuedUserMessageMessage\(msg\)[\s\S]*?removeOptimisticUserMessage\(msg\.clientMessageId\);[\s\S]*?handleQueuedUserMessage\(msg\);/);
+  assert.match(source, /function handleQueuedUserMessagesState\(msg\)[\s\S]*?setQueueingDisabled\(msg\.queueingDisabled\);[\s\S]*?removeQueuedOptimisticMessages\(queued\);[\s\S]*?setQueuedUserMessages\(queued\);/);
 });
 
 test("provider commands are consumed before they reach the model", function () {

@@ -7,12 +7,26 @@ function readSource(relativePath) {
   return fs.readFileSync(path.join(__dirname, "..", relativePath), "utf8");
 }
 
-test("new sessions reuse cached models while refreshing the catalog", function () {
-  var source = readSource("lib/public/modules/app-messages-sessions.js");
+test("new sessions reuse cached models while refreshing the catalog", async function () {
+  var client = await import("../lib/public/modules/app-messages-sessions-handlers.js");
+  var plan = client.getSessionVendorPlan({
+    id: 7,
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+    requestedModel: "gpt-requested",
+    hasHistory: false,
+  }, { modelsByVendor: { "codex-openai": ["gpt-cached"] } });
 
-  assert.match(source, /var modelCache = store\.get\('modelsByVendor'\) \|\| \{\};/);
-  assert.match(source, /currentModels: cachedModels,[\s\S]*?currentModelsLoading: true/);
-  assert.match(source, /type: "get_vendor_models"/);
+  assert.deepEqual(plan.map(function (step) { return step.action; }), [
+    "remember", "store", "request_models",
+  ]);
+  assert.deepEqual(plan[1].update.currentModels, ["gpt-cached"]);
+  assert.equal(plan[1].update.currentModelsLoading, true);
+  assert.deepEqual(plan[2], {
+    action: "request_models",
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+  });
 });
 
 test("the model picker rerenders when model loading state changes", function () {
