@@ -265,6 +265,60 @@ test("start and stop tear down the runtime timer", function () {
   assert.equal(harness.clears.length, 1);
 });
 
+test("an immediate Lead runtime tick wakes idle Coop when admitted work exists", function () {
+  var scheduled = [];
+  var home = { localId: 1, storageId: "coop-home", coopHome: true };
+  var wake = runtimeModule.createLeadWakeHandler({
+    projectSlug: "lead",
+    sm: { sessions: new Map([[1, home]]) },
+    hasPendingWork: function () { return true; },
+    scheduleMessage: function (session, text, at, prompt, label, opts) {
+      scheduled.push({ session: session, text: text, at: at, prompt: prompt, label: label, opts: opts });
+    },
+    now: function () { return NOW; },
+  });
+  var harness = makeHarness([home], {
+    leadMode: true,
+    projectSlug: "lead",
+    runtime: { onTick: wake },
+  });
+
+  harness.runtime.start(true);
+
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].session, home);
+  assert.equal(scheduled[0].label, "↻ Lead tick");
+  assert.equal(scheduled[0].opts.autoAction, true);
+  assert.match(scheduled[0].prompt, /Lead tick/);
+});
+
+test("Lead wake skips non-Lead, disabled, busy, already-scheduled, and empty states", function () {
+  var schedules = 0;
+  var home = { localId: 1, storageId: "coop-home", coopHome: true };
+  function attempt(overrides, tick) {
+    var state = Object.assign({
+      projectSlug: "lead",
+      sm: { sessions: new Map([[1, home]]) },
+      hasPendingWork: function () { return true; },
+      scheduleMessage: function () { schedules++; },
+      now: function () { return NOW; },
+    }, overrides || {});
+    runtimeModule.createLeadWakeHandler(state)(tick || { leadMode: true });
+  }
+
+  attempt({ projectSlug: "clay" });
+  attempt(null, { leadMode: false });
+  home.isProcessing = true;
+  attempt();
+  delete home.isProcessing;
+  home.scheduledMessage = { text: "continue" };
+  attempt();
+  delete home.scheduledMessage;
+  attempt({ hasPendingWork: function () { return false; } });
+
+  assert.equal(schedules, 0);
+});
+
 test("projection-only hiding does not cascade or delete through session deletion", function () {
   var sessions = new Map([
     [1, { localId: 1, storageId: "coordinator" }],

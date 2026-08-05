@@ -1,5 +1,8 @@
 var test = require("node:test");
 var assert = require("node:assert");
+var fs = require("node:fs");
+var os = require("node:os");
+var path = require("node:path");
 var health = require("../lib/lead-health");
 
 var NOW = Date.parse("2026-08-04T12:00:00Z");
@@ -37,6 +40,55 @@ test("deriveHealth: stale transitions are dropped (assume healthy)", function ()
   );
   var snapshot = health.deriveHealth(events, { now: NOW });
   assert.deepStrictEqual(snapshot, {});
+});
+
+test("deriveHealth: a new provider session completed after failure proves recovery", function () {
+  var failedAt = Date.parse("2026-08-04T11:00:00Z");
+  var events = health.parseHealthEvents(
+    line({ at: "2026-08-04T11:00:00Z", kind: "provider_health", vendor: "codex", to: "unhealthy" })
+  );
+  var snapshot = health.deriveHealth(events, {
+    now: NOW,
+    successes: [{ vendor: "codex", startedAt: failedAt + 1, at: failedAt + 2 }],
+  });
+  assert.deepStrictEqual(snapshot, { codex: "healthy" });
+});
+
+test("deriveHealth: an old in-flight session completion does not clear unavailability", function () {
+  var failedAt = Date.parse("2026-08-04T11:00:00Z");
+  var events = health.parseHealthEvents(
+    line({ at: "2026-08-04T11:00:00Z", kind: "provider_health", vendor: "codex", to: "unhealthy" })
+  );
+  var snapshot = health.deriveHealth(events, {
+    now: NOW,
+    successes: [{ vendor: "codex", startedAt: failedAt - 1, at: failedAt + 2 }],
+  });
+  assert.deepStrictEqual(snapshot, { codex: "unhealthy" });
+});
+
+test("readHealthSnapshot reconciles a recent durable worker result without reading old sessions", function () {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-lead-health-"));
+  var logPath = path.join(root, "recovery-events.log");
+  var sessionsRoot = path.join(root, "sessions");
+  var projectDir = path.join(sessionsRoot, "project");
+  var failedAt = Date.parse("2026-08-04T11:00:00Z");
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(logPath, line({
+    at: "2026-08-04T11:00:00Z", kind: "provider_health", vendor: "codex", to: "unhealthy",
+  }) + "\n");
+  fs.writeFileSync(path.join(projectDir, "worker.jsonl"), [
+    line({ type: "meta", vendor: "codex", createdAt: failedAt + 1 }),
+    line({ type: "result", _ts: failedAt + 2 }),
+    line({ type: "done", _ts: failedAt + 2 }),
+  ].join("\n") + "\n");
+  try {
+    assert.deepStrictEqual(health.readHealthSnapshot(logPath, {
+      now: NOW,
+      sessionRoot: sessionsRoot,
+    }), { codex: "healthy" });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("readHealthSnapshot returns empty map for a missing file", function () {
