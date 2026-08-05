@@ -63,6 +63,20 @@ test("orchestration MCP exposes explicit dismissal and user-decision operations"
   assert.ok(names.indexOf("request_task_input") !== -1);
 });
 
+test("delegate_task exposes the typed cross-project execution binding", function () {
+  var noop = function () {};
+  var delegate = orchestrationMcp.getToolDefs(
+    noop, noop, noop, noop, noop, noop, noop, noop, noop
+  ).find(function (definition) { return definition.name === "delegate_task"; });
+
+  assert.ok(delegate);
+  assert.ok(delegate.inputSchema.targetProject);
+  assert.ok(delegate.inputSchema.portfolioTaskId);
+  assert.ok(delegate.inputSchema.bindingRevision);
+  assert.ok(delegate.inputSchema.idempotencyKey);
+  assert.ok(delegate.inputSchema.mode);
+});
+
 test("graph resolution separates execution, attention, user decisions, and resolved work", function () {
   var session = {
     orchestrationTasks: [
