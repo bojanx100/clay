@@ -65,7 +65,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `app-messages-mentions.js` | Client WebSocket @mention and user-mention routing, mate activity indicators, and mention rendering |
 | `app-messages-rate-limit.js` | Client WebSocket rate-limit, scheduled auto-continue, prompt suggestion, and fast-mode routing |
 | `app-messages-settings.js` | Client WebSocket server update, project settings, daemon config, Lead mode, What's New, auto-launch, and task setup routing |
-| `app-messages-sessions.js` | Client WebSocket session list, presence, search, queued message, session switch, and session close routing |
+| `app-messages-sessions.js` | Client WebSocket session list, global Coop projection/reference resolution, presence, search, queued message, session switch, and session close routing |
 | `app-messages-stream.js` | Client WebSocket live message, context preview, status, thinking, result, completion, refusal, auth, and process state routing |
 | `app-messages-terminals.js` | Client WebSocket terminal list/create/output/resize/exit/close routing, including TUI view and login modal forwarding |
 | `app-messages-tools.js` | Client WebSocket tool lifecycle, tool permission, slash-command result, and sub-agent routing |
@@ -323,7 +323,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-rate-limit.js` | Rate limit UI, countdown timers, scheduled message bubbles, fast mode indicator |
 | `app-cursors.js` | Remote cursor presence, text selection sharing, cursor toggle UI |
 | `app-rendering.js` | Message rendering, streaming, scroll management, pre-thinking dots, suggestion chips, system messages |
-| `app-projects.js` | Project list, switching, add/remove project modals, update available pill, topbar presence |
+| `app-projects.js` | Project list, switching (including resolved global SessionRef navigation), add/remove project modals, update available pill, topbar presence |
 | `app-panels.js` | Config chip (model/mode/effort/thinking/beta), usage panel, status panel, context panel, context popover |
 | `workspace-panel.js` | Session workspace panel rendering and controls for links, worktree/branch context, dev server state, and task context |
 | `provider-route-ui.js` | Provider route label/rendering helpers for model and route controls |
@@ -334,9 +334,10 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-skills-install.js` | Skill install dialog, requireSkills, requireClayMateInterview |
 | `app-favicon.js` | Dynamic favicon, IO blink, urgent blink, send button mode, activity indicator |
 | `app-header.js` | Session rename, session info popover, progressive history loading |
+| `global-coop-projection.js` | Read-only project-owned Lead projection model: stable SessionRef navigation, unavailable-reference state, project/task/attempt grouping, and bounded historical-attempt expansion; canonical local Coop remains outside this model |
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
-| `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges |
+| `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Lead's canonical local Coop plus projection-only project conversations and separate automations |
 | `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
 | `sidebar-sessions-context-menu.js` | Session and loop context menus, provider handoff entries, visibility toggle, and shared menu state |
 | `sidebar-sessions-orchestration.js` | Existing-session “Add to coordinator” picker, recommendation rows, and adoption acknowledgement |
@@ -357,7 +358,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar-projects.js` | Project icon strip, context menus, emoji picker, drag-and-drop reorder, worktree modal, project access popover, project rename, project badges |
 | `sidebar-lead.js` | Lead pseudo-project detection and pinned desktop/mobile sidebar row creation |
 | `sidebar-mates.js` | User/mate icon strip, DM picker, user/mate context menus, icon strip tooltips, sidebar presence, DM badges, DM user state |
-| `sidebar-mobile.js` | Mobile sheet overlays (projects, sessions, mate profile, search, tools, settings), mobile tab bar, drag-to-dismiss, mobile loop groups, mobile session rendering |
+| `sidebar-mobile.js` | Mobile sheet overlays (projects, sessions, mate profile, search, tools, settings), mobile tab bar, drag-to-dismiss, mobile loop groups, local session rendering, and the Lead global projection hierarchy |
 | `scheduler.js` | Scheduler coordinator: init, open/close, calendar views (month/week), detail view, crafting mode, sidebar task list, cron utilities |
 | `scheduler-config.js` | Schedule create/edit modal, delete dialog, cron builder, recurrence/interval UI, calendar date picker, preview events |
 | `scheduler-cron-builders.js` | Pure scheduler cron string builders for recurrence, interval, and custom-repeat options |

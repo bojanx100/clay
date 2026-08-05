@@ -1012,6 +1012,148 @@
   font-weight: 600;
 }
 
+/* --- Coop global projection (Lead only) --- */
+.global-coop-conversations,
+.global-coop-automations { padding: 2px 0 8px; }
+
+.global-coop-section-header {
+  margin: 8px 8px 4px;
+  padding: 6px 8px;
+  color: var(--text-dimmer);
+}
+
+.global-coop-heading { color: var(--accent); font-weight: 700; }
+.global-coop-project { margin: 2px 0 8px; }
+
+.global-coop-worktree {
+  margin: 4px 0 0 12px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.global-coop-project-header { color: var(--text-secondary); }
+
+.session-item.global-coop-row {
+  min-height: 30px;
+  gap: 7px;
+  padding: 6px 12px;
+}
+
+.session-item.global-coop-permanent-row {
+  width: calc(100% - 16px);
+  margin: 0 8px 8px;
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), 0.09);
+  color: var(--text);
+}
+
+.session-item.global-coop-row[role="button"] { cursor: pointer; }
+
+.session-item.global-coop-row:focus-visible,
+.global-coop-history-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.session-item.global-coop-row-unavailable-state { cursor: default; opacity: 0.78; }
+
+.global-coop-row-status {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--text-dimmer);
+}
+
+.global-coop-row-status-running,
+.global-coop-row-status-ready,
+.global-coop-row-status-queued { background: var(--accent); }
+
+.global-coop-row-status-blocked,
+.global-coop-row-status-failed,
+.global-coop-row-status-needs_input,
+.global-coop-row-status-waiting_user { background: var(--warning, #d99824); }
+
+.global-coop-row-status-completed { background: var(--success); }
+.global-coop-row-status-unavailable,
+.global-coop-row-status-access_denied,
+.global-coop-row-status-project_not_found,
+.global-coop-row-status-session_not_found,
+.global-coop-row-status-session_archived { background: var(--danger, #e5534b); }
+
+.global-coop-role { flex: 0 0 auto; margin-right: 1px; }
+.global-coop-role.coop { color: var(--accent); }
+.global-coop-role.direct_leaf { color: var(--text-dimmer); }
+
+.global-coop-row-activity {
+  display: block;
+  margin-left: 5px;
+  overflow: hidden;
+  color: var(--text-dimmer);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.global-coop-row-unavailable {
+  display: block;
+  margin-left: 5px;
+  color: var(--danger, #e5534b);
+  font-size: 10px;
+}
+
+.global-coop-coordinator { margin: 2px 0 4px; }
+
+.session-item.global-coop-coordinator-row {
+  background: rgba(var(--accent-rgb), 0.06);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.global-coop-task {
+  margin: 1px 12px 4px 28px;
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid rgba(var(--overlay-rgb), 0.1);
+}
+
+.global-coop-task-blocked,
+.global-coop-task-failed,
+.global-coop-task-needs_input,
+.global-coop-task-waiting_user { border-left-color: var(--warning, #d99824); }
+
+.global-coop-task-label {
+  overflow: hidden;
+  color: var(--text-dimmer);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-item.global-coop-worker-row {
+  min-height: 26px;
+  margin: 1px 0;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.global-coop-history-toggle {
+  width: 100%;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dimmer);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+}
+
+.global-coop-history-toggle:hover { background: var(--sidebar-hover); color: var(--text); }
+.global-coop-empty { padding: 8px 12px; color: var(--text-dimmer); font-size: 12px; }
+
 .session-coordinator-group {
   position: relative;
 }

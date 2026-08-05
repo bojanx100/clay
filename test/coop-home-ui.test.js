@@ -26,7 +26,11 @@ test("the sidebar exposes no ordinary close, move, delete, or group-clear path f
   assert.match(channelSource, /sidebarTitle: "All Projects"/);
   assert.match(channelSource, /matchesProjectSearch\(project, query\)/);
   assert.match(channelSource, /type: "refresh_coop_channels"/);
-  assert.match(listSource, /waitForCoopSessionMetadata\(cachedSessions/);
+  // Lead conversation rows now come only from the server's global projection;
+  // rendering must not refresh or create a Lead-local project channel.
+  assert.match(listSource, /buildGlobalCoopDisplayModel/);
+  assert.doesNotMatch(listSource, /waitForCoopSessionMetadata\(cachedSessions/);
+  assert.doesNotMatch(listSource, /createCoopChannelsSection/);
 });
 
 test("the project router rejects moving Coop home and channels", function () {
