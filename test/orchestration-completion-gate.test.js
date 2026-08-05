@@ -339,6 +339,7 @@ test("restart restores an already emitted project completion without duplicating
   assert.equal(h.session.orchestrationEvents.filter(function (event) {
     return event.type === "project_completed";
   }).length, 1);
+  assert.ok(h.saves() >= 2);
 });
 
 test("an escalating or incomplete project declaration leaves completion pending", function () {
