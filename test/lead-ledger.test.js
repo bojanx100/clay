@@ -187,3 +187,24 @@ test("delivery, reference, revocation, and active execution failures block portf
   assert.equal(ledger.portfolioCompletionGate({ bindings: [binding], events: [completed] }).reason,
     "active_execution");
 });
+
+test("sequence gaps, missing refs, and stale revisions fail the portfolio gate closed", function () {
+  var binding = completionBinding("portfolio-transport", 3, "project_coordinator");
+  var completed = {
+    type: "project_completed", portfolioTaskId: "portfolio-transport", bindingRevision: 3,
+    completionRevision: 2, graphDigest: "graph", summary: "Complete.",
+    verification: "suite passed", integrationVerification: "yes", escalationRequired: "no",
+  };
+  assert.equal(ledger.portfolioCompletionGate({
+    bindings: [binding], events: [completed],
+    deliveryState: { inbox: { target: { streams: { source: { buffered: { 2: "gap" } } } } } },
+  }).reason, "delivery_failure");
+
+  delete binding.coordinator;
+  assert.equal(ledger.portfolioCompletionGate({ bindings: [binding], events: [completed] }).reason,
+    "missing_reference");
+  binding.coordinator = { projectId: "project-portfolio-transport", sessionStorageId: "coordinator" };
+  assert.equal(ledger.portfolioCompletionGate({
+    bindings: [binding], events: [Object.assign({}, completed, { bindingRevision: 2 })],
+  }).reason, "project_unverified");
+});
