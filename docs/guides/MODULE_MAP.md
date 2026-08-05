@@ -117,7 +117,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `lib/public/modules/add-project-modal.js` | Add-project modal modes, shared existing/new folder picker, clone input, and project creation result handling |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef`/`TaskRef` construction and read-only resolution helpers |
-| `global-coop-projection.js` | Read-only ACL-filtered global Coop projection of canonical project/session/task refs, worker attempts, unavailable-binding attention, and labeled legacy Lead history |
+| `global-coop-projection.js` | ACL-filtered global Coop projection that provisions one durable Lead channel per accessible configured project and emits bounded project summaries without transcripts, session trees, or worker attempts |
+| `project-coop-channels.js` | Private durable project-scoped Coop channel identity, metadata validation, ACL checks, scoped prompt context, and channel handoff handling |
 | `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable and legacy SessionRefs, migration attention, supersession/tombstones, and project-coordinator completion projection |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
@@ -336,10 +337,10 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-skills-install.js` | Skill install dialog, requireSkills, requireClayMateInterview |
 | `app-favicon.js` | Dynamic favicon, IO blink, urgent blink, send button mode, activity indicator |
 | `app-header.js` | Session rename, session info popover, progressive history loading |
-| `global-coop-projection.js` | Read-only project-owned Lead projection model: stable SessionRef navigation, unavailable-reference state, project/task/attempt grouping, labeled legacy Lead history, and bounded historical-attempt expansion; canonical local Coop remains outside this model |
+| `global-coop-projection.js` | Global Coop UI state and bounded project-channel summary display model; exposes only durable Lead channel navigation and canonical-project handoffs |
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
-| `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Lead's canonical local Coop plus projection-only project conversations and separate automations |
+| `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Lead's Coop-only bounded project-channel sidebar |
 | `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
 | `sidebar-sessions-context-menu.js` | Session and loop context menus, provider handoff entries, visibility toggle, and shared menu state |
 | `sidebar-sessions-orchestration.js` | Existing-session “Add to coordinator” picker, recommendation rows, and adoption acknowledgement |

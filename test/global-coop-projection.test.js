@@ -2,232 +2,101 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var buildGlobalCoopProjection = require("../lib/global-coop-projection").buildGlobalCoopProjection;
 
-var APP_ID = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
-var WORKTREE_ID = "ffb5f2d1-9aac-5735-ae17-42ca99de7d8f";
-var HIDDEN_ID = "d8af2cc1-ea08-5b4c-82e6-e729d3a7dcef";
-
-function context(status, sessions) {
-  return {
-    projectId: status.projectId,
-    slug: status.slug,
-    getStatus: function () { return status; },
-    getSessionManager: function () { return { sessions: new Map(sessions.map(function (s) { return [s.localId, s]; })) }; },
-  };
+function session(id, value) {
+  return Object.assign({
+    localId: id,
+    storageId: "session-" + id,
+    title: "Session " + id,
+    lastActivity: 10,
+  }, value || {});
 }
 
-function hasForbiddenField(value) {
-  var forbidden = { history: true, orchestrationTasks: true, terminalId: true, cwd: true, process: true, query: true };
-  if (!value || typeof value !== "object") return false;
-  var keys = Object.keys(value);
-  for (var i = 0; i < keys.length; i++) {
-    if (forbidden[keys[i]]) return true;
-    if (hasForbiddenField(value[keys[i]])) return true;
-  }
-  return false;
-}
-
-test("global Coop projection groups canonical project refs, tasks, attempts, and worktrees", function () {
-  var coordinator = {
-    localId: 7,
-    storageId: "coordinator",
-    title: "App coordinator",
-    vendor: "codex",
-    model: "gpt-5.6",
-    coordinationMode: true,
-    lastActivity: 200,
-    orchestrationTasks: [{
-      taskId: "task-app",
-      status: "running",
-      progress: 55,
-      currentActivity: "Checking the focused suite",
-      attempt: 3,
-      workerStorageId: "worker-current",
-    }],
-  };
-  var previousWorker = {
-    localId: 8,
-    storageId: "worker-old",
-    title: "Earlier worker",
-    vendor: "claude",
-    model: "sonnet",
-    createdAt: 10,
-    history: [{ type: "user_message", orchestrationTaskId: "task-app", origin: { kind: "coordinator" } }],
-  };
-  var currentWorker = {
-    localId: 9,
-    storageId: "worker-current",
-    title: "Current worker",
-    vendor: "codex",
-    requestedModel: "gpt-5.6",
-    createdAt: 20,
-    orchestrationParent: { taskId: "task-app", sessionStorageId: "coordinator" },
-  };
-  var directLeaf = {
-    localId: 10,
-    storageId: "direct-leaf",
-    title: "Direct leaf",
-    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
-  };
-  var app = context({ projectId: APP_ID, slug: "app", title: "App", icon: "rocket" }, [
-    coordinator, previousWorker, currentWorker, directLeaf,
-  ]);
-  var worktree = context({
-    projectId: WORKTREE_ID,
-    slug: "app--feature",
-    title: "Feature",
-    parentProjectId: APP_ID,
-  }, []);
-  var unavailableTask = {
-    localId: 11,
-    storageId: "missing-coordinator",
-    title: "Unavailable worker source",
-    coordinationMode: true,
-    orchestrationTasks: [{
-      taskId: "task-missing",
-      status: "needs_input",
-      workerStorageId: "deleted-worker",
-      attempt: 1,
-    }],
-  };
-  var hidden = context({ projectId: HIDDEN_ID, slug: "hidden", title: "Hidden" }, [unavailableTask]);
-  var projection = buildGlobalCoopProjection({
-    projects: [app, worktree, hidden],
-    actor: { id: "owner" },
-    canAccessProject: function (actor, project) { return project !== hidden; },
-    canAccessSession: function () { return true; },
-    unreadForSession: function (actor, project, session) { return session.storageId === "direct-leaf" ? 2 : 0; },
-  });
-
-  assert.equal(projection.type, "global_coop_projection");
-  assert.deepEqual(projection.projects.map(function (group) { return group.projectRef.projectId; }), [APP_ID]);
-  var appGroup = projection.projects[0];
-  assert.equal(appGroup.slug, "app");
-  assert.equal(appGroup.worktrees[0].projectRef.projectId, WORKTREE_ID);
-  assert.equal(appGroup.worktrees[0].parentProjectId, APP_ID);
-  assert.equal(appGroup.coordinators[0].sessionRef.sessionStorageId, "coordinator");
-  assert.equal(appGroup.coordinators[0].role, "coordinator");
-  assert.equal(appGroup.directLeaves[0].role, "direct_leaf");
-  assert.equal(appGroup.directLeaves[0].unread, 2);
-  var task = appGroup.coordinators[0].tasks[0];
-  assert.deepEqual(task.taskRef, {
-    projectId: APP_ID,
-    coordinatorSessionStorageId: "coordinator",
-    taskId: "task-app",
-  });
-  assert.deepEqual(task.attempts.map(function (attempt) {
-    return [attempt.sessionRef.sessionStorageId, attempt.attempt, attempt.current, attempt.historical];
-  }), [
-    ["worker-old", 1, false, true],
-    ["worker-current", 3, true, false],
-  ]);
-  assert.equal(hasForbiddenField(projection), false);
-});
-
-test("global Coop projection keeps unavailable worker refs explicit without leaking denied sessions", function () {
-  var coordinator = {
-    localId: 1,
-    storageId: "coordinator",
-    coordinationMode: true,
-    orchestrationTasks: [{ taskId: "task-missing", status: "needs_input", workerStorageId: "gone", attempt: 2 }],
-  };
-  var deniedWorker = {
-    localId: 2,
-    storageId: "gone",
-    title: "Do not expose",
-    orchestrationParent: { taskId: "task-missing", sessionStorageId: "coordinator" },
-  };
-  var app = context({ projectId: APP_ID, slug: "app", title: "App" }, [coordinator, deniedWorker]);
-  var projection = buildGlobalCoopProjection({
-    projects: [app],
-    canAccessSession: function (actor, project, session) { return session !== deniedWorker; },
-  });
-  var attempt = projection.projects[0].coordinators[0].tasks[0].attempts[0];
-
-  assert.deepEqual(attempt, {
-    sessionRef: { projectId: APP_ID, sessionStorageId: "gone" },
-    role: "worker",
-    availability: "unavailable",
-    attempt: 2,
-    current: true,
-    historical: false,
-  });
-  assert.equal(JSON.stringify(projection).includes("Do not expose"), false);
-});
-
-test("equal session storage IDs remain unambiguous across canonical projects", function () {
-  var first = context({ projectId: APP_ID, slug: "first", title: "First" }, [{
-    localId: 1,
-    storageId: "same-storage",
-    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
-  }]);
-  var second = context({ projectId: HIDDEN_ID, slug: "second", title: "Second" }, [{
-    localId: 1,
-    storageId: "same-storage",
-    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
-  }]);
-  var projection = buildGlobalCoopProjection({ projects: [first, second] });
-
-  assert.deepEqual(projection.projects.map(function (group) {
-    return group.directLeaves[0].sessionRef;
-  }), [
-    { projectId: APP_ID, sessionStorageId: "same-storage" },
-    { projectId: HIDDEN_ID, sessionStorageId: "same-storage" },
-  ]);
-});
-
-test("portfolio bindings use canonical target state and retain deleted tombstone refs", function () {
-  var leaf = {
-    localId: 1,
-    storageId: "live-leaf",
-    title: "Canonical target title",
-    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
-    orchestrationPolicy: {
-      portfolioExecution: {
-        portfolioTaskId: "portfolio-live",
-        bindingRevision: 1,
-        idempotencyKey: "live-command",
-        mode: "direct_leaf",
-        status: "running",
-        progress: 35,
-        currentActivity: "Checking canonical target state",
-      },
+function project(projectId, slug, sessions, extra) {
+  var manager = {
+    sessions: new Map(sessions.map(function (item) { return [item.localId, item]; })),
+    saveSessionFile: function () {},
+    createSessionRaw: function (options) {
+      var created = session(this.sessions.size + 100, options);
+      this.sessions.set(created.localId, created);
+      return created;
     },
   };
-  var app = context({ projectId: APP_ID, slug: "app", title: "App" }, [leaf]);
-  var projection = buildGlobalCoopProjection({
-    projects: [app],
-    bindings: [{
-      portfolioTaskId: "portfolio-live",
-      bindingRevision: 1,
-      mode: "direct_leaf",
-      status: "active",
-      targetProject: { projectId: APP_ID },
-      worker: { projectId: APP_ID, sessionStorageId: "live-leaf" },
-    }, {
-      portfolioTaskId: "portfolio-deleted",
-      bindingRevision: 4,
-      mode: "project_coordinator",
-      status: "deleted",
-      targetProject: { projectId: APP_ID },
-      coordinator: { projectId: APP_ID, sessionStorageId: "deleted-coordinator" },
+  return Object.assign({
+    projectId: projectId,
+    slug: slug,
+    title: slug,
+    sm: manager,
+  }, extra || {});
+}
+
+test("Coop projects each accessible configured project into one durable summary channel", function () {
+  var home = session(1, { storageId: "coop-home", coopHome: true });
+  var lead = project("system-lead", "lead", [home], { isLead: true });
+  var task = {
+    taskId: "active-work",
+    title: "Fix project switch",
+    objective: "Keep project navigation isolated",
+    status: "running",
+    currentActivity: "Adding target-keyed cache",
+    updatedAt: 20,
+  };
+  var coordinator = session(10, {
+    coordinationMode: true,
+    orchestrationTasks: [task],
+    orchestrationProjectCompletion: {
+      status: "completed",
+      summary: "Earlier verified release",
+      completedAt: 15,
+    },
+  });
+  var directOwnerSession = session(11, { title: "Owner direct conversation" });
+  var clay = project("11111111-1111-5111-8111-111111111111", "clay", [coordinator, directOwnerSession], { title: "Clay" });
+  var worktree = project("22222222-2222-5222-8222-222222222222", "clay--feature", [], { isWorktree: true });
+  var mate = project("33333333-3333-5333-8333-333333333333", "mate-ada", [], { isMate: true });
+
+  var projection = buildGlobalCoopProjection({ projects: [lead, clay, worktree, mate] });
+
+  assert.equal(projection.coop.sessionRef.projectId, "system-lead");
+  assert.equal(projection.projects.length, 1);
+  var channel = projection.projects[0];
+  assert.deepEqual(channel.projectRef, { projectId: clay.projectId });
+  assert.equal(channel.channel.sessionRef.projectId, "system-lead");
+  assert.equal(channel.summary.goals[0], "Keep project navigation isolated");
+  assert.equal(channel.summary.activeWork[0].title, "Fix project switch");
+  assert.equal(channel.summary.outcomes[0].summary, "Earlier verified release");
+  assert.match(channel.summary.nextAction, /active delegated work/);
+  assert.equal(Object.hasOwn(channel, "coordinators"), false);
+  assert.equal(Object.hasOwn(channel, "directLeaves"), false);
+  assert.equal(JSON.stringify(channel).includes("Owner direct conversation"), false);
+
+  var second = buildGlobalCoopProjection({ projects: [lead, clay] });
+  assert.equal(second.projects[0].channel.sessionRef.sessionStorageId,
+    channel.channel.sessionRef.sessionStorageId);
+});
+
+test("Coop summary applies project ACLs and summarizes attention without exposing attempts", function () {
+  var lead = project("system-lead", "lead", [session(1, { storageId: "coop-home", coopHome: true })], { isLead: true });
+  var blocked = session(2, {
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "needs-owner",
+      title: "Choose owner",
+      status: "needs_input",
+      userQuestion: "Which owner should approve this?",
+      workerStorageId: "hidden-worker",
+      attempt: 3,
     }],
   });
-
-  var group = projection.projects[0];
-  assert.equal(group.directLeaves[0].title, "Canonical target title");
-  assert.equal(group.directLeaves[0].portfolioTaskId, "portfolio-live");
-  assert.equal(group.directLeaves[0].availability, "available");
-  assert.equal(group.directLeaves[0].progress, 35);
-  assert.equal(group.directLeaves[0].currentActivity, "Checking canonical target state");
-  assert.deepEqual(group.coordinators[0], {
-    sessionRef: { projectId: APP_ID, sessionStorageId: "deleted-coordinator" },
-    role: "coordinator",
-    availability: "deleted",
-    attention: true,
-    current: true,
-    historical: false,
-    portfolioTaskId: "portfolio-deleted",
-    bindingRevision: 4,
-    bindingStatus: "deleted",
+  var visible = project("44444444-4444-5444-8444-444444444444", "visible", [blocked]);
+  var denied = project("55555555-5555-5555-8555-555555555555", "denied", []);
+  var projection = buildGlobalCoopProjection({
+    projects: [lead, visible, denied],
+    canAccessProject: function (_, item) { return item !== denied; },
   });
+
+  assert.deepEqual(projection.projects.map(function (item) { return item.slug; }), ["visible"]);
+  assert.equal(projection.projects[0].summary.attention[0].title, "Choose owner");
+  assert.match(projection.projects[0].summary.nextAction, /resolve attention/);
+  assert.equal(JSON.stringify(projection.projects[0]).includes("hidden-worker"), false);
+  assert.equal(JSON.stringify(projection.projects[0]).includes("attempt"), false);
 });

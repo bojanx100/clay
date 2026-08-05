@@ -906,6 +906,39 @@
 
   .mobile-global-coop-empty { padding: 8px 12px; color: var(--text-dimmer); font-size: 12px; }
 
+  .mobile-global-coop-summary,
+  .mobile-global-coop-next-action {
+    margin: 4px 12px;
+    color: var(--text-dimmer);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .mobile-global-coop-actions {
+    display: flex;
+    gap: 8px;
+    margin: 8px 12px 4px;
+  }
+
+  .mobile-global-coop-channel-action,
+  .mobile-global-coop-handoff-action {
+    min-height: 34px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .mobile-global-coop-channel-action { color: var(--accent); }
+  .mobile-session-list-target-loading {
+    padding: 22px 12px;
+    color: var(--text-dimmer);
+    font-size: 13px;
+    text-align: center;
+  }
+
   .mobile-session-action svg {
     width: 18px;
     height: 18px;

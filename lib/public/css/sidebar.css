@@ -1154,6 +1154,49 @@
 .global-coop-history-toggle:hover { background: var(--sidebar-hover); color: var(--text); }
 .global-coop-empty { padding: 8px 12px; color: var(--text-dimmer); font-size: 12px; }
 
+.global-coop-summary-section,
+.global-coop-next-action {
+  margin: 3px 16px;
+  color: var(--text-dimmer);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.global-coop-summary-label {
+  margin-right: 5px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.global-coop-project-actions {
+  display: flex;
+  gap: 6px;
+  margin: 8px 16px 4px;
+}
+
+.global-coop-channel-action,
+.global-coop-handoff-action {
+  min-height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.global-coop-channel-action { color: var(--accent); }
+.global-coop-channel-action:hover,
+.global-coop-handoff-action:hover { background: var(--sidebar-hover); color: var(--text); }
+
+.session-list-target-loading {
+  padding: 18px 12px;
+  color: var(--text-dimmer);
+  font-size: 12px;
+  text-align: center;
+}
+
 .session-coordinator-group {
   position: relative;
 }

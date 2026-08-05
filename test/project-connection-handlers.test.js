@@ -246,6 +246,24 @@ test("auto-created connection applies email defaults after presence and initial 
   }
 });
 
+test("initial session lists are typed with their source project slug", function () {
+  var sent = [];
+  var events = [];
+  var options = { storedPresence: null, multiUser: false, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var ctx = makeContext(makeSession(7), sent, events);
+    ctx.slug = "clay";
+    handlers.attachConnectionHandlers(ctx).handleConnection(new FakeWebSocket(), null, function () {}, function () {});
+    var sessionList = sent.find(function (message) { return message.type === "session_list"; });
+    assert.equal(sessionList.projectSlug, "clay");
+    assert.equal(sessionList.sessions[0].coopHome, false);
+    assert.equal(sessionList.sessions[0].coopChannel, null);
+  } finally {
+    restore();
+  }
+});
+
 test("exact requested session misses do not auto-create or replay another transcript", function () {
   var sent = [];
   var events = [];

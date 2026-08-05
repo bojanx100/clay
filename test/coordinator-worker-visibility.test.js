@@ -84,17 +84,29 @@ test("forced expansion returns active and resolved workers", async function () {
 });
 
 function projectionContext(status, sessions) {
+  var sessionMap = new Map(sessions.map(function (session) { return [session.localId, session]; }));
   return {
     projectId: status.projectId,
     slug: status.slug,
     getStatus: function () { return status; },
     getSessionManager: function () {
-      return { sessions: new Map(sessions.map(function (session) { return [session.localId, session]; })) };
+      return {
+        sessions: sessionMap,
+        createSessionRaw: function (options) {
+          var created = Object.assign({
+            localId: sessionMap.size + 100,
+            title: "Project channel",
+            lastActivity: 0,
+          }, options);
+          sessionMap.set(created.localId, created);
+          return created;
+        },
+      };
     },
   };
 }
 
-test("global desktop projection labels legacy Lead refs and pending migration attention", function () {
+test("global projection excludes legacy Lead rows and pending migration artifacts", function () {
   var targetId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var target = projectionContext({ projectId: targetId, slug: "clay", title: "Clay" }, []);
   var coop = {
@@ -142,26 +154,17 @@ test("global desktop projection labels legacy Lead refs and pending migration at
     canAccessSession: function () { return true; },
   });
 
-  assert.deepEqual(projection.projects.map(function (group) { return group.title; }), [
-    "Clay", "Legacy Lead workspace", "Unavailable project",
-  ]);
+  assert.deepEqual(projection.projects.map(function (group) { return group.title; }), ["Clay"]);
   assert.deepEqual(projection.coop.sessionRef, {
     projectId: "system-lead", sessionStorageId: "coop-home",
   });
   assert.equal(Object.prototype.hasOwnProperty.call(projection.coop, "history"), false);
-  var attention = projection.projects[0].directLeaves[0];
-  assert.equal(attention.attention, true);
-  assert.equal(attention.deliveryReason, "project_unavailable");
-  assert.equal(attention.sessionRef, null);
-  var legacy = projection.projects[1];
-  assert.equal(legacy.legacyLead, true);
-  assert.deepEqual(legacy.directLeaves[0].sessionRef, {
-    projectId: "system-lead", sessionStorageId: "legacy-worker",
-  });
-  assert.equal(legacy.directLeaves[0].historical, true);
-  assert.equal(JSON.stringify(legacy).includes("must not be projected"), false);
-  var missing = projection.projects[2];
-  assert.equal(missing.unavailableProject, true);
-  assert.equal(missing.attention, true);
-  assert.equal(missing.coordinators[0].deliveryReason, "project_unavailable");
+  assert.deepEqual(projection.projects[0].projectRef, { projectId: targetId });
+  assert.equal(projection.projects[0].channel.sessionRef.projectId, "system-lead");
+  assert.equal(projection.projects[0].summary.freshness.stale, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(projection.projects[0], "directLeaves"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(projection.projects[0], "coordinators"), false);
+  assert.equal(JSON.stringify(projection).includes("must not be projected"), false);
+  assert.equal(JSON.stringify(projection).includes("Legacy terminal worker"), false);
+  assert.equal(JSON.stringify(projection).includes("project_unavailable"), false);
 });

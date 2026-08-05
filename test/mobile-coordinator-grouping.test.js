@@ -106,13 +106,12 @@ test("coordinator groups collapse worker overflow behind shared controls", funct
   assert.match(desktopCss, /\.session-coordinator-workers-toggle/);
 });
 
-test("mobile and desktop share the labeled legacy and attention projection model", async function () {
+test("mobile and desktop render bounded project channel summaries", async function () {
   var modulePath = path.join(__dirname, "..", "lib", "public", "modules", "global-coop-projection.js");
   var globalProjection = await import(pathToFileURL(modulePath).href);
   globalProjection.setGlobalCoopProjection({
     type: "global_coop_projection",
     coop: {
-      role: "coop",
       title: "Coop",
       sessionRef: { projectId: "system-lead", sessionStorageId: "coop-home" },
       availability: "available",
@@ -121,41 +120,24 @@ test("mobile and desktop share the labeled legacy and attention projection model
       projectRef: { projectId: "system-target" },
       slug: "target",
       title: "Target",
-      coordinators: [],
-      directLeaves: [{
-        role: "direct_leaf",
-        title: "Project execution needs attention",
-        status: "needs_input",
-        availability: "unavailable",
-        attention: true,
-      }],
-      worktrees: [],
-    }, {
-      projectRef: { projectId: "system-lead" },
-      slug: "lead",
-      title: "Legacy Lead workspace",
-      legacyLead: true,
-      coordinators: [],
-      directLeaves: [{
-        role: "worker",
-        title: "Historical Lead worker",
-        status: "completed",
-        historical: true,
-        sessionRef: { projectId: "system-lead", sessionStorageId: "legacy-worker" },
-      }],
-      worktrees: [],
+      channel: { sessionRef: { projectId: "system-lead", sessionStorageId: "channel-target" }, localId: 2 },
+      summary: {
+        goals: ["Keep mobile parity"],
+        decisions: [],
+        activeWork: [],
+        attention: [{ title: "Review mobile", status: "needs_input" }],
+        outcomes: [],
+        freshness: { updatedAt: 1, stale: false },
+        nextAction: "Open this project channel to resolve attention.",
+      },
     }],
   });
 
   var model = globalProjection.buildGlobalCoopDisplayModel("");
   assert.equal(Object.prototype.hasOwnProperty.call(model, "coop"), false);
   assert.equal(globalProjection.getGlobalCoopReference().title, "Coop");
-  assert.deepEqual(model.projects.map(function (project) { return project.title; }), [
-    "Target", "Legacy Lead workspace",
-  ]);
-  assert.equal(model.projects[0].directLeaves[0].attention, true);
-  assert.equal(model.projects[1].legacyLead, true);
-  assert.equal(model.projects[1].directLeaves[0].historical, true);
+  assert.deepEqual(model.projects.map(function (project) { return project.title; }), ["Target"]);
+  assert.equal(model.projects[0].summary.attention[0].title, "Review mobile");
 
   var mobileSource = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"), "utf8"
@@ -165,5 +147,5 @@ test("mobile and desktop share the labeled legacy and attention projection model
   );
   assert.match(mobileSource, /buildGlobalCoopDisplayModel/);
   assert.match(desktopSource, /buildGlobalCoopDisplayModel/);
-  assert.match(desktopSource, /global-coop-legacy-lead/);
+  assert.match(desktopSource, /Open project channel/);
 });
