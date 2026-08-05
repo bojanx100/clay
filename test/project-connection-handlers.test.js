@@ -264,6 +264,57 @@ test("initial session lists are typed with their source project slug", function 
   }
 });
 
+test("Lead connection restores Coop home instead of a remembered worker", function () {
+  var sent = [];
+  var events = [];
+  var options = { storedPresence: { sessionId: 2 }, multiUser: false, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var home = makeSession(1);
+    home.coopHome = true;
+    var worker = makeSession(2);
+    worker.lastViewedAt = 99;
+    var ctx = makeContext(home, sent, events);
+    ctx.slug = "lead";
+    ctx.sm.sessions.set(worker.localId, worker);
+    ctx.sm.activeSessionId = worker.localId;
+    var ws = new FakeWebSocket();
+    ws._clayRequestedSessionId = worker.storageId;
+    handlers.attachConnectionHandlers(ctx).handleConnection(ws, null, function () {}, function () {});
+
+    var switched = sent.find(function (message) { return message.type === "session_switched"; });
+    assert.equal(switched.id, home.localId);
+    assert.equal(options.presenceWrites[0].sessionId, home.localId);
+  } finally {
+    restore();
+  }
+});
+
+test("Lead exact SessionRef restore still opens the requested reference session", function () {
+  var sent = [];
+  var events = [];
+  var options = { storedPresence: { sessionId: 1 }, multiUser: false, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var home = makeSession(1);
+    home.coopHome = true;
+    var worker = makeSession(2);
+    var ctx = makeContext(home, sent, events);
+    ctx.slug = "lead";
+    ctx.sm.sessions.set(worker.localId, worker);
+    var ws = new FakeWebSocket();
+    ws._clayRequestedSessionId = worker.storageId;
+    ws._clayRequestedSessionExact = true;
+    handlers.attachConnectionHandlers(ctx).handleConnection(ws, null, function () {}, function () {});
+
+    var switched = sent.find(function (message) { return message.type === "session_switched"; });
+    assert.equal(switched.id, worker.localId);
+    assert.equal(options.presenceWrites[0].sessionId, worker.localId);
+  } finally {
+    restore();
+  }
+});
+
 test("exact requested session misses do not auto-create or replay another transcript", function () {
   var sent = [];
   var events = [];

@@ -18,6 +18,24 @@ test("Lead to Clay synchronous switches clear source rows before the target sess
   assert.match(messages, /if \(msg\.projectSlug && msg\.projectSlug !== store\.get\('currentSlug'\)\) return;/);
 });
 
+test("all plain Lead entry points route to canonical Coop home and preserve exact refs", function () {
+  var projects = source("modules/app-projects.js");
+  var app = source("app.js");
+  var connection = source("modules/app-connection.js");
+  var messages = source("modules/app-messages-sessions.js");
+  var desktop = source("modules/sidebar-sessions.js");
+  var mobile = source("modules/sidebar-mobile.js");
+
+  assert.match(projects, /export function restoreCanonicalLeadHome\(\)/);
+  assert.match(projects, /if \(slug === "lead"\) \{\s+restoreCanonicalLeadHome\(\);/);
+  assert.match(app, /if \(newSlug === "lead" && !urlRef\) \{\s+_projRestoreCanonicalLeadHome\(\);/);
+  assert.match(connection, /currentSlug === "lead" && !urlSessionRef \? null : readTabSession/);
+  assert.match(messages, /store\.set\(\{ coopHomeSessionId: coopHome \? coopHome\.id : null \}\)/);
+  assert.match(desktop, /function createCanonicalCoopRow\(\)/);
+  assert.match(mobile, /function createMobileCanonicalCoopRow\(\)/);
+  assert.match(projects, /options\.sessionRef\.sessionStorageId/);
+});
+
 test("Back and Forward use the same target-keyed session cache reset", function () {
   var app = source("app.js");
   assert.match(app, /store\.set\(\{ currentSlug: newSlug \}\);\s+window\.dispatchEvent\(new CustomEvent\("clay:project-switching"/);

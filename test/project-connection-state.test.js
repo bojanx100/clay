@@ -63,6 +63,30 @@ test("exact requested ids do not fall back to presence or recency on miss", func
   assert.equal(denied.exactMiss, true);
 });
 
+test("Lead defaults to Coop home while exact reference navigation keeps the requested session", function () {
+  var home = { localId: 1, storageId: "coop-home", cliSessionId: "coop-cli", coopHome: true, lastViewedAt: 1 };
+  var worker = { localId: 2, storageId: "legacy-worker", cliSessionId: "worker-cli", lastViewedAt: 99 };
+  var sessions = new Map([[home.localId, home], [worker.localId, worker]]);
+  var options = {
+    sessions: sessions,
+    allSessions: [home, worker],
+    requestedSessionId: "legacy-worker",
+    requestedSessionExact: false,
+    canonicalCoopHome: true,
+    storedPresence: { sessionId: worker.localId },
+    usersModule: { canAccessSession: function () { return true; } },
+    multiUser: false,
+    user: null,
+  };
+
+  assert.equal(state.findRestoredActiveSession(options).active, home);
+
+  var exact = state.findRestoredActiveSession(Object.assign({}, options, {
+    requestedSessionExact: true,
+  }));
+  assert.equal(exact.active, worker);
+});
+
 test("stored presence is the fallback before recency, including CLI ids", function () {
   var restored = state.findRestoredActiveSession(restoreOptions({
     storedPresence: { sessionId: "cli-one" },
