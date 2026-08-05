@@ -20,9 +20,9 @@ function makeHarness(leadMode, existingLead) {
   var ctx = {
     usersModule: usersModule,
     leadMode: {
-      getLeadMode: function (options) {
+      getLeadModeState: function (options) {
         assert.strictEqual(options.ownerId, "owner-1");
-        return leadMode;
+        return { enabled: leadMode };
       },
     },
     configProjects: [{ slug: "clay", path: clayCwd, ownerId: "owner-1" }],
@@ -48,7 +48,7 @@ function makeHarness(leadMode, existingLead) {
   return { ctx: ctx, calls: calls, projects: projects, clayCwd: clayCwd };
 }
 
-test("registerLeadProject registers lead pseudo-project when lead mode is enabled", function () {
+test("registerLeadProject registers the permanent Coop pseudo-project when Lead mode is enabled", function () {
   var h = makeHarness(true, false);
   var result = serverLead.registerLeadProject(h.ctx);
 
@@ -69,13 +69,32 @@ test("registerLeadProject registers lead pseudo-project when lead mode is enable
   );
 });
 
-test("registerLeadProject skips lead pseudo-project when lead mode is disabled", function () {
+test("registerLeadProject registers permanent Coop even when Lead mode is disabled", function () {
   var h = makeHarness(false, false);
   var result = serverLead.registerLeadProject(h.ctx);
 
-  assert.deepStrictEqual(result, { ok: true, added: false, reason: "lead_mode_off", ownerId: "owner-1" });
-  assert.strictEqual(h.calls.length, 0);
-  assert.deepStrictEqual(h.projects, []);
+  assert.deepStrictEqual(result, { ok: true, added: true, reason: "added", ownerId: "owner-1" });
+  assert.strictEqual(h.calls.length, 1);
+  assert.deepStrictEqual(h.projects, [{ slug: "lead", isLead: true }]);
+});
+
+test("registerLeadProject keeps Coop persistent before an owner identity is available", function () {
+  var calls = [];
+  var result = serverLead.registerLeadProject({
+    usersModule: { getAllUsers: function () { return [{ id: "a" }, { id: "b" }]; } },
+    configProjects: [],
+    clayCwd: process.cwd(),
+    getProjects: function () { return []; },
+    addProject: function (cwd, slug, name, icon, ownerId, worktreeMeta, extra) {
+      calls.push({ cwd: cwd, slug: slug, name: name, ownerId: ownerId, extra: extra });
+      return true;
+    },
+  });
+
+  assert.deepStrictEqual(result, { ok: true, added: true, reason: "added", ownerId: null });
+  assert.deepStrictEqual(calls[0], {
+    cwd: serverLead.getLeadWorkspaceDir(), slug: "lead", name: "Coop", ownerId: null, extra: { isLead: true },
+  });
 });
 
 test("registerLeadProject is idempotent when lead pseudo-project already exists", function () {

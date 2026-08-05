@@ -525,6 +525,13 @@
   color: var(--text-dimmer);
 }
 
+#user-settings .us-shared-setting-value {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 #user-settings .us-btn,
 #user-settings .settings-btn-sm,
 #user-settings .us-email-add-btn,

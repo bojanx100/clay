@@ -120,7 +120,8 @@ function makeContext(session, sent, events, diagnostics) {
     leadMode: {
       getLeadModeState: function () { return { enabled: false, changedAt: null, changedBy: null }; },
       publicState: function (state) { return { leadMode: state.enabled, changedAt: state.changedAt, changedBy: state.changedBy }; },
-      isAuthority: function () { return false; },
+      resolveOwnerId: function () { return "owner"; },
+      isAuthority: function (user, multiUser, ownerId) { return !multiUser || !!(user && user.id === ownerId); },
     },
     diagLog: function (line) { if (diagnostics) diagnostics.push(line); },
   };
@@ -240,6 +241,26 @@ test("auto-created connection applies email defaults after presence and initial 
     assert.deepEqual(contextMessages[contextMessages.length - 1].active, ["email:account-1", "email:account-2"]);
     assert.ok(events.indexOf("save_context:99:email:account-1,email:account-2") !== -1);
     assert.equal(options.presenceWrites[0].sessionId, 99);
+  } finally {
+    restore();
+  }
+});
+
+test("connection exposes Lead state to every user but reserves changes for the Clay owner", function () {
+  var sent = [];
+  var events = [];
+  var options = { storedPresence: null, multiUser: true, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var ctx = makeContext(null, sent, events);
+    var connection = handlers.attachConnectionHandlers(ctx);
+    connection.handleConnection(new FakeWebSocket(), { id: "admin-2", role: "admin" }, function () {}, function () {});
+    var adminState = sent.filter(function (message) { return message.type === "lead_mode_changed"; }).pop();
+    assert.deepEqual(adminState, { type: "lead_mode_changed", leadMode: false, changedAt: null, changedBy: null, canChange: false });
+
+    connection.handleConnection(new FakeWebSocket(), { id: "owner", role: "admin" }, function () {}, function () {});
+    var ownerState = sent.filter(function (message) { return message.type === "lead_mode_changed"; }).pop();
+    assert.deepEqual(ownerState, { type: "lead_mode_changed", leadMode: false, changedAt: null, changedBy: null, canChange: true });
   } finally {
     restore();
   }

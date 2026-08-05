@@ -29,6 +29,7 @@ function withLeadHarness(legacyEnabled, fn) {
     var users = require("../lib/users");
     var data = users.loadUsers();
     data.users.push({ id: "owner-1", name: "Owner", role: "admin", leadMode: legacyEnabled === true });
+    data.users.push({ id: "admin-2", name: "Other admin", role: "admin" });
     data.users.push({ id: "member-1", name: "Member", role: "member" });
     users.saveUsers(data);
     config.saveConfig({ projects: [] });
@@ -63,7 +64,7 @@ test("Lead mode defaults off and migrates the existing owner flag once", functio
   });
 });
 
-test("only an admin may change Lead mode and every result returns authority state", function () {
+test("only the designated Clay owner may change Lead mode and every result returns authority state", function () {
   withLeadHarness(false, function (leadMode, users, config) {
     var start = leadMode.getLeadModeState({ usersModule: users, ownerId: "owner-1" });
     var denied = leadMode.setLeadMode({
@@ -71,6 +72,7 @@ test("only an admin may change Lead mode and every result returns authority stat
       user: { id: "member-1", role: "member" },
       multiUser: true,
       usersModule: users,
+      ownerId: "owner-1",
     });
     assert.deepStrictEqual(denied, {
       ok: false,
@@ -79,11 +81,22 @@ test("only an admin may change Lead mode and every result returns authority stat
     });
     assert.strictEqual(config.loadConfig().coop.leadModeAudit.length, 1);
 
+    var otherAdmin = leadMode.setLeadMode({
+      enabled: true,
+      user: { id: "admin-2", role: "admin" },
+      multiUser: true,
+      usersModule: users,
+      ownerId: "owner-1",
+    });
+    assert.deepStrictEqual(otherAdmin, denied, "an admin who is not the Clay owner is read-only");
+    assert.strictEqual(config.loadConfig().coop.leadModeAudit.length, 1);
+
     var changed = leadMode.setLeadMode({
       enabled: true,
       user: { id: "owner-1", role: "admin" },
       multiUser: true,
       usersModule: users,
+      ownerId: "owner-1",
       now: function () { return 321; },
     });
     assert.deepStrictEqual(changed.state, { leadMode: true, changedAt: 321, changedBy: "owner-1" });
@@ -101,12 +114,24 @@ test("a member cannot establish or corrupt the owner migration", function () {
       user: { id: "member-1", role: "member" },
       multiUser: true,
       usersModule: users,
+      ownerId: "owner-1",
     });
     assert.deepStrictEqual(denied.state, { leadMode: false, changedAt: null, changedBy: null });
     assert.equal(config.loadConfig().coop, undefined, "rejected mutation must not write a state");
 
     var migrated = leadMode.getLeadModeState({ usersModule: users, ownerId: "owner-1" });
     assert.equal(migrated.enabled, true, "the owner legacy state remains the migration source");
+  });
+});
+
+test("owner resolution prefers the Clay project owner over other admins", function () {
+  withLeadHarness(false, function (leadMode, users) {
+    var ownerId = leadMode.resolveOwnerId({
+      config: { projects: [{ path: "/tmp/clay-owner", ownerId: "owner-1" }] },
+      clayCwd: "/tmp/clay-owner",
+      usersModule: users,
+    });
+    assert.strictEqual(ownerId, "owner-1");
   });
 });
 

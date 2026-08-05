@@ -18,9 +18,10 @@ function fakeLeadMode() {
     broadcasts: broadcasts,
     publicState: function (value) { return value; },
     getLeadModeState: function () { return state; },
-    isAuthority: function (user, multiUser) { return !multiUser || !!(user && user.role === "admin"); },
+    resolveOwnerId: function () { return "owner-1"; },
+    isAuthority: function (user, multiUser, ownerId) { return !multiUser || !!(user && user.id === ownerId); },
     setLeadMode: function (options) {
-      if (!this.isAuthority(options.user, options.multiUser)) return { ok: false, error: "forbidden", state: state };
+      if (!this.isAuthority(options.user, options.multiUser, options.ownerId)) return { ok: false, error: "forbidden", state: state };
       state = { leadMode: options.enabled, changedAt: 44, changedBy: options.user.id };
       return { ok: true, state: state };
     },
@@ -40,6 +41,7 @@ test("Lead mode WS mutation is owner-only and returns a state on both success an
     leadMode: mode,
   });
   var member = { _clayUser: { id: "member-1", role: "member" } };
+  var otherAdmin = { _clayUser: { id: "admin-2", role: "admin" } };
   var owner = { _clayUser: { id: "owner-1", role: "admin" } };
 
   assert.equal(handler.handleUserStateMessage(member, { type: "set_lead_mode", enabled: true }), true);
@@ -49,8 +51,15 @@ test("Lead mode WS mutation is owner-only and returns a state on both success an
   });
   assert.equal(mode.broadcasts.length, 0);
 
-  assert.equal(handler.handleUserStateMessage(owner, { type: "set_lead_mode", enabled: true }), true);
+  assert.equal(handler.handleUserStateMessage(otherAdmin, { type: "set_lead_mode", enabled: true }), true);
   assert.deepEqual(sent[1].message, {
+    type: "set_lead_mode_result", ok: false, error: "forbidden", canChange: false,
+    leadMode: false, changedAt: null, changedBy: null,
+  });
+  assert.equal(mode.broadcasts.length, 0);
+
+  assert.equal(handler.handleUserStateMessage(owner, { type: "set_lead_mode", enabled: true }), true);
+  assert.deepEqual(sent[2].message, {
     type: "set_lead_mode_result", ok: true, error: undefined, canChange: true,
     leadMode: true, changedAt: 44, changedBy: "owner-1",
   });
@@ -76,6 +85,8 @@ test("settings ownership has one accessible home for personal notifications and 
   var html = fs.readFileSync(path.join(repoRoot, "lib/public/index.html"), "utf8");
   var css = fs.readFileSync(path.join(repoRoot, "lib/public/css/user-settings.css"), "utf8");
   var serverSettings = fs.readFileSync(path.join(repoRoot, "lib/public/modules/server-settings.js"), "utf8");
+  var appMessagesSettings = fs.readFileSync(path.join(repoRoot, "lib/public/modules/app-messages-settings.js"), "utf8");
+  var userSettingsModule = fs.readFileSync(path.join(repoRoot, "lib/public/modules/user-settings.js"), "utf8");
   var notifications = fs.readFileSync(path.join(repoRoot, "lib/public/modules/notifications.js"), "utf8");
   var userStart = html.indexOf('<div id="user-settings"');
   var serverStart = html.indexOf('<div id="server-settings"');
@@ -89,6 +100,10 @@ test("settings ownership has one accessible home for personal notifications and 
   assert.ok(userSettings.indexOf('aria-describedby="us-notifications-description"') !== -1);
   assert.ok(userSettings.indexOf('<h3>Security</h3>') !== -1);
   assert.equal(count(userSettings, 'id="us-pin-set-btn"'), 1);
+  assert.equal(count(userSettings, 'id="us-coop-lead-mode-value"'), 1);
+  assert.ok(userSettings.indexOf('A shared Clay setting.') !== -1);
+  assert.equal(userSettings.indexOf('id="settings-lead-mode"'), -1, "common settings must not gain a second writable control");
+  assert.equal(userSettingsModule.indexOf("type: 'set_lead_mode'"), -1, "common status must remain read-only");
 
   assert.ok(serverSettingsHtml.indexOf('data-section="coop"') !== -1);
   assert.equal(count(serverSettingsHtml, 'id="settings-lead-mode"'), 1);
@@ -100,6 +115,7 @@ test("settings ownership has one accessible home for personal notifications and 
   assert.ok(css.indexOf('@media') !== -1, "mobile settings stylesheet remains present");
   assert.ok(serverSettings.indexOf('toggle.disabled = !leadModeCanChange') !== -1);
   assert.ok(serverSettings.indexOf('type: "set_lead_mode", enabled: leadModeToggle.checked') !== -1);
+  assert.ok(appMessagesSettings.indexOf('handleSharedLeadModeState(msg)') !== -1);
   assert.equal(serverSettings.indexOf('settings-notif-'), -1);
   assert.equal(serverSettings.indexOf('settings-pin-'), -1);
   assert.ok(notifications.indexOf('localStorage.getItem("notif-sound")') !== -1);
