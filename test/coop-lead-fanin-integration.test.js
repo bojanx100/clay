@@ -139,6 +139,7 @@ test("lead-controlled descendants suppress owner notifications while fan-in deli
     };
     var fanIn = attachCoopFanIn({
       sm: sm,
+      slug: "lead",
       now: function () { return 30; },
       queueCoordinatorUpdate: function (session, text) {
         session.pendingCoordinatorUpdates.push({ text: text, queuedAt: 30 });

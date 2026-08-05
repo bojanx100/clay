@@ -43,6 +43,7 @@ test("fan-in delivery queues an event once and persists the delivered id", funct
     var queued = [];
     var api = h.attach({
       sm: sm,
+      slug: "lead",
       now: function () { return 1000; },
       queueCoordinatorUpdate: function (session, text) {
         queued.push(text);
@@ -75,13 +76,14 @@ test("fan-in delivery queues an event once and persists the delivered id", funct
     delete require.cache[require.resolve("../lib/coop-fanin-delivery")];
     var persistedApi = require("../lib/coop-fanin-delivery").attachCoopFanIn({
       sm: sm,
+      slug: "lead",
       now: function () { return 1001; },
       queueCoordinatorUpdate: function () {
         assert.fail("persisted delivery state should block duplicate apply");
       },
     });
     assert.equal(persistedApi.hasDelivered("event-1"), true);
-    var saved = JSON.parse(fs.readFileSync(path.join(h.clayHome, "coop-fanin-delivery.json"), "utf8"));
+    var saved = JSON.parse(fs.readFileSync(path.join(h.clayHome, "coop-fanin", "lead.json"), "utf8"));
     assert.equal(saved.delivered.length, 1);
     assert.equal(saved.delivered[0].eventId, "event-1");
   });

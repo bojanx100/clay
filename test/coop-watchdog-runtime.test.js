@@ -120,3 +120,58 @@ test("watchdog stops after delivering the last missed terminal transition", func
   assert.equal(h.watchdog.isRunning(), false);
   assert.equal(h.cleared.length, 1);
 });
+
+test("watchdog calls retryPending on every tick to drive the replay-after-restart fallback", function () {
+  var h = runtimeHarness();
+  var retryCalls = 0;
+  var watchdog = attachCoopWatchdog({
+    sm: { sessions: new Map() },
+    usersModule: { getLeadMode: function () { return true; } },
+    fanInDelivery: {
+      getDeliveredEventIds: function () { return []; },
+      deliverEvent: function () { return { ok: true, delivered: true }; },
+      retryPending: function () { retryCalls++; return []; },
+      hasPendingWork: function () { return false; },
+    },
+    now: function () { return 100; },
+    setInterval: function (fn, ms) { return { fn: fn, ms: ms }; },
+    clearInterval: function () {},
+  });
+  watchdog.tick();
+  assert.equal(retryCalls, 1);
+});
+
+test("watchdog stays active while the fan-in outbox still has pending (undelivered) cross-project events", function () {
+  var h = runtimeHarness();
+  // No local active/watched task transitions remain -- the only remaining
+  // controlled work is a lingering pending outbox entry from a prior
+  // failed cross-project delivery (e.g. the lead project was briefly
+  // unreachable). The watchdog must not stop while that is still pending.
+  h.parent.orchestrationTasks[0].status = "completed";
+  h.parent.orchestrationTasks[0].updatedAt = 20;
+  h.parent.orchestrationEvents.push({
+    type: "task_status_changed", taskId: "task-1", at: 20, data: { to: "completed" },
+  });
+  h.deliveredIds.push("already-delivered-event-id-that-does-not-matter-here");
+  var pendingOutstanding = true;
+  var watchdog = attachCoopWatchdog({
+    sm: { sessions: new Map() }, // empty: no controlled sessions of its own
+    usersModule: { getLeadMode: function () { return true; } },
+    fanInDelivery: {
+      getDeliveredEventIds: function () { return h.deliveredIds.slice(); },
+      deliverEvent: function () { return { ok: true, delivered: true }; },
+      retryPending: function () { return []; },
+      hasPendingWork: function () { return pendingOutstanding; },
+    },
+    now: function () { return 100; },
+    setInterval: function (fn, ms) { return { fn: fn, ms: ms }; },
+    clearInterval: function () {},
+  });
+  watchdog.refresh();
+  assert.equal(watchdog.isRunning(), true, "watchdog must keep running while the outbox has pending work");
+
+  pendingOutstanding = false;
+  watchdog.tick();
+  assert.equal(watchdog.isRunning(), false, "watchdog stops once no controlled work and no pending outbox remain");
+});
+

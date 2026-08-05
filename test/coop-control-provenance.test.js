@@ -64,3 +64,104 @@ test("shouldSuppressOwnerNotification only suppresses controlled descendants whi
     ownerId: "owner-1",
   }, usersOn), false);
 });
+
+test("resolveSessionOwnerId prefers an explicit session.ownerId", function () {
+  var users = { getAllUsers: function () { return [{ id: "a" }, { id: "b" }]; } };
+  assert.equal(provenance.resolveSessionOwnerId({ ownerId: "owner-x" }, users), "owner-x");
+});
+
+test("resolveSessionOwnerId falls back to the sole registered user (single-admin reality)", function () {
+  // sessions.js's ensureCoopHomeSession creates the Coop home with no
+  // ownerId (proven against the real creation path in
+  // test/coop-controlled-by-persistence.test.js), so single-admin Lead-mode
+  // suppression depends entirely on this fallback resolving correctly.
+  var users = { getAllUsers: function () { return [{ id: "solo-admin" }]; } };
+  assert.equal(provenance.resolveSessionOwnerId({ ownerId: null }, users), "solo-admin");
+  assert.equal(provenance.resolveSessionOwnerId({}, users), "solo-admin");
+});
+
+test("resolveSessionOwnerId refuses to guess across multiple users with no explicit ownerId", function () {
+  var users = { getAllUsers: function () { return [{ id: "a" }, { id: "b" }]; } };
+  assert.equal(provenance.resolveSessionOwnerId({ ownerId: null }, users), null);
+  assert.equal(provenance.resolveSessionOwnerId({}, users), null);
+});
+
+test("resolveSessionOwnerId returns null when usersModule cannot enumerate users", function () {
+  assert.equal(provenance.resolveSessionOwnerId({}, null), null);
+  assert.equal(provenance.resolveSessionOwnerId({}, {}), null);
+  var throwing = { getAllUsers: function () { throw new Error("boom"); } };
+  assert.equal(provenance.resolveSessionOwnerId({}, throwing), null);
+});
+
+test("shouldSuppressOwnerNotification suppresses a single-admin controlled worker with no ownerId stamped", function () {
+  var users = {
+    getAllUsers: function () { return [{ id: "solo-admin" }]; },
+    getLeadMode: function (id) { return id === "solo-admin"; },
+  };
+  var worker = {
+    ownerId: null,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  assert.equal(provenance.shouldSuppressOwnerNotification(worker, users), true);
+});
+
+test("shouldSuppressOwnerNotification never guesses the wrong owner in true multi-user installs", function () {
+  var users = {
+    getAllUsers: function () { return [{ id: "owner-a" }, { id: "owner-b" }]; },
+    getLeadMode: function (id) { return id === "owner-a"; },
+  };
+  // Worker with no explicit ownerId and 2+ registered users: ambiguous, must
+  // NOT suppress (favors the safe default of notifying, never silently
+  // suppressing for a possibly-wrong owner).
+  var ambiguousWorker = {
+    ownerId: null,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  assert.equal(provenance.shouldSuppressOwnerNotification(ambiguousWorker, users), false);
+
+  // Explicit ownerId isolates correctly per-owner.
+  var ownerAWorker = {
+    ownerId: "owner-a",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  var ownerBWorker = {
+    ownerId: "owner-b",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  assert.equal(provenance.shouldSuppressOwnerNotification(ownerAWorker, users), true);
+  assert.equal(provenance.shouldSuppressOwnerNotification(ownerBWorker, users), false);
+});
+
+test("shouldSuppressOwnerNotification is unaffected by Lead mode for a direct session (never coopControlledBy)", function () {
+  var users = {
+    getAllUsers: function () { return [{ id: "solo-admin" }]; },
+    getLeadMode: function () { return true; },
+  };
+  var directSession = { ownerId: null };
+  assert.equal(provenance.shouldSuppressOwnerNotification(directSession, users), false);
+});
+
+test("shouldSuppressOwnerNotification exempts the canonical Coop session even with no ownerId and lead on", function () {
+  var users = {
+    getAllUsers: function () { return [{ id: "solo-admin" }]; },
+    getLeadMode: function () { return true; },
+  };
+  var coopHome = {
+    ownerId: null,
+    coopHome: true,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  assert.equal(provenance.shouldSuppressOwnerNotification(coopHome, users), false);
+});
+
+test("normalizeControlledBy validates shape strictly", function () {
+  assert.equal(provenance.normalizeControlledBy(null), null);
+  assert.equal(provenance.normalizeControlledBy("coop-home"), null);
+  assert.equal(provenance.normalizeControlledBy({ coopSessionStorageId: "" , since: 1 }), null);
+  assert.equal(provenance.normalizeControlledBy({ coopSessionStorageId: "coop-home" }), null);
+  assert.equal(provenance.normalizeControlledBy({ coopSessionStorageId: "coop-home", since: "x" }), null);
+  assert.deepEqual(
+    provenance.normalizeControlledBy({ coopSessionStorageId: "coop-home", since: 5, extra: "drop-me" }),
+    { coopSessionStorageId: "coop-home", since: 5 }
+  );
+});
