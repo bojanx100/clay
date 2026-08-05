@@ -246,6 +246,31 @@ test("auto-created connection applies email defaults after presence and initial 
   }
 });
 
+test("exact requested session misses do not auto-create or replay another transcript", function () {
+  var sent = [];
+  var events = [];
+  var options = { storedPresence: { sessionId: 7 }, multiUser: false, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var ctx = makeContext(makeSession(7), sent, events);
+    var connection = handlers.attachConnectionHandlers(ctx);
+    var ws = new FakeWebSocket();
+    ws._clayRequestedSessionId = "deleted-storage-id";
+    ws._clayRequestedSessionExact = true;
+    connection.handleConnection(ws, null, function () {}, function () {});
+
+    assert.equal(ctx.sm.sessions.size, 1);
+    assert.equal(sent.some(function (message) { return message.type === "session_switched"; }), false);
+    assert.equal(events.indexOf("history"), -1);
+    assert.equal(options.presenceWrites.length, 0);
+    var sessionList = sent.find(function (message) { return message.type === "session_list"; });
+    assert.equal(sessionList.sessions.length, 1);
+    assert.equal(sessionList.sessions[0].active, false);
+  } finally {
+    restore();
+  }
+});
+
 test("connection exposes Lead state to every user but reserves changes for the Clay owner", function () {
   var sent = [];
   var events = [];

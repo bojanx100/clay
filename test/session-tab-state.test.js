@@ -58,6 +58,41 @@ test("a resolved global SessionRef persists its stable id across the project swi
   delete global.sessionStorage;
 });
 
+test("URL SessionRef is authoritative over stored tab state", async function () {
+  var values = new Map([["clay-active-session:project-a", JSON.stringify({
+    localId: 12,
+    stableId: "stored-session",
+    sessionRef: { projectId: "stored-project", sessionStorageId: "stored-session" },
+  })]]);
+  global.sessionStorage = {
+    setItem: function (key, value) { values.set(key, value); },
+    getItem: function (key) { return values.has(key) ? values.get(key) : null; },
+    removeItem: function (key) { values.delete(key); },
+  };
+  global.location = {
+    pathname: "/p/project-a/",
+    search: "?sessionRef=url-project~url-session",
+    href: "http://localhost/p/project-a/?sessionRef=url-project~url-session",
+  };
+
+  var state = await import("../lib/public/modules/session-tab-state.js");
+  var ref = { projectId: "url-project", sessionStorageId: "url-session" };
+  assert.equal(state.readTabSession("project-a"), "url-session");
+  assert.deepEqual(state.readUrlSessionRef("project-a"), ref);
+  assert.deepEqual(state.readTabSessionRef("project-a"), ref);
+  assert.equal(state.sameSessionRef(ref, { projectId: "url-project", sessionStorageId: "url-session" }), true);
+  assert.equal(state.sameSessionRef(ref, { projectId: "url-project", sessionStorageId: "other" }), false);
+
+  state.rememberTabSession("project-a", 99, "provider-session");
+  var saved = JSON.parse(values.get("clay-active-session:project-a"));
+  assert.equal(saved.localId, 99);
+  assert.equal(saved.stableId, "provider-session");
+  assert.deepEqual(saved.sessionRef, ref);
+
+  delete global.location;
+  delete global.sessionStorage;
+});
+
 test("project navigation uses pushState normally and replaceState in a PWA", async function () {
   var state = await import("../lib/public/modules/session-tab-state.js");
   var ref = { projectId: "8c1d8aa6-58b1-5645-85ef-bfcf229e53f9", sessionStorageId: "restart-safe" };

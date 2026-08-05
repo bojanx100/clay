@@ -40,6 +40,29 @@ test("requested local, storage, and CLI ids outrank stored presence and recency"
   assert.equal(requestedCli.active.localId, 2);
 });
 
+test("exact requested ids do not fall back to presence or recency on miss", function () {
+  var missing = state.findRestoredActiveSession(restoreOptions({
+    requestedSessionId: "missing-storage-id",
+    requestedSessionExact: true,
+    storedPresence: { sessionId: 1 },
+  }));
+  assert.equal(missing.active, null);
+  assert.equal(missing.exactMiss, true);
+
+  var denied = state.findRestoredActiveSession({
+    sessions: new Map([[9, { localId: 9, storageId: "private-storage", lastActivity: 100 }]]),
+    allSessions: [{ localId: 11, storageId: "public-storage", lastActivity: 1 }],
+    requestedSessionId: "private-storage",
+    requestedSessionExact: true,
+    storedPresence: { sessionId: 11 },
+    usersModule: { canAccessSession: function () { return false; } },
+    multiUser: true,
+    user: { id: "user" },
+  });
+  assert.equal(denied.active, null);
+  assert.equal(denied.exactMiss, true);
+});
+
 test("stored presence is the fallback before recency, including CLI ids", function () {
   var restored = state.findRestoredActiveSession(restoreOptions({
     storedPresence: { sessionId: "cli-one" },
