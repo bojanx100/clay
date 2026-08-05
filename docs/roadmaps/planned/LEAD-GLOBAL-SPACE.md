@@ -1,6 +1,6 @@
 # Lead Global Space — project-owned canonical session references
 
-Status: **APPROVED DESIGN** (implementation slices below are pending unless marked shipped)
+Status: **SHIPPED** (Slices 1–9; final controlled cutover landed 2026-08-05)
 Approved scope: project-owned canonical sessions referenced from Coop's global task tree
 Relates to: [CTO-ORCHESTRATOR-ROADMAP.md](CTO-ORCHESTRATOR-ROADMAP.md)
 
@@ -419,12 +419,21 @@ Migration is a reference cutover, not a session-file move.
 7. For controlled cutover, stop and persist the old attempt as superseded,
    then atomically advance the binding revision before creating the target
    project session.
-8. Convert existing Lead text-delivery links to typed bindings/cursors. Keep
-   the current router available only as a compatibility adapter until no
-   active legacy binding depends on it.
+8. Convert existing Lead text-delivery links to typed bindings/cursors. The
+   text router remains notification compatibility only and explicitly reports
+   that it is non-authoritative.
 
 After the migration gate, a new Coop delegation must fail visibly if no target
 project can be resolved. It must never fall back to a Lead-workspace worker.
+
+**Shipped Slice 9 contract:** staffing requires an explicit non-Lead
+`ProjectRef` and durable binding identity. A controlled migration records the
+legacy canonical ref, persists the old supersession and new pending binding,
+then starts the target-project replacement. Healthy active legacy execution
+drains unless controlled cutover is explicit. Failed resolution/delivery leaves
+one durable attention record and no replacement or Lead-local fallback.
+Terminal legacy workers remain click-through references under **Legacy Lead
+workspace**; their transcripts are neither moved nor copied.
 
 ## Failure and dead-letter behavior
 
@@ -462,12 +471,12 @@ and preserve the portfolio audit link.
 
 | Slice | Outcome | Primary current integration points | Exit gate |
 | --- | --- | --- | --- |
-| 4. Durable project/session identity | Persist `projectId`; introduce stable `ProjectRef`, `SessionRef`, and `TaskRef` resolution without changing execution. | `lib/daemon.js`, `lib/server.js`, `lib/project-status.js`, `lib/sessions.js`, `lib/sessions-persistence.js`, `lib/sessions-loader.js` | Restart and slug-change tests resolve the same canonical session while `localId` changes. |
-| 5. Read-only global projection and navigation | Group every project coordinator/worker and direct leaf in Coop; click through to its canonical scope. | `lib/orchestration-task-state.js`, `lib/project-sessions-view.js`, `lib/public/modules/sidebar-sessions.js`, `lib/public/modules/sidebar-mobile-coordinators.js`, `lib/public/modules/orchestration-task-preview.js` | Projection contains no transcript/execution state; desktop/mobile open the exact referenced session. |
+| 4. Durable project/session identity — SHIPPED | Persist `projectId`; introduce stable `ProjectRef`, `SessionRef`, and `TaskRef` resolution without changing execution. | `lib/daemon.js`, `lib/server.js`, `lib/project-status.js`, `lib/sessions.js`, `lib/sessions-persistence.js`, `lib/sessions-loader.js` | Restart and slug-change tests resolve the same canonical session while `localId` changes. |
+| 5. Read-only global projection and navigation — SHIPPED | Group every project coordinator/worker and direct leaf in Coop; click through to its canonical scope. | `lib/orchestration-task-state.js`, `lib/project-sessions-view.js`, `lib/public/modules/sidebar-sessions.js`, `lib/public/modules/sidebar-mobile-coordinators.js`, `lib/public/modules/orchestration-task-preview.js` | Projection contains no transcript/execution state; desktop/mobile open the exact referenced session. |
 | 6. Typed cross-project delivery — SHIPPED | Durable versioned envelopes, event IDs, per-source cursors, acknowledgement-after-application, replay, bounded retry, and observable dead letters behind the legacy router adapter. | `lib/server-cross-project.js`, `lib/cross-project-delivery.js`, `lib/recovery-log.js`, `lib/project.js`, `lib/project-task-orchestrator-followup.js` | Duplicate/out-of-order/restart replay is idempotent and observable; no completion is lost silently. |
 | 7. Project coordinator and direct-leaf routing — SHIPPED | Add explicit binding modes, idempotent target-project creation, scope-expansion promotion, and no Lead-local fallback. | `lib/portfolio-execution-bindings.js`, `lib/project-task-orchestrator.js`, `lib/project-task-orchestrator-external.js`, `lib/project-task-orchestrator-coordinator.js`, `lib/project-session-adoption.js`, `lib/server-cross-project.js` | Coordinated effort creates/reuses one project coordinator; leaf creates one target-project worker; replay creates neither twice. |
 | 8. Two-level completion gates — SHIPPED | Separate worker, project, and portfolio completion; revoke stale project completion on new work. | `lib/orchestration-task-graph.js`, `lib/orchestration-task-state.js`, `lib/project-task-orchestrator-completion.js`, `lib/portfolio-execution-bindings.js`, `lib/lead-ledger.js` | Worker completion alone never completes project/portfolio; project closure needs an explicit integration-verified coordinator record; Coop's gate requires every bound project/direct leaf plus clear delivery/reference health. |
-| 9. Legacy cutover and hardening | Drain/supersede Lead-local workers, surface legacy references, enforce dead-letter attention, and remove text routing as authority. | `lib/server-lead.js`, `lib/server-cross-project.js`, `lib/lead-staffing.js`, `lib/lead-ledger.js` | New work always executes in the target project; legacy history remains reachable without copied state. |
+| 9. Legacy cutover and hardening — SHIPPED | Drain/supersede Lead-local workers, surface legacy references, enforce dead-letter attention, and remove text routing as authority. | `lib/server-lead.js`, `lib/server-cross-project.js`, `lib/lead-staffing.js`, `lib/lead-ledger.js` | New work always executes in the target project; legacy history remains reachable without copied state. |
 
 Each slice is independently testable. Slices 4–5 are read-only with respect to
 execution. Slice 6 must land before Slice 7 enables cross-project creation.
@@ -574,7 +583,7 @@ behaviors, grounded in the current suite and integration points:
 
 ## Final implementation gate
 
-The design is realized only when a user can open Coop, see all relevant work
+The design is realized: a user can open Coop, see all relevant work
 grouped by its actual project, click any coordinator or worker to enter its one
 canonical project session, restart Clay without duplicating or losing that
 identity, observe typed progress/failure/replay, and distinguish project-local

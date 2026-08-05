@@ -84,9 +84,9 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 |--------|---------|
 | `project-browser-extension.js` | Browser extension auth token, shared tab state, command dispatch, and tab context request helpers |
 | `server-live-ui-registry.js` | Server-instance Live UI pairing identities, proof, reconnect credentials, deduplication, isolation, and revocation |
-| `server-lead.js` | Permanent Coop pseudo-project registration and designated-owner resolution helpers |
+| `server-lead.js` | Permanent Coop pseudo-project registration, designated-owner resolution, managed no-local-execution directive, and immutable legacy Lead reference/supersession helpers |
 | `lead-mode.js` | Server-authoritative Coop Lead mode: one-time owner-preference migration, designated Clay-owner mutation authority, durable audit trail, and cross-project state fanout; it gates autonomous powers, not Coop persistence |
-| `server-cross-project.js` | Daemon cross-project router: legacy text compatibility plus typed durable delivery by stable ProjectRef/SessionRef |
+| `server-cross-project.js` | Daemon cross-project router: non-authoritative legacy text notifications, typed durable delivery by stable ProjectRef/SessionRef, and controlled legacy-to-project execution migration |
 | `cross-project-delivery.js` | Typed delivery envelopes, atomic bounded outbox/inbox/cursor persistence, acknowledgement, ordered replay/retry, and dead-letter state |
 | `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
 | `project-live-ui-reports.js` | Coordinator-owned Live UI report creation, React/source context, worker-color identity, compact status relay, and verified worker cleanup |
@@ -117,8 +117,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `lib/public/modules/add-project-modal.js` | Add-project modal modes, shared existing/new folder picker, clone input, and project creation result handling |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef`/`TaskRef` construction and read-only resolution helpers |
-| `global-coop-projection.js` | Read-only ACL-filtered global Coop projection of canonical project/session/task refs and worker attempts |
-| `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable SessionRefs, supersession/tombstones, and project-coordinator completion projection |
+| `global-coop-projection.js` | Read-only ACL-filtered global Coop projection of canonical project/session/task refs, worker attempts, unavailable-binding attention, and labeled legacy Lead history |
+| `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable and legacy SessionRefs, migration attention, supersession/tombstones, and project-coordinator completion projection |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
 | `project-vendor-models.js` | Vendor model-list message handling, lazy adapter initialization, and model-info responses |
@@ -232,9 +232,9 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 |--------|---------|
 | `lead-routing.js` | Pure routing brain: classify a work item (class/risk/complexity), route to cheapest-capable provider/model with explicit verification depth |
 | `lead-backlog.js` | Portfolio assembly: normalize, classify, and priority-order work items across projects (GitHub issues via injected exec + pre-fetched collections) |
-| `lead-staffing.js` | Turns a routed item into a full `delegate_task` delegation: worker brief, ownership boundaries, acceptance criteria per verification depth |
+| `lead-staffing.js` | Turns a routed item into an explicit typed target-project execution command; missing/Lead targets produce attention and never a Lead-local fallback |
 | `lead-standup.js` | Composes the boss's daily digest from typed ledger events only, including distinct worker, project, and Coop portfolio completion levels |
-| `lead-ledger.js` | Durable typed memory plus the Coop-only portfolio-completion gate over current bindings, verified evidence, and transport/reference health |
+| `lead-ledger.js` | Durable typed memory and attention lifecycle plus the Coop-only portfolio-completion gate over current bindings, verified evidence, and transport/reference health |
 | `lead-loop.js` | The heartbeat as a pure decision function: given portfolio, in-flight work, failure history, and the autonomy dial, decide staff/give_up/compose_standup/wait |
 | `lead-gatekeeping-eval.js` | Pure connect-never-gatekeep trace evaluator: validates direct session/worker asks, exact stable handoff evidence, zero assistant middleman turns, and typed green/red/unmeasurable reason codes |
 | `coop-handoff-traces.js` | Atomic, bounded runtime evidence store for Coop handoffs: records normalized direct-owner intent plus an authorized navigation that exactly matches a pre-resolved stable target; rejects malformed state and never persists conversation text, prompts, transcripts, or summaries |
@@ -336,7 +336,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-skills-install.js` | Skill install dialog, requireSkills, requireClayMateInterview |
 | `app-favicon.js` | Dynamic favicon, IO blink, urgent blink, send button mode, activity indicator |
 | `app-header.js` | Session rename, session info popover, progressive history loading |
-| `global-coop-projection.js` | Read-only project-owned Lead projection model: stable SessionRef navigation, unavailable-reference state, project/task/attempt grouping, and bounded historical-attempt expansion; canonical local Coop remains outside this model |
+| `global-coop-projection.js` | Read-only project-owned Lead projection model: stable SessionRef navigation, unavailable-reference state, project/task/attempt grouping, labeled legacy Lead history, and bounded historical-attempt expansion; canonical local Coop remains outside this model |
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
 | `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Lead's canonical local Coop plus projection-only project conversations and separate automations |

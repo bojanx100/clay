@@ -188,6 +188,49 @@ test("delivery, reference, revocation, and active execution failures block portf
     "active_execution");
 });
 
+test("cutover attention is durable, deduplicated by key, and blocks portfolio completion", function () {
+  withDir(function (dir) {
+    var first = ledger.appendAttention({
+      type: "staffing_attention",
+      itemId: "clay-42",
+      reason: "target_project_required",
+    }, { dir: dir, now: 1 });
+    var second = ledger.appendAttention({
+      portfolioTaskId: "portfolio-blocked",
+      bindingRevision: 1,
+      reason: "project_unavailable",
+    }, { dir: dir, now: 2 });
+    assert.equal(first.type, "staffing_attention");
+    assert.equal(first.fallbackAllowed, false);
+    assert.equal(second.type, "cutover_attention");
+    var events = ledger.readEvents({ dir: dir });
+    assert.deepEqual(ledger.unresolvedAttention(events).map(function (event) {
+      return event.attentionKey;
+    }), ["item:clay-42", "portfolio-blocked:1"]);
+
+    var binding = completionBinding("portfolio-blocked", 1, "direct_leaf");
+    var completion = {
+      type: "worker_completed",
+      portfolioTaskId: "portfolio-blocked",
+      bindingRevision: 1,
+      summary: "Done.",
+      verification: "focused test passed",
+      escalationRequired: "no",
+    };
+    assert.equal(ledger.portfolioCompletionGate({
+      bindings: [binding], events: events.concat([completion]),
+    }).reason, "cutover_attention");
+
+    ledger.resolveAttention({ portfolioTaskId: "portfolio-blocked", bindingRevision: 1 },
+      { dir: dir, now: 3 });
+    var unresolved = ledger.unresolvedAttention(ledger.readEvents({ dir: dir }));
+    assert.deepEqual(unresolved.map(function (event) { return event.attentionKey; }), ["item:clay-42"]);
+    assert.equal(ledger.portfolioCompletionGate({
+      bindings: [binding], events: ledger.readEvents({ dir: dir }).concat([completion]),
+    }).eligible, true, "unrelated staffing attention does not block another portfolio task");
+  });
+});
+
 test("sequence gaps, missing refs, and stale revisions fail the portfolio gate closed", function () {
   var binding = completionBinding("portfolio-transport", 3, "project_coordinator");
   var completed = {

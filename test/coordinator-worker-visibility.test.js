@@ -2,6 +2,7 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var path = require("node:path");
 var pathToFileURL = require("node:url").pathToFileURL;
+var buildGlobalCoopProjection = require("../lib/global-coop-projection").buildGlobalCoopProjection;
 
 function worker(id, status, lastActivity, active) {
   return {
@@ -80,4 +81,87 @@ test("forced expansion returns active and resolved workers", async function () {
   assert.deepEqual(display.workers.map(function (session) { return session.id; }), [2, 1, 3]);
   assert.equal(display.expanded, true);
   assert.equal(display.hiddenCount, 0);
+});
+
+function projectionContext(status, sessions) {
+  return {
+    projectId: status.projectId,
+    slug: status.slug,
+    getStatus: function () { return status; },
+    getSessionManager: function () {
+      return { sessions: new Map(sessions.map(function (session) { return [session.localId, session]; })) };
+    },
+  };
+}
+
+test("global desktop projection labels legacy Lead refs and pending migration attention", function () {
+  var targetId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var target = projectionContext({ projectId: targetId, slug: "clay", title: "Clay" }, []);
+  var coop = {
+    localId: 1,
+    storageId: "coop-home",
+    coopHome: true,
+    orchestrationTasks: [{ taskId: "legacy-done", status: "completed" }],
+  };
+  var historical = {
+    localId: 2,
+    storageId: "legacy-worker",
+    title: "Legacy terminal worker",
+    hidden: true,
+    history: [{ type: "delta", text: "must not be projected" }],
+    orchestrationParent: { taskId: "legacy-done", sessionStorageId: "coop-home" },
+  };
+  var lead = projectionContext({ projectId: "system-lead", slug: "lead", title: "Coop" }, [
+    coop, historical,
+  ]);
+  var projection = buildGlobalCoopProjection({
+    projects: [target, lead],
+    bindings: [{
+      portfolioTaskId: "portfolio-attention",
+      bindingRevision: 1,
+      idempotencyKey: "migration-attention",
+      mode: "direct_leaf",
+      status: "pending",
+      statusReason: "project_unavailable",
+      attentionAt: 10,
+      targetProject: { projectId: targetId },
+      createdAt: 1,
+      updatedAt: 10,
+    }, {
+      portfolioTaskId: "portfolio-missing-project",
+      bindingRevision: 1,
+      idempotencyKey: "missing-project-attention",
+      mode: "project_coordinator",
+      status: "pending",
+      statusReason: "project_unavailable",
+      attentionAt: 11,
+      targetProject: { projectId: "system-missing-project" },
+      createdAt: 1,
+      updatedAt: 11,
+    }],
+    canAccessSession: function () { return true; },
+  });
+
+  assert.deepEqual(projection.projects.map(function (group) { return group.title; }), [
+    "Clay", "Legacy Lead workspace", "Unavailable project",
+  ]);
+  assert.deepEqual(projection.coop.sessionRef, {
+    projectId: "system-lead", sessionStorageId: "coop-home",
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(projection.coop, "history"), false);
+  var attention = projection.projects[0].directLeaves[0];
+  assert.equal(attention.attention, true);
+  assert.equal(attention.deliveryReason, "project_unavailable");
+  assert.equal(attention.sessionRef, null);
+  var legacy = projection.projects[1];
+  assert.equal(legacy.legacyLead, true);
+  assert.deepEqual(legacy.directLeaves[0].sessionRef, {
+    projectId: "system-lead", sessionStorageId: "legacy-worker",
+  });
+  assert.equal(legacy.directLeaves[0].historical, true);
+  assert.equal(JSON.stringify(legacy).includes("must not be projected"), false);
+  var missing = projection.projects[2];
+  assert.equal(missing.unavailableProject, true);
+  assert.equal(missing.attention, true);
+  assert.equal(missing.coordinators[0].deliveryReason, "project_unavailable");
 });
