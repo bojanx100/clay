@@ -121,6 +121,56 @@ test("formatReportLine states verdict, ratchet and ceiling", function () {
   assert.ok(/1 violation\(s\)/.test(redLine));
 });
 
+test("report includes deterministic trust metrics without changing the structural gate", function () {
+  var report = metrics.composeReport({
+    project: "clay", now: 0,
+    coverage: metrics.evaluateCoverage(38, 37.78),
+    complexity: metrics.evaluateComplexity([], []),
+    trustObservations: [
+      { type: "trust_observation", at: 1, decisionClass: "implementation", channel: "text", metric: "gate_pass", outcome: true, evidence: "gate" },
+      { type: "trust_observation", at: 2, decisionClass: "implementation", channel: "voice", metric: "gate_pass", outcome: false, evidence: "voice gate" },
+    ],
+  });
+  assert.strictEqual(report.pass, true);
+  assert.strictEqual(report.trust.groups.length, 2);
+  assert.match(metrics.formatReportLine(report), /trust 2 class\/channel pair\(s\)/);
+  assert.match(metrics.formatReportLine(report), /implementation\/text/);
+  assert.match(metrics.formatReportLine(report), /implementation\/voice/);
+});
+
+test("explicit trust policy can gate the report, but absent policy cannot auto-promote", function () {
+  var observations = ["gate_pass", "backtest_alignment", "refusal_correctness"].map(function (metric, i) {
+    return {
+      type: "trust_observation", at: i + 1, decisionClass: "implementation", channel: "text",
+      metric: metric, outcome: true, evidence: "policy evidence " + metric,
+    };
+  });
+  var policy = {
+    minimumSamples: 1,
+    thresholds: { gate_pass: 0.9, backtest_alignment: 0.9, refusal_correctness: 0.9 },
+  };
+  var report = metrics.composeReport({
+    project: "clay", now: 0,
+    coverage: metrics.evaluateCoverage(38, 37.78),
+    complexity: metrics.evaluateComplexity([], []),
+    trustObservations: observations,
+    trustPolicy: policy,
+  });
+  assert.strictEqual(report.pass, true);
+  assert.strictEqual(report.trust.promotionEligible[0].canAutoPromote, true);
+
+  observations[0].outcome = false;
+  var held = metrics.composeReport({
+    project: "clay", now: 0,
+    coverage: metrics.evaluateCoverage(38, 37.78),
+    complexity: metrics.evaluateComplexity([], []),
+    trustObservations: observations,
+    trustPolicy: policy,
+  });
+  assert.strictEqual(held.pass, false);
+  assert.match(metrics.formatReportLine(held), /promotion held/);
+});
+
 // --- Standup consumption -----------------------------------------------------------
 
 test("standup Health shows the latest metrics_report", function () {

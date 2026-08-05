@@ -389,6 +389,18 @@ Binding decisions (recorded here so neither track builds a duplicate):
      channel (voice approvals review less evidence, so voice-gated classes
      promote more slowly), and reports must compose per channel (a spoken
      digest is not a rendered table).
+   - *Trust evidence hardening (admitted slice)*: the Lead ledger records
+     typed `trust_observation` events with `decisionClass`, `channel`
+     (`text`/`voice`), one of `gate_pass`, `backtest_alignment`, or
+     `refusal_correctness`, a boolean outcome, timestamp, and evidence.
+     Aggregation never crosses either axis. Channel-less records are a
+     compatibility migration to `text` only when they are explicitly typed
+     trust observations; unrelated ledger events are ignored. Promotion
+     remains disabled without an injected class × channel policy and enough
+     samples for every metric, so collecting evidence never silently changes
+     autonomy. The nightly report renders the deterministic trust section;
+     structural done-gate verdicts remain unchanged unless a policy is
+     explicitly supplied.
    - **Stale-premise rule (binding)**: decisions must never execute
      against stale state. Before acting on any command or queued
      decision, Coop re-derives current state (in-flight work, provider

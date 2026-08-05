@@ -8,6 +8,8 @@
 //
 //   node scripts/lead-metrics-nightly.js            # run, persist report + ratchet
 //   node scripts/lead-metrics-nightly.js --dry-run  # run, print report, persist nothing
+//   node scripts/lead-metrics-nightly.js --trust-policy path.json
+//                                                   # explicitly gate on trust
 //
 // Gate values (debate-resolved):
 //   - Coverage: c8 over the full node:test suite, lib/** only. Baseline is
@@ -30,6 +32,8 @@ var ledger = require("../lib/lead-ledger");
 
 var repoRoot = path.join(__dirname, "..");
 var dryRun = process.argv.indexOf("--dry-run") !== -1;
+var trustPolicyFlag = process.argv.indexOf("--trust-policy");
+var trustPolicyPath = trustPolicyFlag >= 0 ? process.argv[trustPolicyFlag + 1] : null;
 var projectName = path.basename(repoRoot);
 var baselinePath = path.join(ledger.leadDir(), "metrics-baseline.json");
 var coverageDir = path.join(os.tmpdir(), "lead-metrics-coverage-" + process.pid);
@@ -41,6 +45,17 @@ function log(msg) {
 function fail(msg, err) {
   console.error("[lead-metrics] ERROR: " + msg + (err && err.message ? " — " + err.message : ""));
   process.exit(2);
+}
+
+function loadTrustPolicy() {
+  if (trustPolicyFlag >= 0 && !trustPolicyPath) fail("--trust-policy requires a JSON path");
+  if (!trustPolicyPath) return undefined;
+  if (!fs.existsSync(trustPolicyPath)) fail("trust policy does not exist at " + trustPolicyPath);
+  try {
+    return JSON.parse(fs.readFileSync(trustPolicyPath, "utf8"));
+  } catch (e) {
+    fail("trust policy is not valid JSON", e);
+  }
 }
 
 // --- Coverage via c8 over the full suite -------------------------------------
@@ -162,12 +177,16 @@ var changed = changedJsFiles();
 log("complexity check on " + changed.length + " changed file(s) vs master");
 var eslintResults = measureComplexity(changed);
 var cxDecision = metrics.evaluateComplexity(eslintResults, changed);
+var trustObservations = ledger.readTrustObservations();
+var trustPolicy = loadTrustPolicy();
 
 var report = metrics.composeReport({
   project: projectName,
   now: Date.now(),
   coverage: covDecision,
   complexity: cxDecision,
+  trustObservations: trustObservations,
+  trustPolicy: trustPolicy,
 });
 if (cov.suiteFailed) {
   report.suiteFailed = true;
@@ -175,6 +194,7 @@ if (cov.suiteFailed) {
 }
 
 log(metrics.formatReportLine(report));
+if (trustPolicy) log("trust promotion policy supplied explicitly from " + trustPolicyPath);
 if (cov.suiteFailed) log("RED: the test suite itself is failing — coverage measured but not trusted");
 for (var vi = 0; vi < cxDecision.violations.length; vi++) {
   var v = cxDecision.violations[vi];

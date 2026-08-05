@@ -78,3 +78,38 @@ test("eventsSinceLastStandup windows correctly", function () {
     assert.strictEqual(all.length, 3);
   });
 });
+
+test("trust observations persist, read back, and reject malformed records", function () {
+  withDir(function (dir) {
+    var stored = ledger.appendTrustObservation({
+      type: "trust_observation",
+      decisionClass: "implementation",
+      channel: "voice",
+      metric: "gate_pass",
+      outcome: true,
+      at: 10,
+      evidence: "voice gate evidence",
+    }, { dir: dir, now: 20 });
+    assert.strictEqual(stored.seq, 1);
+    assert.strictEqual(stored.at, 20);
+    assert.strictEqual(ledger.appendTrustObservation({
+      type: "trust_observation", decisionClass: "implementation", channel: "text",
+      metric: "not-a-metric", outcome: true, at: 30, evidence: "bad",
+    }, { dir: dir, now: 30 }), null);
+
+    fs.appendFileSync(path.join(dir, "ledger.jsonl"), JSON.stringify({
+      type: "trust_observation", decisionClass: "implementation", metric: "backtest_alignment",
+      outcome: false, at: 40, evidence: "legacy channel-less evidence", seq: 2,
+    }) + "\n");
+    fs.appendFileSync(path.join(dir, "ledger.jsonl"), JSON.stringify({
+      type: "completed", decisionClass: "implementation", metric: "gate_pass",
+      outcome: true, at: 50, evidence: "unrelated event", seq: 3,
+    }) + "\n");
+
+    var observations = ledger.readTrustObservations({ dir: dir });
+    assert.strictEqual(observations.length, 2);
+    assert.strictEqual(observations[0].channel, "voice");
+    assert.strictEqual(observations[1].channel, "text");
+    assert.strictEqual(observations[1].metric, "backtest_alignment");
+  });
+});
