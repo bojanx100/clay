@@ -910,6 +910,63 @@ test("orchestration ownership and pending messages survive a session-manager res
   }
 });
 
+test("legacy project completion events hydrate and persist without replay", function () {
+  var h = makeSessionHarness();
+  try {
+    var coordinator = h.sm.createSessionRaw({ storageId: "legacy-project-completion" });
+    coordinator.coordinationMode = true;
+    coordinator.orchestrationGraphId = "legacy-completion-graph";
+    coordinator.orchestrationTasks = [];
+    coordinator.orchestrationPolicy = {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-legacy-completion",
+        bindingRevision: 1,
+        mode: "project_coordinator",
+      },
+    };
+    coordinator.orchestrationEvents = [{
+      eventId: "event-legacy-completion",
+      graphId: "legacy-completion-graph",
+      taskId: null,
+      type: "project_completed",
+      at: 7,
+      data: {
+        completionRevision: 1,
+        graphDigest: "legacy-terminal-graph",
+        summary: "Legacy completion",
+        verification: "legacy suite passed",
+        integrationVerification: "yes",
+        escalationRequired: "no",
+        portfolioTaskId: "portfolio-legacy-completion",
+        bindingRevision: 1,
+      },
+    }];
+    h.sm.saveSessionFile(coordinator);
+    assert.strictEqual(readSessionMeta(h, "legacy-project-completion")
+      .orchestrationProjectCompletion, undefined);
+
+    clearSessionModuleCache();
+    var restoredManager = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restored = [...restoredManager.sessions.values()].find(function (session) {
+      return session.storageId === "legacy-project-completion";
+    });
+
+    assert.strictEqual(restored.orchestrationProjectCompletion.status, "completed");
+    assert.strictEqual(restored.orchestrationProjectCompletion.graphDigest,
+      "legacy-terminal-graph");
+    assert.strictEqual(readSessionMeta(h, "legacy-project-completion")
+      .orchestrationProjectCompletion.portfolioTaskId, "portfolio-legacy-completion");
+    assert.strictEqual(restored.orchestrationEvents.filter(function (event) {
+      return event.type === "project_completed";
+    }).length, 1);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test("a SessionRef resolves the same persisted session after local IDs are reassigned", function () {
   var projectId = "d57aab03-8a7a-53d1-8d77-7c90bf6de291";
   var h = makeSessionHarness({ projectId: projectId });
