@@ -1,5 +1,7 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("node:fs");
+var path = require("node:path");
 var handlersModule = require("../lib/project-user-message-handlers");
 
 function makeHarness() {
@@ -61,7 +63,10 @@ function makeHarness() {
     closeOrchestrationTask: function () { calls.push("close-task"); },
     retryOrchestrationReconciliation: function () { calls.push("retry"); },
     listAdoptionCoordinators: function () { calls.push("list-coordinators"); return [{ id: 9 }]; },
-    proposeSessionAdoption: function () { calls.push("propose"); return true; },
+    proposeSessionAdoption: function (source, coordinator, options) {
+      calls.push("propose:" + options.intent);
+      return true;
+    },
   });
   return { api: api, sent: sent, calls: calls, permissions: permissions,
     session: session, browserState: browserState, loop: loop };
@@ -74,6 +79,13 @@ test("own-property-safe auxiliary dispatch falls through inherited names", funct
   assert.equal(h.calls.includes("note-create"), false);
   assert.equal(h.api.handleAuxiliaryMessage({}, { type: "note_create" }), true);
   assert.equal(h.calls.includes("note-create"), true);
+});
+
+test("the coordinator picker explicitly offers the session as a worker", function () {
+  var source = fs.readFileSync(path.join(
+    __dirname, "../lib/public/modules/sidebar-sessions-orchestration.js"), "utf8");
+  assert.match(source, /adoptionIntent: "worker"/);
+  assert.match(source, /take .* as an owned worker/s);
 });
 
 test("notes, terminal permissions, and browser extension connect/disconnect/result routes work", async function () {
@@ -118,10 +130,16 @@ test("loop permission and delegation, adoption, close-task, and scheduling route
   assert.equal(h.calls.includes("loop"), true);
 
   h.api.handleAuxiliaryMessage({}, { type: "list_orchestration_coordinators", sourceSessionId: 3 });
-  h.api.handleAuxiliaryMessage({}, { type: "propose_session_adoption", sourceSessionId: 3, coordinatorSessionId: 9 });
+  h.api.handleAuxiliaryMessage({}, {
+    type: "propose_session_adoption", sourceSessionId: 3, coordinatorSessionId: 9,
+    adoptionIntent: "worker",
+  });
   h.api.handleAuxiliaryMessage({ _clayUser: { id: "u" } }, { type: "close_orchestration_task", taskId: "task-1" });
   assert.ok(h.calls.includes("list-coordinators"));
-  assert.ok(h.calls.includes("propose"));
+  assert.ok(h.calls.includes("propose:worker"));
+  assert.equal(h.sent.find(function (message) {
+    return message.type === "session_adoption_proposed";
+  }).adoptionIntent, "worker");
   assert.ok(h.calls.includes("close-task"));
 
   h.api.handleAuxiliaryMessage({}, {

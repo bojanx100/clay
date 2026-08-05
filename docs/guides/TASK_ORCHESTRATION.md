@@ -117,10 +117,11 @@ coordinator…** from its sidebar menu. Clay ranks eligible coordinators using
 existing coordinator status, recent conversation overlap, and activity. It
 only shows sessions the current user may access.
 
-Selecting a coordinator records a durable proposal and sends that AI a compact
-handoff. The coordinator then classifies the conversation as a new task, an
-existing task worker, context only, or unrelated. Task adoption preserves the
-existing conversation and provider, binds it to a stable task ID, sends the
-coordinator's next instruction into that session, and returns its eventual
-result to the coordinator. A tool call cannot claim an arbitrary session: the
-source must first have been explicitly offered to that exact coordinator.
+Selecting a coordinator records a durable worker proposal and sends that AI a
+compact handoff. The coordinator maps the conversation to a new or existing
+task; Clay rejects context-only or unrelated classifications because the user
+explicitly requested a worker. Task adoption preserves the existing
+conversation and provider, binds it to a stable task ID, sends the coordinator's
+next instruction into that session, and returns its eventual result to the
+coordinator. A tool call cannot claim an arbitrary session: the source must
+first have been explicitly offered to that exact coordinator.

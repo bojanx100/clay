@@ -229,12 +229,23 @@ test("offers an existing session to the coordinator and adopts it as a worker", 
   var candidates = ctx.api.listAdoptionCoordinators(source);
   assert.equal(candidates[0].id, parent.localId);
   assert.equal(candidates[0].recommended, true);
-  assert.equal(ctx.api.proposeSessionAdoption(source, parent), true);
+  assert.equal(ctx.api.proposeSessionAdoption(source, parent, { intent: "worker" }), true);
   assert.equal(source.orchestrationAdoption.status, "proposed");
+  assert.equal(source.orchestrationAdoption.intent, "worker");
   assert.match(parent.pendingCoordinatorUpdates[0].text, /existing-session/);
   assert.match(parent.pendingCoordinatorUpdates[0].text, /race is in resume handling/);
+  assert.match(parent.pendingCoordinatorUpdates[0].text, /do not classify it as context only or unrelated/);
 
   parent.isProcessing = false;
+  var rejected = ctx.api.adoptFromTool({
+    coordinatorSessionId: parent.storageId,
+    sourceSessionId: source.storageId,
+    action: "context_only",
+  });
+  assert.equal(rejected.isError, true);
+  assert.match(rejected.content[0].text, /offered this session as a worker/);
+  assert.equal(source.orchestrationAdoption.status, "proposed");
+
   var result = ctx.api.adoptFromTool({
     coordinatorSessionId: parent.storageId,
     sourceSessionId: source.storageId,
