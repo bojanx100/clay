@@ -115,7 +115,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `lib/public/modules/project-settings-continuation.js` | Per-project comparable-model auto-continue toggle state and WebSocket round trip |
 | `lib/public/modules/add-project-modal.js` | Add-project modal modes, shared existing/new folder picker, clone input, and project creation result handling |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
-| `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef` construction and read-only resolution helpers |
+| `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef`/`TaskRef` construction and read-only resolution helpers |
+| `global-coop-projection.js` | Read-only ACL-filtered global Coop projection of canonical project/session/task refs and worker attempts |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
 | `project-vendor-models.js` | Vendor model-list message handling, lazy adapter initialization, and model-info responses |

@@ -41,6 +41,27 @@ test("project status exposes the current durable project identity", function () 
   assert.equal(status.getStatus().projectId, projectId);
 });
 
+test("worktree status retains its configured canonical parent project ID", function () {
+  var parentProjectId = "1f813f68-79d7-53cc-9fc1-eb19c7485a37";
+  var status = attachProjectStatus({
+    cwd: "/work/status-worktree",
+    slug: "status-project--feature",
+    project: "status-worktree",
+    currentVersion: "test",
+    worktreeMeta: { parentSlug: "status-project", parentProjectId: parentProjectId, branch: "feature", accessible: true },
+    clients: new Set(),
+    sm: { sessions: new Map(), getProjectId: function () { return "21fec04e-5592-5c22-8acf-b6644ad6078f"; } },
+    send: function () {},
+    usersModule: { isMultiUser: function () { return false; } },
+    projectClients: { getOnlineUsers: function () { return []; } },
+    getProjectCount: function () { return 1; },
+    getProjectList: function () { return []; },
+    getProjectOwnerId: function () { return null; },
+  });
+
+  assert.equal(status.getStatus().parentProjectId, parentProjectId);
+});
+
 test("ProjectRef and SessionRef resolve within their owning project manager", function () {
   var tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-ref-"));
   var firstDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-ref-first-"));
@@ -100,4 +121,42 @@ test("ProjectRef and SessionRef resolve within their owning project manager", fu
     fs.rmSync(firstDir, { recursive: true, force: true });
     fs.rmSync(secondDir, { recursive: true, force: true });
   }
+});
+
+test("TaskRef resolves through the coordinator storage ID without a local ID", function () {
+  var projectId = "352e3033-da6d-516c-a3f6-e62181124604";
+  var coordinator = {
+    storageId: "coordinator-storage",
+    localId: 44,
+    orchestrationTasks: [{ taskId: "task-stable", status: "running" }],
+  };
+  var manager = {
+    resolveSessionRef: function (ref) {
+      return ref.sessionStorageId === coordinator.storageId ? coordinator : null;
+    },
+  };
+  var project = { projectId: projectId, getSessionManager: function () { return manager; } };
+  var resolver = projectIdentity.createReferenceResolver({
+    getProjectById: function (id) { return id === projectId ? project : null; },
+  });
+  var ref = projectIdentity.taskRef({ projectId: projectId }, coordinator, "task-stable");
+
+  assert.deepEqual(ref, {
+    projectId: projectId,
+    coordinatorSessionStorageId: "coordinator-storage",
+    taskId: "task-stable",
+  });
+  assert.deepEqual(projectIdentity.normalizeTaskRef(Object.assign({ localId: 44 }, ref)), ref);
+  assert.strictEqual(resolver.resolveTaskRef(ref).coordinator, coordinator);
+  assert.equal(resolver.resolveTaskRef(ref).task.status, "running");
+  assert.deepEqual(resolver.resolveTaskRef({
+    projectId: projectId,
+    coordinatorSessionStorageId: "coordinator-storage",
+    taskId: "missing",
+  }), { ok: false, code: "task_not_found" });
+  assert.deepEqual(resolver.resolveTaskRef({
+    projectId: projectId,
+    coordinatorSessionStorageId: "coordinator-storage",
+    taskId: "has spaces",
+  }), { ok: false, code: "invalid_task_ref" });
 });

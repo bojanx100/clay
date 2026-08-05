@@ -265,3 +265,56 @@ test("connection exposes Lead state to every user but reserves changes for the C
     restore();
   }
 });
+
+test("global projection is Lead-only and SessionRef navigation is resolve-only", function () {
+  var sent = [];
+  var events = [];
+  var options = { storedPresence: null, multiUser: false, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var nonLead = makeContext(makeSession(7), sent, events);
+    nonLead.getGlobalCoopProjection = function () { throw new Error("must not run outside Coop"); };
+    handlers.attachConnectionHandlers(nonLead).handleConnection(new FakeWebSocket(), null, function () {}, function () {});
+    assert.equal(sent.some(function (message) { return message.type === "global_coop_projection"; }), false);
+
+    sent.length = 0;
+    var lead = makeContext(makeSession(7), sent, events);
+    lead.slug = "lead";
+    lead.getGlobalCoopProjection = function () {
+      return { type: "global_coop_projection", projects: [{ projectRef: { projectId: "system-lead" } }] };
+    };
+    lead.resolveGlobalSessionRef = function (ref) {
+      if (!ref || ref.sessionStorageId !== "restart-safe") return { ok: false, code: "session_not_found" };
+      return {
+        ok: true,
+        ref: { projectId: "8c1d8aa6-58b1-5645-85ef-bfcf229e53f9", sessionStorageId: "restart-safe" },
+        project: { slug: "renamed-project" },
+        session: { localId: 314 },
+      };
+    };
+    var before = lead.sm.sessions.size;
+    var connection = handlers.attachConnectionHandlers(lead);
+    var ws = new FakeWebSocket();
+    connection.handleConnection(ws, null, function () { throw new Error("navigation must not route locally"); }, function () {});
+    assert.equal(sent.filter(function (message) { return message.type === "global_coop_projection"; }).length, 1);
+
+    ws.emit("message", JSON.stringify({
+      type: "resolve_session_ref",
+      sessionRef: { projectId: "8c1d8aa6-58b1-5645-85ef-bfcf229e53f9", sessionStorageId: "restart-safe" },
+    }));
+    assert.deepEqual(sent.at(-1), {
+      type: "session_ref_resolved",
+      ok: true,
+      sessionRef: { projectId: "8c1d8aa6-58b1-5645-85ef-bfcf229e53f9", sessionStorageId: "restart-safe" },
+      slug: "renamed-project",
+      localId: 314,
+    });
+    assert.equal(lead.sm.sessions.size, before);
+
+    ws.emit("message", JSON.stringify({ type: "resolve_session_ref", sessionRef: { projectId: "bad" } }));
+    assert.deepEqual(sent.at(-1), { type: "session_ref_resolved", ok: false, code: "session_not_found" });
+    assert.equal(lead.sm.sessions.size, before);
+  } finally {
+    restore();
+  }
+});
