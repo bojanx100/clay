@@ -347,6 +347,11 @@ test("compaction moves a settled coordinator graph and retargets worker lineage"
     }],
     orchestrationEvents: [{ type: "task_completed" }],
     orchestrationPolicy: { maxParallel: 2 },
+    orchestrationProjectCompletion: {
+      status: "completed",
+      completionRevision: 1,
+      graphDigest: "terminal-graph",
+    },
     history: [{ type: "user_message", text: "Summarize the completed work", _ts: 1 }],
   };
   var worker = {
@@ -383,6 +388,7 @@ test("compaction moves a settled coordinator graph and retargets worker lineage"
 
   assert.strictEqual(continuation.coordinationMode, true);
   assert.strictEqual(continuation.orchestrationGraphId, "graph-1");
+  assert.strictEqual(continuation.orchestrationProjectCompletion.graphDigest, "terminal-graph");
   assert.strictEqual(continuation.orchestrationTasks[0].taskId, "task-done");
   assert.strictEqual(source.coordinationMode, undefined);
   assert.strictEqual(source.orchestrationTasks, undefined);

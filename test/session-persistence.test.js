@@ -842,6 +842,20 @@ test("orchestration ownership and pending messages survive a session-manager res
       noProgressTurns: 2,
       stalled: false,
     };
+    parent.orchestrationProjectCompletion = {
+      status: "completed",
+      completionRevision: 3,
+      graphDigest: "terminal-graph",
+      summary: "Integrated project outcome",
+      verification: "project suite passed",
+      integrationVerification: "yes",
+      escalationRequired: "no",
+      portfolioTaskId: "portfolio-stable",
+      bindingRevision: 2,
+      completedAt: 6,
+      revokedAt: null,
+      revocationReason: "",
+    };
     parent.pendingCoordinatorUpdates = [{ text: "Result waiting", queuedAt: 10 }];
     parent.history.push({
       type: "user_message",
@@ -883,6 +897,9 @@ test("orchestration ownership and pending messages survive a session-manager res
     assert.strictEqual(restoredParent.orchestrationEvents[0].eventId, "event-stable");
     assert.strictEqual(restoredParent.orchestrationTasks[0].workerStorageId, "worker-stable");
     assert.strictEqual(restoredParent.orchestrationReconciliation.noProgressTurns, 2);
+    assert.strictEqual(restoredParent.orchestrationProjectCompletion.status, "completed");
+    assert.strictEqual(restoredParent.orchestrationProjectCompletion.graphDigest, "terminal-graph");
+    assert.strictEqual(restoredParent.orchestrationProjectCompletion.portfolioTaskId, "portfolio-stable");
     assert.strictEqual(restoredParent.pendingCoordinatorUpdates[0].text, "Result waiting");
     assert.strictEqual(restoredParent.history[0].internalOnly, true);
     assert.strictEqual(restoredWorker.orchestrationParent.sessionStorageId, "coordinator-stable");

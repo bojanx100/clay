@@ -333,6 +333,7 @@ test("restart restores an already emitted project completion without duplicating
   }];
 
   h.gate.restore(h.session);
+  delete h.session.orchestrationProjectCompletion;
   h.gate.restore(h.session);
   assert.equal(taskGraph.projectCompletionState(h.session).status, "completed");
   assert.equal(h.session.orchestrationEvents.filter(function (event) {
