@@ -3,6 +3,7 @@ var assert = require("node:assert/strict");
 var attachSessionQueuedMessages = require("../lib/sessions-queued-messages").attachSessionQueuedMessages;
 var hasStaleProcessingState = require("../lib/sessions-queued-messages").hasStaleProcessingState;
 var attachUserMessage = require("../lib/project-user-message").attachUserMessage;
+var attachProjectUserMessageQueue = require("../lib/project-user-message-queue").attachProjectUserMessageQueue;
 var shouldQueueMessage = require("../lib/project-user-message").shouldQueueMessage;
 var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
 
@@ -234,6 +235,168 @@ test("a completed turn does not trap a follow-up behind a stale processing flag"
   assert.equal(session.history[session.history.length - 1].queuedPending, undefined);
 });
 
+test("a restored idle queue starts once after user-message wiring and preserves FIFO", async function () {
+  var session = {
+    localId: 73,
+    title: "Restored queue",
+    vendor: "codex",
+    isProcessing: false,
+    queryInstance: {},
+    history: [
+      queuedHistoryItem("q-first", "First after restart"),
+      queuedHistoryItem("q-second", "Second after restart"),
+    ],
+    pendingUserMessageQueue: [
+      { queueId: "q-first", text: "First after restart", displayText: "First after restart" },
+      { queueId: "q-second", text: "Second after restart", displayText: "Second after restart" },
+    ],
+  };
+  var dispatched = [];
+  var sm = {
+    sessions: new Map([[session.localId, session]]),
+    queuedUserMessagesForClient: function () { return []; },
+    appendToSessionFile: function () {},
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+  };
+  var handler = attachUserMessage({
+    cwd: process.cwd(),
+    slug: "test",
+    isMate: false,
+    osUsers: false,
+    sm: sm,
+    sdk: {
+      startQuery: function (targetSession, text) { dispatched.push(text); },
+      pushMessage: function (targetSession, text) { dispatched.push(text); },
+    },
+    nm: {},
+    tm: {},
+    send: function () {},
+    sendTo: function () {},
+    sendToSession: function () {},
+    sendToSessionOthers: function () {},
+    clients: new Set(),
+    opts: {},
+    usersModule: { isMultiUser: function () { return false; } },
+    matesModule: {},
+    getSessionForWs: function () { return session; },
+    getLinuxUserForSession: function () { return null; },
+    ensureProjectAccessForSession: function () {},
+    getOsUserInfoForWs: function () { return null; },
+    hydrateImageRefs: function (item) { return item; },
+    saveImageFile: function () { return null; },
+    imagesDir: process.cwd(),
+    onProcessingChanged: function () {},
+    onUserMessageDispatched: function () { return ""; },
+    _loop: { handleLoopMessage: function () { return false; } },
+    browserState: {},
+    scheduleMessage: function () {},
+    cancelScheduledMessage: function () {},
+    loadContextSources: function () { return []; },
+    saveContextSources: function () {},
+    adapter: {},
+  });
+
+  await new Promise(function (resolve) { setTimeout(resolve, 160); });
+
+  assert.deepEqual(dispatched, ["First after restart"]);
+  assert.deepEqual(session.pendingUserMessageQueue.map(function (item) {
+    return item.queueId;
+  }), ["q-second"]);
+  assert.equal(session.isProcessing, true);
+
+  session.isProcessing = false;
+  handler.scheduleQueuedUserMessageFlush(session);
+  handler.scheduleQueuedUserMessageFlush(session);
+  await new Promise(function (resolve) { setTimeout(resolve, 160); });
+
+  assert.deepEqual(dispatched, ["First after restart", "Second after restart"]);
+  assert.deepEqual(session.pendingUserMessageQueue, []);
+});
+
+test("queued drain waits for a scheduled recovery before dispatching", async function () {
+  var session = {
+    localId: 74,
+    isProcessing: false,
+    scheduledMessage: { text: "continue", autoAction: true },
+    history: [queuedHistoryItem("q-recovery", "Wait for recovery")],
+    pendingUserMessageQueue: [{
+      queueId: "q-recovery",
+      text: "Wait for recovery",
+      displayText: "Wait for recovery",
+    }],
+  };
+  var dispatched = [];
+  var queue = attachProjectUserMessageQueue({
+    sm: {
+      queuedUserMessagesForClient: function () { return []; },
+      saveSessionFile: function () {},
+      broadcastSessionList: function () {},
+    },
+    sdk: {
+      startQuery: function (targetSession, text) { dispatched.push(text); },
+      pushMessage: function (targetSession, text) { dispatched.push(text); },
+    },
+    sendToSession: function () {},
+    onProcessingChanged: function () {},
+    ensureProjectAccessForSession: function () {},
+  });
+
+  queue.scheduleQueuedUserMessageFlush(session);
+  await new Promise(function (resolve) { setTimeout(resolve, 140); });
+  assert.deepEqual(dispatched, []);
+  assert.deepEqual(session.pendingUserMessageQueue.map(function (item) {
+    return item.queueId;
+  }), ["q-recovery"]);
+
+  delete session.scheduledMessage;
+  await new Promise(function (resolve) { setTimeout(resolve, 160); });
+  assert.deepEqual(dispatched, ["Wait for recovery"]);
+});
+
+test("queued drain waits for failover and active tools before dispatching", async function () {
+  var session = {
+    localId: 75,
+    isProcessing: false,
+    providerFailoverPending: { vendor: "codex" },
+    activeTaskToolIds: {},
+    history: [queuedHistoryItem("q-failover", "Wait for failover")],
+    pendingUserMessageQueue: [{
+      queueId: "q-failover",
+      text: "Wait for failover",
+      displayText: "Wait for failover",
+    }],
+  };
+  var dispatched = [];
+  var queue = attachProjectUserMessageQueue({
+    sm: {
+      queuedUserMessagesForClient: function () { return []; },
+      saveSessionFile: function () {},
+      broadcastSessionList: function () {},
+    },
+    sdk: {
+      startQuery: function (targetSession, text) { dispatched.push(text); },
+      pushMessage: function (targetSession, text) { dispatched.push(text); },
+    },
+    sendToSession: function () {},
+    onProcessingChanged: function () {},
+    ensureProjectAccessForSession: function () {},
+  });
+
+  queue.scheduleQueuedUserMessageFlush(session);
+  await new Promise(function (resolve) { setTimeout(resolve, 140); });
+  assert.deepEqual(dispatched, []);
+
+  session.providerFailoverPending = null;
+  session.activeTaskToolIds.tool = true;
+  await new Promise(function (resolve) { setTimeout(resolve, 140); });
+  assert.deepEqual(dispatched, []);
+
+  session.activeTaskToolIds = {};
+  await new Promise(function (resolve) { setTimeout(resolve, 160); });
+  assert.deepEqual(dispatched, ["Wait for failover"]);
+});
+
 test("steering one queued message resumes the remaining queue automatically", async function () {
   var queueApi = attachSessionQueuedMessages({ encodedCwd: "test" });
   var session = {
@@ -310,6 +473,9 @@ test("steering one queued message resumes the remaining queue automatically", as
   }), ["q-selected", "q-first", "q-last"]);
 
   session.isProcessing = false;
+  session.taskStopRequested = false;
+  session.steerInterruptRequested = false;
+  session.abortController = null;
   handler.flushQueuedUserMessage(session);
   assert.deepEqual(dispatched, ["Selected"]);
 

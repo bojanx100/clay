@@ -124,3 +124,69 @@ test("intentional failover closure does not schedule a same-provider resume or c
   assert.strictEqual(scheduled, 0);
   assert.strictEqual(completed, 0);
 });
+
+test("interrupted turns reconcile queued messages only after stream cleanup", async function () {
+  var reconciled = [];
+  var handle = emptyQueryHandle();
+  var abortController = { abort: function () {} };
+  var session = {
+    localId: 10,
+    vendor: "claude",
+    queryInstance: handle,
+    abortController: abortController,
+    messageQueue: { end: function () {} },
+    isProcessing: true,
+    taskStopRequested: true,
+    pendingPermissions: {},
+    pendingAskUser: {},
+    pendingElicitations: {},
+  };
+  var stream = attachBridgeStream({
+    adapter: { vendor: "claude" },
+    sm: {
+      broadcastSessionList: function () {},
+      saveSessionFile: function () {},
+    },
+    send: function () {},
+    sendAndRecord: function () {},
+    sendToSession: function () {},
+    processSDKMessage: function () {},
+    onProcessingChanged: function () {},
+    onTurnDone: function () {},
+    opts: {
+      getAutoContinueSetting: function () { return false; },
+      reconcileQueuedUserMessages: function (targetSession) {
+        reconciled.push({
+          isProcessing: targetSession.isProcessing,
+          queryInstance: targetSession.queryInstance,
+          messageQueue: targetSession.messageQueue,
+          abortController: targetSession.abortController,
+          taskStopRequested: targetSession.taskStopRequested,
+        });
+      },
+    },
+    getVendorDisplayName: function () { return "Claude"; },
+    isAuthErrorMessage: function () { return false; },
+    getFreshAuthState: function () { return {}; },
+    logAuthDecision: function () {},
+    getLoginCommand: function () { return "claude login"; },
+    notifyAuthRequired: function () {},
+    findConflictingClaude: function () { return []; },
+    isTransientStreamError: function () { return false; },
+    autoResumeAllowed: function () { return false; },
+    scheduleInterruptResume: function () {},
+    sendModelInfoForVendor: function () {},
+    rateLimitResumeLabel: "↻ Continuing after rate limit",
+    debugEvents: false,
+  });
+
+  await stream.processQueryStream(session);
+
+  assert.deepStrictEqual(reconciled, [{
+    isProcessing: false,
+    queryInstance: null,
+    messageQueue: null,
+    abortController: null,
+    taskStopRequested: false,
+  }]);
+});
