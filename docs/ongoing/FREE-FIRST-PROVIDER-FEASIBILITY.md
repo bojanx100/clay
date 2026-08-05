@@ -1,10 +1,18 @@
 # Free-First Provider Routing Feasibility
 
-**Status:** Research memo, not an approved implementation plan
+**Status:** Deferred — accepted as a future direction, with no implementation scheduled
 
 **Investigated:** August 5, 2026
 
+**Decision recorded:** August 5, 2026
+
 **Decision question:** Is there enough legitimate, useful free AI capacity for Clay to route work across providers, or should this remain a future idea?
+
+## Decision
+
+Keep the free-first provider direction on record and defer implementation. No ACP adapter, provider integration, or benchmark is scheduled by this document.
+
+When the idea is deliberately revisited, begin with the experimental ACP host and benchmark described below. Revalidate every provider's pricing, quota, access, and data policy before turning this research into an implementation plan.
 
 ## Executive conclusion
 
