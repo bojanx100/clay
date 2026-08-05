@@ -93,6 +93,42 @@ test("URL SessionRef is authoritative over stored tab state", async function () 
   delete global.sessionStorage;
 });
 
+test("returning from an exact Lead reference clears it before remembering Coop home", async function () {
+  var values = new Map();
+  var replacement = null;
+  global.sessionStorage = {
+    setItem: function (key, value) { values.set(key, value); },
+    getItem: function (key) { return values.has(key) ? values.get(key) : null; },
+    removeItem: function (key) { values.delete(key); },
+  };
+  global.location = {
+    pathname: "/p/lead/",
+    search: "?sessionRef=system-lead~project-channel",
+    href: "http://localhost/p/lead/?sessionRef=system-lead~project-channel",
+  };
+  global.history = {
+    replaceState: function (_, __, url) {
+      replacement = url;
+      global.location.search = "";
+      global.location.href = "http://localhost" + url;
+    },
+  };
+
+  var state = await import("../lib/public/modules/session-tab-state.js");
+  state.forgetTabSession("lead");
+  state.rememberTabSession("lead", 7, "coop-home");
+
+  var saved = JSON.parse(values.get("clay-active-session:lead"));
+  assert.equal(replacement, "/p/lead/");
+  assert.equal(saved.localId, 7);
+  assert.equal(saved.stableId, "coop-home");
+  assert.equal(saved.sessionRef, null);
+
+  delete global.history;
+  delete global.location;
+  delete global.sessionStorage;
+});
+
 test("project navigation uses pushState normally and replaceState in a PWA", async function () {
   var state = await import("../lib/public/modules/session-tab-state.js");
   var ref = { projectId: "8c1d8aa6-58b1-5645-85ef-bfcf229e53f9", sessionStorageId: "restart-safe" };
