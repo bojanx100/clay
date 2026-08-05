@@ -146,3 +146,42 @@ test("typed delivery resolves a dynamically registered project by ProjectRef", f
   assert.equal(router.deliverEnvelope(envelope).acknowledged, true);
   assert.deepEqual(delivered, ["resolver-project-ref"]);
 });
+
+test("project execution ACL and target capability fail closed", function () {
+  var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-acl-"));
+  var deliveries = 0;
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    canCreateExecution: function () { return false; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () {
+      deliveries++;
+      return { ok: true };
+    },
+  });
+  var input = {
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    portfolioTaskId: "portfolio-acl",
+    bindingRevision: 1,
+    idempotencyKey: "create-acl",
+    mode: "direct_leaf",
+    targetProject: { projectId: projectId },
+    objective: "Do the bounded work.",
+  };
+
+  assert.equal(router.createProjectExecution(input).reason, "access_denied");
+  assert.equal(deliveries, 0);
+  assert.equal(router.getExecutionBindings().length, 0);
+
+  var incapable = createCrossProjectRouter({
+    bindingFile: path.join(dir, "incapable-bindings.json"),
+    deliveryFile: path.join(dir, "incapable-delivery.json"),
+    getProjectContextById: function () { return { getProjectId: function () { return projectId; } }; },
+  });
+  assert.equal(incapable.createProjectExecution(input).reason, "target_not_capable");
+  assert.equal(incapable.getExecutionBindings().length, 0);
+});

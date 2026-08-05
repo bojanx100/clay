@@ -48,3 +48,22 @@ test("initial connection orchestration fields default without waiting for hydrat
     orchestrationAdoption: null,
   });
 });
+
+test("direct-leaf binding internals are not copied into project connection state", function () {
+  var fields = connection.orchestrationSessionFields({
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-private",
+        bindingRevision: 1,
+        idempotencyKey: "private-command-key",
+        mode: "direct_leaf",
+        status: "running",
+      },
+    },
+  });
+
+  assert.equal(fields.coordinationMode, false);
+  assert.equal(fields.orchestrationParent, null);
+  assert.equal(JSON.stringify(fields).includes("private-command-key"), false);
+  assert.equal(JSON.stringify(fields).includes("portfolio-private"), false);
+});

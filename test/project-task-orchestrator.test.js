@@ -1,6 +1,10 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("fs");
+var os = require("os");
+var path = require("path");
 var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
+var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 
 function testContext(existingSessions, options) {
   options = options || {};
@@ -12,6 +16,7 @@ function testContext(existingSessions, options) {
   var sm = {
     sessions: sessions,
     defaultVendor: "claude",
+    getProjectId: function () { return options.projectId || null; },
     createSessionRaw: function (opts) {
       var session = Object.assign({
         localId: nextId++,
@@ -32,6 +37,7 @@ function testContext(existingSessions, options) {
     },
   };
   var api = attachTaskOrchestrator({
+    crossProject: options.crossProject || null,
     sm: sm,
     sdk: {
       startQuery: function (session, prompt, images) {
@@ -297,6 +303,245 @@ test("worker sessions cannot promote themselves and delegate more workers", func
   assert.match(result.content[0].text, /worker sessions cannot delegate/);
   assert.equal(parent.coordinationMode, false);
   assert.equal(ctx.starts.length, 0);
+});
+
+test("Coop creates one direct leaf in the target project and promotes it without overlap", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-execution-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  var directInput = {
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-slice-7",
+    bindingRevision: 1,
+    idempotencyKey: "create-direct-leaf",
+    mode: "direct_leaf",
+    targetProject: { projectId: targetProjectId },
+    title: "Bounded target task",
+    objective: "Implement the bounded target-project change.",
+    context: "The work has no local dependencies.",
+    acceptanceCriteria: "The focused test passes.",
+    ownedPaths: "lib/target.js",
+  };
+
+  var first = lead.api.coordinateExternalTask(directInput);
+  var replay = lead.api.coordinateExternalTask(directInput);
+  assert.equal(first.ok, true);
+  assert.equal(first.created, true);
+  assert.equal(replay.ok, true);
+  assert.equal(replay.reused, true);
+  assert.deepEqual(replay.sessionRef, first.sessionRef);
+  assert.equal(target.sessions.size, 1);
+  assert.equal(target.starts.length, 1);
+  assert.equal(lead.sessions.size, 1);
+  assert.equal(lead.starts.length, 0);
+  var leaf = Array.from(target.sessions.values())[0];
+  assert.equal(leaf.coordinationMode, false);
+  assert.match(target.starts[0].prompt, /Do not delegate/);
+  var delegate = target.api.delegateFromTool(Object.assign(brief(leaf), {
+    coordinatorSessionId: leaf.storageId,
+  }));
+  assert.equal(delegate.isError, true);
+  assert.match(delegate.content[0].text, /cannot delegate/);
+  var progress = target.api.reportFromTool({
+    workerSessionId: leaf.storageId,
+    taskId: "portfolio-slice-7",
+    activity: "Running target-project checks",
+    progress: 45,
+  });
+  assert.equal(progress.isError, undefined);
+  assert.equal(leaf.orchestrationPolicy.portfolioExecution.progress, 45);
+  assert.equal(leaf.orchestrationPolicy.portfolioExecution.currentActivity,
+    "Running target-project checks");
+  assert.equal(lead.starts.length, 1);
+  assert.match(lead.starts[0].prompt, /Clay direct-leaf progress/);
+
+  leaf.queryInstance = {};
+  var message = router.messageProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    portfolioTaskId: "portfolio-slice-7",
+    bindingRevision: 1,
+    idempotencyKey: "direct-message-1",
+    text: "Verify the restart case too.",
+  });
+  assert.equal(message.ok, true);
+  assert.equal(target.pushes.length, 1);
+  assert.equal(target.pushes[0].session, leaf);
+  assert.equal(router.messageProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    portfolioTaskId: "portfolio-slice-7",
+    bindingRevision: 1,
+    idempotencyKey: "direct-message-1",
+    text: "Verify the restart case too.",
+  }).ok, true);
+  assert.equal(target.pushes.length, 1);
+  leaf.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: needs_input\nREASON: scope_expansion\n" +
+      "SUMMARY: The task now needs coordinated integration.\n" +
+      "VERIFICATION: scope boundary reviewed\nESCALATION_REQUIRED: yes",
+  });
+  leaf.isProcessing = false;
+  leaf._subscriber({ type: "done" });
+  assert.equal(leaf.orchestrationPolicy.portfolioExecution.status, "needs_input");
+  assert.equal(leaf.orchestrationPolicy.portfolioExecution.reason, "scope_expansion");
+  assert.equal(lead.starts.length, 1);
+  assert.equal(lead.starts[0].session, coop);
+  assert.match(coop.pendingCoordinatorUpdates[0].text, /Clay direct-leaf update/);
+
+  var promoted = lead.api.coordinateExternalTask(Object.assign({}, directInput, {
+    bindingRevision: 2,
+    idempotencyKey: "promote-to-coordinator",
+    mode: "project_coordinator",
+    reason: "scope_expansion",
+    title: "Target project coordinator",
+    objective: "Coordinate the expanded target-project effort.",
+  }));
+  assert.equal(promoted.ok, true);
+  assert.equal(leaf.isProcessing, false);
+  assert.equal(leaf.orchestrationPolicy.portfolioExecution.status, "superseded");
+  assert.equal(target.sessions.size, 2);
+  var projectCoordinator = Array.from(target.sessions.values()).find(function (session) {
+    return session.coordinationMode;
+  });
+  assert.ok(projectCoordinator);
+  assert.equal(projectCoordinator.orchestrationPolicy.portfolioExecution.status, "running");
+  assert.equal(router.getExecutionBinding("portfolio-slice-7").mode, "project_coordinator");
+  assert.equal(lead.sessions.size, 1);
+  var localDelegation = target.api.delegateFromTool(Object.assign(brief(projectCoordinator), {
+    coordinatorSessionId: projectCoordinator.storageId,
+  }));
+  assert.equal(localDelegation.isError, undefined);
+  var localWorker = Array.from(target.sessions.values()).find(function (session) {
+    return session.orchestrationParent &&
+      session.orchestrationParent.sessionStorageId === projectCoordinator.storageId;
+  });
+  assert.ok(localWorker);
+  assert.equal(target.sessions.size, 3);
+  assert.equal(lead.sessions.size, 1);
+
+  var afterRestart = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  afterRestart.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: function () {
+      assert.fail("a committed binding replay must not create another target session");
+    },
+  });
+  var restartedReplay = afterRestart.createProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    portfolioTaskId: "portfolio-slice-7",
+    bindingRevision: 2,
+    idempotencyKey: "promote-to-coordinator",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+    objective: "Coordinate the expanded target-project effort.",
+  });
+  assert.equal(restartedReplay.ok, true);
+  assert.equal(restartedReplay.reused, true);
+  assert.equal(target.sessions.size, 3);
+});
+
+test("target-project routing failure never falls back to a Lead-local worker", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-route-fail-"));
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  var result = lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-no-target",
+    bindingRevision: 1,
+    idempotencyKey: "missing-target-command",
+    mode: "direct_leaf",
+    targetProject: { projectId: "ffb5f2d1-9aac-5735-ae17-42ca99de7d8f" },
+    title: "Must not run in Lead",
+    objective: "Run only in the unavailable target project.",
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "project_unavailable");
+  assert.equal(lead.sessions.size, 1);
+  assert.equal(lead.starts.length, 0);
+  assert.equal(router.getExecutionBindings().length, 0);
+});
+
+test("an explicitly selected target coordinator is bound and reused without selecting an unrelated chat", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-existing-coordinator-"));
+  var projectId = "d8af2cc1-ea08-5b4c-82e6-e729d3a7dcef";
+  var sessions = new Map();
+  var existing = {
+    localId: 9,
+    storageId: "existing-project-coordinator",
+    title: "Existing project coordinator",
+    coordinationMode: true,
+    orchestrationTasks: [],
+    orchestrationEvents: [],
+    orchestrationPolicy: {},
+    history: [],
+    isProcessing: false,
+  };
+  var unrelated = {
+    localId: 10,
+    storageId: "recent-unrelated-coordinator",
+    title: "Unrelated",
+    coordinationMode: true,
+    orchestrationTasks: [],
+    orchestrationEvents: [],
+    history: [],
+    lastActivity: 999,
+  };
+  sessions.set(existing.localId, existing);
+  sessions.set(unrelated.localId, unrelated);
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(sessions, { projectId: projectId, crossProject: router });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  var input = {
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    portfolioTaskId: "portfolio-existing-coordinator",
+    bindingRevision: 1,
+    idempotencyKey: "bind-existing-coordinator",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+    targetCoordinator: { projectId: projectId, sessionStorageId: existing.storageId },
+    title: "Coordinate existing effort",
+    objective: "Own the existing project effort.",
+  };
+
+  var result = router.createProjectExecution(input);
+  assert.equal(result.ok, true);
+  assert.equal(result.created, false);
+  assert.equal(result.sessionStorageId, existing.storageId);
+  assert.equal(sessions.size, 2);
+  assert.equal(target.starts[0].session, existing);
+  assert.equal(unrelated.orchestrationPolicy, undefined);
+  assert.deepEqual(router.createProjectExecution(input).sessionRef, result.sessionRef);
+  assert.equal(target.starts.length, 1);
 });
 
 test("invalid worker briefs do not promote ordinary conversations", function () {

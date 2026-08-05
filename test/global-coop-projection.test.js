@@ -174,3 +174,60 @@ test("equal session storage IDs remain unambiguous across canonical projects", f
     { projectId: HIDDEN_ID, sessionStorageId: "same-storage" },
   ]);
 });
+
+test("portfolio bindings use canonical target state and retain deleted tombstone refs", function () {
+  var leaf = {
+    localId: 1,
+    storageId: "live-leaf",
+    title: "Canonical target title",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-live",
+        bindingRevision: 1,
+        idempotencyKey: "live-command",
+        mode: "direct_leaf",
+        status: "running",
+        progress: 35,
+        currentActivity: "Checking canonical target state",
+      },
+    },
+  };
+  var app = context({ projectId: APP_ID, slug: "app", title: "App" }, [leaf]);
+  var projection = buildGlobalCoopProjection({
+    projects: [app],
+    bindings: [{
+      portfolioTaskId: "portfolio-live",
+      bindingRevision: 1,
+      mode: "direct_leaf",
+      status: "active",
+      targetProject: { projectId: APP_ID },
+      worker: { projectId: APP_ID, sessionStorageId: "live-leaf" },
+    }, {
+      portfolioTaskId: "portfolio-deleted",
+      bindingRevision: 4,
+      mode: "project_coordinator",
+      status: "deleted",
+      targetProject: { projectId: APP_ID },
+      coordinator: { projectId: APP_ID, sessionStorageId: "deleted-coordinator" },
+    }],
+  });
+
+  var group = projection.projects[0];
+  assert.equal(group.directLeaves[0].title, "Canonical target title");
+  assert.equal(group.directLeaves[0].portfolioTaskId, "portfolio-live");
+  assert.equal(group.directLeaves[0].availability, "available");
+  assert.equal(group.directLeaves[0].progress, 35);
+  assert.equal(group.directLeaves[0].currentActivity, "Checking canonical target state");
+  assert.deepEqual(group.coordinators[0], {
+    sessionRef: { projectId: APP_ID, sessionStorageId: "deleted-coordinator" },
+    role: "coordinator",
+    availability: "deleted",
+    attention: true,
+    current: true,
+    historical: false,
+    portfolioTaskId: "portfolio-deleted",
+    bindingRevision: 4,
+    bindingStatus: "deleted",
+  });
+});

@@ -118,6 +118,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef`/`TaskRef` construction and read-only resolution helpers |
 | `global-coop-projection.js` | Read-only ACL-filtered global Coop projection of canonical project/session/task refs and worker attempts |
+| `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable SessionRefs, supersession, and unavailable/deleted tombstones |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
 | `project-vendor-models.js` | Vendor model-list message handling, lazy adapter initialization, and model-info responses |
@@ -126,11 +127,11 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `task-source-worker.js` | Forked worker entrypoint for task launcher source fetches so GitHub scans stay off the daemon event loop |
 | `project-task-launcher.js` | `task_launch` | Task launcher engine: load recipes from `.clay/tasks/*.json`, fetch items, spawn sessions (`startSessionForItem`, `loadRecipe`, `launchExternal`). Completion/needs-input markers; delegates the needs-input ping via the `onNeedsInput` callback |
 | `project-task-launcher-external.js` | (called by task launcher) | Builds external design-tool requests that target an existing coordinator |
-| `project-task-orchestrator.js` | `coordinate_queued_message` (via user-message routing), `orchestration_tasks_state` | Coordinator-owned worker execution, recovery, scheduling, and automatic result return |
+| `project-task-orchestrator.js` | `coordinate_queued_message` (via user-message routing), `orchestration_tasks_state` | Project-local worker execution plus target-owned portfolio execution command dispatch, recovery, scheduling, and automatic result return |
 | `project-task-orchestrator-completion.js` | (called by task orchestrator) | Server-authoritative graph completion phases, bounded reconciliation, stalled recovery, and waiting-user resumption |
-| `project-task-orchestrator-coordinator.js` | (called by task orchestrator) | Coordinator lookup plus on-demand promotion when a top-level session delegates its first visible worker |
+| `project-task-orchestrator-coordinator.js` | (called by task orchestrator) | Stable coordinator/worker lookup, direct-leaf delegation guard, and on-demand promotion for eligible top-level sessions |
 | `project-task-orchestrator-demotion.js` | (called by task orchestrator) | Automatic and deferred coordinator demotion when no owned workers remain |
-| `project-task-orchestrator-external.js` | (called by task orchestrator) | Validates external coordinator targets and creates durable owned tasks from integrations such as Framer |
+| `project-task-orchestrator-external.js` | (called by task orchestrator) | Local external-task routing plus canonical target-project coordinator/direct-leaf creation, reuse, messaging, stop, and restart recovery |
 | `project-task-orchestrator-followup.js` | (called by task orchestrator) | Existing-worker follow-ups, retries, direct task messages, and cross-project coordinator update delivery |
 | `project-coordinate-queued.js` | `coordinate_queued_message` helper | Converts an explicit Coordinate action into a context-rich owned worker task |
 | `project-session-adoption.js` | `list_orchestration_coordinators`, `propose_session_adoption`; MCP `adopt_session` | Recommends coordinators, builds compact existing-session handoffs, records classification, and binds adopted conversations as task executors |
