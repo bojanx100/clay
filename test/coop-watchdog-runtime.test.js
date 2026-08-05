@@ -174,4 +174,3 @@ test("watchdog stays active while the fan-in outbox still has pending (undeliver
   watchdog.tick();
   assert.equal(watchdog.isRunning(), false, "watchdog stops once no controlled work and no pending outbox remain");
 });
-

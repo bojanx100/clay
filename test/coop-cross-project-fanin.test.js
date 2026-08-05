@@ -267,4 +267,3 @@ test("each project's outbox is scoped by slug and does not clobber another proje
     fs.rmSync(clayHome, { recursive: true, force: true });
   }
 });
-
