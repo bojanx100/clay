@@ -86,7 +86,9 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `lib/public/modules/live-ui-messages.js` | Client routing for Live UI state, selection, and extension relay envelopes |
 | `lib/public/modules/workspace-panel-sections.js` | Pure Session Context card, environment, linked-work, and media markup |
 | `project-clients.js` | Per-project WebSocket client set, broadcast helpers, admin sends, and session presence payloads |
-| `project-connection.js` | WebSocket connection setup, initial state sync, session restore, presence |
+| `project-connection.js` | WebSocket connection API and runtime-asset identity; delegates state decisions and connection side effects |
+| `project-connection-state.js` | Pure/model connection decisions: restore priority and access filtering, vendor/route/model selection, orchestration fields, and session-list serialization |
+| `project-connection-handlers.js` | Ordered WebSocket initial-state sends, session hydration/history replay, pending permissions/debates, handler-error containment, and disconnect cleanup |
 | `project-context-sources.js` | Context-source active selection persistence shared by connection, sessions, user messages, and email |
 | `project-destroy.js` | Project shutdown cleanup for timers, sessions, terminals, sockets, temp uploads, and adapter shutdown |
 | `project-external-codex-sync.js` | Polling sync for externally updated idle Codex session history viewed by connected clients |
