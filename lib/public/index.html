@@ -1116,29 +1116,6 @@
   </div>
 </div>
 
-<!-- Hidden notification toggles (synced by server-settings) -->
-<div id="notif-menu-wrap" style="display:none">
-  <button id="notif-btn"></button>
-  <div id="notif-menu">
-    <label class="notif-option" id="notif-push-row">
-      <span>Push notifications</span>
-      <input type="checkbox" id="notif-toggle-push">
-      <span class="toggle-track"><span class="toggle-thumb"></span></span>
-    </label>
-    <label class="notif-option">
-      <span>Browser alerts</span>
-      <input type="checkbox" id="notif-toggle-alert">
-      <span class="toggle-track"><span class="toggle-thumb"></span></span>
-    </label>
-    <div id="notif-blocked-hint" class="hidden">Blocked by browser. <a href="#" id="notif-learn-more">Learn more</a></div>
-    <label class="notif-option">
-      <span>Sound</span>
-      <input type="checkbox" id="notif-toggle-sound">
-      <span class="toggle-track"><span class="toggle-thumb"></span></span>
-    </label>
-  </div>
-</div>
-
 <!-- === User Settings (modal dialog) === -->
 <div id="user-settings" class="hidden">
   <div class="confirm-backdrop" id="user-settings-backdrop"></div>
@@ -1153,6 +1130,7 @@
           <option value="us-account" selected>Account</option>
           <option value="us-appearance">Appearance</option>
           <option value="us-chat">Chat</option>
+          <option value="us-notifications">Notifications</option>
           <option value="us-mates">Mates</option>
           <option value="us-email">Email</option>
         </select>
@@ -1160,6 +1138,7 @@
           <button class="us-nav-item active" data-section="us-account"><span>Account</span></button>
           <button class="us-nav-item" data-section="us-appearance"><span>Appearance</span></button>
           <button class="us-nav-item" data-section="us-chat"><span>Chat</span></button>
+          <button class="us-nav-item" data-section="us-notifications"><span>Notifications</span></button>
           <button class="us-nav-item" data-section="us-mates"><span>Mates</span></button>
           <button class="us-nav-item" data-section="us-email"><span>Email</span></button>
           <div class="us-nav-separator"></div>
@@ -1293,6 +1272,36 @@
           </div>
         </div>
 
+        <!-- Personal notification delivery section -->
+        <div class="us-section" data-section="us-notifications">
+          <h2>Notifications</h2>
+          <p class="settings-hint">Choose how this browser and device alert you when work is ready.</p>
+          <div class="settings-card" id="us-notifications">
+            <div id="notif-menu-wrap">
+              <button id="notif-btn" type="button" aria-hidden="true" tabindex="-1"></button>
+              <div id="notif-menu">
+                <label class="notif-option" id="notif-push-row">
+                  <span>Push notifications</span>
+                  <input type="checkbox" id="notif-toggle-push" aria-describedby="us-notifications-description">
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+                <label class="notif-option">
+                  <span>Browser alerts</span>
+                  <input type="checkbox" id="notif-toggle-alert" aria-describedby="us-notifications-description">
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+                <div id="notif-blocked-hint" class="hidden">Blocked by browser. <a href="#" id="notif-learn-more">Learn more</a></div>
+                <label class="notif-option">
+                  <span>Sound</span>
+                  <input type="checkbox" id="notif-toggle-sound" aria-describedby="us-notifications-description">
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+            <div class="settings-hint" id="us-notifications-description">These delivery preferences stay local to this browser or device.</div>
+          </div>
+        </div>
+
         <!-- Mates section -->
         <div class="us-section" data-section="us-mates">
           <h2>Mates</h2>
@@ -1343,8 +1352,7 @@
           <optgroup label="General">
             <option value="overview" selected>Status</option>
             <option value="vendors">Vendors</option>
-            <option value="notifications">Notifications</option>
-            <option value="security">Security</option>
+            <option value="coop">Coop</option>
           </optgroup>
           <optgroup label="Config">
             <option value="defaults">Defaults</option>
@@ -1368,8 +1376,7 @@
           <div class="settings-nav-category">General</div>
           <button class="settings-nav-item active" data-section="overview"><span>Status</span></button>
           <button class="settings-nav-item" data-section="vendors"><span>Vendors</span></button>
-          <button class="settings-nav-item" data-section="notifications"><span>Notifications</span></button>
-          <button class="settings-nav-item" data-section="security"><span>Security</span></button>
+          <button class="settings-nav-item" data-section="coop"><span>Coop</span></button>
           <div class="settings-nav-separator"></div>
           <div class="settings-nav-category">Config</div>
           <button class="settings-nav-item" data-section="defaults"><span>Defaults</span></button>
@@ -1469,62 +1476,15 @@
           </div>
           <div id="settings-vendor-list" class="settings-vendor-list"></div>
         </div>
-        <div class="server-settings-section" data-section="security">
-          <h2>Security</h2>
+        <div class="server-settings-section" data-section="coop">
+          <h2>Coop</h2>
           <div class="settings-card">
-            <div class="settings-field-row">
+            <label class="settings-toggle-row" for="settings-lead-mode">
               <div>
-                <label class="settings-label">PIN Status</label>
-                <div class="settings-hint">Require a 6-digit PIN to access the web UI.</div>
+                <span class="settings-label">Lead mode</span>
+                <div class="settings-hint" id="settings-lead-mode-hint">Loading server setting…</div>
               </div>
-              <span class="settings-value settings-badge" id="settings-pin-status">-</span>
-            </div>
-            <div class="settings-field-row" id="settings-pin-actions">
-              <div>
-                <label class="settings-label" id="settings-pin-action-label">Set PIN</label>
-                <div class="settings-hint">Protect access to the web interface with a PIN code.</div>
-              </div>
-              <div class="settings-pin-btns">
-                <button class="settings-btn-sm" id="settings-pin-set-btn">Set PIN</button>
-                <button class="settings-btn-sm settings-btn-danger hidden" id="settings-pin-remove-btn">Remove</button>
-              </div>
-            </div>
-            <div class="settings-field hidden" id="settings-pin-form">
-              <label class="settings-label">Enter 6-digit PIN</label>
-              <div class="settings-pin-input-row">
-                <input type="text" id="settings-pin-input" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="000000" autocomplete="off" spellcheck="false">
-                <button class="settings-btn-sm" id="settings-pin-save-btn">Save</button>
-                <button class="settings-btn-sm settings-btn-ghost" id="settings-pin-cancel-btn">Cancel</button>
-              </div>
-              <div class="settings-hint settings-pin-error hidden" id="settings-pin-error">PIN must be exactly 6 digits.</div>
-            </div>
-          </div>
-        </div>
-        <div class="server-settings-section" data-section="notifications">
-          <h2>Notifications</h2>
-          <div class="settings-card">
-            <label class="settings-toggle-row">
-              <div>
-                <span class="settings-label">Push Notifications</span>
-                <div class="settings-hint">Receive push notifications when tasks complete.</div>
-              </div>
-              <input type="checkbox" id="settings-notif-push">
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            </label>
-            <label class="settings-toggle-row">
-              <div>
-                <span class="settings-label">Browser Alerts</span>
-                <div class="settings-hint">Show browser notification alerts when tasks finish.</div>
-              </div>
-              <input type="checkbox" id="settings-notif-alert">
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            </label>
-            <label class="settings-toggle-row">
-              <div>
-                <span class="settings-label">Sound</span>
-                <div class="settings-hint">Play a sound when tasks are completed.</div>
-              </div>
-              <input type="checkbox" id="settings-notif-sound">
+              <input type="checkbox" id="settings-lead-mode" aria-describedby="settings-lead-mode-hint">
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
           </div>

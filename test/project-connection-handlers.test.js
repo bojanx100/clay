@@ -117,6 +117,11 @@ function makeContext(session, sent, events, diagnostics) {
     _email: { getEmailDefaults: function () { return []; } },
     warmup: function () { events.push("warmup"); },
     runtimeAssetId: "runtime-test",
+    leadMode: {
+      getLeadModeState: function () { return { enabled: false, changedAt: null, changedBy: null }; },
+      publicState: function (state) { return { leadMode: state.enabled, changedAt: state.changedAt, changedBy: state.changedBy }; },
+      isAuthority: function () { return false; },
+    },
     diagLog: function (line) { if (diagnostics) diagnostics.push(line); },
   };
 }

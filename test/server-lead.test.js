@@ -9,7 +9,7 @@ function makeHarness(leadMode, existingLead) {
   var projects = existingLead ? [{ slug: "lead", isLead: true }] : [];
   var clayCwd = process.cwd();
   var usersModule = {
-    getLeadMode: function (userId) {
+    getLegacyLeadMode: function (userId) {
       assert.strictEqual(userId, "owner-1");
       return leadMode;
     },
@@ -19,6 +19,12 @@ function makeHarness(leadMode, existingLead) {
   };
   var ctx = {
     usersModule: usersModule,
+    leadMode: {
+      getLeadMode: function (options) {
+        assert.strictEqual(options.ownerId, "owner-1");
+        return leadMode;
+      },
+    },
     configProjects: [{ slug: "clay", path: clayCwd, ownerId: "owner-1" }],
     clayCwd: clayCwd,
     getProjects: function () {

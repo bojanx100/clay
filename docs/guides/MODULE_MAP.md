@@ -64,7 +64,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `app-messages-loop.js` | Client WebSocket Ralph Loop, loop registry, schedule run, and Ralph crafting routing |
 | `app-messages-mentions.js` | Client WebSocket @mention and user-mention routing, mate activity indicators, and mention rendering |
 | `app-messages-rate-limit.js` | Client WebSocket rate-limit, scheduled auto-continue, prompt suggestion, and fast-mode routing |
-| `app-messages-settings.js` | Client WebSocket server update, project settings, daemon config, What's New, auto-launch, and task setup routing |
+| `app-messages-settings.js` | Client WebSocket server update, project settings, daemon config, Lead mode, What's New, auto-launch, and task setup routing |
 | `app-messages-sessions.js` | Client WebSocket session list, presence, search, queued message, session switch, and session close routing |
 | `app-messages-stream.js` | Client WebSocket live message, context preview, status, thinking, result, completion, refusal, auth, and process state routing |
 | `app-messages-terminals.js` | Client WebSocket terminal list/create/output/resize/exit/close routing, including TUI view and login modal forwarding |
@@ -85,6 +85,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-browser-extension.js` | Browser extension auth token, shared tab state, command dispatch, and tab context request helpers |
 | `server-live-ui-registry.js` | Server-instance Live UI pairing identities, proof, reconnect credentials, deduplication, isolation, and revocation |
 | `server-lead.js` | Lead pseudo-project registration and owner/lead-mode gating helpers |
+| `lead-mode.js` | Server-authoritative Coop Lead mode: one-time owner-preference migration, admin mutation authority, durable audit trail, and cross-project state fanout |
 | `server-cross-project.js` | Cross-project coordinator-update router with dead-letter logging for unroutable deliveries |
 | `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
 | `project-live-ui-reports.js` | Coordinator-owned Live UI report creation, React/source context, worker-color identity, compact status relay, and verified worker cleanup |
@@ -216,7 +217,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `users.js` | User CRUD, invites, profile/PIN update, storage, Linux user integration |
 | `users-auth.js` | Authentication, PIN hashing, auth tokens, multi-user mode, setup codes |
 | `users-permissions.js` | RBAC permissions, project/session access control |
-| `users-preferences.js` | DM favorites/hidden, auto-continue, chat layout, deleted builtin keys, mate onboarding |
+| `users-preferences.js` | DM favorites/hidden, auto-continue, chat layout, deleted builtin keys, mate onboarding, and migration-only legacy Lead mode reads |
 | `daemon-projects.js` | Worktree tracking (scan, rescan, cleanup), removed project filtering |
 | `ws-schema.js` | WebSocket message type registry (328 message types, informational) |
 
@@ -280,7 +281,7 @@ server.js is a thin router. It wires all server modules, sets up HTTP/WS, and di
 | `server-tui-hooks.js` | Claude TUI notification hook and auto-approve allow-list installation for single-user and OS-user modes |
 | `server-admin.js` | `/api/admin/users*`, `/api/admin/invites*`, `/api/admin/smtp*`, `/api/admin/projects/*/visibility`, `/api/admin/projects/*/owner`, `/api/admin/projects/*/users`, `/api/admin/projects/*/access` | User CRUD, permissions, invites, SMTP config, project access control |
 | `server-skills.js` | `/api/skills`, `/api/skills/search`, `/api/skills/detail` | Skills proxy cache, leaderboard, search, detail page scraping |
-| `server-settings.js` | `/api/profile`, `/api/avatar/*`, `/api/mate-avatar/*`, `/api/user/pin`, `/api/user/auto-continue`, `/api/user/chat-layout`, `/api/user/mate-onboarded` | User profile, avatars, user preferences |
+| `server-settings.js` | `/api/profile`, `/api/avatar/*`, `/api/mate-avatar/*`, `/api/user/pin`, `/api/user/auto-continue`, `/api/user/chat-layout`, `/api/user/mate-onboarded` | User profile, avatars, user preferences; Account → Security owns personal PIN controls |
 | `server-palette.js` | `/api/palette/search` | Cross-project session search (recent + BM25 ranked) |
 | `server-dm.js` | WS: `dm_list`, `dm_open`, `dm_typing`, `dm_send`, `dm_add_favorite`, `dm_remove_favorite` | Cross-project DM messaging, typing indicators, push notifications |
 | `server-mates.js` | WS: `mate_create`, `mate_list`, `mate_delete`, `mate_update`, `mate_readd_builtin`, `mate_list_available_builtins` | Mate CRUD, builtin mate management, team section enforcement |
