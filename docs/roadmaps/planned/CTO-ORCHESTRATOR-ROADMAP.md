@@ -366,8 +366,8 @@ Binding decisions (recorded here so neither track builds a duplicate):
    from the structural coverage/complexity done-gate. Until a captured runtime
    trace exists, the baseline is `UNMEASURABLE` with
    `MISSING_RUNTIME_EVIDENCE`, not green. Runtime capture persists only the
-   normalized direct-owner intent, opaque owner correlation, stable target
-   identifiers, channel, timestamps, and reason codes in an atomic bounded
+   normalized direct-owner intent, opaque owner correlation, pre-resolved
+   stable target identifiers, channel, timestamps, and reason codes in an atomic bounded
    artifact. It records a navigation only after access validation; malformed,
    rejected, unresolved, expired, or non-stable results remain non-green, and
    raw conversation text, prompts, transcripts, and summaries are excluded.

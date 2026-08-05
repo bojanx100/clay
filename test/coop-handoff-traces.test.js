@@ -45,7 +45,7 @@ function userMessageHarness(session, store, sent) {
     nm: {}, tm: {}, send: function () {},
     sendTo: function (ws, message) { sent.push(message); },
     sendToSession: function () {}, sendToSessionOthers: function () {},
-    clients: new Set(), opts: {},
+    clients: new Set(), opts: { getProjectList: function () { return [{ slug: "clay" }]; } },
     usersModule: { isMultiUser: function () { return false; } },
     matesModule: {}, getSessionForWs: function () { return session; },
     getLinuxUserForSession: function () { return null; },
@@ -63,7 +63,7 @@ test("durable handoff evidence is typed, stable, and consumable by the evaluator
   var filePath = tempTracePath();
   var now = { value: 1000 };
   var store = storeAt(filePath, now, { makeId: function () { return handoffId(1); } });
-  var intent = store.recordIntent({ ownerId: "owner-a", channel: "text" });
+  var intent = store.recordIntent({ ownerId: "owner-a", channel: "text", expectedTarget: target() });
   assert.deepEqual(intent, { ok: true, id: handoffId(1) });
 
   now.value = 1200;
@@ -95,7 +95,8 @@ test("only a direct owner ask inside a canonical Coop conversation creates an in
   var coopSession = { localId: 1, coopHome: true, history: [], pendingUserMessageQueue: [] };
   var coopHandler = userMessageHarness(coopSession, store, sent);
   coopHandler.handleUserMessage({}, {
-    type: "message", text: "get me Ward", handoffTraceId: handoffId(2), sessionId: 1,
+    type: "message", text: "get me Ward", handoffTraceId: handoffId(2),
+    handoffTarget: target("worker-from-coop"), sessionId: 1,
   });
 
   assert.equal(store.loadRuntimeTrace().cases.length, 1);
@@ -110,6 +111,13 @@ test("only a direct owner ask inside a canonical Coop conversation creates an in
     type: "message", text: "get me Ward", handoffTraceId: handoffId(3), sessionId: 2,
   });
   assert.equal(store.loadRuntimeTrace().cases.length, 1, "owner-opened sessions are never captured");
+
+  var channelSession = { localId: 3, coopChannel: { projectSlug: "clay" }, history: [], pendingUserMessageQueue: [] };
+  userMessageHarness(channelSession, store, []).handleUserMessage({}, {
+    type: "message", text: "go to that worker", handoffTraceId: handoffId(6),
+    handoffTarget: target("worker-from-channel"), sessionId: 3,
+  });
+  assert.equal(store.loadRuntimeTrace().cases.length, 2, "project-scoped Coop channels are captured");
 });
 
 test("a typed navigation after an observed assistant response cannot become green", function () {
@@ -118,12 +126,23 @@ test("a typed navigation after an observed assistant response cannot become gree
   var store = storeAt(filePath, now, { makeId: function () { return handoffId(4); } });
   var intent = store.recordIntent({
     ownerId: "owner-a",
+    expectedTarget: target(),
     requiresAssistantObservation: true,
     observeAssistantTurns: function () { return 1; },
   });
   store.recordNavigation({ intentId: intent.id, ownerId: "owner-a", action: "switch_session", target: target() });
   var result = gatekeeping.evaluateCase(store.loadRuntimeTrace().cases[0]);
   assert.deepEqual(result.reasonCodes, ["MIDDLEMAN_ASSISTANT_TURN"]);
+});
+
+test("a navigation without a pre-resolved stable target remains unmeasurable", function () {
+  var filePath = tempTracePath();
+  var now = { value: 1700 };
+  var store = storeAt(filePath, now, { makeId: function () { return handoffId(5); } });
+  var intent = store.recordIntent({ ownerId: "owner-a" });
+  store.recordNavigation({ intentId: intent.id, ownerId: "owner-a", action: "switch_session", target: target() });
+  var result = gatekeeping.evaluateCase(store.loadRuntimeTrace().cases[0]);
+  assert.deepEqual(result.reasonCodes, ["MISSING_RUNTIME_EVIDENCE"]);
 });
 
 test("no-match, rejected, expiry, and missing stable identity have deterministic outcomes", function () {
@@ -199,6 +218,22 @@ test("wrong target and clickable references use the same normalized runtime cont
   assert.deepEqual(outcomes[0].reasonCodes, ["WRONG_SESSION"]);
   assert.equal(outcomes[1].directHandoff.kind, "clickable_session_ref");
   assert.equal(outcomes[1].verdict, "GREEN");
+});
+
+test("a clickable reference ignores only its own final assistant turn", function () {
+  var filePath = tempTracePath();
+  var now = { value: 3600 };
+  var store = storeAt(filePath, now, { makeId: function () { return handoffId(35); } });
+  var intent = store.recordIntent({
+    ownerId: "owner-a",
+    expectedTarget: target("clickable-after-summary"),
+    requiresAssistantObservation: true,
+    observeAssistantTurns: function () { return 2; },
+  });
+  store.recordNavigation({
+    intentId: intent.id, ownerId: "owner-a", action: "clickable_session_ref", target: target("clickable-after-summary"),
+  });
+  assert.deepEqual(gatekeeping.evaluateCase(store.loadRuntimeTrace().cases[0]).reasonCodes, ["MIDDLEMAN_ASSISTANT_TURN"]);
 });
 
 test("malformed runtime state fails closed and is never overwritten", function () {

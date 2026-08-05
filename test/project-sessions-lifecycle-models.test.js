@@ -100,7 +100,10 @@ test("authorized stable switches complete a correlated handoff after access vali
   var store = traces.createStore({ filePath: tracePath, makeId: function () {
     return "handoff-00000000-0000-4000-8000-000000000101";
   } });
-  var intent = store.recordIntent({ ownerId: "owner-a" });
+  var intent = store.recordIntent({
+    ownerId: "owner-a",
+    expectedTarget: { projectSlug: "clay", sessionStorageId: "stable-worker" },
+  });
   var target = { localId: 7, storageId: "stable-worker", ownerId: "owner-a", history: [] };
   var harness = traceLifecycleHarness(target, store, function (ownerId, session) {
     return ownerId === session.ownerId;
