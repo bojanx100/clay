@@ -293,6 +293,15 @@ test("project completion requires a separate coordinator integration declaration
   assert.equal(project.requested, true);
   assert.equal(project.integrationVerified, true);
   assert.equal(project.integrationVerification, "yes");
+  assert.equal(project.escalationRequired, "no");
+  assert.equal(project.escalationVerified, true);
+  assert.equal(projectCompletionFromResult([
+    "PROJECT_COMPLETED: yes",
+    "SUMMARY: Escalated.",
+    "VERIFICATION: suite passed",
+    "INTEGRATION_VERIFIED: yes",
+    "ESCALATION_REQUIRED: yes",
+  ].join("\n")).escalationVerified, false);
 });
 
 test("client state distinguishes pending project completion from worker task completion", function () {
@@ -303,4 +312,5 @@ test("client state distinguishes pending project completion from worker task com
   assert.equal(state.phase, "complete");
   assert.equal(state.projectCompletion.status, "pending");
   assert.equal(state.projectCompletion.completionRevision, 0);
+  assert.equal(state.projectCompletion.escalationRequired, "");
 });

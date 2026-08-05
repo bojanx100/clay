@@ -232,7 +232,9 @@ test("only a portfolio project coordinator can emit verified project completion"
   assert.equal(completion.status, "completed");
   assert.equal(completion.portfolioTaskId, "portfolio-completion");
   assert.equal(completion.bindingRevision, 4);
+  assert.equal(completion.escalationRequired, "no");
   assert.equal(h.session.orchestrationEvents.at(-1).type, "project_completed");
+  assert.equal(h.session.orchestrationEvents.at(-1).data.escalationRequired, "no");
 
   var workerAttempt = {
     orchestrationParent: { taskId: "worker-evidence" },
@@ -257,6 +259,7 @@ test("new or retried work revokes project completion before another attempt", fu
     verification: "project suite passed",
     integrationVerification: "yes",
     integrationVerified: true,
+    escalationRequired: "no",
     portfolioTaskId: "portfolio-revoke",
     bindingRevision: 2,
   });
@@ -270,7 +273,7 @@ test("new or retried work revokes project completion before another attempt", fu
   assert.equal(session.orchestrationEvents.at(-1).type, "task_retry_requested");
   assert.equal(taskGraph.completeProject(session, {
     summary: "Late worker result.", verification: "late test", integrationVerification: "yes",
-    integrationVerified: true,
+    integrationVerified: true, escalationRequired: "no",
   }).reason, "graph_unresolved");
 });
 
@@ -296,4 +299,31 @@ test("restart restores an already emitted project completion without duplicating
   assert.equal(h.session.orchestrationEvents.filter(function (event) {
     return event.type === "project_completed";
   }).length, 1);
+});
+
+test("an escalating or incomplete project declaration leaves completion pending", function () {
+  var h = gateHarness([task("done", "completed")]);
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-escalated",
+      bindingRevision: 1,
+      mode: "project_coordinator",
+    },
+  };
+  h.session.history = [{ type: "user_message", text: "Complete it." }, {
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Integration has an escalation.\n" +
+      "VERIFICATION: suite passed\nINTEGRATION_VERIFIED: yes\n" +
+      "ESCALATION_REQUIRED: yes",
+  }];
+
+  h.gate.handleTurnDone(h.session);
+  assert.equal(taskGraph.projectCompletionState(h.session).status, "pending");
+  assert.equal(h.session.orchestrationEvents.some(function (event) {
+    return event.type === "project_completed";
+  }), false);
+  assert.equal(taskGraph.completeProject(h.session, {
+    summary: "Missing escalation declaration.", verification: "suite passed",
+    integrationVerification: "yes", integrationVerified: true,
+  }).reason, "escalation_required");
 });
