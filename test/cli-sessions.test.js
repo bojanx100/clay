@@ -246,7 +246,7 @@ test("orchestration workers stay out of every CLI import candidate path", functi
 
     assert.deepStrictEqual(listedWorkerIds, [], "orchestration workers must not be import candidates");
     assert.ok(!listed.some(function (item) { return item.cliSessionId === "coop-controlled-leaf"; }));
-    assert.ok(listed.some(function (item) { return item.cliSessionId === "coordinator-hidden"; }));
+    assert.ok(!listed.some(function (item) { return item.cliSessionId === "coordinator-hidden"; }));
     assert.ok(listed.some(function (item) { return item.cliSessionId === "direct-hidden"; }));
     assert.ok(listed.some(function (item) { return item.cliSessionId === "direct-untracked"; }));
   } finally {

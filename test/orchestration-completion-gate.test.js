@@ -14,7 +14,8 @@ function task(taskId, status, extra) {
   }, extra || {});
 }
 
-function gateHarness(tasks) {
+function gateHarness(tasks, options) {
+  options = options || {};
   var updates = [];
   var states = [];
   var saves = 0;
@@ -29,10 +30,24 @@ function gateHarness(tasks) {
     history: [],
     isProcessing: false,
   };
+  var sessions = new Map([[session.localId, session]]);
+  var descendants = Array.isArray(options.descendants) ? options.descendants : [];
+  for (var di = 0; di < descendants.length; di++) sessions.set(descendants[di].localId, descendants[di]);
   var gate = attachCompletionGate({
     sm: {
       saveSessionFile: function () { saves++; },
       broadcastSessionList: function () { broadcasts++; },
+      hideSession: function (localId) {
+        var target = sessions.get(localId);
+        if (!target) return;
+        target.hidden = true;
+        if (!target.coordinationMode || !Array.isArray(target.orchestrationTasks)) return;
+        for (var ti = 0; ti < target.orchestrationTasks.length; ti++) {
+          var task = target.orchestrationTasks[ti];
+          var descendant = task && sessions.get(task.workerSessionId);
+          if (descendant) descendant.hidden = true;
+        }
+      },
     },
     flushCoordinatorUpdates: function () { return false; },
     queueCoordinatorUpdate: function (target, text) {
@@ -50,6 +65,7 @@ function gateHarness(tasks) {
     session: session,
     states: states,
     updates: updates,
+    sessions: sessions,
   };
 }
 
@@ -284,6 +300,90 @@ test("a portfolio project coordinator can complete after verified direct integra
   assert.equal(completion.portfolioTaskId, "portfolio-direct-integration");
   assert.equal(completion.bindingRevision, 1);
   assert.equal(h.session.orchestrationEvents.at(-1).type, "project_completed");
+});
+
+test("verified Coop project completion archives the coordinator and descendants", function () {
+  var worker = { localId: 2, hidden: false };
+  var h = gateHarness([task("done", "completed", { workerSessionId: worker.localId })], {
+    descendants: [worker],
+  });
+  h.session.coopControlledBy = { coopSessionStorageId: "coop-home", since: 1 };
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-auto-archive",
+      bindingRevision: 2,
+      idempotencyKey: "auto-archive",
+      mode: "project_coordinator",
+      status: "running",
+    },
+  };
+  h.session.history = [{ type: "user_message", text: "Complete the project." }, {
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Project integrated.\n" +
+      "VERIFICATION: focused suite passed\nINTEGRATION_VERIFIED: yes\n" +
+      "ESCALATION_REQUIRED: no",
+  }];
+
+  h.gate.handleTurnDone(h.session);
+
+  assert.equal(h.session.hidden, true);
+  assert.equal(worker.hidden, true);
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "completed");
+  assert.ok(h.session.orchestrationPolicy.portfolioExecution.completedAt);
+  assert.ok(h.session.orchestrationTasks[0].archivedAt);
+});
+
+test("owner-created coordinator remains visible after verified project completion", function () {
+  var h = gateHarness([]);
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-owner-created",
+      bindingRevision: 1,
+      idempotencyKey: "owner-created",
+      mode: "project_coordinator",
+      status: "running",
+    },
+  };
+  h.session.history = [{ type: "user_message", text: "Complete the project." }, {
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Project integrated.\n" +
+      "VERIFICATION: focused suite passed\nINTEGRATION_VERIFIED: yes\n" +
+      "ESCALATION_REQUIRED: no",
+  }];
+
+  h.gate.handleTurnDone(h.session);
+
+  assert.equal(h.session.hidden, undefined);
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "completed");
+});
+
+test("restart finalizes a persisted Coop completion and hides its descendants", function () {
+  var worker = { localId: 2, hidden: false };
+  var h = gateHarness([task("done", "completed", { workerSessionId: worker.localId })], {
+    descendants: [worker],
+  });
+  h.session.coopControlledBy = { coopSessionStorageId: "coop-home", since: 1 };
+  h.session.orchestrationProjectCompletion = {
+    status: "completed",
+    completionRevision: 1,
+    escalationRequired: "no",
+    completedAt: 10,
+  };
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-restart-archive",
+      bindingRevision: 1,
+      idempotencyKey: "restart-archive",
+      mode: "project_coordinator",
+      status: "running",
+    },
+  };
+
+  h.gate.restore(h.session);
+
+  assert.equal(h.session.hidden, true);
+  assert.equal(worker.hidden, true);
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "completed");
 });
 
 test("new or retried work revokes project completion before another attempt", function () {

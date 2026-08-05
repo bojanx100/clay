@@ -38,6 +38,7 @@ function testContext(existingSessions, options) {
   };
   var api = attachTaskOrchestrator({
     crossProject: options.crossProject || null,
+    slug: options.slug || "clay",
     sm: sm,
     sdk: {
       startQuery: function (session, prompt, images) {
@@ -840,6 +841,8 @@ test("owning coordinator resolves a needs-input task after independent verificat
   assert.equal(task.progress, 100);
   assert.equal(task.resolvedByCoordinator, true);
   assert.match(task.verification, /reconnect\.test\.js passed/);
+  assert.ok(task.archivedAt);
+  assert.equal(worker.hidden, true);
 });
 
 test("task resolution rejects unverified outcomes and non-owning sessions", function () {
@@ -1136,6 +1139,7 @@ test("retrying a failed task starts a fresh worker conversation", function () {
   assert.equal(task.status, "running");
   assert.equal(failedWorker.orchestrationParent, null);
   assert.equal(failedWorker._orchestrationTaskClosed, true);
+  assert.equal(failedWorker.hidden, true);
 });
 
 test("retrying a completed task can explicitly request an independent worker", function () {
@@ -1299,6 +1303,280 @@ test("restores completed worker ownership for sidebar nesting", function () {
   assert.equal(worker.orchestrationParent.sessionId, 19);
   assert.equal(worker.orchestrationParent.sessionStorageId, "parent-completed");
   assert.equal(worker._subscriber, undefined);
+  assert.equal(worker.hidden, true);
+  assert.ok(parent.orchestrationTasks[0].archivedAt);
+});
+
+test("startup archives terminal and safe orphan workers without touching active or Lead workers", function () {
+  var sessions = new Map();
+  var terminalWorker = {
+    localId: 1,
+    storageId: "worker-terminal",
+    isProcessing: false,
+    history: [],
+    orchestrationParent: { taskId: "task-terminal", sessionStorageId: "parent-terminal" },
+  };
+  var terminalParent = {
+    localId: 2,
+    storageId: "parent-terminal",
+    hidden: true,
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-terminal",
+      status: "completed",
+      workerStorageId: "worker-terminal",
+    }],
+  };
+  var reviewingWorker = {
+    localId: 3,
+    storageId: "worker-reviewing",
+    isProcessing: false,
+    history: [],
+    orchestrationParent: { taskId: "task-reviewing", sessionStorageId: "parent-reviewing" },
+  };
+  var reviewingParent = {
+    localId: 4,
+    storageId: "parent-reviewing",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-reviewing",
+      status: "reviewing",
+      workerStorageId: "worker-reviewing",
+    }],
+  };
+  var waitingWorker = {
+    localId: 5,
+    storageId: "worker-waiting",
+    isProcessing: false,
+    history: [],
+    orchestrationParent: { taskId: "task-waiting", sessionStorageId: "parent-waiting" },
+  };
+  var waitingParent = {
+    localId: 6,
+    storageId: "parent-waiting",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-waiting",
+      status: "waiting_user",
+      userQuestion: "Choose a release channel.",
+      workerStorageId: "worker-waiting",
+    }],
+  };
+  var runningWorker = {
+    localId: 11,
+    storageId: "worker-running",
+    isProcessing: true,
+    history: [],
+    orchestrationParent: { taskId: "task-running", sessionStorageId: "parent-running" },
+  };
+  var runningParent = {
+    localId: 12,
+    storageId: "parent-running",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-running",
+      status: "running",
+      workerStorageId: "worker-running",
+    }],
+  };
+  var needsInputWorker = {
+    localId: 13,
+    storageId: "worker-needs-input",
+    isProcessing: false,
+    history: [],
+    orchestrationParent: { taskId: "task-needs-input", sessionStorageId: "parent-needs-input" },
+  };
+  var needsInputParent = {
+    localId: 14,
+    storageId: "parent-needs-input",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-needs-input",
+      status: "needs_input",
+      workerStorageId: "worker-needs-input",
+    }],
+  };
+  var failedWorker = {
+    localId: 15,
+    storageId: "worker-failed",
+    isProcessing: false,
+    history: [{ type: "done" }],
+    orchestrationParent: { taskId: "task-failed", sessionStorageId: "parent-failed" },
+  };
+  var failedParent = {
+    localId: 16,
+    storageId: "parent-failed",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-failed",
+      status: "failed",
+      workerStorageId: "worker-failed",
+    }],
+  };
+  var orphanWorker = {
+    localId: 7,
+    storageId: "worker-orphan",
+    isProcessing: false,
+    history: [{ type: "delta", text: "orphan transcript" }],
+    orchestrationParent: { taskId: "task-orphan", sessionStorageId: "missing-parent" },
+  };
+  var emptyHistoryOrphan = {
+    localId: 17,
+    storageId: "worker-empty-orphan",
+    isProcessing: false,
+    history: [],
+    orchestrationParent: { taskId: "task-empty-orphan", sessionStorageId: "missing-parent" },
+  };
+  var interruptedOrphan = {
+    localId: 18,
+    storageId: "worker-interrupted-orphan",
+    isProcessing: false,
+    workerStatus: "interrupted",
+    history: [{ type: "delta", text: "The worker was interrupted." }],
+    orchestrationParent: { taskId: "task-interrupted-orphan", sessionStorageId: "missing-parent" },
+  };
+  var activeOrphan = {
+    localId: 8,
+    storageId: "worker-active-orphan",
+    isProcessing: true,
+    history: [],
+    orchestrationParent: { taskId: "task-active-orphan", sessionStorageId: "missing-parent" },
+  };
+  var leadWorker = {
+    localId: 9,
+    storageId: "worker-lead-terminal",
+    isProcessing: false,
+    history: [],
+    orchestrationParent: {
+      taskId: "task-lead-terminal",
+      sessionStorageId: "parent-lead",
+      workerColor: "legacy-color",
+    },
+  };
+  var leadParent = {
+    localId: 10,
+    storageId: "parent-lead",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "task-lead-terminal",
+      status: "completed",
+      workerStorageId: "worker-lead-terminal",
+      workerColor: "new-color",
+    }],
+  };
+  var leadDirectLeaf = {
+    localId: 19,
+    storageId: "lead-direct-leaf",
+    history: [],
+    isProcessing: false,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-lead-direct-leaf",
+        bindingRevision: 1,
+        idempotencyKey: "lead-direct-leaf",
+        mode: "direct_leaf",
+        status: "completed",
+      },
+    },
+  };
+  sessions.set(terminalParent.localId, terminalParent);
+  sessions.set(terminalWorker.localId, terminalWorker);
+  sessions.set(reviewingParent.localId, reviewingParent);
+  sessions.set(reviewingWorker.localId, reviewingWorker);
+  sessions.set(waitingParent.localId, waitingParent);
+  sessions.set(waitingWorker.localId, waitingWorker);
+  sessions.set(runningParent.localId, runningParent);
+  sessions.set(runningWorker.localId, runningWorker);
+  sessions.set(needsInputParent.localId, needsInputParent);
+  sessions.set(needsInputWorker.localId, needsInputWorker);
+  sessions.set(failedParent.localId, failedParent);
+  sessions.set(failedWorker.localId, failedWorker);
+  sessions.set(orphanWorker.localId, orphanWorker);
+  sessions.set(emptyHistoryOrphan.localId, emptyHistoryOrphan);
+  sessions.set(interruptedOrphan.localId, interruptedOrphan);
+  sessions.set(activeOrphan.localId, activeOrphan);
+
+  testContext(sessions);
+
+  assert.equal(terminalWorker.hidden, true);
+  assert.ok(terminalParent.orchestrationTasks[0].archivedAt);
+  assert.equal(reviewingWorker.hidden, undefined);
+  assert.equal(waitingWorker.hidden, undefined);
+  assert.equal(runningWorker.hidden, undefined);
+  assert.equal(needsInputWorker.hidden, undefined);
+  assert.equal(failedWorker.hidden, undefined);
+  assert.equal(failedParent.orchestrationTasks[0].archivedAt, undefined);
+  assert.equal(orphanWorker.hidden, true);
+  assert.equal(emptyHistoryOrphan.hidden, undefined);
+  assert.equal(interruptedOrphan.hidden, undefined);
+  assert.equal(activeOrphan.hidden, undefined);
+
+  var archiveEventCount = terminalParent.orchestrationEvents.length;
+  testContext(sessions);
+  assert.equal(terminalParent.orchestrationEvents.length, archiveEventCount);
+
+  var leadSessions = new Map([
+    [leadParent.localId, leadParent],
+    [leadWorker.localId, leadWorker],
+    [leadDirectLeaf.localId, leadDirectLeaf],
+  ]);
+  testContext(leadSessions, { slug: "lead" });
+  assert.equal(leadWorker.hidden, undefined);
+  assert.equal(leadParent.orchestrationTasks[0].archivedAt, undefined);
+  assert.equal(leadWorker.orchestrationParent.workerColor, "legacy-color");
+  assert.equal(leadDirectLeaf.hidden, undefined);
+});
+
+test("completed direct leaves hide live and on startup while attention states remain visible", function () {
+  function directLeaf(status, localId) {
+    return {
+      localId: localId,
+      storageId: "direct-leaf-" + status + "-" + localId,
+      history: [],
+      isProcessing: false,
+      coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+      orchestrationPolicy: {
+        portfolioExecution: {
+          portfolioTaskId: "portfolio-direct-" + status + "-" + localId,
+          bindingRevision: 1,
+          idempotencyKey: "direct-" + status + "-" + localId,
+          mode: "direct_leaf",
+          status: status,
+        },
+      },
+    };
+  }
+  var live = directLeaf("running", 1);
+  var reviewing = directLeaf("reviewing", 2);
+  testContext(new Map([[live.localId, live], [reviewing.localId, reviewing]]));
+
+  live.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Direct leaf complete.\n" +
+      "VERIFICATION: direct leaf test passed\nESCALATION_REQUIRED: no",
+  });
+  live._subscriber({ type: "done" });
+
+  assert.equal(live.orchestrationPolicy.portfolioExecution.status, "completed");
+  assert.equal(live.hidden, true);
+  assert.equal(reviewing.hidden, undefined);
+
+  var restartedCompleted = directLeaf("completed", 3);
+  var restartedFailed = directLeaf("failed", 4);
+  var restarted = testContext(new Map([
+    [restartedCompleted.localId, restartedCompleted],
+    [restartedFailed.localId, restartedFailed],
+  ]));
+  assert.equal(restartedCompleted.hidden, true);
+  assert.equal(restartedFailed.hidden, undefined);
 });
 
 test("repairs a persisted needs-input task from a verified split worker result", function () {
