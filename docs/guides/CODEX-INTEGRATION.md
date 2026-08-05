@@ -48,6 +48,25 @@ This makes **interactive approval impossible**. Every approval request (command 
 
 Do not go back to the SDK exec mode. It is a one-shot pipe wrapper, not a real SDK.
 
+## Credential identity and device login
+
+Codex stores device-login credentials below the executing user's `HOME`. Clay
+therefore runs one app-server per credential home, not one shared process for
+every user in a project. The login terminal, `codex login status` check, fresh
+thread, resumed thread, and restart auto-recovery must all receive the same
+`linuxUser` identity. In OS-user mode this means the child process gets that
+user's minimal environment and UID/GID; it must never inherit the daemon's
+`HOME` as a fallback.
+
+After an explicit device login finishes, `refresh_vendors` invalidates the
+auth check and reclaims only the matching *idle* Codex app-server. The next
+turn starts a new process from the updated credential. A concurrent active
+turn is not interrupted. Auth signals are UI actions only: session-history
+replay and notifications must never run a login command automatically.
+
+Do not print, persist, or add credential values to diagnostics. It is safe to
+log only boolean auth outcomes and a non-sensitive process lifecycle event.
+
 ---
 
 ## Key Files
@@ -230,6 +249,10 @@ When changing Codex adapter code:
 - [ ] Stop button during generation: typing clears, "interrupted" message appears, send button restored
 - [ ] Server restart does not break MCP (extension state resends)
 - [ ] Second project using Codex routes through global `/api/mcp-bridge` (not per-slug)
+- [ ] Device login is followed by a fresh, resumed, concurrent, and
+      restart-recovered Codex turn using the same session owner
+- [ ] Auth status and spawned app-server use the same credential home; logs
+      contain no credential values
 
 ---
 
