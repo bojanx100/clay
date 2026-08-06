@@ -75,6 +75,49 @@ test("cascade resolves workers by storage id when localId is stale", function ()
   assert.strictEqual(worker.hidden, true);
 });
 
+test("hiding a session stops its live runtime immediately without deleting it", function () {
+  var sessions = new Map();
+  var aborted = false;
+  var queryClosed = false;
+  var queueEnded = false;
+  var workerKilled = false;
+  var session = {
+    localId: 1,
+    storageId: "live-1",
+    isProcessing: true,
+    autoContinueTimer: setTimeout(function () {}, 100000),
+    scheduledMessage: { timer: setTimeout(function () {}, 100000) },
+    _providerFailoverTimer: setTimeout(function () {}, 100000),
+    abortController: { abort: function () { aborted = true; } },
+    queryInstance: { close: function () { queryClosed = true; } },
+    messageQueue: { end: function () { queueEnded = true; } },
+    worker: { kill: function () { workerKilled = true; } },
+  };
+  sessions.set(1, session);
+
+  var saved = [];
+  var api = sessionsDeletion.attachSessionDeletion(makeCtx(sessions, saved));
+  api.hideSession(1, null);
+
+  // Runtime is fully stopped.
+  assert.strictEqual(aborted, true, "in-flight turn aborted");
+  assert.strictEqual(queryClosed, true, "query stream closed");
+  assert.strictEqual(queueEnded, true, "message queue ended");
+  assert.strictEqual(workerKilled, true, "worker process killed");
+  assert.strictEqual(session.taskStopRequested, true);
+  assert.strictEqual(session.isProcessing, false);
+  assert.strictEqual(session.queryInstance, null);
+  assert.strictEqual(session.worker, null);
+  assert.strictEqual(session.autoContinueTimer, null);
+  assert.strictEqual(session.scheduledMessage, null);
+  assert.strictEqual(session._providerFailoverTimer, null);
+
+  // But the session survives and stays resumable (not deleted, not tombstoned).
+  assert.strictEqual(session.hidden, true);
+  assert.strictEqual(sessions.get(1), session);
+  assert.strictEqual(session._deleted, undefined);
+});
+
 test("hiding a plain session does not touch other sessions", function () {
   var sessions = new Map();
   var plain = { localId: 1, storageId: "plain-1" };

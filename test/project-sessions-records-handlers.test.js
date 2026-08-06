@@ -54,6 +54,8 @@ function createHarness(sessionList, options) {
     sm: sm,
     tm: {
       close: function (id) { events.push(["pty_close", id]); },
+      has: function () { return true; },
+      markReclaimed: function (id) { events.push(["pty_reclaim", id]); },
     },
     sendTo: function (ws, message) { events.push(["send", message]); },
     sendToSession: function (id, message) { events.push(["send_session", id, message]); },
@@ -61,6 +63,7 @@ function createHarness(sessionList, options) {
     userPresence: presence,
     loadContextSources: options.loadContextSources,
     stopTitleWatcher: function (session) { events.push(["title_watcher_stop", session.localId]); },
+    prepareTuiSessionForGuiView: function (session) { events.push(["tui_hydrate", session.localId]); },
     adapter: options.adapter || {},
   });
   return { handler: handler, sm: sm, sessions: sessions, events: events };
@@ -230,6 +233,26 @@ test("hide closes coordinator workers only after confirmation and restores prese
   assert.deepEqual(state.events.filter(function (event) { return event[0] === "hide"; }), [["hide", 2], ["hide", 1]]);
   assert.deepEqual(state.events.at(-2), ["presence", "records", "owner", 1, null]);
   assert.deepEqual(state.events.at(-1), ["send", { type: "context_sources_state", active: ["fallback-source"] }]);
+});
+
+test("hiding a TUI session closes its PTYs immediately and drops to suspended view", function () {
+  var session = { localId: 1, mode: "tui", terminalId: 21, runtimeTerminalId: 22, runtimeMode: "tui" };
+  var state = createHarness([session]);
+
+  state.handler.handleRecordsMessage({}, { type: "hide_session", id: 1 });
+
+  // Both the embedded and runtime PTYs are reclaimed and closed before hide.
+  assert.deepEqual(
+    state.events.filter(function (e) { return e[0] === "pty_reclaim" || e[0] === "pty_close"; }),
+    [["pty_reclaim", 21], ["pty_close", 21], ["pty_reclaim", 22], ["pty_close", 22]]
+  );
+  assert.equal(session.terminalId, null);
+  assert.equal(session.runtimeTerminalId, null);
+  assert.equal(session.runtimeMode, null);
+  assert.equal(session.tuiSuspended, true);
+  assert.equal(state.events.some(function (e) { return e[0] === "tui_hydrate" && e[1] === 1; }), true);
+  assert.equal(state.events.some(function (e) { return e[0] === "title_watcher_stop" && e[1] === 1; }), true);
+  assert.equal(state.events.some(function (e) { return e[0] === "hide" && e[1] === 1; }), true);
 });
 
 test("hide clears presence when no active session remains", function () {
