@@ -54,6 +54,26 @@ test("cache verdict round-trip + asymmetric TTL freshness", function () {
   reset();
 });
 
+test("mergeExtras: inserts Opus 5 right after Fable, not at the bottom", function () {
+  var base = [
+    { value: "best" }, { value: "default" }, { value: "opus", displayName: "Opus" },
+    { value: "claude-fable-5", displayName: "Fable" }, { value: "sonnet" }, { value: "haiku" },
+  ];
+  var out = probe.mergeExtras(base, [{ value: "claude-opus-5", displayName: "Opus 5" }]);
+  var order = out.map(function (m) { return m.value; });
+  assert.deepStrictEqual(order, ["best", "default", "opus", "claude-fable-5", "claude-opus-5", "sonnet", "haiku"]);
+});
+
+test("mergeExtras: no Fable -> insert after leading meta selectors; already-present -> no-op", function () {
+  var noFable = [{ value: "best" }, { value: "default" }, { value: "opus" }, { value: "haiku" }];
+  var out = probe.mergeExtras(noFable, [{ value: "claude-opus-5" }]);
+  assert.deepStrictEqual(out.map(function (m) { return m.value; }), ["best", "default", "claude-opus-5", "opus", "haiku"]);
+  // idempotent when the extra is already in the list
+  var withIt = [{ value: "claude-fable-5" }, { value: "claude-opus-5" }, { value: "sonnet" }];
+  assert.deepStrictEqual(probe.mergeExtras(withIt, [{ value: "claude-opus-5" }]).map(function (m) { return m.value; }),
+    ["claude-fable-5", "claude-opus-5", "sonnet"]);
+});
+
 test("extraClaudeModels: shows a cached-available candidate, hides unavailable, skips already-advertised", async function () {
   reset();
   // unknown -> not shown yet, but a background probe is triggered
