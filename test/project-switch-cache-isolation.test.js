@@ -32,10 +32,8 @@ test("all plain Lead entry points route to canonical Coop home and preserve exac
   assert.match(connection, /currentSlug === "lead" && !urlSessionRef \? null : readTabSession/);
   assert.match(messages, /store\.set\(\{ coopHomeSessionId: coopHome \? coopHome\.id : null \}\)/);
   assert.match(messages, /if \(currentSlug === "lead" && msg\.coopHome\) forgetTabSession\(currentSlug\);/);
-  assert.match(desktop, /function createCanonicalCoopRow\(\)/);
-  assert.match(mobile, /function createMobileCanonicalCoopRow\(\)/);
-  assert.match(desktop, /requestCoopHome/);
-  assert.match(mobile, /requestCoopHome/);
+  assert.match(desktop, /renderCoopTopicOverview/);
+  assert.match(mobile, /renderCoopTopicOverview/);
   assert.match(projects, /options\.sessionRef\.sessionStorageId/);
 });
 

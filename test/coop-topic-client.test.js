@@ -304,7 +304,7 @@ test("project lenses validate and replay canonically before changing the destina
   assert.deepEqual(ui.getActiveCoopIngressRefs(), { topicRef: null, projectRef: projectRef });
 });
 
-test("canonical-event drill-through and durable action contracts are explicit", function () {
+test("Coop navigation renders only compact topic chat rows", function () {
   var desktop = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-sessions.js"), "utf8");
   var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"), "utf8");
   var topics = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topics.js"), "utf8");
@@ -322,13 +322,17 @@ test("canonical-event drill-through and durable action contracts are explicit", 
   assert.doesNotMatch(topicModel, /coop_topic_create/);
   assert.doesNotMatch(desktopCss, /coop-topic-create/);
   assert.doesNotMatch(mobileCss, /coop-topic-create/);
-  assert.match(topics, /"Current activity", topic\.currentActivity/);
-  assert.match(topics, /"Unread", topic\.unread/);
-  assert.match(topics, /"Attention", topic\.attention/);
+  assert.match(topics, /topicActivity\(topic\)/);
+  assert.match(topics, /topic\.unread > 0/);
   assert.match(topics, /requestCoopTopic\(topic, sendUserAction\).*finishNavigation\(options\)/s);
   assert.match(topics, /requestAllCoopTopics\(sendUserAction\).*finishNavigation\(opts\)/s);
   assert.match(mobile, /onNavigate: finishMobileCoopNavigation/);
-  assert.match(mobile, /requestProjectChannel\(project, sendUserAction\).*finishMobileCoopNavigation\(\)/s);
+  assert.match(mobile, /if \(getCachedCurrentSlug\(\) === "lead"\) \{\s+mobileChatSheetOpen = true;\s+renderMobileSessionsInto\(listEl\);/);
+  assert.doesNotMatch(desktop, /Goals|Decisions|Active work|Verified outcomes|Open canonical project|appendProjectedSessionTree/);
+  assert.doesNotMatch(mobile, /Goals|Decisions|Active work|Verified outcomes|Open canonical project|appendMobileProjectedSessionTree/);
+  assert.doesNotMatch(topics, /coop-topic-details|coop-topic-drawer|coop-topic-event|coop-topic-actions|openTopicDialog/);
+  assert.doesNotMatch(desktopCss, /coop-topic-details|coop-topic-drawer|coop-topic-event|coop-topic-actions/);
+  assert.doesNotMatch(mobileCss, /mobile-coop-topic-details|mobile-coop-topic-drawer|mobile-coop-topic-event|mobile-coop-topic-actions/);
   assert.match(projection, /from '\.\/sidebar-coop-topic-model\.js'/);
   assert.doesNotMatch(projection, /function cloneTopic\(/);
   assert.match(projection, /resolve_canonical_event/);
@@ -338,7 +342,7 @@ test("canonical-event drill-through and durable action contracts are explicit", 
   assert.match(projection, /handleCoopTopicResult/);
   assert.match(projection, /handleCanonicalEventResolved/);
   assert.match(topicModel, /buildCoopTopicActionMessage/);
-  assert.match(topics, /role.*dialog/);
+  assert.match(topics, /showHeading: false/);
   assert.match(input, /coopTopicRef/);
   assert.match(input, /coopProjectRef/);
   assert.match(input, /isActiveCoopTopicStale/);

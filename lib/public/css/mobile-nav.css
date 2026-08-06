@@ -768,254 +768,42 @@
     color: var(--text);
   }
 
-  /* --- Coop global projection (Lead chat sheet) --- */
-  .mobile-global-coop-header {
-    margin: 12px 4px 5px;
-    padding: 0 8px;
-    color: var(--text-dimmer);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
+  /* --- Coop chat list in the Lead chat sheet --- */
+  .mobile-global-coop-empty { padding: 10px 12px; color: var(--text-dimmer); font-size: 13px; }
+  .mobile-global-coop-project { margin: 12px 12px 2px; padding-left: 9px; border-left: 1px solid var(--border-subtle); }
+  .mobile-global-coop-project.active { padding-left: 8px; border-left: 2px solid var(--accent); }
+  .mobile-global-coop-project-heading { padding: 2px 0 7px; color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 
-  .mobile-global-coop-heading { color: var(--accent); }
-
-  .mobile-session-item.mobile-global-coop-row {
-    min-height: 42px;
-    padding: 9px 12px;
-    gap: 8px;
-  }
-
-  .mobile-session-item.mobile-global-coop-permanent {
-    background: rgba(var(--accent-rgb), 0.09);
-    color: var(--text);
-  }
-
-  .mobile-session-item.mobile-global-coop-row.unavailable {
-    cursor: default;
-    opacity: 0.76;
-  }
-
-  .mobile-global-coop-status {
-    width: 7px;
-    height: 7px;
-    flex: 0 0 7px;
-    border-radius: 50%;
-    background: var(--text-dimmer);
-  }
-
-  .mobile-global-coop-status-running,
-  .mobile-global-coop-status-ready,
-  .mobile-global-coop-status-queued { background: var(--accent); }
-
-  .mobile-global-coop-status-blocked,
-  .mobile-global-coop-status-failed,
-  .mobile-global-coop-status-needs_input,
-  .mobile-global-coop-status-waiting_user { background: var(--warning, #d99824); }
-
-  .mobile-global-coop-status-completed { background: var(--success); }
-  .mobile-global-coop-status-unavailable,
-  .mobile-global-coop-status-access_denied,
-  .mobile-global-coop-status-project_not_found,
-  .mobile-global-coop-status-session_not_found,
-  .mobile-global-coop-status-session_archived { background: var(--danger, #e5534b); }
-
-  .mobile-global-coop-role.coop { color: var(--accent); }
-  .mobile-global-coop-role.direct_leaf { color: var(--text-dimmer); }
-
-  .mobile-global-coop-activity,
-  .mobile-global-coop-unavailable {
-    overflow: hidden;
-    font-size: 10px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-global-coop-activity { color: var(--text-dimmer); }
-  .mobile-global-coop-unavailable { color: var(--danger, #e5534b); }
-
-  .mobile-global-coop-project { margin: 3px 0 8px; }
-
-  .mobile-global-coop-project {
-    margin-left: 12px;
-    padding: 6px 0 6px 8px;
-    border-left: 1px solid var(--border-subtle);
-  }
-
-  .mobile-global-coop-project.active { border-left-color: var(--accent); }
-
-  .mobile-global-coop-project-header {
-    display: block;
-    width: 100%;
-    min-height: 36px;
-    padding: 5px 0;
-    border: 0;
-    background: transparent;
-    color: var(--text-secondary);
-    font: inherit;
-    font-size: 14px;
-    font-weight: 650;
-    text-align: left;
-  }
-
-  .mobile-global-coop-metrics {
-    margin: -2px 8px 4px 0;
-    color: var(--text-dimmer);
-    font-size: 11px;
-  }
-
-  .mobile-global-coop-session-tree { margin: 5px 0; }
-
-  .mobile-global-coop-session-node {
-    display: block;
-    width: calc(100% - (var(--coop-lineage-depth) * 12px));
-    min-height: 34px;
-    margin: 2px 0 2px calc(var(--coop-lineage-depth) * 12px);
-    padding: 7px 6px 7px 8px;
-    overflow: hidden;
-    border: 0;
-    border-left: 1px solid var(--border-subtle);
-    background: transparent;
-    color: var(--text-muted);
-    font: inherit;
-    font-size: 12px;
-    text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-global-coop-session-coordinator { border-left-color: var(--accent); color: var(--text-secondary); }
-
-  .mobile-global-coop-project.worktree {
-    margin-left: 12px;
-    padding-left: 4px;
-    border-left: 1px solid var(--border-subtle);
-  }
-
-  .mobile-session-item.mobile-global-coop-coordinator {
-    background: rgba(var(--accent-rgb), 0.06);
-    color: var(--text);
-    font-weight: 700;
-  }
-
-  .mobile-global-coop-task {
-    margin: 1px 8px 4px 24px;
-    padding: 4px 0 4px 8px;
-    border-left: 2px solid rgba(var(--overlay-rgb), 0.1);
-  }
-
-  .mobile-global-coop-task-blocked,
-  .mobile-global-coop-task-failed,
-  .mobile-global-coop-task-needs_input,
-  .mobile-global-coop-task-waiting_user { border-left-color: var(--warning, #d99824); }
-
-  .mobile-global-coop-task-label {
-    overflow: hidden;
-    color: var(--text-dimmer);
-    font-size: 10px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-session-item.mobile-global-coop-worker {
-    min-height: 36px;
-    margin: 1px 0;
-    padding-top: 6px;
-    padding-bottom: 6px;
-    font-size: 13px;
-  }
-
-  .mobile-global-coop-history-toggle {
-    width: 100%;
-    min-height: 34px;
-    border: 0;
-    border-radius: 7px;
-    background: transparent;
-    color: var(--text-dimmer);
-    font: inherit;
-    font-size: 12px;
-    text-align: left;
-  }
-
-  .mobile-global-coop-history-toggle:active {
-    background: rgba(var(--overlay-rgb), 0.08);
-    color: var(--text);
-  }
-
-  .mobile-global-coop-empty { padding: 8px 12px; color: var(--text-dimmer); font-size: 12px; }
-
-  .mobile-global-coop-summary,
-  .mobile-global-coop-next-action {
-    margin: 4px 12px;
-    color: var(--text-dimmer);
-    font-size: 12px;
-    line-height: 1.4;
-  }
-
-  .mobile-global-coop-actions {
-    display: flex;
-    gap: 8px;
-    margin: 8px 12px 4px;
-  }
-
-  .mobile-global-coop-channel-action,
-  .mobile-global-coop-handoff-action {
-    min-height: 34px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 7px;
-    background: transparent;
-    color: var(--text-secondary);
-    font: inherit;
-    font-size: 12px;
-  }
-
-  .mobile-global-coop-channel-action { color: var(--accent); }
-  .mobile-session-list-target-loading {
-    padding: 22px 12px;
-    color: var(--text-dimmer);
-    font-size: 13px;
-    text-align: center;
-  }
-
-  /* --- Coop topic lenses on the mobile chat sheet --- */
-  .mobile-coop-topic-overview { display: flex; gap: 8px; margin: 4px 12px 8px; }
-  .mobile-coop-topic-all { min-height: 36px; padding: 7px 11px; border: 1px solid var(--border-subtle); border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; }
+  .mobile-coop-topic-overview { margin: 4px 12px 6px; }
+  .mobile-coop-topic-all,
+  .mobile-coop-topic-row { display: flex; align-items: center; width: 100%; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; text-align: left; }
+  .mobile-coop-topic-all { min-height: 42px; padding: 9px 10px; font-size: 14px; font-weight: 650; }
   .mobile-coop-topic-all.active,
-  .mobile-coop-topic-all:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
-  .mobile-coop-topic-group { margin: 6px 8px 10px 12px; }
-  .mobile-coop-topic-group-heading { padding: 5px 8px; color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-  .mobile-coop-topic-wrapper { margin: 2px 0 4px; }
-  .mobile-coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
-  .mobile-coop-topic-row { display: flex; align-items: center; width: 100%; min-height: 42px; gap: 8px; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; text-align: left; }
+  .mobile-coop-topic-all:active,
   .mobile-coop-topic-row:active,
   .mobile-coop-topic-row.active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
+  .mobile-coop-topic-group { margin: 5px 8px 11px 12px; }
+  .mobile-coop-topic-group-heading { padding: 7px 8px 5px; color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+  .mobile-coop-topic-wrapper { margin: 2px 0 3px; }
+  .mobile-coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
+  .mobile-coop-topic-row { min-height: 42px; gap: 8px; padding: 9px 10px; font-size: 13px; }
   .mobile-coop-topic-status { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--text-dimmer); }
   .mobile-coop-topic-status-active,
   .mobile-coop-topic-status-running { background: var(--accent); }
   .mobile-coop-topic-status-blocked,
   .mobile-coop-topic-status-failed,
   .mobile-coop-topic-status-needs_input { background: var(--warning, #d99824); }
-  .mobile-coop-topic-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mobile-coop-topic-active,
-  .mobile-coop-topic-unread,
-  .mobile-coop-topic-attention { flex: 0 0 auto; font-size: 10px; }
-  .mobile-coop-topic-active { color: var(--accent); }
-  .mobile-coop-topic-unread { padding: 2px 6px; border-radius: 9px; background: rgba(var(--accent-rgb), .14); color: var(--accent); }
-  .mobile-coop-topic-attention { color: var(--warning, #d99824); }
-  .mobile-coop-topic-details-toggle { margin: 0 10px 3px; min-height: 28px; padding: 4px 0; border: 0; background: transparent; color: var(--text-dimmer); font: inherit; font-size: 12px; }
-  .mobile-coop-topic-drawer { margin: 0 10px 5px 20px; padding: 5px 0 4px 9px; border-left: 1px solid var(--border-subtle); }
-  .mobile-coop-topic-detail-line { display: flex; gap: 6px; margin: 3px 0; font-size: 11px; line-height: 1.4; }
-  .mobile-coop-topic-detail-label { flex: 0 0 auto; color: var(--text-secondary); font-weight: 600; }
-  .mobile-coop-topic-detail-value { min-width: 0; color: var(--text-dimmer); overflow-wrap: anywhere; }
-  .mobile-coop-topic-execution { margin: 4px 0 4px calc(var(--coop-topic-depth, 0) * 10px); padding-left: 7px; border-left: 1px solid var(--border-subtle); font-size: 11px; }
-  .mobile-coop-topic-execution-link:active { background: rgba(var(--overlay-rgb), .08); }
-  .mobile-coop-topic-execution-label { color: var(--text-secondary); }
-  .mobile-coop-topic-execution-status,
-  .mobile-coop-topic-execution-activity { margin-left: 5px; color: var(--text-dimmer); }
-  .mobile-coop-topic-event { display: block; width: 100%; min-height: 30px; margin: 4px 0; padding: 5px 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11px; text-align: left; }
-  .mobile-coop-topic-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-  .mobile-coop-topic-action { min-height: 30px; padding: 5px 8px; border: 1px solid var(--border-subtle); border-radius: 6px; background: transparent; color: var(--text-dimmer); font: inherit; font-size: 11px; }
+  .mobile-coop-topic-row.attention .mobile-coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }
+  .mobile-coop-topic-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-coop-topic-activity { max-width: 42%; overflow: hidden; color: var(--text-dimmer); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-coop-topic-unread { flex: 0 0 auto; padding: 2px 6px; border-radius: 9px; background: rgba(var(--accent-rgb), .14); color: var(--accent); font-size: 10px; }
+
+  .mobile-session-list-target-loading {
+    padding: 22px 12px;
+    color: var(--text-dimmer);
+    font-size: 13px;
+    text-align: center;
+  }
 
   .mobile-session-action svg {
     width: 18px;

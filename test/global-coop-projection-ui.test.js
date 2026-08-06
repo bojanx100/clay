@@ -41,7 +41,7 @@ function project(projectId, slug, title) {
   };
 }
 
-test("global Coop display model preserves only project channels and bounded summaries", async function () {
+test("global Coop display model keeps project-grouped topic references", async function () {
   var ui = await loadProjectionUi();
   ui.setGlobalCoopProjection({
     type: "global_coop_projection",
@@ -49,7 +49,7 @@ test("global Coop display model preserves only project channels and bounded summ
     projects: [project("11111111-1111-5111-8111-111111111111", "clay", "Clay")],
   });
 
-  var model = ui.buildGlobalCoopDisplayModel("active");
+  var model = ui.buildGlobalCoopDisplayModel("clay");
   assert.equal(model.hasProjection, true);
   assert.equal(model.projects.length, 1);
   assert.equal(model.projects[0].summary.activeWork[0].title, "Active task");
@@ -82,19 +82,17 @@ test("project lens URLs preserve the exact Coop lens for browser history", async
   assert.equal(ui.projectLensPath("/p/lead/", "?keep=1&coopProject=old", null), "/p/lead/?keep=1");
 });
 
-test("Lead renderers use project lenses and exact canonical session references", function () {
+test("Lead renderers keep primary navigation to compact project-grouped topic chats", function () {
   var desktop = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-sessions.js"), "utf8");
   var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"), "utf8");
   var projection = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "global-coop-projection.js"), "utf8");
 
-  assert.match(desktop, /Open canonical project/);
-  assert.doesNotMatch(desktop, /Open project channel/);
-  assert.match(mobile, /Open canonical project/);
-  assert.doesNotMatch(mobile, /Open project channel/);
-  assert.match(desktop, /appendProjectedSessionTree/);
-  assert.match(mobile, /appendMobileProjectedSessionTree/);
-  assert.match(desktop, /requestCanonicalSession/);
-  assert.match(mobile, /requestCanonicalSession/);
+  assert.match(desktop, /renderCoopProjectTopics/);
+  assert.match(mobile, /renderCoopProjectTopics/);
+  assert.match(desktop, /global-coop-project-heading/);
+  assert.match(mobile, /mobile-global-coop-project-heading/);
+  assert.doesNotMatch(desktop, /Open canonical project|appendProjectedSessionTree|requestCanonicalSession|requestProjectChannel/);
+  assert.doesNotMatch(mobile, /Open canonical project|appendMobileProjectedSessionTree|requestCanonicalSession|requestProjectChannel/);
   assert.match(desktop, /store\.get\("currentSlug"\) !== "lead"\) updateCountdowns\(\)/);
   assert.match(projection, /requestCanonicalSession/);
   assert.doesNotMatch(projection, /toggleGlobalTaskExpanded/);
