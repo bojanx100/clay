@@ -249,6 +249,30 @@ test("the dedupe key preserves scalar identity types", function () {
   assert.strictEqual(nullish.summary.total, 2);
 });
 
+test("numeric identities follow Object.is, including 0 vs -0", function () {
+  // String(-0) is "0", so a String()-based token merged 0 and -0 and dropped
+  // one item. The token's whole contract is that no two distinct supported
+  // values encode alike, so the numeric edges have to hold too.
+  var portfolio = backlog.buildPortfolio([
+    { project: "x", items: [
+      ghItem(0, "same", "zero"),
+      ghItem(-0, "same", "negative zero"),
+      ghItem(Infinity, "same", "infinity"),
+      ghItem(-Infinity, "same", "negative infinity"),
+      ghItem(NaN, "same", "nan first"),
+      ghItem(NaN, "same", "nan second"),
+    ] },
+  ], { now: NOW });
+  // 0, -0, Infinity, -Infinity are four identities; the two NaNs are one,
+  // because Object.is(NaN, NaN) is true.
+  assert.strictEqual(portfolio.summary.total, 5);
+  assert.strictEqual(portfolio.summary.unidentifiable, 0);
+  var titles = portfolio.items.map(function (i) { return i.title; });
+  ["zero", "negative zero", "infinity", "negative infinity"].forEach(function (t) {
+    assert.ok(titles.indexOf(t) !== -1, t + " must survive as its own identity");
+  });
+});
+
 test("items without a scalar identity are skipped and counted, never guessed", function () {
   // Two structurally equal objects are indistinguishable once encoded, so
   // using them as keys would silently merge unrelated work. Fail closed and

@@ -76,6 +76,32 @@ function gitEnv() {
   return env;
 }
 
+// Trust model for repository ownership
+// ------------------------------------
+// Ownership is fail-closed against everything that can reach this script
+// through DATA — the recipe file, the directory layout, symlinks, filesystem
+// case, and the git environment (the whole GIT_* namespace is dropped, and the
+// origin is read with `git config --local`, so neither injected config nor a
+// manipulated HOME can supply it). Those are the inputs a stale or misplaced
+// launcher config actually travels through, and they are all validated.
+//
+// It is NOT hardened against a hostile process environment, and deliberately
+// so. `git` is resolved through PATH here, as it is at every other git call
+// site in this repository, so an attacker who can replace `git` on PATH can
+// return any origin they like. But that attacker can equally replace `node` or
+// `gh` — being able to choose which executables this process runs is already
+// full code execution, so there is no boundary left here to defend. Pinning an
+// absolute path such as /usr/bin/git would not restore one: it would break
+// legitimate installs (Homebrew, nix, asdf, Windows) while an attacker with
+// that much control simply edits the repository's own .git/config, which is
+// authoritative by design.
+//
+// A writable repo-local .git/config is likewise authoritative: anyone who can
+// change it already owns the repository's identity, by definition.
+//
+// So the supported guarantee is precise: under a non-hostile process
+// environment, ownership is decided by the repository on disk and nothing
+// else, and any unresolved or ambiguous case fails closed.
 function gitIn(cwd, args) {
   try {
     // stderr is discarded: a missing repo or remote is an expected outcome we

@@ -329,3 +329,39 @@ test("lead-backtest CLI reports one canonical identity through a symlinked root"
   fs.rmSync(repo, { recursive: true, force: true });
   fs.rmSync(aliasParent, { recursive: true, force: true });
 });
+
+test("ownership is fail-closed under the supported process environment", function () {
+  // Pins the documented trust model: within a non-hostile environment,
+  // ownership is decided by the repository on disk and nothing else. Data-path
+  // inputs an actual misplaced launcher travels through — a recipe naming
+  // another project's repo, plus injected git config and location variables —
+  // must never produce ownership.
+  var repo = makeRepo("https://github.com/bojanx100/clay.git");
+  var tasks = path.join(repo, ".clay", "tasks");
+  fs.mkdirSync(tasks, { recursive: true });
+  var configPath = path.join(tasks, "assigned-to-me.json");
+  // The exact misplaced-launcher shape from the incident.
+  fs.writeFileSync(configPath, JSON.stringify({
+    id: "assigned-to-me",
+    source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+  }));
+
+  var hostileEnvs = [
+    { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "remote.origin.url", GIT_CONFIG_VALUE_0: "https://github.com/trialview/v2.git" },
+    { GIT_CONFIG_PARAMETERS: "'remote.origin.url=https://github.com/trialview/v2'" },
+    { GIT_DIR: path.join(repo, ".git"), GIT_WORK_TREE: repo },
+    {},
+  ];
+  hostileEnvs.forEach(function (extra, index) {
+    var env = Object.assign({}, process.env, extra);
+    var run = childProcess.spawnSync(process.execPath, [SCRIPT, configPath], { encoding: "utf8", timeout: 30000, env: env });
+    var stderr = String(run.stderr || "");
+    assertNoCrash(stderr);
+    assert.strictEqual(run.status, 2, "env case " + index + " must fail closed: " + stderr);
+    assert.match(stderr, /unresolved repository ownership/);
+    assert.ok(stderr.indexOf("issue fetch failed") === -1, "env case " + index + " must not reach a gh fetch");
+    // Never resolves trialview/v2 under the Clay project.
+    assert.ok(stderr.indexOf("resolved trialview/v2") === -1, "env case " + index + " must not claim ownership");
+  });
+  fs.rmSync(repo, { recursive: true, force: true });
+});
