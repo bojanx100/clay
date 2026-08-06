@@ -50,12 +50,32 @@ function fetchJson(execFn, args, cb) {
 // through realpath (symlinked temp dirs and /var vs /private/var would
 // otherwise produce false mismatches). Everything else is rejected before any
 // side effect.
+// Environment that can redefine which repository git thinks it is looking at.
+// An inherited GIT_DIR/GIT_WORK_TREE would make `rev-parse --show-toplevel`
+// report a DIFFERENT repository's root, so the root check could be satisfied
+// by a repo that has nothing to do with the config's location — ownership
+// validated against the wrong repository entirely. These are stripped for
+// every validation call, so the answer depends only on the path on disk.
+var GIT_ENV_OVERRIDES = [
+  "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+  "GIT_NAMESPACE", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
+];
+
+function gitEnv() {
+  var env = Object.assign({}, process.env);
+  for (var i = 0; i < GIT_ENV_OVERRIDES.length; i++) delete env[GIT_ENV_OVERRIDES[i]];
+  return env;
+}
+
 function gitIn(cwd, args) {
   try {
     // stderr is discarded: a missing repo or remote is an expected outcome we
     // report ourselves, not a git error worth spraying at the operator.
     return childProcess.execFileSync("git", args, {
-      cwd: cwd, encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"],
+      cwd: cwd, encoding: "utf8", timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"], env: gitEnv(),
     }).trim();
   } catch (e) {
     return "";
@@ -70,22 +90,71 @@ function realPath(value) {
   }
 }
 
+// Do two paths name the SAME directory? dev+ino is the filesystem's own answer,
+// so this is true across symlinks, /var vs /private/var, and case-insensitive
+// spellings alike — none of which string comparison gets right. (realpath does
+// NOT normalize case: on macOS realpathSync("/x/.CLAY") returns "/x/.CLAY"
+// even though the directory on disk is ".clay".)
+function sameDir(a, b) {
+  try {
+    var left = fs.statSync(a);
+    var right = fs.statSync(b);
+    return left.dev === right.dev && left.ino === right.ino;
+  } catch (e) {
+    return false;
+  }
+}
+
+// The real on-disk spelling of `name` inside parentDir, or "" if absent. Used
+// so a case-insensitive filesystem validates against what is actually stored
+// (".clay"), not what the operator typed (".CLAY"), while a case-sensitive
+// filesystem — where the typed spelling simply does not exist — still rejects.
+function onDiskName(parentDir, name) {
+  var entries;
+  try {
+    entries = fs.readdirSync(parentDir);
+  } catch (e) {
+    return "";
+  }
+  if (entries.indexOf(name) !== -1) return name;
+  var lower = String(name).toLowerCase();
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].toLowerCase() === lower) return entries[i];
+  }
+  return "";
+}
+
 function ownerEntryForConfig(configPath, cfg) {
-  var tasksDir = path.dirname(path.resolve(configPath));
+  // Resolve to the filesystem's canonical path FIRST, then validate. realpath
+  // returns the real on-disk spelling, so on a case-insensitive filesystem a
+  // readable ".CLAY/TASKS" resolves to the actual ".clay/tasks" and is
+  // correctly accepted, while on a case-sensitive filesystem that spelling
+  // does not exist, realpath fails, and it stays rejected. Validating lexical
+  // basenames before resolution would get both of those backwards.
+  var canonicalConfig = realPath(configPath);
+  if (!canonicalConfig) return null;
+  var tasksDir = path.dirname(canonicalConfig);
   var clayDir = path.dirname(tasksDir);
   var projectDir = path.dirname(clayDir);
-  if (path.basename(tasksDir) !== "tasks" || path.basename(clayDir) !== ".clay") return null;
+  // Validate against the names actually stored on disk, not the typed ones.
+  if (onDiskName(clayDir, path.basename(tasksDir)) !== "tasks") return null;
+  if (onDiskName(projectDir, path.basename(clayDir)) !== ".clay") return null;
 
   // The project dir must be the repository root itself, not any directory
   // inside it that merely happens to contain a .clay/tasks folder.
   var toplevel = realPath(gitIn(projectDir, ["rev-parse", "--show-toplevel"]));
-  var resolvedProjectDir = realPath(projectDir);
-  if (!toplevel || !resolvedProjectDir || toplevel !== resolvedProjectDir) return null;
+  if (!toplevel || !sameDir(toplevel, projectDir)) return null;
 
   var origin = gitIn(projectDir, ["config", "--get", "remote.origin.url"]);
   return {
-    project: path.basename(projectDir),
-    projectRef: { projectId: projectIdentity.deterministicProjectId({ path: projectDir }, 0) },
+    // Identity comes from the git worktree root as GIT reports it, never from
+    // the alias the operator typed. Reaching one project through a symlink, a
+    // differently-cased spelling, or /var vs /private/var must yield ONE label
+    // and ONE deterministic ProjectRef — otherwise the same project enters the
+    // portfolio twice under two identities, which is the whole class of bug
+    // this change exists to remove.
+    project: path.basename(toplevel),
+    projectRef: { projectId: projectIdentity.deterministicProjectId({ path: toplevel }, 0) },
     originRepo: origin,
     configs: [cfg],
   };

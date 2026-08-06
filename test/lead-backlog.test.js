@@ -225,6 +225,49 @@ test("the dedupe key cannot be forged across the project/id boundary", function 
   assert.strictEqual(dupe.summary.total, 1);
 });
 
+// Pre-normalized github items pass straight through buildPortfolio, so their
+// project/id are whatever the caller supplied — the dedupe key must cope.
+function ghItem(project, id, title) {
+  return { source: "github", id: id, project: project, number: 1, title: title, body: "", labels: [], state: "open", updatedAt: 0, url: null };
+}
+
+test("the dedupe key preserves scalar identity types", function () {
+  // number 1, string "1", boolean true and BigInt 1n are four distinct ids.
+  // Plain JSON.stringify THROWS on a BigInt, which would abort the whole
+  // portfolio build over one odd item.
+  var typed = backlog.buildPortfolio([
+    { project: "clay", items: [ghItem("clay", 1, "number"), ghItem("clay", "1", "string"), ghItem("clay", true, "boolean"), ghItem("clay", BigInt(1), "bigint")] },
+  ], { now: NOW });
+  assert.strictEqual(typed.summary.total, 4);
+  assert.strictEqual(typed.summary.unidentifiable, 0);
+
+  // null and undefined are distinct, and neither folds into the other.
+  var nullish = backlog.buildPortfolio([
+    { project: null, items: [ghItem(null, "x", "null project")] },
+    { project: "u", items: [ghItem(undefined, "x", "undefined project")] },
+  ], { now: NOW });
+  assert.strictEqual(nullish.summary.total, 2);
+});
+
+test("items without a scalar identity are skipped and counted, never guessed", function () {
+  // Two structurally equal objects are indistinguishable once encoded, so
+  // using them as keys would silently merge unrelated work. Fail closed and
+  // report, rather than guess — and never throw.
+  var portfolio = backlog.buildPortfolio([
+    { project: "clay", items: [ghItem("clay", { a: 1 }, "object id"), ghItem("clay", { a: 1 }, "other object id"), ghItem("clay", "ok", "valid")] },
+  ], { now: NOW });
+  assert.strictEqual(portfolio.summary.total, 1);
+  assert.strictEqual(portfolio.items[0].title, "valid");
+  assert.strictEqual(portfolio.summary.unidentifiable, 2);
+
+  // A symbol or function project is equally unusable, and must not throw.
+  var exotic = backlog.buildPortfolio([
+    { project: "clay", items: [ghItem(Symbol("s"), "a", "symbol project"), ghItem(function () {}, "b", "function project")] },
+  ], { now: NOW });
+  assert.strictEqual(exotic.summary.total, 0);
+  assert.strictEqual(exotic.summary.unidentifiable, 2);
+});
+
 test("loose items with the same id in different projects both survive", function () {
   // Boss directives are ad-hoc; two projects can each carry "directive-1".
   // An id-only dedupe key silently dropped one project's real work.

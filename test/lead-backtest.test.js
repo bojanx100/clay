@@ -196,3 +196,76 @@ test("lead-backtest CLI rejects a config outside any git repository", function (
   assert.ok(run.stderr.indexOf("fatal:") === -1, "git stderr must be suppressed: " + run.stderr);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// Repository-root validation must depend only on the path on disk.
+function makeRepo(originUrl) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "lead-backtest-"));
+  childProcess.execFileSync("git", ["init", "-q"], { cwd: dir });
+  if (originUrl) childProcess.execFileSync("git", ["remote", "add", "origin", originUrl], { cwd: dir });
+  return dir;
+}
+
+function writeRecipe(dir, relDir) {
+  var full = path.join(dir, relDir);
+  fs.mkdirSync(full, { recursive: true });
+  var configPath = path.join(full, "x.json");
+  fs.writeFileSync(configPath, JSON.stringify({ id: "x", source: { provider: "github", kind: "issue", repo: "acme/widgets" } }));
+  return configPath;
+}
+
+test("lead-backtest CLI ignores GIT_DIR/GIT_WORK_TREE when validating the root", function () {
+  // An inherited GIT_DIR/GIT_WORK_TREE must not be able to redefine which
+  // repository the root check sees; otherwise a nested config could be
+  // validated against an unrelated repository.
+  var real = makeRepo("https://github.com/acme/widgets.git");
+  var other = makeRepo("https://github.com/acme/widgets.git");
+  var nested = writeRecipe(real, path.join("sub", ".clay", "tasks"));
+
+  var env = Object.assign({}, process.env, {
+    GIT_DIR: path.join(other, ".git"),
+    GIT_WORK_TREE: path.join(real, "sub"),
+  });
+  var run = childProcess.spawnSync(process.execPath, [SCRIPT, nested], { encoding: "utf8", timeout: 30000, env: env });
+  assertNoCrash(String(run.stderr || ""));
+  assert.strictEqual(run.status, 2);
+  assert.match(String(run.stderr), /root of the git repository/);
+  assert.ok(String(run.stderr).indexOf("issue fetch failed") === -1, "must not reach a gh fetch");
+  fs.rmSync(real, { recursive: true, force: true });
+  fs.rmSync(other, { recursive: true, force: true });
+});
+
+test("lead-backtest CLI accepts a symlinked project root", function () {
+  // Reaching the project through a symlink is the same project; it must
+  // validate, not be rejected as a different directory.
+  var real = makeRepo("https://github.com/acme/widgets.git");
+  writeRecipe(real, path.join(".clay", "tasks"));
+  var aliasDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "lead-alias-")), "alias");
+  fs.symlinkSync(real, aliasDir);
+
+  var run = runScript(path.join(aliasDir, ".clay", "tasks", "x.json"));
+  assertNoCrash(run.stderr);
+  // Passes validation and proceeds to the gh fetch (which fails on a repo that
+  // does not exist) rather than being rejected on the path.
+  assert.ok(run.stderr.indexOf("must live at") === -1, "symlinked root must not be rejected: " + run.stderr);
+  fs.rmSync(real, { recursive: true, force: true });
+});
+
+test("lead-backtest CLI accepts a case variant only when the filesystem resolves it", function () {
+  var real = makeRepo("https://github.com/acme/widgets.git");
+  writeRecipe(real, path.join(".clay", "tasks"));
+  var variant = path.join(real, ".CLAY", "TASKS", "x.json");
+  var caseInsensitive = fs.existsSync(variant);
+
+  var run = runScript(variant);
+  assertNoCrash(run.stderr);
+  if (caseInsensitive) {
+    // The spelling resolves to the real .clay/tasks, so it must be accepted.
+    assert.ok(run.stderr.indexOf("must live at") === -1,
+      "a readable case variant must not be rejected: " + run.stderr);
+  } else {
+    // Case-sensitive filesystem: the path does not exist, so it must reject.
+    assert.strictEqual(run.status, 2);
+    assert.match(run.stderr, /must live at/);
+  }
+  fs.rmSync(real, { recursive: true, force: true });
+});
