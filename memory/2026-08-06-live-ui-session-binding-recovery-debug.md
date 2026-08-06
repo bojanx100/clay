@@ -82,3 +82,33 @@ The old pairing record had already been deleted before this fix existed. Select
 `webapp` → `Coordinator · REDESIGN` once and start Live UI. Future revocations
 within the same browser session restore that choice automatically. Reload the
 unpacked extension once to activate this change.
+
+## Follow-up: project and chat dropdowns required repeated attempts
+
+### Symptom
+
+Choosing either Project or Chat in the extension popup often took several
+attempts before the selection remained in place.
+
+### Root cause
+
+The popup polls its background state every 750 ms. Every response called
+`renderLiveUiOptions()`, which unconditionally cleared and recreated both native
+`select` option lists even when the project/session data had not changed. A poll
+response arriving during native dropdown interaction closed the menu or reset
+its selected option. Clay's loop-lag and recovery canaries were healthy, so the
+delay was not server-side UI lag.
+
+### Fix and verification
+
+- Picker option data now has a deterministic render signature. Identical poll
+  responses do not touch either dropdown.
+- The chat dropdown is never rebuilt while it owns focus.
+- While the project dropdown owns focus, its DOM remains stable but newly loaded
+  chats may populate the other dropdown; a later unfocused poll reconciles both.
+- The fail-first popup contract regression requires both the unchanged-state
+  signature guard and the focused-chat guard.
+- The full extension suite passes 24/24 tests. Syntax, whitespace, module-size,
+  and changed-function complexity checks pass.
+
+Status: Fixed. Reload the unpacked extension once to activate the popup script.
