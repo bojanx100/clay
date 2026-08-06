@@ -5,98 +5,194 @@ var os = require("os");
 var path = require("path");
 
 var TMP = path.join(os.tmpdir(), "clay-probe-test-" + process.pid);
-process.env.CLAY_MODEL_PROBE_PATH = path.join(TMP, "probe.json");
+process.env.CLAY_MODEL_CATALOG_PATH = path.join(TMP, "catalog.json");
 var probe = require("../lib/claude-model-probe");
+var providerHealth = require("../lib/provider-health");
 
-function reset() { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {} }
+function reset() {
+  probe.resetInFlight();
+  providerHealth._reset();
+  try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {}
+}
 
-// A fake SDK query() returning an async-iterable of the given messages.
-function fakeRunner(messages) {
+function probeDeps(overrides) {
+  return Object.assign({
+    accountKey: "account-a",
+    routeId: "claude-anthropic",
+    sdkVersion: "0.3.223",
+    backendVersion: "2.1.223",
+    binaryPath: "/bin/true",
+  }, overrides || {});
+}
+
+function successfulMessages(resolvedModel) {
+  return [
+    { type: "system", subtype: "init", model: resolvedModel },
+    { type: "assistant", message: { content: [{ type: "text", text: "PONG" }] } },
+    { type: "result", subtype: "success" },
+  ];
+}
+
+function fakeRunner(messages, onCall) {
   return function () {
-    return (async function* () { for (var m of messages) yield m; })();
+    if (onCall) onCall();
+    return (async function* () {
+      for (var i = 0; i < messages.length; i++) yield messages[i];
+    })();
   };
 }
 
-test("classifyError: model rejections are definitive, transient errors are not", function () {
-  assert.deepStrictEqual(probe.classifyError("model claude-opus-5 does not exist"), { available: false, definitive: true });
-  assert.deepStrictEqual(probe.classifyError("no access to this model"), { available: false, definitive: true });
-  assert.deepStrictEqual(probe.classifyError("rate limit exceeded"), { available: false, definitive: false });
-  assert.deepStrictEqual(probe.classifyError("stream disconnected"), { available: false, definitive: false });
+test("classifyError separates access denial from transient route health", function () {
+  assert.deepStrictEqual(probe.classifyError("model claude-opus-5 does not exist"),
+    { available: false, definitive: true, reason: "access-denied" });
+  assert.deepStrictEqual(probe.classifyError("403 no access to this model"),
+    { available: false, definitive: true, reason: "access-denied" });
+  assert.deepStrictEqual(probe.classifyError("rate limit exceeded"),
+    { available: false, definitive: false, reason: "rate-or-quota" });
+  assert.deepStrictEqual(probe.classifyError("stream disconnected"),
+    { available: false, definitive: false, reason: "transport" });
 });
 
-test("probeModel maps a success result to available+definitive", async function () {
+test("probe succeeds only after exact resolution and a successful PONG reply", async function () {
   reset();
-  var v = await probe.probeModel("claude-opus-5", {
-    binaryPath: "/bin/true",
-    queryRunner: fakeRunner([{ type: "system", subtype: "init", model: "claude-opus-5" }, { type: "result", subtype: "success" }]),
+  var verdict = await probe.probeModel("claude-opus-5", probeDeps({
+    queryRunner: fakeRunner(successfulMessages("claude-opus-5")),
+  }));
+  assert.deepStrictEqual(verdict, {
+    available: true,
+    definitive: true,
+    reason: "exact-probe-success",
+    resolvedModel: "claude-opus-5",
   });
-  assert.deepStrictEqual(v, { available: true, definitive: true });
   reset();
 });
 
-test("probeModel maps a model-rejection result to unavailable+definitive", async function () {
+test("probe rejects a successful reply from the wrong resolved model", async function () {
   reset();
-  var v = await probe.probeModel("claude-opus-5", {
-    binaryPath: "/bin/true",
-    queryRunner: fakeRunner([{ type: "result", subtype: "error_during_execution", result: "invalid model: claude-opus-5" }]),
+  var verdict = await probe.probeModel("claude-opus-5", probeDeps({
+    queryRunner: fakeRunner(successfulMessages("claude-opus-4-8")),
+  }));
+  assert.deepStrictEqual(verdict, {
+    available: false,
+    definitive: true,
+    reason: "wrong-resolved-model",
+    resolvedModel: "claude-opus-4-8",
   });
-  assert.deepStrictEqual(v, { available: false, definitive: true });
   reset();
 });
 
-test("cache verdict round-trip + asymmetric TTL freshness", function () {
+test("access denied is durable negative capability evidence", async function () {
   reset();
-  probe.recordVerdict("claude-opus-5", { available: true, definitive: true });
-  var c = probe.cachedEntry("claude-opus-5");
-  assert.strictEqual(c.available, true);
-  assert.strictEqual(c.fresh, true); // just written -> fresh
-  assert.strictEqual(probe.cachedEntry("nonexistent-model"), null);
+  var deps = probeDeps({
+    queryRunner: fakeRunner([
+      { type: "result", subtype: "error_during_execution", result: "403 no access to model claude-opus-5" },
+    ]),
+  });
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", deps), false);
+  var cached = probe.cachedEntry("claude-opus-5", deps);
+  assert.strictEqual(cached.available, false);
+  assert.strictEqual(cached.definitive, true);
+  assert.strictEqual(cached.reason, "access-denied");
+  assert.strictEqual(providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-opus-5").state,
+    "healthy", "account capability denial is not provider health");
   reset();
 });
 
-test("mergeExtras: inserts Opus 5 right after Fable, not at the bottom", function () {
+test("rate limit does not erase previously verified capability", async function () {
+  reset();
+  var deps = probeDeps();
+  probe.recordVerdict("claude-opus-5", {
+    available: true,
+    definitive: true,
+    reason: "exact-probe-success",
+    resolvedModel: "claude-opus-5",
+  }, deps);
+  var result = await probe.ensureProbe("claude-opus-5", Object.assign({}, deps, {
+    force: true,
+    queryRunner: fakeRunner([
+      { type: "result", subtype: "error_during_execution", result: "rate limit exceeded" },
+    ]),
+  }));
+  assert.strictEqual(result, true);
+  var cached = probe.cachedEntry("claude-opus-5", deps);
+  assert.strictEqual(cached.available, true);
+  assert.strictEqual(cached.definitive, true);
+  assert.strictEqual(cached.lastAttempt.reason, "rate-or-quota");
+  var health = providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-opus-5");
+  assert.strictEqual(health.targetState, "degraded");
+  assert.strictEqual(health.vendorState, "healthy");
+  reset();
+});
+
+test("cache is reused for the same account, route, SDK, backend, and model", async function () {
+  reset();
+  var calls = 0;
+  var deps = probeDeps({
+    queryRunner: fakeRunner(successfulMessages("claude-opus-5"), function () { calls++; }),
+  });
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", deps), true);
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", deps), true);
+  assert.strictEqual(calls, 1);
+  reset();
+});
+
+test("account and route changes invalidate exact capability evidence", async function () {
+  reset();
+  var calls = 0;
+  function dependencies(accountKey, routeId) {
+    return probeDeps({
+      accountKey: accountKey,
+      routeId: routeId,
+      queryRunner: fakeRunner(successfulMessages("claude-opus-5"), function () { calls++; }),
+    });
+  }
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", dependencies("account-a", "claude-anthropic")), true);
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", dependencies("account-b", "claude-anthropic")), true);
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", dependencies("account-b", "claude-other")), true);
+  assert.strictEqual(calls, 3);
+  reset();
+});
+
+test("SDK or backend version changes require a new probe", async function () {
+  reset();
+  var calls = 0;
+  function dependencies(sdkVersion, backendVersion) {
+    return probeDeps({
+      sdkVersion: sdkVersion,
+      backendVersion: backendVersion,
+      queryRunner: fakeRunner(successfulMessages("claude-opus-5"), function () { calls++; }),
+    });
+  }
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", dependencies("sdk-a", "backend-a")), true);
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", dependencies("sdk-b", "backend-a")), true);
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", dependencies("sdk-b", "backend-b")), true);
+  assert.strictEqual(calls, 3);
+  reset();
+});
+
+test("positive evidence exposes Opus 5, then native advertisement supersedes the special case", async function () {
+  reset();
+  var calls = 0;
+  var deps = probeDeps({
+    queryRunner: fakeRunner(successfulMessages("claude-opus-5"), function () { calls++; }),
+  });
+  assert.deepStrictEqual(probe.extraClaudeModels(["opus", "sonnet"],
+    Object.assign({}, deps, { background: false })), []);
+  assert.strictEqual(await probe.ensureProbe("claude-opus-5", deps), true);
+  var extras = probe.extraClaudeModels(["opus", "sonnet"], Object.assign({}, deps, { background: false }));
+  assert.strictEqual(extras.length, 1);
+  assert.strictEqual(extras[0].value, "claude-opus-5");
+  assert.deepStrictEqual(probe.extraClaudeModels(["opus", "claude-opus-5"], deps), []);
+  assert.strictEqual(calls, 1, "native advertisement must not run or duplicate the probe special case");
+  reset();
+});
+
+test("mergeExtras inserts a verified Opus 5 route near the frontier models", function () {
   var base = [
-    { value: "best" }, { value: "default" }, { value: "opus", displayName: "Opus" },
-    { value: "claude-fable-5", displayName: "Fable" }, { value: "sonnet" }, { value: "haiku" },
+    { value: "best" }, { value: "default" }, { value: "opus" },
+    { value: "claude-fable-5" }, { value: "sonnet" }, { value: "haiku" },
   ];
-  var out = probe.mergeExtras(base, [{ value: "claude-opus-5", displayName: "Opus 5" }]);
-  var order = out.map(function (m) { return m.value; });
-  assert.deepStrictEqual(order, ["best", "default", "opus", "claude-fable-5", "claude-opus-5", "sonnet", "haiku"]);
-});
-
-test("mergeExtras: no Fable -> insert after leading meta selectors; already-present -> no-op", function () {
-  var noFable = [{ value: "best" }, { value: "default" }, { value: "opus" }, { value: "haiku" }];
-  var out = probe.mergeExtras(noFable, [{ value: "claude-opus-5" }]);
-  assert.deepStrictEqual(out.map(function (m) { return m.value; }), ["best", "default", "claude-opus-5", "opus", "haiku"]);
-  // idempotent when the extra is already in the list
-  var withIt = [{ value: "claude-fable-5" }, { value: "claude-opus-5" }, { value: "sonnet" }];
-  assert.deepStrictEqual(probe.mergeExtras(withIt, [{ value: "claude-opus-5" }]).map(function (m) { return m.value; }),
-    ["claude-fable-5", "claude-opus-5", "sonnet"]);
-});
-
-test("extraClaudeModels: shows a cached-available candidate, hides unavailable, skips already-advertised", async function () {
-  reset();
-  // unknown -> not shown yet, but a background probe is triggered
-  var out0 = probe.extraClaudeModels(["opus", "sonnet"], {
-    binaryPath: "/bin/true",
-    queryRunner: fakeRunner([{ type: "result", subtype: "success" }]),
-  });
-  assert.strictEqual(out0.length, 0, "unknown candidate is not offered on first sight");
-  // let the background probe write its verdict
-  await new Promise(function (r) { setTimeout(r, 30); });
-
-  var out1 = probe.extraClaudeModels(["opus", "sonnet"]);
-  assert.strictEqual(out1.length, 1, "candidate now offered after successful probe");
-  assert.strictEqual(out1[0].value, "claude-opus-5");
-  assert.strictEqual(out1[0].displayName, "Opus 5");
-
-  // already advertised by the authoritative list -> never added
-  var out2 = probe.extraClaudeModels(["opus", "claude-opus-5"]);
-  assert.strictEqual(out2.length, 0, "already-advertised candidate is not duplicated");
-
-  // unavailable verdict -> hidden
-  probe.recordVerdict("claude-opus-5", { available: false, definitive: true });
-  var out3 = probe.extraClaudeModels(["opus"]);
-  assert.strictEqual(out3.length, 0, "unavailable candidate is hidden");
-  reset();
+  var out = probe.mergeExtras(base, [{ value: "claude-opus-5" }]);
+  assert.deepStrictEqual(out.map(function (model) { return model.value; }),
+    ["best", "default", "opus", "claude-fable-5", "claude-opus-5", "sonnet", "haiku"]);
 });

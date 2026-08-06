@@ -82,3 +82,54 @@ test("multiple vendors coexist in one catalog file", function () {
   assert.deepStrictEqual(cache.cachedModels("codex"), [{ value: "gpt-5.6-sol" }]);
   reset();
 });
+
+test("capability evidence is scoped to account, route, versions, and model", function () {
+  reset();
+  var context = {
+    accountKey: "account-a",
+    routeId: "claude-anthropic",
+    sdkVersion: "sdk-a",
+    backendVersion: "backend-a",
+    model: "claude-opus-5",
+  };
+  assert.strictEqual(cache.rememberCapability(context, {
+    available: true,
+    definitive: true,
+    reason: "exact-probe-success",
+    resolvedModel: "claude-opus-5",
+  }), true);
+  assert.strictEqual(cache.cachedCapability(context).available, true);
+  assert.strictEqual(cache.cachedCapability(Object.assign({}, context, { accountKey: "account-b" })), null);
+  assert.strictEqual(cache.cachedCapability(Object.assign({}, context, { routeId: "claude-other" })), null);
+  assert.strictEqual(cache.cachedCapability(Object.assign({}, context, { sdkVersion: "sdk-b" })), null);
+  assert.strictEqual(cache.cachedCapability(Object.assign({}, context, { backendVersion: "backend-b" })), null);
+  assert.strictEqual(cache.cachedCapability(Object.assign({}, context, { model: "claude-opus-4-8" })), null);
+  reset();
+});
+
+test("transient probe attempts preserve definitive capability evidence", function () {
+  reset();
+  var context = {
+    accountKey: "account-a",
+    routeId: "claude-anthropic",
+    sdkVersion: "sdk-a",
+    backendVersion: "backend-a",
+    model: "claude-opus-5",
+  };
+  cache.rememberCapability(context, {
+    available: true,
+    definitive: true,
+    reason: "exact-probe-success",
+    resolvedModel: "claude-opus-5",
+  });
+  cache.rememberCapability(context, {
+    available: false,
+    definitive: false,
+    reason: "rate-or-quota",
+  });
+  var stored = cache.cachedCapability(context);
+  assert.strictEqual(stored.available, true);
+  assert.strictEqual(stored.definitive, true);
+  assert.strictEqual(stored.lastAttempt.reason, "rate-or-quota");
+  reset();
+});

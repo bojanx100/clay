@@ -12,6 +12,7 @@ var path = require("path");
 
 var { attachProviderSwitch } = require("../lib/provider-switch");
 var { routeForId } = require("../lib/provider-routes");
+var modelCatalogCache = require("../lib/model-catalog-cache");
 var copilotEntitlements = require("../lib/yoke/adapters/github-copilot-entitlements");
 require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
@@ -396,4 +397,52 @@ test("native Claude does not advertise or select Opus 5 without exact catalog ev
   });
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.reason, "model-unverified");
+});
+
+test("native Claude advertises and selects Opus 5 after a positive exact probe", function () {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-provider-switch-probe-"));
+  var previousPath = process.env.CLAY_MODEL_CATALOG_PATH;
+  process.env.CLAY_MODEL_CATALOG_PATH = path.join(root, "model-catalog.json");
+  var context = {
+    accountKey: "account-a",
+    routeId: "claude-anthropic",
+    sdkVersion: "sdk-a",
+    backendVersion: "backend-a",
+    model: "claude-opus-5",
+  };
+  try {
+    modelCatalogCache.rememberCapability(context, {
+      available: true,
+      definitive: true,
+      reason: "exact-probe-success",
+      resolvedModel: "claude-opus-5",
+    });
+    var sm = makeSm({
+      capabilityProbeContextByRoute: {
+        "claude-anthropic": {
+          accountKey: context.accountKey,
+          sdkVersion: context.sdkVersion,
+          backendVersion: context.backendVersion,
+        },
+      },
+    });
+    var switcher = makeSwitcher(sm);
+    var advertised = switcher.modelsForRoute(routeForId("claude-anthropic"), "claude");
+    assert.notStrictEqual(advertised.indexOf("claude-opus-5"), -1);
+    var result = switcher.executeProviderSwitch({
+      session: makeSession({
+        vendor: "codex",
+        providerRouteId: "codex-openai",
+        model: "gpt-5.5",
+      }),
+      targetVendor: "claude",
+      targetRouteId: "claude-anthropic",
+      targetModel: "claude-opus-5",
+    });
+    assert.strictEqual(result.ok, true);
+  } finally {
+    if (previousPath === undefined) delete process.env.CLAY_MODEL_CATALOG_PATH;
+    else process.env.CLAY_MODEL_CATALOG_PATH = previousPath;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -198,7 +198,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-idle-reaper.js` | SDK bridge idle session reaper timer that closes inactive query handles without blocking process exit |
 | `sdk-bridge-mentions.js` | SDK bridge persistent read-only @mention query sessions and mention activity streaming |
 | `sdk-bridge-mcp.js` | SDK bridge MCP server merge, descriptor extraction, and local MCP tool handler invocation helpers |
-| `sdk-bridge-models.js` | SDK bridge model list normalization, provider-route model matching, and model_info fanout |
+| `sdk-bridge-models.js` | SDK bridge model list normalization, exact-model capability probe kickoff, provider-route matching, and model_info fanout |
 | `sdk-bridge-permissions.js` | SDK bridge tool whitelist, permission request, AskUserQuestion denial contract, and permission notification text helpers |
 | `sdk-bridge-processes.js` | SDK bridge Linux-user project prep, conflicting Claude process detection, and process verification helpers |
 | `sdk-bridge-query-start.js` | SDK bridge query startup, vendor lazy-init, query option assembly, and initial message dispatch |
@@ -214,6 +214,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `automation-modes.js` | Shared automation mode normalization and provider permission/approval mapping |
 | `provider-routes.js` | Provider-route configuration, exact-route verified live/last-known-good catalog gates, model-family matching, and health decoration |
 | `provider-health.js` | Process-wide vendor-wide plus exact route/model health and quota registries (healthy→degraded→unhealthy), fed by SDK failure/success signals |
+| `model-catalog-cache.js` | Durable live/last-known-good vendor catalogs plus account/route/SDK/backend/model-scoped capability evidence |
+| `claude-model-probe.js` | Bounded explicit-ID probes for unadvertised Claude models; validates exact resolution and reply before route-local exposure |
 | `model-capability.js` | Shared model capability tiers and comparable-or-stronger checks |
 | `provider-command.js` | Model-aware `/provider` and permissive `/switch` chat command handling |
 | `provider-switch.js` | Single executor for cross-provider session switches (WS handoff, provider chat commands, outage failover) plus model/route resolution helpers |
@@ -222,7 +224,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `model-context-window.js` | Per-model context-window lookup (Claude/Codex/Copilot) and token-aware char budgeting for the inline handoff transcript |
 | `handoff-state.js` | Situational-state collectors for handoff briefs: git state, task snapshot, plan-doc paths, original goal |
 | `codex-defaults.js` | Codex-specific default values (sandbox, approval, web search). **Single source of truth** - do not duplicate elsewhere |
-| `claude-defaults.js` | Claude-specific default model and mode settings |
+| `claude-defaults.js` | Claude-specific safe cold-start model seeds and mode settings; unverified frontier IDs do not belong here |
 | `model-selection.js` | Shared strongest-available model selection for new sessions and task launches, while respecting configured defaults |
 | `provider-agent-pipeline.js` | Provider-matched worker configuration: Codex roots delegate to Terra workers and Claude roots delegate to Opus workers |
 | `adaptive-worker-routing.js` | Deterministic task/phase capability floors and least-cost verified route/model selection, preserving owner pins and recording routing rationale |

@@ -38,9 +38,11 @@ test("best Claude selector falls back to Opus when Fable is exhausted", function
   );
 });
 
-test("best Claude selector falls back to the speculative Opus with no models", function () {
+test("best Claude selector never falls back to unverified Opus 5", function () {
   assert.strictEqual(
     claudeDefaults.preferredClaudeBest([], { fableAvailable: false }),
-    "claude-opus-5"
+    "claude-opus-4-8"
   );
+  var coldStart = claudeDefaults.fallbackClaudeModels();
+  assert.strictEqual(coldStart.some(function (model) { return model.value === "claude-opus-5"; }), false);
 });
