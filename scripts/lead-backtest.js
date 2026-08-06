@@ -50,22 +50,29 @@ function fetchJson(execFn, args, cb) {
 // through realpath (symlinked temp dirs and /var vs /private/var would
 // otherwise produce false mismatches). Everything else is rejected before any
 // side effect.
-// Environment that can redefine which repository git thinks it is looking at.
-// An inherited GIT_DIR/GIT_WORK_TREE would make `rev-parse --show-toplevel`
-// report a DIFFERENT repository's root, so the root check could be satisfied
-// by a repo that has nothing to do with the config's location — ownership
-// validated against the wrong repository entirely. These are stripped for
-// every validation call, so the answer depends only on the path on disk.
-var GIT_ENV_OVERRIDES = [
-  "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
-  "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-  "GIT_NAMESPACE", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
-];
-
+// Ownership must be decided by the repository on disk, and by nothing else in
+// the environment. Two families of variable can subvert that:
+//   - Location: GIT_DIR / GIT_WORK_TREE / GIT_COMMON_DIR / GIT_CEILING_DIRECTORIES
+//     make `rev-parse --show-toplevel` report a DIFFERENT repository's root, so
+//     the root check can be satisfied by a repo unrelated to the config.
+//   - Config injection: GIT_CONFIG_PARAMETERS, and GIT_CONFIG_COUNT with its
+//     indexed GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> pairs, inject config at
+//     the highest precedence — including remote.origin.url itself, which is
+//     the single value this whole ownership decision rests on.
+//
+// This is not a hypothetical attacker: git sets several of these itself, so any
+// run from inside a hook or a `git -c ...` invocation inherits them by accident.
+//
+// Rather than chase a denylist (the indexed pairs are unbounded, and git keeps
+// adding variables), drop the entire GIT_* namespace. None of it is needed to
+// run `rev-parse` or read a repo-local config, and anything git genuinely needs
+// it computes itself.
 function gitEnv() {
   var env = Object.assign({}, process.env);
-  for (var i = 0; i < GIT_ENV_OVERRIDES.length; i++) delete env[GIT_ENV_OVERRIDES[i]];
+  var names = Object.keys(env);
+  for (var i = 0; i < names.length; i++) {
+    if (names[i].indexOf("GIT_") === 0) delete env[names[i]];
+  }
   return env;
 }
 
@@ -125,12 +132,12 @@ function onDiskName(parentDir, name) {
 }
 
 function ownerEntryForConfig(configPath, cfg) {
-  // Resolve to the filesystem's canonical path FIRST, then validate. realpath
-  // returns the real on-disk spelling, so on a case-insensitive filesystem a
-  // readable ".CLAY/TASKS" resolves to the actual ".clay/tasks" and is
-  // correctly accepted, while on a case-sensitive filesystem that spelling
-  // does not exist, realpath fails, and it stays rejected. Validating lexical
-  // basenames before resolution would get both of those backwards.
+  // Resolve symlinks FIRST, then validate. Note realpath resolves symlinks but
+  // does NOT normalize case: on macOS realpathSync("/x/.CLAY") returns
+  // "/x/.CLAY" even though the directory on disk is ".clay". Case is therefore
+  // handled separately, by onDiskName below. A path that does not exist at all
+  // fails here, which is what keeps a bogus spelling rejected on a
+  // case-sensitive filesystem.
   var canonicalConfig = realPath(configPath);
   if (!canonicalConfig) return null;
   var tasksDir = path.dirname(canonicalConfig);
@@ -145,7 +152,11 @@ function ownerEntryForConfig(configPath, cfg) {
   var toplevel = realPath(gitIn(projectDir, ["rev-parse", "--show-toplevel"]));
   if (!toplevel || !sameDir(toplevel, projectDir)) return null;
 
-  var origin = gitIn(projectDir, ["config", "--get", "remote.origin.url"]);
+  // --local: read ONLY this repository's own config. Ownership is a property of
+  // the repository, so a value inherited from global/system config — or from a
+  // manipulated HOME — must not be able to supply the origin. Belt and braces
+  // with the GIT_* scrub above, since these are different injection paths.
+  var origin = gitIn(projectDir, ["config", "--local", "--get", "remote.origin.url"]);
   return {
     // Identity comes from the git worktree root as GIT reports it, never from
     // the alias the operator typed. Reaching one project through a symlink, a
@@ -188,6 +199,10 @@ function main() {
     console.error("no github issue source in " + opts.configPath);
     process.exit(2);
   }
+  // State the ownership decision before acting on it, so which repository was
+  // read, and as which project, is auditable rather than implicit.
+  console.error("resolved " + spec.repo + " -> project " + spec.project +
+    " (" + spec.projectRef.projectId + ")");
   var execFn = leadExec.createGhExecFn(spec);
   var limit = String(opts.limit);
 

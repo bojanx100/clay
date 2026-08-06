@@ -269,3 +269,63 @@ test("lead-backtest CLI accepts a case variant only when the filesystem resolves
   }
   fs.rmSync(real, { recursive: true, force: true });
 });
+
+test("lead-backtest CLI ignores injected git config when reading the origin", function () {
+  // GIT_CONFIG_COUNT + indexed KEY/VALUE pairs inject config at the highest
+  // precedence — including remote.origin.url, the single value the whole
+  // ownership decision rests on. git sets config-injection variables itself,
+  // so a run from inside a hook or `git -c ...` inherits them by accident.
+  var repo = makeRepo("https://github.com/real/repo.git");
+  var configPath = writeRecipe(repo, path.join(".clay", "tasks"));
+
+  var env = Object.assign({}, process.env, {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "remote.origin.url",
+    GIT_CONFIG_VALUE_0: "https://github.com/acme/widgets",
+  });
+  var run = childProcess.spawnSync(process.execPath, [SCRIPT, configPath], { encoding: "utf8", timeout: 30000, env: env });
+  assertNoCrash(String(run.stderr || ""));
+  // The real origin is real/repo, which does not own acme/widgets, so this
+  // must fail closed rather than accept the forged origin.
+  assert.strictEqual(run.status, 2);
+  assert.match(String(run.stderr), /unresolved repository ownership/);
+  assert.ok(String(run.stderr).indexOf("issue fetch failed") === -1, "must not reach a gh fetch");
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test("lead-backtest CLI ignores GIT_CONFIG_PARAMETERS when reading the origin", function () {
+  var repo = makeRepo("https://github.com/real/repo.git");
+  var configPath = writeRecipe(repo, path.join(".clay", "tasks"));
+
+  var env = Object.assign({}, process.env, {
+    GIT_CONFIG_PARAMETERS: "'remote.origin.url=https://github.com/acme/widgets'",
+  });
+  var run = childProcess.spawnSync(process.execPath, [SCRIPT, configPath], { encoding: "utf8", timeout: 30000, env: env });
+  assertNoCrash(String(run.stderr || ""));
+  assert.strictEqual(run.status, 2);
+  assert.match(String(run.stderr), /unresolved repository ownership/);
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test("lead-backtest CLI reports one canonical identity through a symlinked root", function () {
+  // The audit line makes the ownership decision observable: reaching the same
+  // project through a symlink must report the REAL project label and the same
+  // deterministic ProjectRef, never the alias.
+  var repo = makeRepo("https://github.com/acme/widgets.git");
+  writeRecipe(repo, path.join(".clay", "tasks"));
+  var aliasParent = fs.mkdtempSync(path.join(os.tmpdir(), "lead-alias-"));
+  var aliasDir = path.join(aliasParent, "some-other-name");
+  fs.symlinkSync(repo, aliasDir);
+
+  var direct = runScript(path.join(repo, ".clay", "tasks", "x.json"));
+  var viaAlias = runScript(path.join(aliasDir, ".clay", "tasks", "x.json"));
+  var line = /resolved acme\/widgets -> project (\S+) \((\S+)\)/;
+  var a = direct.stderr.match(line);
+  var b = viaAlias.stderr.match(line);
+  assert.ok(a && b, "both runs must report a resolution: " + direct.stderr + " | " + viaAlias.stderr);
+  assert.strictEqual(a[1], b[1], "project label must be canonical, not the alias");
+  assert.strictEqual(a[2], b[2], "ProjectRef must be canonical, not derived from the alias");
+  assert.ok(b[1].indexOf("some-other-name") === -1, "must not report the alias name");
+  fs.rmSync(repo, { recursive: true, force: true });
+  fs.rmSync(aliasParent, { recursive: true, force: true });
+});
