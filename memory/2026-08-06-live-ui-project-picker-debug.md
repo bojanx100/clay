@@ -171,3 +171,51 @@ so it appeared top-level only in the extension.
 The Clay daemon was not restarted to avoid interrupting active project turns.
 The endpoint correction takes effect on the next normal restart. Reload the
 unpacked extension once so its MV3 background worker loads automatic discovery.
+
+## Follow-up: keep completed workers for review and route feedback in place
+
+### Symptom
+
+A Live UI worker disappeared as soon as it reported a verified completion. If
+the user tested the result and submitted a correction, Clay created a different
+worker instead of continuing the worker that owned the change.
+
+### Root cause
+
+The report poller treated verified completion as implicit user approval. It
+immediately called the orchestration close path, which archived the worker.
+The target protocol also had no report identity on a later submission, so every
+composer send was unconditionally coordinated as a new task.
+
+### Fix
+
+- Verified reports remain in the target sidebar as `Ready for your review`.
+  Nothing archives automatically.
+- Every report card exposes `Add feedback`; completed reports also expose an
+  explicit `Approve` action.
+- Selecting a report changes the composer to `Following up with …` and sends
+  the report's trusted server-side identity. The server maps that identity to
+  its existing task and worker rather than accepting an arbitrary task id.
+- Follow-ups always attach a fresh masked screenshot and current diagnostics.
+  If the worker is busy, the text and screenshot remain queued together for its
+  next turn. Legacy workers archived by the former automatic behavior are
+  restored before the follow-up.
+- Approval is exactly-once, records the durable reason `Approved in Live UI`,
+  archives the worker, and removes only that approved report card.
+
+### Fresh verification
+
+- Fail-first coverage reproduced automatic archival, new-worker creation for a
+  correction, rejection of completed-worker follow-up, and duplicate approval.
+- Focused server coverage now verifies review retention, same-worker feedback,
+  screenshot delivery for idle and active workers, explicit approval, and
+  idempotent approval replay.
+- A clean isolated Clay checkout with only this diff passes 1,038/1,038 tests.
+  The extension passes 21/21 tests. Syntax, whitespace, module-size, and changed-
+  function complexity checks pass; the two remaining complexity findings are
+  pre-existing untouched dispatch/recovery functions.
+
+The live daemon was not restarted because other project turns remain active.
+The server behavior takes effect on the next normal Clay restart. Reload the
+unpacked extension once to activate the new report-card actions and composer
+routing.

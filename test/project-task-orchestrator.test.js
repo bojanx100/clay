@@ -1308,6 +1308,73 @@ test("send task message does not restart a completed worker", function () {
   assert.equal(ctx.starts.length, 2);
 });
 
+test("Live UI follow-up resumes the completed task in its existing worker", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+  worker.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: First pass.\n" +
+      "VERIFICATION: regression test passed\nESCALATION_REQUIRED: no",
+  });
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+  worker.hidden = true;
+  worker._orchestrationTaskClosed = true;
+  task.archivedAt = Date.now();
+
+  var result = ctx.api.messageFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    message: "The mobile spacing still needs adjustment.",
+    imageRefs: [{ mediaType: "image/png", file: "followup.png" }],
+    _liveUiFollowup: true,
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /existing worker/);
+  assert.equal(task.status, "running");
+  assert.equal(task.archivedAt, undefined);
+  assert.equal(worker.hidden, undefined);
+  assert.equal(worker._orchestrationTaskClosed, false);
+  assert.equal(ctx.starts[2].session, worker);
+  assert.match(ctx.starts[2].prompt, /mobile spacing still needs adjustment/);
+  assert.deepEqual(ctx.starts[2].images, [{
+    mediaType: "image/png",
+    data: "loaded-followup.png",
+  }]);
+});
+
+test("Live UI feedback queues on the active worker with its screenshot", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  ctx.api.delegateFromTool(brief(parent));
+  var task = parent.orchestrationTasks[0];
+  var worker = ctx.starts[0].session;
+
+  var result = ctx.api.messageFromTool({
+    coordinatorSessionId: parent.storageId,
+    taskId: task.taskId,
+    message: "Also tighten the tablet breakpoint.",
+    imageRefs: [{ mediaType: "image/png", file: "tablet.png" }],
+    _liveUiFollowup: true,
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.match(result.content[0].text, /existing worker/);
+  assert.equal(worker.pendingCoordinatorMessages.length, 1);
+  worker.isProcessing = false;
+  worker._subscriber({ type: "done" });
+  assert.equal(task.status, "running");
+  assert.match(ctx.starts[1].prompt, /tighten the tablet breakpoint/);
+  assert.deepEqual(ctx.starts[1].images, [{
+    mediaType: "image/png",
+    data: "loaded-tablet.png",
+  }]);
+});
+
 test("retrying a completed task reuses its idle worker conversation", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);

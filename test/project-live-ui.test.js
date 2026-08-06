@@ -56,6 +56,7 @@ function harness(overrides) {
   });
   var coordinated = [];
   var closed = [];
+  var followedUp = [];
   var taskSequence = 0;
   var liveUi = attachProjectLiveUi({
     slug: "clay",
@@ -113,8 +114,16 @@ function harness(overrides) {
           workerColor: task.workerColor,
         };
       },
-      closeTask: function (parent, taskId) {
-        closed.push(taskId);
+      messageFromTool: function (input) {
+        followedUp.push(input);
+        var task = session.orchestrationTasks.find(function (candidate) {
+          return candidate.taskId === input.taskId;
+        });
+        if (task) task.status = "running";
+        return { content: [{ type: "text", text: "Sent the Live UI follow-up." }] };
+      },
+      closeTask: function (parent, taskId, targetWs, reason) {
+        closed.push({ taskId: taskId, reason: reason });
         parent.orchestrationTasks = parent.orchestrationTasks.filter(function (task) {
           return task.taskId !== taskId;
         });
@@ -133,6 +142,7 @@ function harness(overrides) {
     commands: commands,
     coordinated: coordinated,
     closed: closed,
+    followedUp: followedUp,
   };
 }
 
@@ -405,7 +415,7 @@ test("target exit revokes the pairing and notifies the control", function () {
   }));
 });
 
-test("target reports create independent coordinator workers with automatic evidence", async function () {
+test("target reports remain for review and route follow-up to their existing worker", async function () {
   var state = harness();
   var paired = pair(state);
   prove(state, paired);
@@ -485,6 +495,10 @@ test("target reports create independent coordinator workers with automatic evide
       entry.message.payload.worker.color === "#A78BFA" &&
       entry.message.payload.locator.component.name === "PricingCard";
   }));
+  var firstAccepted = state.sent.find(function (entry) {
+    return entry.message.type === "live_ui_relay" &&
+      entry.message.event === "report.accepted";
+  }).message.payload;
 
   state.liveUi.handleLiveUiMessage(state.extensionWs, {
     type: "live_ui_relay",
@@ -508,9 +522,70 @@ test("target reports create independent coordinator workers with automatic evide
   assert.ok(state.sent.some(function (entry) {
     return entry.message.type === "live_ui_relay" &&
       entry.message.event === "report.status" &&
-      entry.message.payload.status === "completed";
+      entry.message.payload.status === "completed" &&
+      entry.message.payload.message === "Ready for your review.";
   }));
-  assert.deepStrictEqual(state.closed, ["task-1"]);
+  assert.deepStrictEqual(state.closed, []);
+
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
+    clientMessageId: "report-followup-1",
+    event: "report.submit",
+    payload: {
+      reportId: firstAccepted.reportId,
+      text: "The spacing is still too tight on mobile.",
+      screenshot: {
+        mediaType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      },
+    },
+  });
+  assert.strictEqual(state.coordinated.length, 2);
+  assert.strictEqual(state.followedUp.length, 1);
+  assert.strictEqual(state.followedUp[0].taskId, "task-1");
+  assert.strictEqual(state.followedUp[0]._liveUiFollowup, true);
+  assert.match(state.followedUp[0].message, /still too tight on mobile/);
+  assert.deepStrictEqual(state.followedUp[0].imageRefs, [{
+    mediaType: "image/png",
+    file: "live-ui-shot.png",
+  }]);
+
+  state.session.orchestrationTasks[0].status = "completed";
+  state.session.orchestrationTasks[0].resolvedByCoordinator = true;
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
+    clientMessageId: "report-approve-1",
+    event: "report.approve",
+    payload: { reportId: firstAccepted.reportId },
+  });
+  assert.deepStrictEqual(state.closed, [{
+    taskId: "task-1",
+    reason: "Approved in Live UI",
+  }]);
+  assert.ok(state.sent.some(function (entry) {
+    return entry.message.type === "live_ui_relay" &&
+      entry.message.event === "report.removed" &&
+      entry.message.payload.reportId === firstAccepted.reportId;
+  }));
+  var errorsBeforeDuplicate = state.sent.filter(function (entry) {
+    return entry.message.type === "live_ui_state" && entry.message.state === "error";
+  }).length;
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
+    clientMessageId: "report-approve-1",
+    event: "report.approve",
+    payload: { reportId: firstAccepted.reportId },
+  });
+  assert.strictEqual(state.closed.length, 1);
+  assert.strictEqual(state.sent.filter(function (entry) {
+    return entry.message.type === "live_ui_state" && entry.message.state === "error";
+  }).length, errorsBeforeDuplicate);
 });
 
 test("rejects an unsafe Live UI screenshot payload", function () {
