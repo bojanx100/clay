@@ -1,0 +1,110 @@
+var test = require("node:test");
+var assert = require("node:assert");
+var palette = require("../lib/server-palette");
+
+function project(status, sessions) {
+  return {
+    getStatus: function () { return status; },
+    sm: { sessions: new Map(sessions.map(function (session) {
+      return [session.localId, session];
+    })) },
+  };
+}
+
+function users() {
+  return {
+    canAccessProject: function (userId, access) {
+      return access.visibility === "public" || access.ownerId === userId;
+    },
+    canAccessSession: function (userId, session, access) {
+      if (access && access.visibility === "private" && access.ownerId !== userId) {
+        return false;
+      }
+      return !session.ownerId || session.ownerId === userId;
+    },
+  };
+}
+
+test("Live UI catalog contains base projects and top-level chats only", function () {
+  var projects = new Map([
+    ["clay", project({ title: "Clay" }, [
+      { localId: 1, title: "Regular", lastActivity: 10 },
+      { localId: 2, title: "Coordinator", coordinationMode: true, lastActivity: 20 },
+      { localId: 3, title: "Worker", orchestrationParent: { sessionId: 2 } },
+      { localId: 4, title: "Hidden", hidden: true },
+    ])],
+    ["worktree", project({ title: "Branch", isWorktree: true }, [
+      { localId: 5, title: "Branch chat" },
+    ])],
+    ["mate", project({ title: "Mate", isMate: true }, [
+      { localId: 6, title: "Mate chat" },
+    ])],
+    ["lead", project({ title: "Coop", isLead: true }, [
+      { localId: 7, title: "Coop chat" },
+    ])],
+  ]);
+  var result = palette.buildLiveUiCatalog(projects, users(), null, null);
+  assert.strictEqual(result.length, 1);
+  assert.strictEqual(result[0].projectSlug, "clay");
+  assert.deepStrictEqual(result[0].sessions.map(function (session) {
+    return session.title;
+  }), ["Coordinator", "Regular"]);
+  assert.strictEqual(result[0].sessions[0].coordinationMode, true);
+});
+
+test("Live UI catalog applies project and session access before publishing", function () {
+  var projects = new Map([
+    ["public", project({ title: "Public" }, [
+      { localId: 1, title: "Shared", lastActivity: 30 },
+      { localId: 2, title: "Other owner", ownerId: "other", lastActivity: 20 },
+      { localId: 3, title: "Mine", ownerId: "owner", lastActivity: 10 },
+    ])],
+    ["private", project({ title: "Private" }, [
+      { localId: 4, title: "Private chat" },
+    ])],
+    ["broken", project({ title: "Broken access" }, [
+      { localId: 5, title: "Must not leak" },
+    ])],
+  ]);
+  function getAccess(slug) {
+    if (slug === "broken") return { error: "unavailable" };
+    return slug === "private" ?
+      { visibility: "private", ownerId: "other" } :
+      { visibility: "public", ownerId: null };
+  }
+  var result = palette.buildLiveUiCatalog(
+    projects, users(), { id: "owner" }, getAccess);
+  assert.strictEqual(result.length, 1);
+  assert.strictEqual(result[0].projectSlug, "public");
+  assert.deepStrictEqual(result[0].sessions.map(function (session) {
+    return session.title;
+  }), ["Shared", "Mine"]);
+});
+
+test("palette endpoint publishes the Live UI catalog only through its explicit scope", function () {
+  var projectMap = new Map([
+    ["clay", project({ title: "Clay" }, [
+      { localId: 9, title: "UI chat" },
+    ])],
+  ]);
+  var usersModule = users();
+  usersModule.isMultiUser = function () { return false; };
+  var handler = palette.attachPalette({
+    users: usersModule,
+    projects: projectMap,
+    getMultiUserFromReq: function () { return null; },
+    onGetProjectAccess: null,
+  });
+  var statusCode = null;
+  var body = null;
+  var handled = handler.handleRequest({
+    method: "GET",
+    url: "/api/palette/search?scope=live-ui",
+  }, {
+    writeHead: function (status) { statusCode = status; },
+    end: function (value) { body = value; },
+  }, "/api/palette/search");
+  assert.strictEqual(handled, true);
+  assert.strictEqual(statusCode, 200);
+  assert.strictEqual(JSON.parse(body).projects[0].sessions[0].title, "UI chat");
+});
