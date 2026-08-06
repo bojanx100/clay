@@ -978,6 +978,45 @@
     text-align: center;
   }
 
+  /* --- Coop topic lenses on the mobile chat sheet --- */
+  .mobile-coop-topic-overview { display: flex; gap: 8px; margin: 4px 12px 8px; }
+  .mobile-coop-topic-all { min-height: 36px; padding: 7px 11px; border: 1px solid var(--border-subtle); border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; }
+  .mobile-coop-topic-all.active,
+  .mobile-coop-topic-all:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
+  .mobile-coop-topic-group { margin: 6px 8px 10px 12px; }
+  .mobile-coop-topic-group-heading { padding: 5px 8px; color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .mobile-coop-topic-wrapper { margin: 2px 0 4px; }
+  .mobile-coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
+  .mobile-coop-topic-row { display: flex; align-items: center; width: 100%; min-height: 42px; gap: 8px; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; text-align: left; }
+  .mobile-coop-topic-row:active,
+  .mobile-coop-topic-row.active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
+  .mobile-coop-topic-status { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--text-dimmer); }
+  .mobile-coop-topic-status-active,
+  .mobile-coop-topic-status-running { background: var(--accent); }
+  .mobile-coop-topic-status-blocked,
+  .mobile-coop-topic-status-failed,
+  .mobile-coop-topic-status-needs_input { background: var(--warning, #d99824); }
+  .mobile-coop-topic-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-coop-topic-active,
+  .mobile-coop-topic-unread,
+  .mobile-coop-topic-attention { flex: 0 0 auto; font-size: 10px; }
+  .mobile-coop-topic-active { color: var(--accent); }
+  .mobile-coop-topic-unread { padding: 2px 6px; border-radius: 9px; background: rgba(var(--accent-rgb), .14); color: var(--accent); }
+  .mobile-coop-topic-attention { color: var(--warning, #d99824); }
+  .mobile-coop-topic-details-toggle { margin: 0 10px 3px; min-height: 28px; padding: 4px 0; border: 0; background: transparent; color: var(--text-dimmer); font: inherit; font-size: 12px; }
+  .mobile-coop-topic-drawer { margin: 0 10px 5px 20px; padding: 5px 0 4px 9px; border-left: 1px solid var(--border-subtle); }
+  .mobile-coop-topic-detail-line { display: flex; gap: 6px; margin: 3px 0; font-size: 11px; line-height: 1.4; }
+  .mobile-coop-topic-detail-label { flex: 0 0 auto; color: var(--text-secondary); font-weight: 600; }
+  .mobile-coop-topic-detail-value { min-width: 0; color: var(--text-dimmer); overflow-wrap: anywhere; }
+  .mobile-coop-topic-execution { margin: 4px 0 4px calc(var(--coop-topic-depth, 0) * 10px); padding-left: 7px; border-left: 1px solid var(--border-subtle); font-size: 11px; }
+  .mobile-coop-topic-execution-link:active { background: rgba(var(--overlay-rgb), .08); }
+  .mobile-coop-topic-execution-label { color: var(--text-secondary); }
+  .mobile-coop-topic-execution-status,
+  .mobile-coop-topic-execution-activity { margin-left: 5px; color: var(--text-dimmer); }
+  .mobile-coop-topic-event { display: block; width: 100%; min-height: 30px; margin: 4px 0; padding: 5px 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 11px; text-align: left; }
+  .mobile-coop-topic-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+  .mobile-coop-topic-action { min-height: 30px; padding: 5px 8px; border: 1px solid var(--border-subtle); border-radius: 6px; background: transparent; color: var(--text-dimmer); font: inherit; font-size: 11px; }
+
   .mobile-session-action svg {
     width: 18px;
     height: 18px;

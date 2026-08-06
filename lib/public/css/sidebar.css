@@ -1245,6 +1245,113 @@
 .global-coop-channel-action:hover,
 .global-coop-handoff-action:hover { background: var(--sidebar-hover); color: var(--text); }
 
+/* --- Coop topic lenses --- */
+.coop-topic-overview {
+  display: flex;
+  gap: 6px;
+  margin: 2px 8px 7px;
+}
+
+.coop-topic-all {
+  min-height: 27px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.coop-topic-all.active,
+.coop-topic-all:hover { background: var(--sidebar-hover); color: var(--text); }
+.coop-topic-group { margin: 4px 0 7px 8px; }
+.coop-topic-group-heading {
+  padding: 4px 8px;
+  color: var(--text-dimmer);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.coop-topic-wrapper { margin: 1px 8px 3px 0; }
+.coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
+.coop-topic-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 29px;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+}
+.coop-topic-row:hover,
+.coop-topic-row:focus-visible,
+.coop-topic-row.active { background: var(--sidebar-hover); color: var(--text); }
+.coop-topic-status {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--text-dimmer);
+}
+.coop-topic-status-active,
+.coop-topic-status-running { background: var(--accent); }
+.coop-topic-status-blocked,
+.coop-topic-status-failed,
+.coop-topic-status-needs_input { background: var(--warning, #d99824); }
+.coop-topic-status-closed,
+.coop-topic-status-archived { background: var(--text-dimmer); }
+.coop-topic-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coop-topic-active,
+.coop-topic-unread,
+.coop-topic-attention { flex: 0 0 auto; font-size: 9px; }
+.coop-topic-active { color: var(--accent); }
+.coop-topic-unread { padding: 1px 5px; border-radius: 8px; background: rgba(var(--accent-rgb), .14); color: var(--accent); }
+.coop-topic-attention { color: var(--warning, #d99824); }
+.coop-topic-details-toggle {
+  margin: 0 7px 2px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-dimmer);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+.coop-topic-details-toggle:hover { color: var(--text); }
+.coop-topic-drawer { margin: 0 7px 4px 18px; padding: 4px 0 3px 8px; border-left: 1px solid var(--border-subtle); }
+.coop-topic-detail-line { display: flex; gap: 5px; margin: 2px 0; font-size: 10px; line-height: 1.35; }
+.coop-topic-detail-label { flex: 0 0 auto; color: var(--text-secondary); font-weight: 600; }
+.coop-topic-detail-value { min-width: 0; color: var(--text-dimmer); overflow-wrap: anywhere; }
+.coop-topic-execution { margin: 3px 0 3px calc(var(--coop-topic-depth, 0) * 8px); padding-left: 6px; border-left: 1px solid var(--border-subtle); font-size: 10px; }
+.coop-topic-execution-link { cursor: pointer; }
+.coop-topic-execution-link:hover { color: var(--text); background: var(--sidebar-hover); }
+.coop-topic-execution-label { color: var(--text-secondary); }
+.coop-topic-execution-status,
+.coop-topic-execution-activity { margin-left: 4px; color: var(--text-dimmer); }
+.coop-topic-event { display: block; width: 100%; margin: 3px 0; padding: 3px 0; border: 0; background: transparent; color: var(--accent); cursor: pointer; font: inherit; font-size: 10px; text-align: left; }
+.coop-topic-event:hover { color: var(--text); }
+.coop-topic-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.coop-topic-action { padding: 3px 6px; border: 1px solid var(--border-subtle); border-radius: 5px; background: transparent; color: var(--text-dimmer); cursor: pointer; font: inherit; font-size: 10px; }
+.coop-topic-action:hover { background: var(--sidebar-hover); color: var(--text); }
+.coop-topic-dialog-backdrop { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, .48); }
+.coop-topic-dialog { width: min(360px, 100%); padding: 18px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--sidebar-bg, var(--bg)); box-shadow: 0 16px 48px rgba(0, 0, 0, .35); color: var(--text); }
+.coop-topic-dialog h2 { margin: 0 0 7px; font-size: 16px; }
+.coop-topic-dialog-copy { margin: 0 0 12px; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.coop-topic-dialog-input { width: 100%; min-height: 34px; box-sizing: border-box; padding: 7px 9px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+.coop-topic-dialog-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 14px; }
+.coop-topic-dialog-actions button { min-height: 30px; padding: 5px 10px; border: 1px solid var(--border-subtle); border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 12px; }
+.coop-topic-dialog-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 .session-list-target-loading {
   padding: 18px 12px;
   color: var(--text-dimmer);

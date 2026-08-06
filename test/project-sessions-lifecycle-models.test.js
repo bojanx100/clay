@@ -67,10 +67,11 @@ test("ordinary new sessions preserve a configured model default", function () {
 
 function traceLifecycleHarness(session, store, canAccess) {
   var switched = [];
+  var switchCalls = [];
   var sm = {
     sessions: new Map([[session.localId, session]]),
     modelsByVendor: {},
-    switchSession: function (id) { switched.push(id); },
+    switchSession: function (id) { switched.push(id); switchCalls.push(Array.prototype.slice.call(arguments)); },
   };
   var lifecycle = attachProjectSessionsLifecycle({
     slug: "clay",
@@ -91,8 +92,23 @@ function traceLifecycleHarness(session, store, canAccess) {
     email: { getEmailDefaults: function () { return []; } },
     coopHandoffTraceStore: store,
   });
-  return { lifecycle: lifecycle, sm: sm, switched: switched };
+  return { lifecycle: lifecycle, sm: sm, switched: switched, switchCalls: switchCalls };
 }
+
+test("topic replay options are consumed only from server-private websocket state", function () {
+  var target = { localId: 7, storageId: "topic-home", ownerId: "owner-a", history: [] };
+  var harness = traceLifecycleHarness(target, { recordNavigation: function () {} }, function () { return true; });
+  var replayOptions = { eventIndexes: [1, 2, 3], scope: "topic", topicRef: { topicId: "topic-1" } };
+  var ws = {
+    _clayUser: { id: "owner-a" },
+    _clayTopicReplayOptions: { sessionLocalId: 7, options: replayOptions },
+  };
+
+  harness.lifecycle.handleLifecycleMessage(ws, { type: "switch_session", id: 7, historyScope: "topic" });
+
+  assert.deepStrictEqual(harness.switchCalls[0][3], replayOptions);
+  assert.equal(Object.hasOwn(ws, "_clayTopicReplayOptions"), false);
+});
 
 test("an authorized client-correlated stable switch completes a handoff after access validation", async function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-lifecycle-trace-"));

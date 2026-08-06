@@ -1,6 +1,10 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("node:fs");
+var os = require("node:os");
+var path = require("node:path");
 var buildGlobalCoopProjection = require("../lib/global-coop-projection").buildGlobalCoopProjection;
+var createTopicIndex = require("../lib/coop-topic-index").createTopicIndex;
 
 function session(id, value) {
   return Object.assign({
@@ -109,4 +113,74 @@ test("Coop summary applies project ACLs and summarizes attention without exposin
   assert.match(projection.projects[0].summary.nextAction, /resolve attention/);
   assert.equal(JSON.stringify(projection.projects[0]).includes("hidden-worker"), false);
   assert.equal(JSON.stringify(projection.projects[0]).includes("attempt"), false);
+});
+
+test("global Coop projection exposes bounded topic lenses and revokes denied project topics", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-global-topic-"));
+  try {
+    var index = createTopicIndex({ file: path.join(dir, "lead", "topics.json"), now: function () { return 10; } });
+    var home = session(1, {
+      storageId: "canonical-topic-home", coopHome: true,
+      history: [
+        { type: "user_message", text: "Navigation session restoration and sidebar" },
+        { type: "delta_replace", text: "The navigation restoration is complete." },
+        { type: "done" },
+      ],
+    });
+    var lead = project("system-lead", "lead", [home], { isLead: true });
+    var clay = project("5332aafc-31e7-5cb1-ba96-c8d90e78260e", "clay", []);
+    buildGlobalCoopProjection({ projects: [lead, clay], coopTopicIndex: index });
+    assert.equal(index.addEventMembership({ topicId: "navigation-session-restoration" }, [
+      { eventIndex: 1 }, { eventIndex: 2 },
+    ]).ok, true);
+    var durableNavigation = index.resolve({ topicId: "navigation-session-restoration" }).topic;
+    for (var eventIndex = 3; eventIndex < 21000; eventIndex++) {
+      durableNavigation.eventRefs.push({
+        projectId: "system-lead", sessionStorageId: "canonical-topic-home", eventIndex: eventIndex,
+      });
+    }
+    var visible = buildGlobalCoopProjection({ projects: [lead, clay], coopTopicIndex: index });
+    var navigation = visible.topics.find(function (topic) { return topic.topicRef.topicId === "navigation-session-restoration"; });
+    assert.equal(navigation.projectRef.projectId, clay.projectId);
+    assert.equal(navigation.group, "project");
+    assert.deepEqual(navigation.canonicalEvents[0].eventRef, {
+      eventKey: "canonical:canonical-topic-home:0", projectId: "system-lead",
+      sessionStorageId: "canonical-topic-home", eventIndex: 0,
+    });
+    assert.equal(navigation.eventCount, 21000);
+    assert.equal(navigation.turnCount, 1);
+    assert.equal(navigation.canonicalEvents.length, 2);
+    assert.equal(navigation.lastEventRef.eventIndex, 20999);
+    assert.equal(Object.hasOwn(navigation, "canonicalTurnRanges"), false);
+    assert.equal(navigation.status, "open");
+    assert.equal(navigation.rollingSummary, "1 canonical turn");
+    assert.equal(JSON.stringify(navigation).includes("Navigation session restoration and sidebar"), false);
+    assert.equal(index.resolve({ topicId: "navigation-session-restoration" }).topic.eventRefs.length, 21000,
+      "full membership remains in the server-side durable index");
+    var rawTopic = visible.topicProjection.groups.reduce(function (found, group) {
+      return found || group.topics.find(function (topic) { return topic.topicRef.topicId === "navigation-session-restoration"; });
+    }, null);
+    assert.equal(Object.hasOwn(rawTopic, "eventRefs"), true);
+    assert.deepEqual(rawTopic.eventRefs, []);
+    assert.deepEqual(rawTopic.turnRefs, []);
+    assert.equal(JSON.stringify(visible).length < 20000, true,
+      "a 21k-event topic does not inflate the initial sidebar projection");
+    assert.equal(JSON.stringify(visible).includes('"eventIndex":10000'), false,
+      "non-preview canonical memberships stay server-side");
+
+    var revoked = buildGlobalCoopProjection({
+      projects: [lead, clay], coopTopicIndex: index,
+      canAccessProject: function (_, item) { return item !== clay; },
+    });
+    assert.equal(revoked.topics.some(function (topic) { return topic.projectRef && topic.projectRef.projectId === clay.projectId; }), false);
+
+    var deniedCanonical = buildGlobalCoopProjection({
+      projects: [lead, clay], coopTopicIndex: index,
+      canAccessSession: function () { return false; },
+    });
+    assert.deepEqual(deniedCanonical.topics, []);
+    assert.equal(deniedCanonical.topicProjection, null);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

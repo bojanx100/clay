@@ -103,6 +103,7 @@ test("restart recovery rebuilds only undispatched Coop ingress and preserves for
         coopIngressKind: "voice",
         coopIngressPending: true,
         coopProjectRef: { projectId: "11111111-1111-5111-8111-111111111111" },
+        coopTopicRef: { topicId: "queued-message-recovery" },
       },
       {
         type: "user_message",
@@ -121,5 +122,6 @@ test("restart recovery rebuilds only undispatched Coop ingress and preserves for
   assert.equal(session.pendingCoopIngress.length, 1);
   assert.equal(session.pendingCoopIngress[0].ingressId, "coop:coop-restart:3");
   assert.match(session.pendingCoopIngress[0].finalText, /<coop_foreground_turn>/);
+  assert.match(session.pendingCoopIngress[0].finalText, /<coop_topic_context>/);
   assert.match(session.pendingCoopIngress[0].finalText, /<coop_project_context>/);
 });

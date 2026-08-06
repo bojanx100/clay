@@ -60,6 +60,7 @@ function makeContext(options) {
     handoffTraceOwnerId: function () { return "_single_user"; },
     observeAssistantTurns: function () { return function () { return 0; }; },
     usersModule: { isMultiUser: function () { return false; } },
+    validateCoopTopicIngress: options.validateCoopTopicIngress,
   });
   return { context: context, session: session, sent: sent, sdkCalls: sdkCalls, cwd: cwd };
 }
@@ -79,6 +80,41 @@ test("unknown and prototype message types fall through, while empty message is c
   assert.equal(h.context.handleUserMessage({}, { type: "message" }), true);
   assert.equal(h.session.history.length, 0);
   assert.equal(h.sdkCalls.length, 0);
+});
+
+test("canonical topic ingress rejects stale refs and records a newly inferred route", function () {
+  var seen = null;
+  var session = {
+    localId: 14, vendor: "codex", coopHome: true, history: [],
+    coopTopicSelection: { topicRef: { topicId: "selected-topic" }, projectRef: { projectId: "system-lead" } },
+  };
+  var h = makeContext({
+    session: session,
+    validateCoopTopicIngress: function (_, msg, ws) {
+      seen = { topicRef: msg.coopTopicRef, projectRef: msg.coopProjectRef };
+      assert.equal(ws && ws._clayUser && ws._clayUser.id, "owner");
+      return msg.coopTopicRef ? { ok: false, code: "topic_closed" } : {
+        ok: true, topicRef: { topicId: "automatic-route" }, projectRef: { projectId: "system-lead" },
+      };
+    },
+  });
+  h.context.handleUserMessage({ _clayUser: { id: "owner" } }, {
+    type: "message", text: "must not be written",
+    coopTopicRef: { topicId: "selected-topic" }, coopProjectRef: { projectId: "system-lead" },
+  });
+  assert.deepEqual(seen, {
+    topicRef: { topicId: "selected-topic" }, projectRef: { projectId: "system-lead" },
+  });
+  assert.equal(session.history.length, 0);
+  assert.equal(h.sdkCalls.length, 0);
+  assert.equal(h.sent.some(function (message) { return message.type === "error"; }), true);
+
+  seen = "not called";
+  h.context.handleUserMessage({ _clayUser: { id: "owner" } }, { type: "message", text: "All receives a new route" });
+  assert.deepEqual(seen, { topicRef: undefined, projectRef: undefined });
+  assert.equal(session.history.length, 1);
+  assert.deepEqual(session.history[0].coopTopicRef, { topicId: "automatic-route" });
+  assert.deepEqual(session.history[0].coopProjectRef, { projectId: "system-lead" });
 });
 
 test("paste instrumentation preserves before-after field ordering", async function () {

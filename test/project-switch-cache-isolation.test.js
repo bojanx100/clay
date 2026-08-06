@@ -28,7 +28,7 @@ test("all plain Lead entry points route to canonical Coop home and preserve exac
 
   assert.match(projects, /export function restoreCanonicalLeadHome\(\)/);
   assert.match(projects, /if \(slug === "lead"\) \{\s+restoreCanonicalLeadHome\(\);/);
-  assert.match(app, /if \(newSlug === "lead" && !urlRef\) \{\s+syncCoopLensFromUrl\(\);\s+renderSessionList\(null\);\s+_projRestoreCanonicalLeadHome\(\);/);
+  assert.match(app, /if \(newSlug === "lead" && !urlRef\) \{\s+syncCoopLensFromUrl\(_connSendUserAction\);\s+renderSessionList\(null\);\s+_projRestoreCanonicalLeadHome\(\);/);
   assert.match(connection, /currentSlug === "lead" && !urlSessionRef \? null : readTabSession/);
   assert.match(messages, /store\.set\(\{ coopHomeSessionId: coopHome \? coopHome\.id : null \}\)/);
   assert.match(messages, /if \(currentSlug === "lead" && msg\.coopHome\) forgetTabSession\(currentSlug\);/);

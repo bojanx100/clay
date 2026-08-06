@@ -32,7 +32,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-sessions-config.js` | `get_daemon_config`, `set_pin`, `set_keep_awake`, `set_auto_continue`, `set_inherit_groups`, `set_image_retention`, `shutdown_server`, `restart_server`, `process_stats`, `set_update_channel`, `check_update`, `update_now` | Daemon config, server management, update checks, process stats |
 | `project-sessions-git-accounts.js` | `list_git_accounts`, `get_project_git_account`, `set_project_git_account` | Project GitHub account listing and pinning handlers |
 | `project-sessions-handoff.js` | `refresh_vendors`, `handoff_session` | Provider refresh, provider-route/model matching, and cross-provider session handoff |
-| `project-sessions-history.js` | `load_more_history`, `compact_session` | Session history pagination and manual compaction |
+| `project-sessions-history.js` | `load_more_history`, `compact_session` | Session history pagination, including active Coop topic membership lenses, and manual compaction |
 | `project-sessions-lifecycle.js` | `new_session`, `switch_session`, `sync_external_session` | Session creation, switching, external session sync, and new-session TUI startup |
 | `project-sessions-live.js` | `push_subscribe`, `stop`, `stop_task`, `kill_process`, `input_sync`, `cursor_*`, `text_select` | Push registration, live stop/kill controls, input sync, and collaborative cursor/text selection fanout |
 | `project-sessions-permissions.js` | `ask_user_response`, `permission_response`, `elicitation_response`, `user_dialog_response`, `get_claude_allow_list`, `set_claude_user_allow_list` | User/tool permission responses, elicitation/dialog responses, and Claude allow-list updates |
@@ -52,6 +52,13 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-user-message-queue.js` | Queue append/flush/steer and SDK dispatch | Normal-session recovery/backpressure plus the separate FIFO Coop ingress lane |
 | `project-user-message-handlers.js` | `note_*`, `term_*`, `context_sources_save`, `browser_tab_list`, `extension_result`, `loop_*` delegation, adoption, scheduling, queue controls | Auxiliary WebSocket routing with permission gates and own-property-safe dispatch |
 | `project-user-message-context.js` | `message` preparation, terminal/email/browser context collection | History persistence, image/paste handling, context aggregation, and async dispatch |
+| `coop-topic-connection.js` | `coop_topic_projection_request`, `coop_topic_select`, topic management, and canonical event resolution | ACL-safe topic projection, per-WebSocket lens selection, filtered canonical replay, and exact original-event drill-through |
+| `coop-topic-index.js` | Durable Coop TopicRef/ProjectRef membership index | Restart-safe retro migration, many-to-many turn references, topic lifecycle operations, and reference-only persistence under `~/.clay/lead/` |
+| `coop-topic-classification.js` | Automatic canonical Coop topic classification | Existing-topic matching, human-readable deterministic topic creation, follow-up reuse, and inferred project grouping |
+| `coop-topic-extraction.js` | Canonical Coop history turn extraction | Stable owner-turn boundaries and seed-topic matching without transcript copies |
+| `coop-topic-ingress.js` | Canonical Coop ingress route validation | Fail-closed explicit TopicRef/ProjectRef validation and automatic route inference |
+| `coop-topic-live-index.js` | Completed canonical turn indexing | Incremental many-to-many membership updates and projection refresh after live completion |
+| `coop-topic-migration.js` | Topic classifier-version migration | Idempotent cleanup of obsolete opaque topics and replay reset of derived memberships while preserving managed topic state |
 | `project-loop.js` | `loop_start`, `loop_stop`, `ralph_wizard_complete`, `ralph_wizard_cancel`, `ralph_cancel_crafting`, `ralph_preview_files`, `loop_registry_*`, `schedule_create`, `hub_schedules_list`, `delete_loop_group` | Loop/Ralph engine, loop registry, scheduling |
 | `project-loop-state.js` | (called from project-loop.js) | Persisted loop-state recovery, orphan-loop discovery, and reconnect payload decisions |
 | `project-loop-files.js` | (called from project-loop.js and project-loop-handlers.js) | Loop file readiness/title extraction, start preparation, settings persistence, and PROMPT/JUDGE watcher lifecycle |
@@ -170,7 +177,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-cli-import.js` | CLI/Codex/GitHub Copilot orphan adoption, import picker rows, hidden-session restore, and import materialization |
 | `sessions-deletion.js` | Session hide/delete/bulk delete, runtime cleanup, tombstoning, and active-client close handling |
 | `sessions-handoff.js` | Session handoff history inference, missing handoff context recovery, vendor/model/route replay helpers |
-| `sessions-history.js` | Session history pagination, replay ordering, assistant-event classification, replay completion metadata |
+| `sessions-history.js` | Session history pagination, indexed reference-only topic replay and logical-offset pages, exact-event focus, replay ordering, assistant-event classification, replay completion metadata |
 | `sessions-io.js` | Per-session ephemeral sends, recorded history fanout, subscriber callbacks, unread/session I/O notifications |
 | `sessions-lifecycle.js` | Session creation, raw/background session creation, switching/replay fanout, and CLI resume materialization |
 | `sessions-loader.js` | Persisted session JSONL loading, restart-interruption recovery, legacy history relabeling, moved session file adoption |
@@ -345,11 +352,14 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-skills-install.js` | Skill install dialog, requireSkills, requireClayMateInterview |
 | `app-favicon.js` | Dynamic favicon, IO blink, urgent blink, send button mode, activity indicator |
 | `app-header.js` | Session rename, session info popover, progressive history loading |
-| `global-coop-projection.js` | Permanent Coop UI state, project-lens navigation, dense facts, and exact canonical SessionRef handoffs without transcript copies |
+| `global-coop-projection.js` | Permanent Coop UI state, automatic topic-lens navigation, two-phase fail-closed URL selection, dense facts, and exact canonical SessionRef handoffs without transcript copies |
+| `app-messages-coop-topics.js` | Canonical live-message filtering and topic projection refresh after completed turns |
 | `coop-conversation-state.js` | Owner-facing Coop listening/replying and background-work status beside the composer |
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
-| `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Coop project lenses with canonical worker trees |
+| `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Coop project/topic lenses with canonical worker trees |
+| `sidebar-coop-topic-model.js` | Pure Coop topic grouping and display model for project, Cross-project, and Uncategorised sections |
+| `sidebar-coop-topics.js` | Conventional desktop/mobile topic chat rows, status drawers, management controls, and original-event navigation |
 | `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
 | `sidebar-sessions-context-menu.js` | Session and loop context menus, provider handoff entries, visibility toggle, and shared menu state |
 | `sidebar-sessions-orchestration.js` | Existing-session “Add to coordinator” picker, recommendation rows, and adoption acknowledgement |
@@ -370,7 +380,8 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar-projects.js` | Project icon strip, context menus, emoji picker, drag-and-drop reorder, worktree modal, project access popover, project rename, project badges |
 | `sidebar-lead.js` | Lead pseudo-project detection and pinned desktop/mobile sidebar row creation |
 | `sidebar-mates.js` | User/mate icon strip, DM picker, user/mate context menus, icon strip tooltips, sidebar presence, DM badges, DM user state |
-| `sidebar-mobile.js` | Mobile sheet overlays (projects, sessions, mate profile, search, tools, settings), mobile tab bar, drag-to-dismiss, mobile loop groups, local session rendering, and the Lead global projection hierarchy |
+| `sidebar-mobile.js` | Mobile sheet overlays (projects, sessions, mate profile, search, tools, settings), mobile tab bar, drag-to-dismiss, mobile loop groups, local session rendering, and the Coop project/topic hierarchy |
+| `stt-coop-routing.js` | In-memory microphone-start snapshot of the exact TopicRef/ProjectRef destination with stale-route rejection |
 | `scheduler.js` | Scheduler coordinator: init, open/close, calendar views (month/week), detail view, crafting mode, sidebar task list, cron utilities |
 | `scheduler-config.js` | Schedule create/edit modal, delete dialog, cron builder, recurrence/interval UI, calendar date picker, preview events |
 | `scheduler-cron-builders.js` | Pure scheduler cron string builders for recurrence, interval, and custom-repeat options |

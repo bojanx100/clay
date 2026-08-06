@@ -57,12 +57,19 @@ test("global Coop display model preserves only project channels and bounded summ
   assert.equal(Object.hasOwn(model.projects[0], "directLeaves"), false);
 });
 
-test("opening a project lens returns to the permanent main Coop session", async function () {
+test("opening a project lens validates the permanent main Coop destination", async function () {
   var ui = await loadProjectionUi();
   var sent = [];
   var target = project("11111111-1111-5111-8111-111111111111", "clay", "Clay");
+  ui.setGlobalCoopProjection({
+    type: "global_coop_projection",
+    coop: { title: "Coop", sessionRef: { projectId: "system-lead", sessionStorageId: "coop-home" }, localId: 12 },
+    projects: [target],
+  });
   assert.equal(ui.requestProjectChannel(target, function (message) { sent.push(message); return true; }), true);
-  assert.deepEqual(sent, [{ type: "switch_session", id: 12 }]);
+  assert.deepEqual(sent, [{
+    type: "coop_topic_select", topicRef: null, projectRef: target.projectRef, historyScope: "canonical",
+  }]);
 });
 
 test("project lens URLs preserve the exact Coop lens for browser history", async function () {

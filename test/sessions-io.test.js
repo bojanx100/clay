@@ -5,6 +5,7 @@ var { attachSessionIo } = require("../lib/sessions-io");
 test("done clears processing before it is broadcast", function () {
   var observedProcessing = null;
   var recorded = [];
+  var completedSession = null;
   var session = {
     localId: 7,
     isProcessing: true,
@@ -33,7 +34,7 @@ test("done clears processing before it is broadcast", function () {
     getSingleUserUnread: function () {
       return {};
     },
-    onSessionDone: function () {},
+    onSessionDone: function (doneSession) { completedSession = doneSession; },
   });
 
   api.sendAndRecord(session, { type: "done", code: 0 });
@@ -42,4 +43,5 @@ test("done clears processing before it is broadcast", function () {
   assert.equal(session._turnDoneSent, true);
   assert.equal(observedProcessing, false);
   assert.equal(recorded.length, 1);
+  assert.equal(completedSession, session);
 });
