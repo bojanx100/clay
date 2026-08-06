@@ -372,3 +372,46 @@ test("retro version upgrades replace stale derived memberships and preserve mana
     assert.equal(fs.readFileSync(h.index.file, "utf8"), saved);
   } finally { h.cleanup(); }
 });
+
+test("Coop session-ref resolution refuses a session that became a worker", function () {
+  var topicConnection = require("../lib/coop-topic-connection");
+
+  // The projection only ever links parentless sessions, but a link can go stale:
+  // the session may be adopted as a worker before the owner clicks it.
+  assert.equal(topicConnection.isTopLevelSession({ storageId: "top" }), true);
+  assert.equal(topicConnection.isTopLevelSession({
+    storageId: "worker", orchestrationParent: { sessionStorageId: "coordinator", taskId: "t1" },
+  }), false);
+  assert.equal(topicConnection.isTopLevelSession({
+    storageId: "worker", orchestrationGroupParent: { sessionStorageId: "coordinator" },
+  }), false);
+  // A parent record with no session reference does not make a session a worker.
+  assert.equal(topicConnection.isTopLevelSession({ storageId: "top", orchestrationParent: {} }), true);
+
+  var sent = [];
+  var ctx = {
+    slug: "lead",
+    sendTo: function (ws, msg) { sent.push(msg); },
+    resolveGlobalSessionRef: function (ref) {
+      return {
+        ok: true,
+        ref: ref,
+        project: { slug: "clay" },
+        session: ref.sessionStorageId === "worker-now"
+          ? { localId: 9, orchestrationParent: { sessionStorageId: "coordinator", taskId: "t1" } }
+          : { localId: 4 },
+      };
+    },
+  };
+
+  var workerRef = { projectId: CLAY, sessionStorageId: "worker-now" };
+  assert.equal(topicConnection.handleCoopMessage(ctx, {}, { type: "resolve_session_ref", sessionRef: workerRef }), true);
+  assert.deepEqual(sent[0], { type: "session_ref_resolved", ok: false, code: "worker_session_denied" });
+  assert.equal(JSON.stringify(sent).includes("worker-now"), false, "no worker reference is echoed back");
+
+  sent.length = 0;
+  var topRef = { projectId: CLAY, sessionStorageId: "still-top" };
+  topicConnection.handleCoopMessage(ctx, {}, { type: "resolve_session_ref", sessionRef: topRef });
+  assert.equal(sent[0].ok, true);
+  assert.equal(sent[0].localId, 4);
+});

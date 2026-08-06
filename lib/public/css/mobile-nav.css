@@ -798,6 +798,58 @@
   .mobile-coop-topic-activity { max-width: 42%; overflow: hidden; color: var(--text-dimmer); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
   .mobile-coop-topic-unread { flex: 0 0 auto; padding: 2px 6px; border-radius: 9px; background: rgba(var(--accent-rgb), .14); color: var(--accent); font-size: 10px; }
 
+  /* Same two controls as desktop. Touch has no hover, so Close stays visible
+     and keeps a 42px tap target. */
+  .mobile-coop-topic-main { display: flex; align-items: center; gap: 4px; }
+  .mobile-coop-topic-main .mobile-coop-topic-row { min-width: 0; }
+  .mobile-coop-topic-close {
+    flex: 0 0 auto;
+    min-height: 42px;
+    padding: 9px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-dimmer);
+    font: inherit;
+    font-size: 12px;
+  }
+  .mobile-coop-topic-close:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
+
+  .mobile-coop-topic-links-wrapper { margin: 0 0 3px 15px; }
+  .mobile-coop-topic-links-toggle {
+    display: block;
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-dimmer);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+  }
+  .mobile-coop-topic-links-toggle:active { background: rgba(var(--overlay-rgb), .08); color: var(--text-secondary); }
+  .mobile-coop-topic-links-toggle[aria-expanded="true"] { color: var(--text-secondary); }
+  .mobile-coop-topic-links { padding: 2px 0 4px; }
+  .mobile-coop-topic-link {
+    display: block;
+    width: 100%;
+    min-height: 42px;
+    padding: 9px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 13px;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mobile-coop-topic-link:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
+
   .mobile-session-list-target-loading {
     padding: 22px 12px;
     color: var(--text-dimmer);

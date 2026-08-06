@@ -184,3 +184,106 @@ test("global Coop projection exposes bounded topic lenses and revokes denied pro
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("topic related-session links stay top-level, ACL-filtered, and reference-only", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-related-sessions-"));
+  try {
+    var index = createTopicIndex({ file: path.join(dir, "lead", "topics.json"), now: function () { return 10; } });
+    var home = session(1, {
+      storageId: "canonical-topic-home", coopHome: true,
+      history: [
+        { type: "user_message", text: "Navigation session restoration and sidebar" },
+        { type: "delta_replace", text: "The navigation restoration is complete." },
+        { type: "done" },
+      ],
+    });
+    var lead = project("system-lead", "lead", [home], { isLead: true });
+
+    var coordinator = session(10, { storageId: "clay-coordinator", coordinationMode: true, title: "Sidebar coordinator" });
+    var directOwner = session(11, { storageId: "clay-direct", title: "Owner direct conversation" });
+    var worker = session(12, {
+      storageId: "clay-worker", title: "Worker attempt 2",
+      orchestrationParent: { sessionStorageId: "clay-coordinator", taskId: "task-1" },
+    });
+    var hidden = session(13, { storageId: "clay-hidden", title: "Hidden session", hidden: true });
+    var clay = project("5332aafc-31e7-5cb1-ba96-c8d90e78260e", "clay", [coordinator, directOwner, worker, hidden]);
+    var otherTopLevel = session(20, { storageId: "webapp-top", title: "Webapp work" });
+    var webapp = project("11111111-1111-5111-8111-111111111111", "webapp", [otherTopLevel], { title: "Webapp" });
+
+    buildGlobalCoopProjection({ projects: [lead, clay, webapp], coopTopicIndex: index });
+    var topicRef = { topicId: "navigation-session-restoration" };
+
+    // Link a top-level coordinator, a worker, a nested child, a missing
+    // session, and a session in another project.
+    assert.equal(index.linkExecution(topicRef, {
+      sessionRef: { projectId: clay.projectId, sessionStorageId: "clay-coordinator" },
+      taskRef: { projectId: clay.projectId, coordinatorSessionStorageId: "clay-coordinator", taskId: "task-1" },
+      children: [{ sessionRef: { projectId: clay.projectId, sessionStorageId: "clay-worker" } }],
+    }).ok, true);
+    assert.equal(index.linkExecution(topicRef, {
+      sessionRef: { projectId: clay.projectId, sessionStorageId: "clay-worker" },
+    }).ok, true);
+    assert.equal(index.linkExecution(topicRef, {
+      sessionRef: { projectId: clay.projectId, sessionStorageId: "clay-hidden" },
+    }).ok, true);
+    assert.equal(index.linkExecution(topicRef, {
+      sessionRef: { projectId: clay.projectId, sessionStorageId: "clay-gone" },
+    }).ok, true);
+    assert.equal(index.linkExecution(topicRef, {
+      sessionRef: { projectId: webapp.projectId, sessionStorageId: "webapp-top" },
+    }).ok, true);
+    // Duplicate of an already-linked top-level session.
+    assert.equal(index.linkExecution(topicRef, {
+      sessionRef: { projectId: clay.projectId, sessionStorageId: "clay-coordinator" },
+    }).ok, true);
+
+    var visible = buildGlobalCoopProjection({ projects: [lead, clay, webapp], coopTopicIndex: index });
+    var topic = visible.topics.find(function (item) { return item.topicRef.topicId === topicRef.topicId; });
+
+    assert.deepEqual(topic.relatedSessions, [
+      {
+        sessionRef: { projectId: clay.projectId, sessionStorageId: "clay-coordinator" },
+        projectRef: { projectId: clay.projectId },
+        title: "Sidebar coordinator",
+      },
+      {
+        sessionRef: { projectId: webapp.projectId, sessionStorageId: "webapp-top" },
+        projectRef: { projectId: webapp.projectId },
+        title: "Webapp work",
+      },
+    ]);
+    // The old worker-tree shape is gone from the topic payload entirely.
+    assert.equal(Object.hasOwn(topic, "relatedExecution"), false);
+    assert.equal(Object.hasOwn(topic, "relatedExecutions"), false);
+    var serializedTopics = JSON.stringify(visible.topics) + JSON.stringify(visible.topicProjection);
+    assert.equal(serializedTopics.includes("clay-worker"), false, "worker sessions are never linked");
+    assert.equal(serializedTopics.includes("clay-hidden"), false, "hidden sessions are never linked");
+    assert.equal(serializedTopics.includes("clay-gone"), false, "missing sessions are never linked");
+    assert.equal(serializedTopics.includes("Worker attempt 2"), false, "no attempt history reaches the client");
+    assert.equal(serializedTopics.includes("task-1"), false, "no task references reach the client");
+
+    // Durable state keeps the full link graph; only the projection is narrowed.
+    var durable = index.resolve(topicRef).topic.relatedExecutions;
+    assert.equal(durable.length, 6);
+    assert.equal(durable[0].children[0].sessionRef.sessionStorageId, "clay-worker");
+
+    // Revoking the project revokes its links, and per-session ACLs apply too.
+    var revoked = buildGlobalCoopProjection({
+      projects: [lead, clay, webapp], coopTopicIndex: index,
+      canAccessProject: function (_, item) { return item !== webapp; },
+    });
+    var revokedTopic = revoked.topics.find(function (item) { return item.topicRef.topicId === topicRef.topicId; });
+    assert.deepEqual(revokedTopic.relatedSessions.map(function (link) { return link.sessionRef.sessionStorageId; }),
+      ["clay-coordinator"]);
+
+    var sessionDenied = buildGlobalCoopProjection({
+      projects: [lead, clay, webapp], coopTopicIndex: index,
+      canAccessSession: function (_, item, target) { return item === lead || target.storageId !== "clay-coordinator"; },
+    });
+    var deniedTopic = sessionDenied.topics.find(function (item) { return item.topicRef.topicId === topicRef.topicId; });
+    assert.deepEqual(deniedTopic.relatedSessions.map(function (link) { return link.sessionRef.sessionStorageId; }),
+      ["webapp-top"]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

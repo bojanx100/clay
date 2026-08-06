@@ -86,11 +86,14 @@ test("Lead renderers keep primary navigation to compact project-grouped topic ch
   var desktop = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-sessions.js"), "utf8");
   var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"), "utf8");
   var projection = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "global-coop-projection.js"), "utf8");
+  var topics = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topics.js"), "utf8");
 
-  assert.match(desktop, /renderCoopProjectTopics/);
-  assert.match(mobile, /renderCoopProjectTopics/);
-  assert.match(desktop, /global-coop-project-heading/);
-  assert.match(mobile, /mobile-global-coop-project-heading/);
+  // Both surfaces render through the one shared section builder, so category
+  // order and the project heading markup cannot drift between them.
+  assert.match(desktop, /renderCoopTopicSections/);
+  assert.match(mobile, /renderCoopTopicSections/);
+  assert.match(topics, /prefix \+ "global-coop-project-heading"/);
+  assert.match(topics, /renderCoopProjectTopics/);
   assert.doesNotMatch(desktop, /Open canonical project|appendProjectedSessionTree|requestCanonicalSession|requestProjectChannel/);
   assert.doesNotMatch(mobile, /Open canonical project|appendMobileProjectedSessionTree|requestCanonicalSession|requestProjectChannel/);
   assert.match(desktop, /store\.get\("currentSlug"\) !== "lead"\) updateCountdowns\(\)/);

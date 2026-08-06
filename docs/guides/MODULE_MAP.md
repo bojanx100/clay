@@ -59,6 +59,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `coop-topic-ingress.js` | Canonical Coop ingress route validation | Fail-closed explicit TopicRef/ProjectRef validation and automatic route inference |
 | `coop-topic-live-index.js` | Completed canonical turn indexing | Incremental many-to-many membership updates and projection refresh after live completion |
 | `coop-topic-migration.js` | Topic classifier-version migration | Idempotent cleanup of obsolete opaque topics and replay reset of derived memberships while preserving managed topic state |
+| `coop-topic-projection.js` | ACL-safe client shaping of durable topics | Bounded topic text, summary-only membership, and related-work reduced to links to top-level canonical project sessions (never workers, task refs, or attempts) |
 | `project-loop.js` | `loop_start`, `loop_stop`, `ralph_wizard_complete`, `ralph_wizard_cancel`, `ralph_cancel_crafting`, `ralph_preview_files`, `loop_registry_*`, `schedule_create`, `hub_schedules_list`, `delete_loop_group` | Loop/Ralph engine, loop registry, scheduling |
 | `project-loop-state.js` | (called from project-loop.js) | Persisted loop-state recovery, orphan-loop discovery, and reconnect payload decisions |
 | `project-loop-files.js` | (called from project-loop.js and project-loop-handlers.js) | Loop file readiness/title extraction, start preparation, settings persistence, and PROMPT/JUDGE watcher lifecycle |
@@ -125,7 +126,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `lib/public/modules/add-project-modal.js` | Add-project modal modes, shared existing/new folder picker, clone input, and project creation result handling |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef`/`TaskRef` construction and read-only resolution helpers |
-| `coop-conversation-control.js` | Permanent Coop foreground conversation control | Durable ordered ingress, idempotency, listening/replying state, attention, and idle Lead wakeup state |
+| `coop-conversation-control.js` | Permanent Coop foreground conversation control | Durable ordered ingress, idempotency, replying state, attention, and idle Lead wakeup state; serializes work activity via `coop-work-activity.js` |
+| `coop-work-activity.js` | Persistent Coop work activity | Derives Working/Reviewing/Waiting/Idle plus the active background-task count from durable task, ingress, and history references only. Restart- and reconnect-stable, and never reads prompt, transcript, or task text. Voice Listening is deliberately not part of this state |
 | `global-coop-projection.js` | ACL-filtered permanent-Coop project lenses with dense facts and canonical nested SessionRefs; never creates project-local transcripts or execution |
 | `project-coop-channels.js` | Private durable project-scoped Coop channel identity, metadata validation, ACL checks, scoped prompt context, and channel handoff handling |
 | `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable and legacy SessionRefs, schema migration, terminal completion closure, supersession/tombstones, and project-coordinator completion projection |
@@ -356,12 +358,15 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-header.js` | Session rename, session info popover, progressive history loading |
 | `global-coop-projection.js` | Permanent Coop UI state, automatic topic-lens navigation, two-phase fail-closed URL selection, dense facts, and exact canonical SessionRef handoffs without transcript copies |
 | `app-messages-coop-topics.js` | Canonical live-message filtering and topic projection refresh after completed turns |
-| `coop-conversation-state.js` | Owner-facing Coop listening/replying and background-work status beside the composer |
+| `coop-conversation-state.js` | Owner-facing persistent Coop work activity beside the composer (Working on X / Reviewing / Waiting / Idle - waiting for you plus background-task count). Renders voice `Listening` separately from `store.voiceListening`, so input state and work state coexist |
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
 | `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Coop project/topic lenses with canonical worker trees |
-| `sidebar-coop-topic-model.js` | Pure Coop topic grouping and display model for project, Cross-project, and Uncategorised sections |
-| `sidebar-coop-topics.js` | Conventional desktop/mobile topic chat rows, status drawers, management controls, and original-event navigation |
+| `sidebar-coop-topic-model.js` | Pure Coop topic grouping and display model. `coopTopicSections()` is the single source of section order (Uncategorised, projects, Cross-project) and omits every empty category, so desktop and mobile cannot drift |
+| `sidebar-coop-topic-close.js` | Conventional per-topic Close action behind an explicit confirmation. Cancel is a no-op; confirm sends exactly one `coop_topic_close`. Transport arrives via `options.send`, so the module stays off the app connection graph |
+| `sidebar-coop-topic-links.js` | Collapsed, accessible per-topic expander listing related top-level canonical project sessions. Titles only; navigates by exact ProjectRef/SessionRef held in closures, never in DOM attributes |
+| `confirm-modal.js` | The shared confirmation modal (`showConfirm`/`hideConfirm`/`initConfirmModal`). Dependency-free so any module can confirm without pulling in the app graph. Never uses browser-native `confirm()` |
+| `sidebar-coop-topics.js` | Conventional desktop/mobile topic chat rows and the shared ordered section renderer. Each row carries navigation plus exactly two controls: Close and the related-sessions expander |
 | `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
 | `sidebar-sessions-context-menu.js` | Session and loop context menus, provider handoff entries, visibility toggle, and shared menu state |
 | `sidebar-sessions-orchestration.js` | Existing-session “Add to coordinator” picker, recommendation rows, and adoption acknowledgement |

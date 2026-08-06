@@ -710,7 +710,9 @@
   display: none;
 }
 
-.coop-conversation-primary {
+/* Persistent work activity. The dot colour distinguishes the four states; the
+   text alone is already sufficient, so colour is never the only signal. */
+.coop-conversation-work {
   color: var(--text);
   font-weight: 600;
 }
@@ -719,7 +721,7 @@
   color: var(--text-secondary);
 }
 
-.coop-conversation-primary::before {
+.coop-conversation-work::before {
   content: "";
   display: inline-block;
   width: 6px;
@@ -727,6 +729,14 @@
   margin: 0 6px 1px 0;
   border-radius: 50%;
   background: var(--accent);
+}
+
+.coop-conversation-status[data-work-state="waiting"] .coop-conversation-work::before {
+  background: var(--warning, #d99824);
+}
+
+.coop-conversation-status[data-work-state="idle"] .coop-conversation-work::before {
+  background: var(--text-dimmer);
 }
 
 .coop-conversation-pending {
@@ -738,6 +748,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Voice input, shown next to -- never in place of -- the work state. */
+.coop-conversation-listening {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: rgba(var(--accent-rgb), .14);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .queued-message-item {

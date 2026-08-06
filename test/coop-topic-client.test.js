@@ -314,8 +314,8 @@ test("Coop navigation renders only compact topic chat rows", function () {
   var projection = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "global-coop-projection.js"), "utf8");
   var input = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "input.js"), "utf8");
   var stt = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "stt.js"), "utf8");
-  assert.match(desktop, /renderCoopProjectTopics/);
-  assert.match(mobile, /renderCoopProjectTopics/);
+  assert.match(desktop, /renderCoopTopicSections/);
+  assert.match(mobile, /renderCoopTopicSections/);
   assert.doesNotMatch(desktop, /New topic|coop-topic-create|coop_topic_create/);
   assert.doesNotMatch(mobile, /New topic|coop-topic-create|coop_topic_create/);
   assert.doesNotMatch(topics, /New topic|coop-topic-create|coop_topic_create/);
