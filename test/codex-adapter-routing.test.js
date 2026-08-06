@@ -557,6 +557,39 @@ test("Codex rate limit credits keep the account-state update out of rejected sta
   assert.strictEqual(events[0].rateLimitInfo.isUsingOverage, true);
 });
 
+test("Codex rate limit reached type only rejects the window it names, not the sibling window", function () {
+  var events = routing.flattenEvent({
+    method: "account/rateLimits/updated",
+    params: {
+      rateLimits: {
+        limitId: "codex",
+        primary: {
+          usedPercent: 100,
+          windowDurationMins: 300,
+          resetsAt: 1784489784,
+        },
+        secondary: {
+          // No usedPercent reported for this window; previously the bare
+          // truthy rateLimitReachedType check leaked the primary window's
+          // rejection into this untouched 7-day window too.
+          windowDurationMins: 10080,
+          resetsAt: 1784999999,
+        },
+        credits: null,
+        rateLimitReachedType: "primary",
+      },
+    },
+  }, makeStreamState());
+
+  assert.strictEqual(events.length, 2);
+  var primaryEvent = events[0];
+  var secondaryEvent = events[1];
+  assert.strictEqual(primaryEvent.rateLimitInfo.rateLimitType, "five_hour");
+  assert.strictEqual(primaryEvent.rateLimitInfo.status, "rejected");
+  assert.strictEqual(secondaryEvent.rateLimitInfo.rateLimitType, "seven_day");
+  assert.strictEqual(secondaryEvent.rateLimitInfo.status, "allowed");
+});
+
 test("Codex rate limit normalization reads the codex multi-bucket fallback", function () {
   var events = routing.flattenEvent({
     method: "account/rateLimits/updated",
