@@ -119,3 +119,55 @@ project. The protocol had no selected-project session request.
 The unpacked extension still needs one reload so its MV3 background worker uses
 the new picker protocol; the popup file alone is not enough to refresh an
 already-running background worker.
+
+## Follow-up: automatic Clay discovery and sidebar-equivalent roots
+
+### Symptom
+
+The target-app popup still required a user to open the extension on a Clay tab
+and click a one-time connect button. In Webapp, the chat picker also listed
+`#2461 UI redesign (slice 4)` even though the sidebar nested that historical
+worker under the `REDESIGN` coordinator and showed only three top-level rows.
+
+### Root cause
+
+The extension picker trusted only content-script ports that had already
+returned a Clay identity. It never looked for an already-open `/p/<project>/`
+tab when no verified control existed.
+
+The Live UI endpoint filtered persisted `orchestrationParent` fields, while the
+sidebar also derives historical worker ownership from coordinator task records
+and `orchestrationAdoption`. The Slice 4 session has that legacy adoption shape,
+so it appeared top-level only in the extension.
+
+### Fix
+
+- When the popup has no verified Clay control, the background scans open HTTP(S)
+  `/p/<project>/` tabs, injects the existing content bridge, and asks for a Clay
+  identity automatically. Injection is retried at a bounded interval.
+- A matching URL is only a discovery candidate. Projects remain unavailable
+  until the page returns the existing validated Clay identity, preserving the
+  authenticated control boundary.
+- The popup reports `Finding Clay` while discovery is active and no longer asks
+  the user to perform the normal connection step. The manual action remains as
+  a recovery fallback on an active Clay project route.
+- The scoped Live UI endpoint now builds orchestration groups from the same
+  visible, access-filtered session set used for the response and excludes both
+  persisted and dynamically derived worker parents.
+
+### Fresh verification
+
+- Fail-first tests reproduced both defects: the historical Slice 4 session was
+  returned as a root, and an open Clay project tab was never injected.
+- The focused regressions now pass and verify that discovery injects the Clay
+  candidate rather than the active web app, then exposes it only after identity
+  validation.
+- The full Clay suite passes 1,017/1,017 tests; the full extension suite passes
+  21/21 tests.
+- Syntax, whitespace, module-size, and focused complexity checks pass. The
+  current diagnostic canary remains quiet; recovery entries are unrelated
+  historical provider and cross-project events.
+
+The Clay daemon was not restarted to avoid interrupting active project turns.
+The endpoint correction takes effect on the next normal restart. Reload the
+unpacked extension once so its MV3 background worker loads automatic discovery.

@@ -145,6 +145,33 @@ test("Live UI loads only the selected project's visible top-level chats", functi
   }), ["Coordinator", "Regular"]);
 });
 
+test("Live UI excludes historical workers grouped by coordinator task ownership", function () {
+  var taskId = "task-slice-4";
+  var projects = new Map([
+    ["webapp", project({ title: "Webapp" }, [
+      {
+        localId: 1,
+        title: "REDESIGN",
+        coordinationMode: true,
+        orchestrationTasks: [{ taskId: taskId, status: "completed" }],
+        lastActivity: 30,
+      },
+      {
+        localId: 2,
+        title: "#2461 UI redesign (slice 4)",
+        orchestrationAdoption: { taskId: taskId },
+        lastActivity: 20,
+      },
+      { localId: 3, title: "#2503 Mail attachment indicators", lastActivity: 10 },
+    ])],
+  ]);
+  var result = palette.buildLiveUiProject(
+    projects, users(), null, null, "webapp");
+  assert.deepStrictEqual(result.sessions.map(function (session) {
+    return session.title;
+  }), ["REDESIGN", "#2503 Mail attachment indicators"]);
+});
+
 test("Live UI endpoint discovers projects first and scopes chats by project", function () {
   var projectMap = new Map([
     ["clay", project({ title: "Clay" }, [
