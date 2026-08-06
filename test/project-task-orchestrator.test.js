@@ -36,6 +36,7 @@ function testContext(existingSessions, options) {
       sessions.get(id)._subscriber = cb;
     },
   };
+  if (options.smState) Object.assign(sm, options.smState);
   var api = attachTaskOrchestrator({
     crossProject: options.crossProject || null,
     slug: options.slug || "clay",
@@ -1602,6 +1603,46 @@ test("restores a running worker subscription", function () {
   assert.equal(parent.orchestrationTasks[0].workerSessionId, 99);
   assert.equal(worker.orchestrationParent.sessionId, 17);
   assert.equal(worker.orchestrationParent.sessionStorageId, "parent-stable");
+});
+
+test("startup contains unavailable worker routing without crashing the daemon", function () {
+  var parent = {
+    localId: 1,
+    storageId: "parent-route-blocked",
+    history: [],
+    coordinationMode: true,
+    orchestrationEvents: [],
+    orchestrationTasks: [{
+      taskId: "task-route-blocked",
+      title: "Review security architecture",
+      objective: "Review the cross-cutting authorization boundary.",
+      status: "ready",
+      dependencies: [],
+      provider: "codex",
+      providerPinned: true,
+    }],
+  };
+  var ctx = testContext(new Map([[parent.localId, parent]]), {
+    smState: {
+      availableVendors: ["codex"],
+      installedVendors: ["codex"],
+      providerRoutes: [{
+        id: "codex-openai", vendor: "codex", provider: "openai",
+        modelFamily: "gpt", label: "Codex", enabled: true,
+        catalogVerified: true, catalogSource: "live",
+      }],
+      modelsByVendor: { codex: [] },
+    },
+  });
+
+  var task = parent.orchestrationTasks[0];
+  assert.equal(ctx.sessions.size, 1, "no unroutable worker session is created");
+  assert.equal(ctx.starts.length, 1, "the coordinator receives the attention update");
+  assert.equal(ctx.starts[0].session, parent);
+  assert.equal(task.status, "needs_input");
+  assert.equal(task.routingBlocked, true);
+  assert.match(task.currentActivity, /healthy verified worker route/);
+  assert.match(task.resultSummary, /No healthy candidate/);
 });
 
 test("restores completed worker ownership for sidebar nesting", function () {

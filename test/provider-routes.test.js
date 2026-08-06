@@ -30,6 +30,15 @@ test("a persisted cold-start Codex seed is not treated as a verified catalog", f
     }));
     assert.deepStrictEqual(routes.verifiedCatalogForRoute(route), { models: [], source: null },
       "an older static seed must not become verified after the fallback table changes");
+    var liveLastKnownGood = [{ value: "gpt-5.6-sol" }];
+    fs.writeFileSync(cachePath, JSON.stringify({
+      version: 1,
+      vendors: { codex: { models: liveLastKnownGood, savedAt: new Date().toISOString() } },
+    }));
+    assert.deepStrictEqual(routes.verifiedCatalogForRoute(route), {
+      models: ["gpt-5.6-sol"],
+      source: "last-known-good",
+    }, "a value-only live catalog must remain verified across a cold start");
     var live = routes.verifiedCatalogForRoute(route, {
       verifiedModelsByRoute: {
         "codex-openai": { models: fallbackCodexModels(), source: "live" },
