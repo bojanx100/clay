@@ -136,11 +136,67 @@ test("origin forms (ssh, https, .git, case) compare as one repo", function () {
   assert.strictEqual(backlog.normalizeRepoSlug("trialview/v2"), "trialview/v2");
   assert.strictEqual(backlog.normalizeRepoSlug("nonsense"), "");
   assert.strictEqual(backlog.normalizeRepoSlug(null), "");
-  // A lookalike host must never forge ownership evidence, and a non-GitHub
-  // remote must be unusable rather than half-parsed.
-  assert.strictEqual(backlog.normalizeRepoSlug("https://evilgithub.com/trialview/v2"), "");
-  assert.strictEqual(backlog.normalizeRepoSlug("https://gitlab.com/trialview/v2"), "");
   assert.notStrictEqual(backlog.normalizeRepoSlug("git@github.com:trialview/v2.git"), "");
+  // Real GitHub remotes that must still resolve, including an explicit port.
+  assert.strictEqual(backlog.normalizeRepoSlug("ssh://git@github.com:22/trialview/v2.git"), "trialview/v2");
+  assert.strictEqual(backlog.normalizeRepoSlug("ssh://git@github.com/trialview/v2.git"), "trialview/v2");
+  assert.strictEqual(backlog.normalizeRepoSlug("github.com/trialview/v2"), "trialview/v2");
+  assert.strictEqual(backlog.normalizeRepoSlug("https://www.github.com/trialview/v2"), "trialview/v2");
+  assert.strictEqual(backlog.normalizeRepoSlug("https://user:pw@github.com/trialview/v2.git"), "trialview/v2");
+});
+
+test("a foreign host can never forge ownership of a GitHub repo", function () {
+  // Every one of these embeds the literal string "github.com" but is NOT
+  // hosted on GitHub. A substring/prefix match would hand the real
+  // trialview/v2 backlog to a foreign remote.
+  var forgeries = [
+    "https://evilgithub.com/trialview/v2",
+    "https://evil.example/github.com/trialview/v2.git",
+    "https://github.com.evil.example/trialview/v2",
+    "git@evil.example:github.com/trialview/v2.git",
+    "https://gitlab.com/trialview/v2",
+    "evil.example/github.com/trialview/v2",
+  ];
+  forgeries.forEach(function (origin) {
+    assert.strictEqual(backlog.normalizeRepoSlug(origin), "",
+      origin + " must not normalize to a GitHub slug");
+    // ...and end to end: such a project must never own the repo.
+    var result = backlog.resolveGithubSources([
+      { project: "foreign", projectRef: CLAY_REF, originRepo: origin, configs: [WEBAPP_ASSIGNED] },
+    ]);
+    assert.deepStrictEqual(result.sources, [], origin + " must not resolve to a source");
+    assert.strictEqual(result.conflicts[0].reason, "unowned_repository_source");
+  });
+});
+
+test("equivalent repo spellings resolve to one canonical slug, order-free", function () {
+  var bare = { id: "bare", source: { provider: "github", kind: "issue", repo: "trialview/v2" } };
+  var url = { id: "url", source: { provider: "github", kind: "issue", repo: "https://github.com/trialview/v2.git" } };
+  var forward = backlog.resolveGithubSources([webappEntry([bare, url])]);
+  var reverse = backlog.resolveGithubSources([webappEntry([url, bare])]);
+  // One repo, one source, and the SAME emitted repo string either way.
+  assert.strictEqual(forward.sources.length, 1);
+  assert.strictEqual(reverse.sources.length, 1);
+  assert.strictEqual(forward.sources[0].repo, "trialview/v2");
+  assert.deepStrictEqual(forward.sources, reverse.sources);
+});
+
+test("loose items with the same id in different projects both survive", function () {
+  // Boss directives are ad-hoc; two projects can each carry "directive-1".
+  // An id-only dedupe key silently dropped one project's real work.
+  var portfolio = backlog.buildPortfolio([
+    { project: "clay", items: [{ id: "directive-1", title: "Clay directive" }] },
+    { project: "webapp", items: [{ id: "directive-1", title: "Webapp directive" }] },
+  ], { now: NOW });
+  assert.strictEqual(portfolio.summary.total, 2);
+  assert.strictEqual(portfolio.byProject.clay.length, 1);
+  assert.strictEqual(portfolio.byProject.webapp.length, 1);
+  // ...while a true duplicate inside ONE project still collapses.
+  var duped = backlog.buildPortfolio([
+    { project: "clay", items: [{ id: "directive-1", title: "Clay directive" }] },
+    { project: "clay", items: [{ id: "directive-1", title: "Clay directive" }] },
+  ], { now: NOW });
+  assert.strictEqual(duped.summary.total, 1);
   var result = backlog.resolveGithubSources([
     { project: "webapp", projectRef: WEBAPP_REF, originRepo: "git@github.com:trialview/v2.git", configs: [WEBAPP_ASSIGNED] },
   ]);

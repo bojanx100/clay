@@ -10,7 +10,9 @@
 
 var fs = require("fs");
 var path = require("path");
+var childProcess = require("child_process");
 var backlog = require(path.join(__dirname, "..", "lib", "lead-backlog"));
+var projectIdentity = require(path.join(__dirname, "..", "lib", "project-identity"));
 var backtest = require(path.join(__dirname, "..", "lib", "lead-backtest"));
 var routing = require(path.join(__dirname, "..", "lib", "lead-routing"));
 var leadExec = require(path.join(__dirname, "..", "lib", "lead-exec"));
@@ -32,6 +34,28 @@ function fetchJson(execFn, args, cb) {
   });
 }
 
+// A launcher config lives at <project>/.clay/tasks/<id>.json, so the owning
+// project is three levels up. The backtest resolves ownership exactly the way
+// a Lead tick does — it must never backtest a repository the project does not
+// own, which is precisely the misattribution this resolution exists to stop.
+function ownerEntryForConfig(configPath, cfg) {
+  var projectDir = path.resolve(path.dirname(configPath), "..", "..");
+  var origin = "";
+  try {
+    origin = childProcess.execFileSync("git", ["config", "--get", "remote.origin.url"], {
+      cwd: projectDir, encoding: "utf8", timeout: 5000,
+    }).trim();
+  } catch (e) {
+    origin = "";
+  }
+  return {
+    project: path.basename(projectDir),
+    projectRef: { projectId: projectIdentity.deterministicProjectId({ path: projectDir }, 0) },
+    originRepo: origin,
+    configs: [cfg],
+  };
+}
+
 function main() {
   var opts = parseArgs(process.argv);
   if (!opts.configPath) {
@@ -39,9 +63,19 @@ function main() {
     process.exit(2);
   }
   var cfg = JSON.parse(fs.readFileSync(opts.configPath, "utf8"));
-  var spec = backlog.githubSourcesFromTaskConfigs([cfg])[0];
+  var entry = ownerEntryForConfig(opts.configPath, cfg);
+  var resolved = backlog.resolveGithubSources([entry]);
+  if (resolved.conflicts.length) {
+    // Fail closed, loudly: an unresolved owner means we cannot say whose
+    // backlog this is, so we must not fetch it.
+    console.error("unresolved repository ownership for " + opts.configPath + ": " +
+      resolved.conflicts[0].reason + " (project " + entry.project +
+      " origin " + (entry.originRepo || "<none>") + ")");
+    process.exit(2);
+  }
+  var spec = resolved.sources[0];
   if (!spec) {
-    console.error("no github source in " + opts.configPath);
+    console.error("no github issue source in " + opts.configPath);
     process.exit(2);
   }
   var execFn = leadExec.createGhExecFn(spec);

@@ -77,3 +77,64 @@ test("formatBacktestReport is printable and carries the summary", function () {
   assert.ok(text.indexOf("alignment 100%") !== -1);
   assert.ok(text.indexOf("#7 [aligned] t2") !== -1);
 });
+
+// --- scripts/lead-backtest.js CLI ---------------------------------------------
+// The runner is a real caller of lead-backlog's source resolution. When the
+// first-file-wins extractor was removed, this script still called it and died
+// with "githubSourcesFromTaskConfigs is not a function" before it could reach
+// its own error handling. These drive the actual script end to end, in a real
+// git repo, so a removed or renamed export can never break it unnoticed again.
+var childProcess = require("node:child_process");
+var fs = require("node:fs");
+var os = require("node:os");
+var path = require("node:path");
+
+var SCRIPT = path.join(__dirname, "..", "scripts", "lead-backtest.js");
+
+function makeProject(originUrl, recipe) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "lead-backtest-"));
+  childProcess.execFileSync("git", ["init", "-q"], { cwd: dir });
+  if (originUrl) childProcess.execFileSync("git", ["remote", "add", "origin", originUrl], { cwd: dir });
+  var tasksDir = path.join(dir, ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  var configPath = path.join(tasksDir, "assigned-to-me.json");
+  fs.writeFileSync(configPath, JSON.stringify(recipe));
+  return { dir: dir, configPath: configPath };
+}
+
+function runScript(configPath) {
+  var result = childProcess.spawnSync(process.execPath, [SCRIPT, configPath], { encoding: "utf8", timeout: 30000 });
+  return { status: result.status, stderr: String(result.stderr || "") };
+}
+
+function assertNoCrash(stderr) {
+  assert.ok(stderr.indexOf("is not a function") === -1, "must not crash on a missing export: " + stderr);
+  assert.ok(stderr.indexOf("TypeError") === -1, "must not throw a TypeError: " + stderr);
+}
+
+test("lead-backtest CLI fails closed when the project does not own the repo", function () {
+  // The exact misplaced-launcher shape: a project whose origin is its own repo
+  // carrying a recipe that points at somebody else's.
+  var project = makeProject("https://github.com/bojanx100/clay.git", {
+    id: "assigned-to-me",
+    source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+  });
+  var run = runScript(project.configPath);
+  assertNoCrash(run.stderr);
+  assert.strictEqual(run.status, 2);
+  assert.match(run.stderr, /unresolved repository ownership/);
+  assert.match(run.stderr, /unowned_repository_source/);
+  fs.rmSync(project.dir, { recursive: true, force: true });
+});
+
+test("lead-backtest CLI reports a config with no github issue source", function () {
+  var project = makeProject("https://github.com/bojanx100/clay.git", {
+    id: "sentry-fix",
+    source: { provider: "sentry", kind: "findings" },
+  });
+  var run = runScript(project.configPath);
+  assertNoCrash(run.stderr);
+  assert.strictEqual(run.status, 2);
+  assert.match(run.stderr, /no github issue source/);
+  fs.rmSync(project.dir, { recursive: true, force: true });
+});
