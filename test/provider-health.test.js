@@ -221,3 +221,65 @@ test("getHealth defaults an unknown vendor to claude bucket", function () {
   assert.strictEqual(providerHealth.getHealth(undefined).consecutiveFailures, 1);
   assert.strictEqual(providerHealth.getHealth("claude").consecutiveFailures, 1);
 });
+
+test("quota health is isolated to the exact provider route and model", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", {
+    now: T0,
+    providerRouteId: "claude-anthropic",
+    model: "claude-fable-5",
+    immediate: true,
+  });
+
+  assert.strictEqual(providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-fable-5", { now: T0 }).state, "unhealthy");
+  assert.strictEqual(providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-opus-4-8", { now: T0 }).state, "healthy");
+  assert.strictEqual(providerHealth.getHealth("claude", { now: T0 }).state, "healthy",
+    "model quota must not become vendor-wide health");
+});
+
+test("a successful Opus turn does not clear a Fable quota bucket", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "rate-limit-rejected", {
+    now: T0,
+    providerRouteId: "claude-anthropic",
+    model: "claude-fable-5",
+    immediate: true,
+    unavailableUntil: T0 + 5000,
+  });
+  providerHealth.recordSuccess("claude", {
+    now: T0 + 100,
+    providerRouteId: "claude-anthropic",
+    model: "claude-opus-4-8",
+  });
+
+  assert.strictEqual(providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-fable-5", { now: T0 + 100 }).state, "unhealthy");
+  assert.strictEqual(providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-opus-4-8", { now: T0 + 100 }).state, "healthy");
+});
+
+test("shared authentication failures degrade every model for the vendor only", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "authentication credentials rejected", {
+    now: T0,
+    providerRouteId: "claude-anthropic",
+    model: "claude-fable-5",
+    immediate: true,
+  });
+
+  assert.strictEqual(providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-fable-5", { now: T0 }).state, "unhealthy");
+  assert.strictEqual(providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-opus-4-8", { now: T0 }).state, "unhealthy");
+  assert.strictEqual(providerHealth.getHealth("codex", { now: T0 }).state, "healthy");
+});
+
+test("expired exact-model quota becomes eligible without a stale process-wide mark", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("codex", "rate-limit-rejected", {
+    now: T0,
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    immediate: true,
+    unavailableUntil: T0 + 1000,
+  });
+
+  assert.strictEqual(providerHealth.getRouteHealth("codex", "codex-openai", "gpt-5.6-sol", { now: T0 + 500 }).state, "unhealthy");
+  assert.strictEqual(providerHealth.getRouteHealth("codex", "codex-openai", "gpt-5.6-sol", { now: T0 + 1001 }).state, "healthy");
+});

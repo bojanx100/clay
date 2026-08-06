@@ -120,7 +120,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-path-utils.js` | Path safety helpers, environment string validation, and shared filesystem constants |
 | `project-runtime.js` | Project runtime wiring for SDK bridge, scheduled messages, task loops, terminals/notes, workspace context, vendor models, update checks, and runtime warmup |
 | `project-scheduled-messages.js` | Scheduled message queue dispatch, manual send-now, usage-credit continues, restart auto-resume, and timer restoration |
-| `project-provider-failover.js` | Healthy fallback-route selection, automatic provider switch, and interrupted-turn continuation |
+| `project-provider-failover.js` | Task-floor-aware fallback ladder, bounded idempotent provider switch, and durable interrupted-turn continuation |
 | `lib/public/modules/project-settings-continuation.js` | Per-project comparable-model auto-continue toggle state and WebSocket round trip |
 | `lib/public/modules/add-project-modal.js` | Add-project modal modes, shared existing/new folder picker, clone input, and project creation result handling |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
@@ -212,8 +212,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-message-queue.js` | Async iterable message queue for streaming input to SDK |
 | `sdk-message-processor.js` | SDK stream event processing (message_start, content_block_*), sub-agent message routing |
 | `automation-modes.js` | Shared automation mode normalization and provider permission/approval mapping |
-| `provider-routes.js` | Provider-route configuration loading, model-route matching helpers, and per-vendor health decoration |
-| `provider-health.js` | Process-wide per-vendor health registry (healthy→degraded→unhealthy) fed by the SDK bridge's failure/success signals |
+| `provider-routes.js` | Provider-route configuration, exact-route verified live/last-known-good catalog gates, model-family matching, and health decoration |
+| `provider-health.js` | Process-wide vendor-wide plus exact route/model health and quota registries (healthy→degraded→unhealthy), fed by SDK failure/success signals |
 | `model-capability.js` | Shared model capability tiers and comparable-or-stronger checks |
 | `provider-command.js` | Model-aware `/provider` and permissive `/switch` chat command handling |
 | `provider-switch.js` | Single executor for cross-provider session switches (WS handoff, provider chat commands, outage failover) plus model/route resolution helpers |
@@ -225,7 +225,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `claude-defaults.js` | Claude-specific default model and mode settings |
 | `model-selection.js` | Shared strongest-available model selection for new sessions and task launches, while respecting configured defaults |
 | `provider-agent-pipeline.js` | Provider-matched worker configuration: Codex roots delegate to Terra workers and Claude roots delegate to Opus workers |
-| `adaptive-worker-routing.js` | Deterministic provider-neutral worker route/model selection for coordinator tasks, preserving explicit pins and recording routing rationale |
+| `adaptive-worker-routing.js` | Deterministic task/phase capability floors and least-cost verified route/model selection, preserving owner pins and recording routing rationale |
 | `recovery-log.js` | Structured recovery-event logging for watchdog stalls, reconnects, and auto-resume diagnostics |
 | `text-title.js` | Shared title cleanup/clamping helpers for session and task titles |
 | `git-accounts.js` | Per-project GitHub account pinning. Lists `gh` CLI accounts and writes/clears a repo-local git credential helper (`gh auth token --user <account>`) so each project pushes/pulls as a chosen account regardless of the globally-active `gh` account. Used by daemon.js relay callbacks (`onListGitAccounts`/`onGetProjectGitAccount`/`onSetProjectGitAccount`); UI in `project-settings.js` |
@@ -246,7 +246,7 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 
 | Module | Concern |
 |--------|---------|
-| `lead-routing.js` | Pure routing brain: classify a work item (class/risk/complexity), route to cheapest-capable provider/model with explicit verification depth |
+| `lead-routing.js` | Pure routing brain: classify a work item (class/risk/complexity), route to the cheapest healthy exact-route/model target with explicit verification depth |
 | `lead-backlog.js` | Portfolio assembly: normalize, classify, and priority-order work items across projects (GitHub issues via injected exec + pre-fetched collections) |
 | `lead-staffing.js` | Turns a routed item into an explicit typed target-project execution command; missing/Lead targets produce attention and never a Lead-local fallback |
 | `lead-standup.js` | Composes the boss's daily digest from typed ledger events only, including distinct worker, project, and Coop portfolio completion levels |
@@ -256,7 +256,7 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 | `coop-handoff-traces.js` | Atomic, bounded runtime evidence store for Coop handoffs: records normalized direct-owner intent plus an authorized navigation that exactly matches a pre-resolved stable target; rejects malformed state and never persists conversation text, prompts, transcripts, or summaries |
 | `lead-exec.js` | Per-repo gh credentials wrapper: resolves `gh auth token --user <account>` per source and injects GH_TOKEN into that invocation's env only |
 | `lead-metrics.js` | Pure done-gate structural metrics: coverage baseline ratchet (never-worse-than-last-green), ESLint complexity ceiling on changed files, typed `metrics_report` composition |
-| `lead-health.js` | Derives the { vendor: state } provider-health snapshot lead-routing expects by replaying typed `provider_health` transitions from the recovery log (24h staleness window; daemon restarts reset silently) |
+| `lead-health.js` | Derives vendor-wide and exact route/model health for Lead routing by replaying typed `provider_health` transitions and reconciling later successful turns (24h staleness window) |
 | `lead-budget.js` | Pure daily budget snapshot: folds per-turn `result` cost/usage events from session histories into per-vendor burn, evaluates budget pressure for lead-routing, formats the standup burn-rate line |
 | `lead-backtest.js` | Pure routing backtest: replay closed issues through the classifier/router and score predicted tier against the merged fix PR's actual effort (files/lines), typed `backtest_report` |
 | `scripts/lead-metrics-nightly.js` | Nightly structural metrics runner: measures coverage (c8 over the suite) and complexity (ESLint, `scripts/lead-complexity.eslint.config.js`) on files changed since the last report, persists the baseline, appends `metrics_report`, and separately appends the non-gating `gatekeeping_eval` runtime-trace trend; exit status remains the structural gate |

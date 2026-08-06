@@ -14,7 +14,7 @@ function tmpDir() {
 }
 
 function makeSm(vendors) {
-  return {
+  var sm = {
     availableVendors: vendors.slice(),
     installedVendors: vendors.slice(),
     modelsByVendor: {
@@ -31,6 +31,16 @@ function makeSm(vendors) {
     saveSessionFile: function () {},
     broadcastSessionList: function () {},
   };
+  sm.verifiedModelsByRoute = {};
+  Object.defineProperty(sm.verifiedModelsByRoute, "claude-anthropic", {
+    enumerable: true,
+    get: function () { return sm.modelsByVendor.claude || []; },
+  });
+  Object.defineProperty(sm.verifiedModelsByRoute, "codex-openai", {
+    enumerable: true,
+    get: function () { return sm.modelsByVendor.codex || []; },
+  });
+  return sm;
 }
 
 function makeSession() {
@@ -47,6 +57,24 @@ function makeSession() {
 
 function makeFailover(sm, continued, options) {
   var opts = options || {};
+  var scheduledMessages = {
+    continueAfterProviderSwitch: function (session, prompt, label, providerLabel) {
+      continued.push({ session: session, prompt: prompt, label: label, providerLabel: providerLabel });
+      return true;
+    },
+    scheduleMessage: function (session, text, resetsAt, prompt, label, scheduleOpts) {
+      session.history.push({
+        type: "scheduled_message_queued",
+        text: label || text,
+        resetsAt: resetsAt,
+        autoAction: !!(scheduleOpts && scheduleOpts.autoAction),
+      });
+      if (opts.scheduled) {
+        opts.scheduled.push({ session: session, text: text, resetsAt: resetsAt, prompt: prompt, label: label, options: scheduleOpts });
+      }
+    },
+  };
+  if (opts.durable) scheduledMessages.restoreScheduledMessageTimers = function () { return true; };
   return failoverModule.attachProjectProviderFailover({
     cwd: tmpDir(),
     sm: sm,
@@ -55,17 +83,7 @@ function makeFailover(sm, continued, options) {
     recordRecoveryEvent: function () {},
     getComparableFailoverSetting: function () { return opts.comparable !== false; },
     prepareFallbackProviders: opts.prepareFallbackProviders,
-    scheduledMessages: {
-      continueAfterProviderSwitch: function (session, prompt, label, providerLabel) {
-        continued.push({ session: session, prompt: prompt, label: label, providerLabel: providerLabel });
-        return true;
-      },
-      scheduleMessage: function (session, text, resetsAt, prompt, label, scheduleOpts) {
-        if (opts.scheduled) {
-          opts.scheduled.push({ session: session, text: text, resetsAt: resetsAt, prompt: prompt, label: label, options: scheduleOpts });
-        }
-      },
-    },
+    scheduledMessages: scheduledMessages,
   });
 }
 
@@ -427,5 +445,99 @@ test("resets the failover hop budget after a quiet window", function () {
   assert.strictEqual(handled, true, "a failover after the window resets the budget and proceeds");
   assert.strictEqual(session.vendor, "codex");
   assert.strictEqual(session._providerFailoverHops, 1, "hop counter restarts at 1");
+  providerHealth._reset();
+});
+
+test("non-frontier failover demotes through the cheapest eligible verified ladder", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "rate-limit-rejected", {
+    providerRouteId: "claude-anthropic",
+    model: "claude-opus-4.8",
+    immediate: true,
+  });
+  var sm = makeSm(["claude", "codex"]);
+  sm.modelsByVendor.codex = ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra"];
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+
+  assert.strictEqual(failover.failoverAndContinue(session, {
+    vendor: "claude",
+    providerRouteId: "claude-anthropic",
+    model: "claude-opus-4.8",
+    reason: "rate-limit-rejected",
+  }), true);
+  assert.strictEqual(session.providerRouteId, "codex-openai");
+  assert.strictEqual(session.model, "gpt-5.6-luna");
+  assert.match(lastSwitch(session).routingRationale, /demotion/);
+  providerHealth._reset();
+});
+
+test("durable failover handoff is idempotent across coordinator reattachment", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "rate-limit-rejected", {
+    providerRouteId: "claude-anthropic",
+    model: "claude-opus-4.8",
+    immediate: true,
+  });
+  var sm = makeSm(["claude", "codex"]);
+  sm.modelsByVendor.codex = ["gpt-5.6-luna"];
+  var scheduled = [];
+  var session = makeSession();
+  session.storageId = "durable-session";
+  var failure = {
+    vendor: "claude",
+    providerRouteId: "claude-anthropic",
+    model: "claude-opus-4.8",
+    reason: "rate-limit-rejected",
+    resetsAt: 12345,
+  };
+  var first = makeFailover(sm, [], { scheduled: scheduled, durable: true });
+  var restored = makeFailover(sm, [], { scheduled: scheduled, durable: true });
+
+  assert.strictEqual(first.failoverAndContinue(session, failure), true);
+  assert.strictEqual(restored.failoverAndContinue(session, failure), true);
+  assert.strictEqual(session.history.filter(function (entry) { return entry.type === "vendor_switched"; }).length, 1);
+  assert.strictEqual(scheduled.length, 1, "restart recovery must not queue a duplicate continuation turn");
+  assert.ok(lastSwitch(session).failoverKey);
+  providerHealth._reset();
+});
+
+test("reattachment recovers a crash between switch and continuation persistence", function () {
+  providerHealth._reset();
+  var sm = makeSm(["claude", "codex"]);
+  sm.modelsByVendor.codex = ["gpt-5.6-luna"];
+  var scheduled = [];
+  var session = makeSession();
+  session.storageId = "crash-window-session";
+  var failure = {
+    vendor: "claude",
+    providerRouteId: "claude-anthropic",
+    model: "claude-opus-4.8",
+    reason: "rate-limit-rejected",
+    resetsAt: 12345,
+  };
+  var failoverKey = "crash-window-session|claude-anthropic|claude-opus-4.8|rate-limit-rejected|12345";
+  var interrupted = makeFailover(sm, [], { scheduled: scheduled, durable: true });
+  var switched = interrupted.switcher.executeProviderSwitch({
+    session: session,
+    targetVendor: "codex",
+    targetRouteId: "codex-openai",
+    targetModel: "gpt-5.6-luna",
+    trigger: "provider-failure",
+    initiatedBy: { source: "provider-failover", userId: null },
+    preserveQueuedMessages: true,
+    idempotencyKey: failoverKey,
+    routingRationale: "demotion: simulated persisted switch",
+  });
+  assert.strictEqual(switched.ok, true);
+  assert.strictEqual(scheduled.length, 0, "the simulated crash happens before continuation persistence");
+
+  var restored = makeFailover(sm, [], { scheduled: scheduled, durable: true });
+  assert.strictEqual(restored.failoverAndContinue(session, failure), true);
+  assert.strictEqual(scheduled.length, 1, "reattachment queues the missing continuation once");
+  assert.strictEqual(restored.failoverAndContinue(session, failure), true);
+  assert.strictEqual(scheduled.length, 1, "the recovered continuation is idempotent");
+  assert.strictEqual(session.history.filter(function (entry) { return entry.type === "vendor_switched"; }).length, 1);
   providerHealth._reset();
 });

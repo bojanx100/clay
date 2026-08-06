@@ -47,3 +47,21 @@ test("disabled auto-continue consumes the provider signal without switching", fu
   assert.strictEqual(session.providerFailoverPending, null);
   providerHealth._reset();
 });
+
+test("runtime failure signals carry the exact session route and verified model", function () {
+  providerHealth._reset();
+  var session = {
+    vendor: "claude",
+    providerRouteId: "claude-anthropic",
+    model: "best",
+    verifiedModel: "claude-fable-5",
+  };
+  signals.recordProviderFailure(session, "claude", "rate-limit-rejected", { immediate: true });
+
+  assert.strictEqual(session.providerFailoverPending.providerRouteId, "claude-anthropic");
+  assert.strictEqual(session.providerFailoverPending.model, "claude-fable-5");
+  assert.strictEqual(providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-fable-5").state, "unhealthy");
+  assert.strictEqual(providerHealth.getRouteHealth("claude", "claude-anthropic", "claude-opus-4.8").state, "healthy");
+  assert.strictEqual(providerHealth.getHealth("claude").state, "healthy");
+  providerHealth._reset();
+});

@@ -105,3 +105,72 @@ test("integration: unhealthy claude reroutes tier-4 work to codex", function () 
   assert.strictEqual(route.tier, 4);
   assert.ok(/unavailable/.test(route.rationale));
 });
+
+test("deriveHealth keeps Fable quota separate from other native Claude models", function () {
+  var failedAt = Date.parse("2026-08-04T11:00:00Z");
+  var events = health.parseHealthEvents(line({
+    at: "2026-08-04T11:00:00Z",
+    kind: "provider_health",
+    vendor: "claude",
+    providerRouteId: "claude-anthropic",
+    model: "fable",
+    scope: "route-model",
+    to: "unhealthy",
+  }));
+  var snapshot = health.deriveHealth(events, {
+    now: NOW,
+    successes: [{
+      vendor: "claude",
+      providerRouteId: "claude-anthropic",
+      model: "claude-opus-4-8",
+      startedAt: failedAt + 1,
+      at: failedAt + 2,
+    }],
+  });
+  assert.strictEqual(health.healthForCandidate(snapshot, "claude", "claude-anthropic", "claude-fable-5"), "unhealthy");
+  assert.strictEqual(health.healthForCandidate(snapshot, "claude", "claude-anthropic", "claude-opus-4-8"), "healthy");
+});
+
+test("healthForCandidate maps a generic Lead Opus choice to concrete Opus health", function () {
+  var snapshot = {
+    "route:claude-anthropic|model:claude-opus-4-8": "unhealthy",
+  };
+  assert.strictEqual(health.healthForCandidate(snapshot, "claude", "claude-anthropic", "opus"), "unhealthy");
+  assert.strictEqual(health.healthForCandidate(snapshot, "claude", "claude-anthropic", "sonnet"), "healthy");
+});
+
+test("a successful turn after an exact-route failure clears stale model health", function () {
+  var failedAt = Date.parse("2026-08-04T11:00:00Z");
+  var events = health.parseHealthEvents(line({
+    at: "2026-08-04T11:00:00Z",
+    kind: "provider_health",
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    scope: "route-model",
+    to: "unhealthy",
+  }));
+  var snapshot = health.deriveHealth(events, {
+    now: NOW,
+    successes: [{
+      vendor: "codex",
+      providerRouteId: "codex-openai",
+      model: "gpt-5.6-sol",
+      startedAt: failedAt + 1,
+      at: failedAt + 2,
+    }],
+  });
+  assert.strictEqual(health.healthForCandidate(snapshot, "codex", "codex-openai", "gpt-5.6-sol"), "healthy");
+});
+
+test("provider-wide outage still blocks every exact route candidate", function () {
+  var snapshot = health.deriveHealth(health.parseHealthEvents(line({
+    at: "2026-08-04T11:00:00Z",
+    kind: "provider_health",
+    vendor: "claude",
+    scope: "vendor",
+    to: "unhealthy",
+  })), { now: NOW });
+  assert.strictEqual(health.healthForCandidate(snapshot, "claude", "claude-anthropic", "claude-fable-5"), "unhealthy");
+  assert.strictEqual(health.healthForCandidate(snapshot, "claude", "claude-anthropic", "claude-opus-4-8"), "unhealthy");
+});

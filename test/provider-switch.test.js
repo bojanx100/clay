@@ -11,6 +11,7 @@ var os = require("os");
 var path = require("path");
 
 var { attachProviderSwitch } = require("../lib/provider-switch");
+var { routeForId } = require("../lib/provider-routes");
 var copilotEntitlements = require("../lib/yoke/adapters/github-copilot-entitlements");
 require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
@@ -33,7 +34,19 @@ function makeSm(overrides) {
     saveSessionFile: function () {},
     broadcastSessionList: function () {},
   };
-  return Object.assign(sm, overrides || {});
+  Object.assign(sm, overrides || {});
+  sm.verifiedModelsByRoute = sm.verifiedModelsByRoute || {};
+  Object.defineProperty(sm.verifiedModelsByRoute, "claude-anthropic", {
+    configurable: true,
+    enumerable: true,
+    get: function () { return sm.modelsByVendor.claude || []; },
+  });
+  Object.defineProperty(sm.verifiedModelsByRoute, "codex-openai", {
+    configurable: true,
+    enumerable: true,
+    get: function () { return sm.modelsByVendor.codex || []; },
+  });
+  return sm;
 }
 
 function makeSession(overrides) {
@@ -353,4 +366,34 @@ test("listProviderRoutes decorates routes with vendor health", function () {
     if (routes[j].vendor === "claude") assert.strictEqual(routes[j].health, "healthy");
   }
   providerHealth._reset();
+});
+
+test("native Claude does not advertise or select Opus 5 without exact catalog evidence", function () {
+  var sm = makeSm({
+    modelsByVendor: {
+      claude: ["claude-opus-4.8", "claude-opus-5"],
+      codex: ["gpt-5.5"],
+    },
+  });
+  Object.defineProperty(sm.verifiedModelsByRoute, "claude-anthropic", {
+    configurable: true,
+    enumerable: true,
+    value: ["claude-opus-4.8"],
+  });
+  var switcher = makeSwitcher(sm);
+  var advertised = switcher.modelsForRoute(routeForId("claude-anthropic"), "claude");
+  assert.strictEqual(advertised.indexOf("claude-opus-5"), -1);
+
+  var result = switcher.executeProviderSwitch({
+    session: makeSession({
+      vendor: "codex",
+      providerRouteId: "codex-openai",
+      model: "gpt-5.5",
+    }),
+    targetVendor: "claude",
+    targetRouteId: "claude-anthropic",
+    targetModel: "claude-opus-5",
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, "model-unverified");
 });

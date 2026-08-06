@@ -80,6 +80,25 @@ test("routing: both vendors down returns null (caller decides)", function () {
   assert.strictEqual(r, null);
 });
 
+test("routing: exact Fable quota fails frontier work to Sol without disabling Claude Opus", function () {
+  var health = {};
+  health["route:claude-anthropic|model:fable"] = "unhealthy";
+  var frontier = routing.routeWorkItem({ taskClass: "design", risk: "high" }, { health: health });
+  var strong = routing.routeWorkItem({ taskClass: "debugging", risk: "medium" }, { health: health });
+  assert.strictEqual(frontier.vendor, "codex");
+  assert.strictEqual(frontier.model, "gpt-5.6-sol");
+  assert.strictEqual(strong.vendor, "claude");
+  assert.strictEqual(strong.model, "opus");
+});
+
+test("routing: a concrete native Opus failure blocks the generic Lead Opus candidate", function () {
+  var health = {};
+  health["route:claude-anthropic|model:claude-opus-4-8"] = "unhealthy";
+  var route = routing.routeWorkItem({ taskClass: "debugging", risk: "medium" }, { health: health });
+  assert.strictEqual(route.vendor, "codex");
+  assert.strictEqual(route.model, routing.MODEL_TABLE.codex[3]);
+});
+
 test("routing: escalation bumps tier per failed attempt, capped at 4", function () {
   var c = { taskClass: "implementation", risk: "low" };
   assert.strictEqual(routing.routeWorkItem(c, {}).tier, 2);
