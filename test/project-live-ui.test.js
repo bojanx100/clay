@@ -341,6 +341,26 @@ test("target reload reconnects and a control reload rebinds with rotation", func
     type: "live_ui_relay",
     protocolVersion: 1,
     pairingId: paired.pairingId,
+    clientMessageId: "report-before-refresh",
+    event: "report.submit",
+    payload: {
+      text: "Keep this worker visible after refresh",
+      screenshot: {
+        mediaType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      },
+    },
+  });
+  var acceptedReport = state.sent.find(function (entry) {
+    return entry.message.type === "live_ui_relay" &&
+      entry.message.event === "report.accepted";
+  }).message.payload;
+  state.sent.length = 0;
+
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: paired.pairingId,
     event: "target.disconnect",
   });
   assert.strictEqual(state.registry.getPair(paired.pairingId).state,
@@ -352,6 +372,15 @@ test("target reload reconnects and a control reload rebinds with rotation", func
     event: "target.reconnect",
   });
   assert.strictEqual(state.registry.getPair(paired.pairingId).state, "paired");
+  var refreshedSnapshot = state.sent.find(function (entry) {
+    return entry.ws === state.extensionWs &&
+      entry.message.type === "live_ui_relay" &&
+      entry.message.event === "reports.snapshot";
+  });
+  assert.ok(refreshedSnapshot);
+  assert.strictEqual(refreshedSnapshot.message.payload.reports.length, 1);
+  assert.strictEqual(refreshedSnapshot.message.payload.reports[0].reportId,
+    acceptedReport.reportId);
 
   state.liveUi.handleDisconnect(state.controlWs);
   var nextControl = {
