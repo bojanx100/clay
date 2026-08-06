@@ -27,6 +27,37 @@ test("live entries survive per vendor+type, latest wins", function () {
   assert.strictEqual(live.filter(function (e) { return e.vendor === "codex"; }).length, 1);
 });
 
+test("isClaudeFableExhausted is false with no rejections", function () {
+  assert.strictEqual(cache.isClaudeFableExhausted(), false);
+});
+
+test("isClaudeFableExhausted ignores model-specific Opus/Sonnet windows", function () {
+  var future = Date.now() + 60 * 60 * 1000;
+  cache.remember({
+    type: "rate_limit_usage",
+    vendor: "claude",
+    rateLimitType: "seven_day_opus",
+    resetsAt: future,
+    status: "rejected",
+    utilization: null,
+  });
+  // Model-specific Opus rejection alone must not exhaust Fable/"best".
+  assert.strictEqual(cache.isClaudeFableExhausted(), false);
+});
+
+test("isClaudeFableExhausted is true when the shared pool is rejected", function () {
+  var future = Date.now() + 60 * 60 * 1000;
+  cache.remember({
+    type: "rate_limit_usage",
+    vendor: "claude",
+    rateLimitType: "seven_day_overage_included",
+    resetsAt: future,
+    status: "rejected",
+    utilization: null,
+  });
+  assert.strictEqual(cache.isClaudeFableExhausted(), true);
+});
+
 test("expired resets are pruned, malformed entries ignored", function () {
   cache.remember(usage("claude", "seven_day", Date.now() - 1000, 1));
   cache.remember({ type: "rate_limit_usage" }); // no vendor/type — ignored

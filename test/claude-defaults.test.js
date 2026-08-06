@@ -23,3 +23,24 @@ test("best Claude selector recognizes an available Fable model", function () {
   assert.strictEqual(claudeDefaults.preferredClaudeBest(models), "claude-fable-5");
   assert.strictEqual(claudeDefaults.preferredClaudeBest([]), "best");
 });
+
+test("best Claude selector falls back to Opus when Fable is exhausted", function () {
+  var models = [
+    { value: "default" },
+    { value: "best" },
+    { value: "claude-opus-4-8" },
+    { value: "claude-fable-5" },
+  ];
+
+  assert.strictEqual(
+    claudeDefaults.preferredClaudeBest(models, { fableAvailable: false }),
+    "claude-opus-4-8"
+  );
+});
+
+test("best Claude selector falls back to the speculative Opus with no models", function () {
+  assert.strictEqual(
+    claudeDefaults.preferredClaudeBest([], { fableAvailable: false }),
+    "claude-opus-5"
+  );
+});
