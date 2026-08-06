@@ -2,6 +2,7 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var fs = require("node:fs");
 var path = require("node:path");
+var pathToFileURL = require("node:url").pathToFileURL;
 
 test("worker preview defaults to one compact expandable row", function () {
   var source = fs.readFileSync(
@@ -47,4 +48,32 @@ test("worker preview defaults to one compact expandable row", function () {
   assert.match(runtimeSource, /taskOrchestrator\.handleCoordinatorTurnDone\(session\)/);
   assert.match(css, /\.orchestration-task-status-waiting_user/);
   assert.match(css, /\.orchestration-task-status-dismissed/);
+});
+
+test("chat worker preview keeps unfinished work and hides resolved-only groups", async function () {
+  var modulePath = path.join(
+    __dirname, "../lib/public/modules/orchestration-task-preview.js"
+  );
+  var preview = await import(pathToFileURL(modulePath).href);
+  var activeTasks = preview.activeWorkerPreviewTasks([
+    { taskId: "queued", status: "queued" },
+    { taskId: "running", status: "running" },
+    { taskId: "attention", status: "needs_input" },
+    { taskId: "completed", status: "completed" },
+    { taskId: "dismissed", status: "dismissed" },
+    { taskId: "cancelled", status: "cancelled" },
+  ]);
+
+  assert.deepEqual(activeTasks.map(function (task) { return task.taskId; }), [
+    "queued", "running", "attention",
+  ]);
+
+  var host = { innerHTML: "stale preview" };
+  var rendered = preview.renderOrchestrationTaskPreview(host, [
+    { taskId: "completed", status: "completed" },
+    { taskId: "dismissed", status: "dismissed" },
+  ], { phase: "complete" });
+
+  assert.equal(rendered, null);
+  assert.equal(host.innerHTML, "");
 });
