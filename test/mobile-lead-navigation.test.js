@@ -21,6 +21,9 @@ test("mobile chat filter pins the Lead project before ordinary projects", functi
       renderSource.indexOf("var grouped = groupProjects(getCachedProjectList())")
   );
   assert.match(renderSource, /decorateMobileLeadChatChip\(chip, p\)/);
+  assert.match(renderSource, /var isCoopRoot = !!p\.coopHome \|\| p\.slug === "lead"/);
+  assert.match(renderSource, /if \(!isCoopRoot\) decorateMobileLeadChatChip\(chip, p\)/);
+  assert.match(renderSource, /if \(!isCoopRoot\) \{/);
   assert.match(leadSource, /chip\.classList\.add\("lead-chip"\)/);
   assert.match(leadSource, /appendLeadBadge\(chip, "mobile-chat-chip-lead-badge"\)/);
 });

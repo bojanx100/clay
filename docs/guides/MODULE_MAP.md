@@ -47,8 +47,9 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-filesystem.js` | `fs_list`, `fs_read`, `fs_write`, `fs_watch`, `fs_unwatch`, `fs_file_history`, `fs_git_diff`, `fs_file_at`, `get_project_env`, `set_project_env`, `read_global_claude_md`, `write_global_claude_md`, `get_shared_env`, `set_shared_env` | File browser, file history, project env/settings |
 | `project-features.js` | (called from project.js) | Project feature wiring for external Codex sync, user messages, task launchers, autolaunch/setup/dashboard, filesystem, message routing, MCP bridge, and HTTP |
 | `project-user-message.js` | `message` and user-message coordinator wiring | Compatibility API and ordering across user-message submodules |
+| `project-user-message-coop.js` | Coop foreground message preparation | Canonical ProjectRef validation, durable ingress metadata, and short-turn dispatch preparation |
 | `project-user-message-access.js` | Session selection, Coop-channel access, vendor-handoff recovery | Access control and privacy-safe handoff preparation |
-| `project-user-message-queue.js` | Queue append/flush/steer and SDK dispatch | Queued-message persistence, interruption ordering, and provider dispatch |
+| `project-user-message-queue.js` | Queue append/flush/steer and SDK dispatch | Normal-session recovery/backpressure plus the separate FIFO Coop ingress lane |
 | `project-user-message-handlers.js` | `note_*`, `term_*`, `context_sources_save`, `browser_tab_list`, `extension_result`, `loop_*` delegation, adoption, scheduling, queue controls | Auxiliary WebSocket routing with permission gates and own-property-safe dispatch |
 | `project-user-message-context.js` | `message` preparation, terminal/email/browser context collection | History persistence, image/paste handling, context aggregation, and async dispatch |
 | `project-loop.js` | `loop_start`, `loop_stop`, `ralph_wizard_complete`, `ralph_wizard_cancel`, `ralph_cancel_crafting`, `ralph_preview_files`, `loop_registry_*`, `schedule_create`, `hub_schedules_list`, `delete_loop_group` | Loop/Ralph engine, loop registry, scheduling |
@@ -117,9 +118,11 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `lib/public/modules/add-project-modal.js` | Add-project modal modes, shared existing/new folder picker, clone input, and project creation result handling |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef`/`TaskRef` construction and read-only resolution helpers |
-| `global-coop-projection.js` | ACL-filtered global Coop projection that provisions one durable Lead channel per accessible configured project and emits bounded project summaries without transcripts, session trees, or worker attempts |
+| `coop-conversation-control.js` | Permanent Coop foreground conversation control | Durable ordered ingress, idempotency, listening/replying state, attention, and idle Lead wakeup state |
+| `global-coop-projection.js` | ACL-filtered permanent-Coop project lenses with dense facts and canonical nested SessionRefs; never creates project-local transcripts or execution |
 | `project-coop-channels.js` | Private durable project-scoped Coop channel identity, metadata validation, ACL checks, scoped prompt context, and channel handoff handling |
-| `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable and legacy SessionRefs, migration attention, supersession/tombstones, and project-coordinator completion projection |
+| `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable and legacy SessionRefs, schema migration, terminal completion closure, supersession/tombstones, and project-coordinator completion projection |
+| `portfolio-execution-binding-completion.js` | Atomic idempotent direct-leaf completion and acknowledgement state for durable execution bindings |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
 | `project-vendor-models.js` | Vendor model-list message handling, lazy adapter initialization, and model-info responses |
@@ -129,10 +132,15 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-task-launcher.js` | `task_launch` | Task launcher engine: load recipes from `.clay/tasks/*.json`, fetch items, spawn sessions (`startSessionForItem`, `loadRecipe`, `launchExternal`). Completion/needs-input markers; delegates the needs-input ping via the `onNeedsInput` callback |
 | `project-task-launcher-external.js` | (called by task launcher) | Builds external design-tool requests that target an existing coordinator |
 | `project-task-orchestrator.js` | `coordinate_queued_message` (via user-message routing), `orchestration_tasks_state` | Project-local worker execution plus target-owned portfolio execution command dispatch, recovery, scheduling, and automatic result return |
+| `project-task-orchestrator-steering.js` | Typed cross-project coordinator steering | Validates canonical Coop source, target ProjectRef/SessionRef, and durable target delivery without Lead-local fallback |
 | `project-task-orchestrator-completion.js` | (called by task orchestrator) | Server-authoritative graph reconciliation plus coordinator-only verified project completion and restart-safe revocation handling |
 | `project-task-orchestrator-coordinator.js` | (called by task orchestrator) | Stable coordinator/worker lookup, direct-leaf delegation guard, and on-demand promotion for eligible top-level sessions |
 | `project-task-orchestrator-demotion.js` | (called by task orchestrator) | Automatic and deferred coordinator demotion when no owned workers remain |
 | `project-task-orchestrator-external.js` | (called by task orchestrator) | Local external-task routing plus canonical target-project coordinator/direct-leaf creation, reuse, messaging, stop, and restart recovery |
+| `project-task-orchestrator-direct-leaf-completion.js` | (called by external orchestration) | Typed direct-leaf completion delivery and restart repair without historical owner-lane replay |
+| `project-task-orchestrator-direct-leaf-status.js` | (called by external orchestration) | Converts terminal direct-leaf results and adapter shutdowns into deterministic completed/failed lifecycle states |
+| `project-task-orchestrator-project-completion-transport.js` | (called by completion gate) | Typed, idempotent project-coordinator completion delivery that closes the source binding without direct file mutation |
+| `project-task-orchestrator-cross-project.js` | (called by task orchestrator) | Source-side completion closure, delivery acknowledgement, and suppression of late completed-leaf updates |
 | `project-task-orchestrator-followup.js` | (called by task orchestrator) | Existing-worker follow-ups, retries, direct task messages, and cross-project coordinator update delivery |
 | `project-coordinate-queued.js` | `coordinate_queued_message` helper | Converts an explicit Coordinate action into a context-rich owned worker task |
 | `project-session-adoption.js` | `list_orchestration_coordinators`, `propose_session_adoption`; MCP `adopt_session` | Recommends coordinators, builds compact existing-session handoffs, records classification, and binds adopted conversations as task executors |
@@ -187,7 +195,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-permissions.js` | SDK bridge tool whitelist, permission request, AskUserQuestion denial contract, and permission notification text helpers |
 | `sdk-bridge-processes.js` | SDK bridge Linux-user project prep, conflicting Claude process detection, and process verification helpers |
 | `sdk-bridge-query-start.js` | SDK bridge query startup, vendor lazy-init, query option assembly, and initial message dispatch |
-| `sdk-bridge-recovery.js` | SDK bridge transient stream error detection and bounded auto-resume scheduling helpers |
+| `sdk-bridge-recovery.js` | SDK bridge transient stream error detection and bounded auto-resume scheduling helpers; direct portfolio leaves never auto-resume after adapter shutdown |
 | `sdk-bridge-rewind.js` | SDK bridge adapter-agnostic rewind preview, rewind execute, conversation rollback, and fork helpers |
 | `sdk-bridge-stream.js` | SDK bridge query stream lifecycle, watchdog recovery, terminal turn cleanup, and auto-continue scheduling |
 | `sdk-provider-failover-signals.js` | Provider failure recording and unhealthy-session failover markers |
@@ -337,10 +345,11 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-skills-install.js` | Skill install dialog, requireSkills, requireClayMateInterview |
 | `app-favicon.js` | Dynamic favicon, IO blink, urgent blink, send button mode, activity indicator |
 | `app-header.js` | Session rename, session info popover, progressive history loading |
-| `global-coop-projection.js` | Global Coop UI state and bounded project-channel summary display model; exposes only durable Lead channel navigation and canonical-project handoffs |
+| `global-coop-projection.js` | Permanent Coop UI state, project-lens navigation, dense facts, and exact canonical SessionRef handoffs without transcript copies |
+| `coop-conversation-state.js` | Owner-facing Coop listening/replying and background-work status beside the composer |
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
-| `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Lead's Coop-only bounded project-channel sidebar |
+| `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Coop project lenses with canonical worker trees |
 | `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
 | `sidebar-sessions-context-menu.js` | Session and loop context menus, provider handoff entries, visibility toggle, and shared menu state |
 | `sidebar-sessions-orchestration.js` | Existing-session “Add to coordinator” picker, recommendation rows, and adoption acknowledgement |

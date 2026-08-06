@@ -434,6 +434,39 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.equal(projectCoordinator.orchestrationPolicy.portfolioExecution.status, "running");
   assert.equal(router.getExecutionBinding("portfolio-slice-7").mode, "project_coordinator");
   assert.equal(lead.sessions.size, 1);
+  var steer = lead.api.steerProjectCoordinatorFromTool({
+    coordinatorSessionId: coop.storageId,
+    targetProject: { projectId: targetProjectId },
+    targetCoordinator: { projectId: targetProjectId, sessionStorageId: projectCoordinator.storageId },
+    portfolioTaskId: "portfolio-slice-7",
+    bindingRevision: 2,
+    idempotencyKey: "coop-steer-project-coordinator-1",
+    message: "Prioritize the restart regression before expanding scope.",
+  });
+  assert.equal(steer.isError, undefined);
+  assert.equal(target.starts.at(-1).session, projectCoordinator);
+  var duplicateSteer = lead.api.steerProjectCoordinatorFromTool({
+    coordinatorSessionId: coop.storageId,
+    targetProject: { projectId: targetProjectId },
+    targetCoordinator: { projectId: targetProjectId, sessionStorageId: projectCoordinator.storageId },
+    portfolioTaskId: "portfolio-slice-7",
+    bindingRevision: 2,
+    idempotencyKey: "coop-steer-project-coordinator-1",
+    message: "Prioritize the restart regression before expanding scope.",
+  });
+  assert.equal(duplicateSteer.isError, undefined);
+  assert.equal(target.starts.filter(function (entry) { return entry.session === projectCoordinator; }).length, 2);
+  var rejectedSteer = lead.api.steerProjectCoordinatorFromTool({
+    coordinatorSessionId: coop.storageId,
+    targetProject: { projectId: targetProjectId },
+    targetCoordinator: { projectId: targetProjectId, sessionStorageId: "wrong-coordinator" },
+    portfolioTaskId: "portfolio-slice-7",
+    bindingRevision: 2,
+    idempotencyKey: "coop-steer-project-coordinator-2",
+    message: "This must not reach the wrong coordinator.",
+  });
+  assert.equal(rejectedSteer.isError, true);
+  assert.match(rejectedSteer.content[0].text, /requires attention: coordinator_ref_mismatch/);
   var localDelegation = target.api.delegateFromTool(Object.assign(brief(projectCoordinator), {
     coordinatorSessionId: projectCoordinator.storageId,
   }));
@@ -468,6 +501,234 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.equal(restartedReplay.ok, true);
   assert.equal(restartedReplay.reused, true);
   assert.equal(target.sessions.size, 3);
+});
+
+test("project-coordinator completion closes its source binding through typed delivery", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-closure-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  var created = lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-project-closure",
+    bindingRevision: 1,
+    idempotencyKey: "project-closure-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+    title: "Target project coordinator",
+    objective: "Complete the target project through the canonical coordinator.",
+    context: "The coordinator has no child tasks.",
+    acceptanceCriteria: "Emit verified project completion.",
+    ownedPaths: "lib/target.js",
+  });
+  assert.equal(created.ok, true);
+  var projectCoordinator = Array.from(target.sessions.values())[0];
+  projectCoordinator.history.push({
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Target integration verified.\n" +
+      "VERIFICATION: target suite passed\nINTEGRATION_VERIFIED: yes\nESCALATION_REQUIRED: no",
+  });
+  projectCoordinator.isProcessing = false;
+
+  target.api.handleCoordinatorTurnDone(projectCoordinator);
+
+  var binding = router.getExecutionBinding("portfolio-project-closure", 1);
+  assert.equal(projectCoordinator.orchestrationPolicy.portfolioExecution.status, "completed");
+  assert.equal(binding.status, "completed");
+  assert.deepEqual(router.bindingStore.listCurrent(), []);
+  assert.equal(lead.starts.length, 0, "completion closure does not create an owner-facing replay");
+  target.api.handleCoordinatorTurnDone(projectCoordinator);
+  assert.equal(router.getExecutionBinding("portfolio-project-closure", 1).status, "completed");
+});
+
+test("direct-leaf completion closes its source binding and suppresses late delivery replay", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-direct-leaf-closure-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  var created = lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-terminal-leaf",
+    bindingRevision: 1,
+    idempotencyKey: "terminal-leaf-create",
+    mode: "direct_leaf",
+    targetProject: { projectId: targetProjectId },
+    title: "Terminal direct leaf",
+    objective: "Finish the bounded task.",
+    acceptanceCriteria: "Report verified completion.",
+    ownedPaths: "lib/terminal.js",
+  });
+  var leaf = Array.from(target.sessions.values())[0];
+  leaf.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Finished once.\n" +
+      "VERIFICATION: focused regression passed\nESCALATION_REQUIRED: no",
+  });
+  leaf.isProcessing = false;
+  leaf._subscriber({ type: "done" });
+
+  var binding = router.getExecutionBinding("portfolio-terminal-leaf", 1);
+  assert.equal(binding.status, "completed");
+  assert.equal(binding.completedAt > 0, true);
+  assert.deepEqual(binding.worker, created.workerRef);
+  assert.deepEqual(router.bindingStore.listCurrent(), []);
+  assert.equal(lead.starts.length, 1, "the first completion can notify Coop once");
+
+  var duplicate = lead.api.deliverCrossProjectEnvelope(router.createEnvelope({
+    eventId: leaf.orchestrationPolicy.portfolioExecution.completionDeliveryEventId,
+  }));
+  assert.equal(duplicate.ok, true);
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(lead.starts.length, 1, "duplicate completion is acknowledged without replay");
+
+  var lateProgress = lead.api.deliverCrossProjectEnvelope({
+    eventId: "late-direct-progress",
+    source: created.workerRef,
+    destination: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    bindingRevision: 1,
+    payload: { type: "coordinator_update", text: "old progress" },
+  });
+  assert.equal(lateProgress.ok, true);
+  assert.equal(lateProgress.suppressed, true);
+  assert.equal(lead.starts.length, 1, "old progress cannot reopen the owner-facing lane");
+});
+
+test("terminal direct leaves reconcile old active bindings through typed completion without replay", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-direct-leaf-recovery-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  router.bindingStore.reserve({
+    source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    portfolioTaskId: "portfolio-recovered-leaf",
+    bindingRevision: 1,
+    idempotencyKey: "recovered-leaf-create",
+    mode: "direct_leaf",
+    targetProject: { projectId: targetProjectId },
+  });
+  router.bindingStore.commit("portfolio-recovered-leaf", 1, {
+    projectId: targetProjectId,
+    sessionStorageId: "recovered-direct-leaf",
+  });
+  var recoveredLeaf = {
+    localId: 9,
+    storageId: "recovered-direct-leaf",
+    history: [{ type: "delta", text: "WORKER_STATUS: completed\nSUMMARY: Old result." }],
+    isProcessing: false,
+    coopControlledBy: { coopSessionStorageId: coop.storageId, since: 1 },
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "portfolio-recovered-leaf",
+      bindingRevision: 1,
+      idempotencyKey: "recovered-leaf-create",
+      mode: "direct_leaf",
+      status: "completed",
+      completedAt: 88,
+      resultEventId: "old-direct-result",
+      source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    } },
+  };
+  var target = testContext(new Map([[recoveredLeaf.localId, recoveredLeaf]]), {
+    projectId: targetProjectId,
+    crossProject: router,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+
+  assert.equal(router.getExecutionBinding("portfolio-recovered-leaf", 1).status, "completed");
+  assert.equal(recoveredLeaf.hidden, true);
+  assert.equal(lead.starts.length, 0, "historical completion is a control repair, not a replay");
+  assert.deepEqual(router.bindingStore.listCurrent(), []);
+});
+
+test("adapter shutdown closes a direct-leaf binding without retrying orphaned active work", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-direct-leaf-adapter-stop-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-adapter-stop",
+    bindingRevision: 1,
+    idempotencyKey: "adapter-stop-create",
+    mode: "direct_leaf",
+    targetProject: { projectId: targetProjectId },
+    title: "Adapter stop leaf",
+    objective: "Finish without retrying a stopped adapter.",
+    acceptanceCriteria: "Close the direct binding.",
+    ownedPaths: "lib/adapter-stop.js",
+  });
+  var leaf = Array.from(target.sessions.values())[0];
+  leaf.isProcessing = false;
+  leaf._subscriber({ type: "done", code: 1 });
+
+  var binding = router.getExecutionBinding("portfolio-adapter-stop", 1);
+  assert.equal(leaf.orchestrationPolicy.portfolioExecution.status, "failed");
+  assert.equal(leaf.orchestrationPolicy.portfolioExecution.reason, "adapter_shutdown");
+  assert.equal(binding.status, "failed");
+  assert.deepEqual(router.bindingStore.listCurrent(), []);
+  assert.equal(leaf._portfolioExecutionWatcher, null);
+  assert.equal(target.pushes.length, 0);
+  assert.equal(router.messageProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    portfolioTaskId: "portfolio-adapter-stop",
+    bindingRevision: 1,
+    idempotencyKey: "must-not-retry-adapter-stop",
+    text: "Retry the stopped adapter.",
+  }).ok, false);
+  assert.equal(target.pushes.length, 0, "a closed direct leaf cannot be restarted by delivery retry");
 });
 
 test("a reviewing target execution blocks an ordinary replacement revision", function () {

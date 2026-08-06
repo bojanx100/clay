@@ -143,6 +143,42 @@ test("project-scoped Coop channels persist separately from Coop home", async fun
   }
 });
 
+test("Coop ingress recovery state persists without creating a second conversation", async function () {
+  var h = makeSessionHarness({ isLead: true });
+  try {
+    var home = [...h.sm.sessions.values()].find(function (session) { return session.coopHome; });
+    home.storageId = "coop-ingress-home";
+    home.coopConversationIngress = {
+      nextSequence: 5,
+      activeIngressId: null,
+      recent: [{ key: "input:voice-4", ingressId: "coop:coop-ingress-home:4", sequence: 4 }],
+    };
+    home.pendingCoopIngress = [{
+      ingressId: "coop:coop-ingress-home:4",
+      ingressSequence: 4,
+      finalText: "resume owner input",
+      displayText: "resume owner input",
+      intent: "chat",
+    }];
+    h.sm.saveSessionFile(home);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var restoredHome = [...restored.sessions.values()].find(function (session) { return session.coopHome; });
+    assert.strictEqual([...restored.sessions.values()].filter(function (session) { return session.coopHome; }).length, 1);
+    assert.strictEqual(restoredHome.coopConversationIngress.nextSequence, 5);
+    assert.strictEqual(restoredHome.pendingCoopIngress.length, 1);
+    assert.strictEqual(restoredHome.pendingCoopIngress[0].ingressId, "coop:coop-ingress-home:4");
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
 function sessionFile(h, storageId) {
   return path.join(h.sessionsDir, storageId + ".jsonl");
 }

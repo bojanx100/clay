@@ -29,7 +29,7 @@ function project(projectId, slug, sessions, extra) {
   }, extra || {});
 }
 
-test("Coop projects each accessible configured project into one durable summary channel", function () {
+test("Coop projects each accessible configured project into a main-lane lens with canonical nested sessions", function () {
   var home = session(1, { storageId: "coop-home", coopHome: true });
   var lead = project("system-lead", "lead", [home], { isLead: true });
   var task = {
@@ -50,7 +50,11 @@ test("Coop projects each accessible configured project into one durable summary 
     },
   });
   var directOwnerSession = session(11, { title: "Owner direct conversation" });
-  var clay = project("11111111-1111-5111-8111-111111111111", "clay", [coordinator, directOwnerSession], { title: "Clay" });
+  var worker = session(12, {
+    title: "Canonical worker",
+    orchestrationParent: { sessionStorageId: coordinator.storageId, taskId: task.taskId },
+  });
+  var clay = project("11111111-1111-5111-8111-111111111111", "clay", [coordinator, directOwnerSession, worker], { title: "Clay" });
   var worktree = project("22222222-2222-5222-8222-222222222222", "clay--feature", [], { isWorktree: true });
   var mate = project("33333333-3333-5333-8333-333333333333", "mate-ada", [], { isMate: true });
 
@@ -61,6 +65,8 @@ test("Coop projects each accessible configured project into one durable summary 
   var channel = projection.projects[0];
   assert.deepEqual(channel.projectRef, { projectId: clay.projectId });
   assert.equal(channel.channel.sessionRef.projectId, "system-lead");
+  assert.equal(channel.channel.sessionRef.sessionStorageId, "coop-home");
+  assert.equal(channel.channel.isLens, true);
   assert.equal(channel.summary.goals[0], "Keep project navigation isolated");
   assert.equal(channel.summary.activeWork[0].title, "Fix project switch");
   assert.equal(channel.summary.outcomes[0].summary, "Earlier verified release");
@@ -68,6 +74,10 @@ test("Coop projects each accessible configured project into one durable summary 
   assert.equal(Object.hasOwn(channel, "coordinators"), false);
   assert.equal(Object.hasOwn(channel, "directLeaves"), false);
   assert.equal(JSON.stringify(channel).includes("Owner direct conversation"), false);
+  assert.equal(channel.summary.metrics.activeCoordinators, 1);
+  assert.equal(channel.summary.metrics.activeWorkers, 1);
+  assert.equal(channel.summary.coordinatorTree[0].sessionRef.projectId, clay.projectId);
+  assert.equal(channel.summary.coordinatorTree[0].children[0].sessionRef.sessionStorageId, worker.storageId);
 
   var second = buildGlobalCoopProjection({ projects: [lead, clay] });
   assert.equal(second.projects[0].channel.sessionRef.sessionStorageId,

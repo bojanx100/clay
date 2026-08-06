@@ -144,7 +144,7 @@ test("coordinator groups collapse worker overflow behind shared controls", funct
   assert.doesNotMatch(desktopCss, /\.session-role-badge/);
 });
 
-test("mobile and desktop render bounded project channel summaries", async function () {
+test("mobile and desktop render bounded project lenses", async function () {
   var modulePath = path.join(__dirname, "..", "lib", "public", "modules", "global-coop-projection.js");
   var globalProjection = await import(pathToFileURL(modulePath).href);
   globalProjection.setGlobalCoopProjection({
@@ -185,5 +185,5 @@ test("mobile and desktop render bounded project channel summaries", async functi
   );
   assert.match(mobileSource, /buildGlobalCoopDisplayModel/);
   assert.match(desktopSource, /buildGlobalCoopDisplayModel/);
-  assert.match(desktopSource, /Open project channel/);
+  assert.doesNotMatch(desktopSource, /Open project channel/);
 });

@@ -837,6 +837,56 @@
 
   .mobile-global-coop-project { margin: 3px 0 8px; }
 
+  .mobile-global-coop-project {
+    margin-left: 12px;
+    padding: 6px 0 6px 8px;
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .mobile-global-coop-project.active { border-left-color: var(--accent); }
+
+  .mobile-global-coop-project-header {
+    display: block;
+    width: 100%;
+    min-height: 36px;
+    padding: 5px 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 650;
+    text-align: left;
+  }
+
+  .mobile-global-coop-metrics {
+    margin: -2px 8px 4px 0;
+    color: var(--text-dimmer);
+    font-size: 11px;
+  }
+
+  .mobile-global-coop-session-tree { margin: 5px 0; }
+
+  .mobile-global-coop-session-node {
+    display: block;
+    width: calc(100% - (var(--coop-lineage-depth) * 12px));
+    min-height: 34px;
+    margin: 2px 0 2px calc(var(--coop-lineage-depth) * 12px);
+    padding: 7px 6px 7px 8px;
+    overflow: hidden;
+    border: 0;
+    border-left: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-global-coop-session-coordinator { border-left-color: var(--accent); color: var(--text-secondary); }
+
   .mobile-global-coop-project.worktree {
     margin-left: 12px;
     padding-left: 4px;

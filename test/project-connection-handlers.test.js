@@ -284,6 +284,8 @@ test("Lead connection restores Coop home instead of a remembered worker", functi
 
     var switched = sent.find(function (message) { return message.type === "session_switched"; });
     assert.equal(switched.id, home.localId);
+    assert.equal(switched.coopHome, true);
+    assert.equal(switched.coopChannel, null);
     assert.equal(options.presenceWrites[0].sessionId, home.localId);
   } finally {
     restore();
@@ -309,6 +311,7 @@ test("Lead exact SessionRef restore still opens the requested reference session"
 
     var switched = sent.find(function (message) { return message.type === "session_switched"; });
     assert.equal(switched.id, worker.localId);
+    assert.equal(switched.coopHome, false);
     assert.equal(options.presenceWrites[0].sessionId, worker.localId);
   } finally {
     restore();

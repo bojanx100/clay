@@ -691,6 +691,55 @@
   display: none;
 }
 
+.coop-conversation-status {
+  max-width: var(--content-width);
+  margin: 0 auto 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.coop-conversation-status.hidden {
+  display: none;
+}
+
+.coop-conversation-primary {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.coop-conversation-lens {
+  color: var(--text-secondary);
+}
+
+.coop-conversation-primary::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 6px 1px 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.coop-conversation-pending {
+  color: var(--accent);
+}
+
+.coop-conversation-background {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .queued-message-item {
   position: relative;
   display: flex;
@@ -1338,6 +1387,11 @@
   flex-shrink: 0;
 }
 #active-vendor-indicator.hidden { display: none; }
+body.coop-home-active #active-vendor-indicator,
+body.coop-home-active #vendor-toggle-wrap,
+body.coop-home-active #config-chip-wrap {
+  display: none !important;
+}
 #active-vendor-icon {
   width: 18px;
   height: 18px;

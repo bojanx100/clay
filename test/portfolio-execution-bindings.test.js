@@ -71,6 +71,98 @@ test("scope promotion and unavailable/deleted tombstones survive restart", funct
   assert.equal(restarted.list()[0].status, "superseded");
 });
 
+test("typed direct-leaf completion is idempotent and removes closed work from current bindings", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-completion-"));
+  var file = path.join(dir, "bindings.json");
+  var clock = 100;
+  var store = createBindings({ file: file, now: function () { return clock++; } });
+  store.reserve(request(1));
+  store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "canonical-direct-leaf",
+  });
+
+  var completed = store.complete("portfolio-task", 1, {
+    eventId: "direct-completion-1",
+    completedAt: 123,
+    ownerNotification: true,
+    resultEventId: "direct-result-1",
+  });
+  assert.equal(completed.ok, true);
+  assert.equal(completed.binding.status, "completed");
+  assert.equal(completed.binding.completedAt, 123);
+  assert.deepEqual(completed.binding.worker, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "canonical-direct-leaf",
+  });
+  assert.deepEqual(store.listCurrent(), []);
+  assert.equal(store.markDeleted("portfolio-task", 1, "late_cleanup").reason, "binding_terminal");
+  assert.equal(store.complete("portfolio-task", 1, {
+    eventId: "direct-completion-1",
+  }).duplicate, true);
+  assert.equal(store.acknowledgeCompletion("portfolio-task", 1, "direct-completion-1").ok, true);
+
+  var restarted = createBindings({ file: file, now: function () { return clock++; } });
+  assert.equal(restarted.get("portfolio-task", 1).status, "completed");
+  assert.equal(restarted.listCurrent().length, 0);
+  assert.equal(restarted.reserve(request(2)).ok, true);
+});
+
+test("typed project-coordinator completion preserves its canonical ref and closes current work", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-coordinator-completion-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 200; } });
+  store.reserve(request(1, "project_coordinator"));
+  store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "canonical-project-coordinator",
+  });
+
+  var completed = store.complete("portfolio-task", 1, {
+    eventId: "project-completion-1",
+    executionMode: "project_coordinator",
+    resultEventId: "project-result-1",
+  });
+  assert.equal(completed.ok, true);
+  assert.equal(completed.binding.status, "completed");
+  assert.deepEqual(completed.binding.coordinator, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "canonical-project-coordinator",
+  });
+  assert.deepEqual(store.listCurrent(), []);
+  assert.equal(store.complete("portfolio-task", 1, {
+    eventId: "project-completion-1",
+    executionMode: "project_coordinator",
+  }).duplicate, true);
+});
+
+test("version-one binding files migrate without changing canonical references", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-migration-"));
+  var file = path.join(dir, "bindings.json");
+  fs.writeFileSync(file, JSON.stringify({
+    schema: "clay.portfolio_execution_bindings",
+    version: 1,
+    bindings: [{
+      portfolioTaskId: "portfolio-task",
+      mode: "direct_leaf",
+      targetProject: { projectId: PROJECT_ID },
+      bindingRevision: 1,
+      idempotencyKey: "legacy-command",
+      status: "active",
+      createdAt: 1,
+      updatedAt: 2,
+      worker: { projectId: PROJECT_ID, sessionStorageId: "preserved-worker" },
+    }],
+  }, null, 2));
+
+  var migrated = createBindings({ file: file });
+  assert.deepEqual(migrated.get("portfolio-task", 1).worker, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "preserved-worker",
+  });
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).version, 2);
+});
+
 test("malformed binding state fails closed without overwriting it", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-corrupt-"));
   var file = path.join(dir, "bindings.json");

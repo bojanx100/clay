@@ -69,7 +69,7 @@ function gateHarness(tasks, options) {
   };
 }
 
-test("orchestration MCP exposes explicit dismissal and user-decision operations", function () {
+test("orchestration MCP exposes dismissal, user-decision, and typed coordinator steering operations", function () {
   var noop = function () {};
   var names = orchestrationMcp.getToolDefs(
     noop, noop, noop, noop, noop, noop, noop, noop, noop
@@ -77,6 +77,7 @@ test("orchestration MCP exposes explicit dismissal and user-decision operations"
 
   assert.ok(names.indexOf("dismiss_task") !== -1);
   assert.ok(names.indexOf("request_task_input") !== -1);
+  assert.ok(names.indexOf("steer_project_coordinator") !== -1);
 });
 
 test("delegate_task exposes the typed cross-project execution binding", function () {

@@ -14,7 +14,7 @@ function project(projectId, slug, title) {
     projectRef: { projectId: projectId },
     slug: slug,
     title: title,
-    channel: { sessionRef: { projectId: "system-lead", sessionStorageId: "channel-" + slug }, localId: 12 },
+    channel: { sessionRef: { projectId: "system-lead", sessionStorageId: "coop-home" }, localId: 12, isLens: true },
     summary: {
       goals: ["Ship " + title],
       decisions: ["Use the canonical project"],
@@ -23,6 +23,20 @@ function project(projectId, slug, title) {
       outcomes: [{ summary: "Verified previous release" }],
       freshness: { updatedAt: 10, stale: false },
       nextAction: "Open this project channel to review active delegated work.",
+      metrics: { activeCoordinators: 1, activeWorkers: 2, health: "active" },
+      coordinatorTree: [{
+        sessionRef: { projectId: projectId, sessionStorageId: "coordinator-" + slug },
+        title: "Canonical coordinator",
+        role: "coordinator",
+        status: "running",
+        children: [{
+          sessionRef: { projectId: projectId, sessionStorageId: "worker-" + slug },
+          title: "Canonical worker",
+          role: "worker",
+          status: "running",
+          children: [],
+        }],
+      }],
     },
   };
 }
@@ -43,7 +57,7 @@ test("global Coop display model preserves only project channels and bounded summ
   assert.equal(Object.hasOwn(model.projects[0], "directLeaves"), false);
 });
 
-test("opening a project summary uses its durable Lead channel without resolving project sessions", async function () {
+test("opening a project lens returns to the permanent main Coop session", async function () {
   var ui = await loadProjectionUi();
   var sent = [];
   var target = project("11111111-1111-5111-8111-111111111111", "clay", "Clay");
@@ -51,18 +65,30 @@ test("opening a project summary uses its durable Lead channel without resolving 
   assert.deepEqual(sent, [{ type: "switch_session", id: 12 }]);
 });
 
-test("Lead renderers contain project summaries, not copied project session trees or worker attempts", function () {
+test("project lens URLs preserve the exact Coop lens for browser history", async function () {
+  var ui = await loadProjectionUi();
+  var ref = { projectId: "11111111-1111-5111-8111-111111111111" };
+  assert.equal(
+    ui.projectLensPath("/p/lead/", "?keep=1", ref),
+    "/p/lead/?keep=1&coopProject=11111111-1111-5111-8111-111111111111"
+  );
+  assert.equal(ui.projectLensPath("/p/lead/", "?keep=1&coopProject=old", null), "/p/lead/?keep=1");
+});
+
+test("Lead renderers use project lenses and exact canonical session references", function () {
   var desktop = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-sessions.js"), "utf8");
   var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"), "utf8");
   var projection = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "global-coop-projection.js"), "utf8");
 
   assert.match(desktop, /Open canonical project/);
-  assert.match(desktop, /Open project channel/);
+  assert.doesNotMatch(desktop, /Open project channel/);
   assert.match(mobile, /Open canonical project/);
-  assert.match(mobile, /Open project channel/);
-  assert.doesNotMatch(desktop, /appendProjectedAttempts/);
-  assert.doesNotMatch(mobile, /appendMobileProjectedAttempts/);
+  assert.doesNotMatch(mobile, /Open project channel/);
+  assert.match(desktop, /appendProjectedSessionTree/);
+  assert.match(mobile, /appendMobileProjectedSessionTree/);
+  assert.match(desktop, /requestCanonicalSession/);
+  assert.match(mobile, /requestCanonicalSession/);
   assert.match(desktop, /store\.get\("currentSlug"\) !== "lead"\) updateCountdowns\(\)/);
-  assert.doesNotMatch(projection, /requestGlobalSessionRef/);
+  assert.match(projection, /requestCanonicalSession/);
   assert.doesNotMatch(projection, /toggleGlobalTaskExpanded/);
 });

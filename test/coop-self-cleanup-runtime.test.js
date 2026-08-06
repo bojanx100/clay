@@ -319,6 +319,23 @@ test("Lead wake skips non-Lead, disabled, busy, already-scheduled, and empty sta
   assert.equal(schedules, 0);
 });
 
+test("forced idle resume discovers safe work but never overtakes pending owner ingress", function () {
+  var schedules = 0;
+  var home = { localId: 1, storageId: "coop-home", coopHome: true };
+  var wake = runtimeModule.createLeadWakeHandler({
+    projectSlug: "lead",
+    sm: { sessions: new Map([[1, home]]) },
+    hasPendingWork: function () { return false; },
+    scheduleMessage: function () { schedules++; },
+    now: function () { return NOW; },
+  });
+
+  assert.equal(wake({ leadMode: true }, { force: true }), true);
+  home.pendingCoopIngress = [{ ingressId: "coop:coop-home:4" }];
+  assert.equal(wake({ leadMode: true }, { force: true }), false);
+  assert.equal(schedules, 1);
+});
+
 test("projection-only hiding does not cascade or delete through session deletion", function () {
   var sessions = new Map([
     [1, { localId: 1, storageId: "coordinator" }],

@@ -2,6 +2,7 @@ var test = require("node:test");
 var assert = require("node:assert");
 
 var { attachBridgeStream } = require("../lib/sdk-bridge-stream");
+var { attachBridgeRecovery } = require("../lib/sdk-bridge-recovery");
 
 function emptyQueryHandle() {
   return {
@@ -189,4 +190,52 @@ test("interrupted turns reconcile queued messages only after stream cleanup", as
     abortController: null,
     taskStopRequested: false,
   }]);
+});
+
+test("adapter shutdown never auto-retries a direct portfolio leaf", async function () {
+  var scheduled = 0;
+  var recorded = [];
+  var recovery = attachBridgeRecovery({
+    opts: { scheduleMessage: function () { scheduled++; } },
+  });
+  var session = {
+    localId: 11,
+    vendor: "codex",
+    queryInstance: emptyQueryHandle(),
+    isProcessing: true,
+    pendingPermissions: {},
+    pendingAskUser: {},
+    pendingElicitations: {},
+    orchestrationPolicy: { portfolioExecution: { mode: "direct_leaf" } },
+  };
+  var stream = attachBridgeStream({
+    adapter: { vendor: "codex" },
+    sm: { broadcastSessionList: function () {}, saveSessionFile: function () {} },
+    send: function () {},
+    sendAndRecord: function (target, event) { recorded.push(event); },
+    sendToSession: function () {},
+    processSDKMessage: function () {},
+    onProcessingChanged: function () {},
+    onTurnDone: function () {},
+    opts: { getAutoContinueSetting: function () { return true; }, scheduleMessage: function () { scheduled++; } },
+    getVendorDisplayName: function () { return "Codex"; },
+    isAuthErrorMessage: function () { return false; },
+    getFreshAuthState: function () { return {}; },
+    logAuthDecision: function () {},
+    getLoginCommand: function () { return "codex login"; },
+    notifyAuthRequired: function () {},
+    findConflictingClaude: function () { return []; },
+    isTransientStreamError: recovery.isTransientStreamError,
+    autoResumeAllowed: recovery.autoResumeAllowed,
+    scheduleInterruptResume: recovery.scheduleInterruptResume,
+    sendModelInfoForVendor: function () {},
+    rateLimitResumeLabel: "continue",
+    debugEvents: false,
+  });
+
+  await stream.processQueryStream(session);
+
+  assert.equal(scheduled, 0);
+  assert.equal(recorded.some(function (event) { return event.type === "done" && event.code === 1; }), true);
+  assert.equal(session.streamEndedAutoRetryQueued, undefined);
 });

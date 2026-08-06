@@ -145,7 +145,7 @@ test("completed Coop direct leaves deliver their result before terminal archival
   var metadata = session.orchestrationPolicy.portfolioExecution;
   var sm = {
     sessions: sessions,
-    getProjectId: function () { return "target-project"; },
+    getProjectId: function () { return null; },
     subscribeSession: function (id, callback) {
       session._subscriber = callback;
       return function () { timeline.push("unsubscribe"); };
@@ -163,13 +163,22 @@ test("completed Coop direct leaves deliver their result before terminal archival
     sdk: {},
     onProcessingChanged: function () {},
     crossProject: {
+      getExecutionBinding: function () {
+        return { worker: { projectId: "system-target", sessionStorageId: "direct-leaf-storage" } };
+      },
       createEnvelope: function (input) {
         timeline.push("envelope");
         return input;
       },
-      deliverEnvelope: function () {
+      deliverEnvelope: function (envelope) {
         timeline.push("deliver:" + metadata.status);
-        assert.equal(metadata.status, "running");
+        assert.equal(metadata.status, "completed");
+        assert.deepEqual(envelope.source, {
+          projectId: "system-target",
+          sessionStorageId: "direct-leaf-storage",
+        });
+        assert.equal(envelope.payload.type, "portfolio_execution_completed");
+        assert.equal(envelope.payload.ownerNotification, true);
         assert.equal(session.hidden, undefined);
         return { ok: true, delivered: true, acknowledged: true };
       },
@@ -185,6 +194,6 @@ test("completed Coop direct leaves deliver their result before terminal archival
 
   assert.equal(metadata.status, "completed");
   assert.equal(session.hidden, true);
-  assert.ok(timeline.indexOf("deliver:running") < timeline.indexOf("save:completed"));
-  assert.ok(timeline.indexOf("save:completed") < timeline.indexOf("hide"));
+  assert.ok(timeline.indexOf("save:completed") < timeline.indexOf("deliver:completed"));
+  assert.ok(timeline.indexOf("deliver:completed") < timeline.indexOf("hide"));
 });
