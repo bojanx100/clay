@@ -138,3 +138,25 @@ test("lead-backtest CLI reports a config with no github issue source", function 
   assert.match(run.stderr, /no github issue source/);
   fs.rmSync(project.dir, { recursive: true, force: true });
 });
+
+test("lead-backtest CLI rejects a config outside <project>/.clay/tasks", function () {
+  // git config walks UP to the enclosing repo, so a config at
+  // <repo>/deep/nested/x.json would inherit <repo>'s origin, "own" the repo
+  // under a bogus label, and reach real gh fetches and ledger writes. The
+  // canonical path must be validated BEFORE any of that.
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "lead-backtest-"));
+  childProcess.execFileSync("git", ["init", "-q"], { cwd: dir });
+  childProcess.execFileSync("git", ["remote", "add", "origin", "https://github.com/acme/widgets.git"], { cwd: dir });
+  var nested = path.join(dir, "deep", "nested");
+  fs.mkdirSync(nested, { recursive: true });
+  var configPath = path.join(nested, "cfg.json");
+  fs.writeFileSync(configPath, JSON.stringify({ id: "x", source: { provider: "github", kind: "issue", repo: "acme/widgets" } }));
+
+  var run = runScript(configPath);
+  assertNoCrash(run.stderr);
+  assert.strictEqual(run.status, 2);
+  assert.match(run.stderr, /must live at <project>\/\.clay\/tasks/);
+  // Rejected BEFORE any GitHub access.
+  assert.ok(run.stderr.indexOf("issue fetch failed") === -1, "must not reach a gh fetch: " + run.stderr);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

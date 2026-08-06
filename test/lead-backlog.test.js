@@ -181,6 +181,50 @@ test("equivalent repo spellings resolve to one canonical slug, order-free", func
   assert.deepStrictEqual(forward.sources, reverse.sources);
 });
 
+test("a trailing DNS dot is the same GitHub host, not a foreign one", function () {
+  // "github.com." is the fully-qualified form of github.com — a legitimate
+  // remote that must resolve, not fail closed.
+  assert.strictEqual(backlog.normalizeRepoSlug("https://github.com./trialview/v2.git"), "trialview/v2");
+  assert.strictEqual(backlog.normalizeRepoSlug("git@github.com.:trialview/v2.git"), "trialview/v2");
+  assert.strictEqual(backlog.normalizeRepoSlug("github.com./trialview/v2"), "trialview/v2");
+  // ...and the anti-forgery check still holds with a trailing dot attached.
+  assert.strictEqual(backlog.normalizeRepoSlug("https://evil.example./github.com/trialview/v2"), "");
+  assert.strictEqual(backlog.normalizeRepoSlug("https://evilgithub.com./trialview/v2"), "");
+  assert.strictEqual(backlog.normalizeRepoSlug("https://github.com.evil.example./trialview/v2"), "");
+  // A trailing-dot origin owns the repo end to end.
+  var result = backlog.resolveGithubSources([
+    { project: "webapp", projectRef: WEBAPP_REF, originRepo: "https://github.com./trialview/v2.git", configs: [WEBAPP_ASSIGNED] },
+  ]);
+  assert.strictEqual(result.sources.length, 1);
+  assert.strictEqual(result.sources[0].project, "webapp");
+});
+
+test("the dedupe key cannot be forged across the project/id boundary", function () {
+  var NUL = String.fromCharCode(0);
+  // Joining on a delimiter — any delimiter — lets one pair impersonate
+  // another: "a<NUL>b" + "c" and "a" + "b<NUL>c" join to the same string.
+  var forged = backlog.buildPortfolio([
+    { project: "a" + NUL + "b", items: [{ id: "c", title: "first" }] },
+    { project: "a", items: [{ id: "b" + NUL + "c", title: "second" }] },
+  ], { now: NOW });
+  assert.strictEqual(forged.summary.total, 2);
+  assert.deepStrictEqual(forged.items.map(function (i) { return i.title; }).sort(), ["first", "second"]);
+
+  // String() coercion must not merge distinct typed ids/projects either.
+  var typed = backlog.buildPortfolio([
+    { project: "clay", items: [{ id: 1, title: "numeric id" }] },
+    { project: "clay", items: [{ id: "1", title: "string id" }] },
+  ], { now: NOW });
+  assert.strictEqual(typed.summary.total, 2);
+
+  // The real duplicate still collapses.
+  var dupe = backlog.buildPortfolio([
+    { project: "clay", items: [{ id: "x", title: "same" }] },
+    { project: "clay", items: [{ id: "x", title: "same" }] },
+  ], { now: NOW });
+  assert.strictEqual(dupe.summary.total, 1);
+});
+
 test("loose items with the same id in different projects both survive", function () {
   // Boss directives are ad-hoc; two projects can each carry "directive-1".
   // An id-only dedupe key silently dropped one project's real work.

@@ -38,8 +38,19 @@ function fetchJson(execFn, args, cb) {
 // project is three levels up. The backtest resolves ownership exactly the way
 // a Lead tick does — it must never backtest a repository the project does not
 // own, which is precisely the misattribution this resolution exists to stop.
+//
+// The path shape is VALIDATED, not assumed. `git config --get remote.origin.url`
+// walks up to the enclosing repository, so a config at <repo>/deep/nested/x.json
+// would derive project dir <repo>/deep, inherit <repo>'s origin, and then
+// "own" the repo under a bogus label and a bogus ProjectRef — reaching real gh
+// fetches and ledger writes. Requiring the canonical .clay/tasks parents makes
+// the derived project the actual project, and rejects anything else before any
+// side effect.
 function ownerEntryForConfig(configPath, cfg) {
-  var projectDir = path.resolve(path.dirname(configPath), "..", "..");
+  var tasksDir = path.dirname(path.resolve(configPath));
+  var clayDir = path.dirname(tasksDir);
+  var projectDir = path.dirname(clayDir);
+  if (path.basename(tasksDir) !== "tasks" || path.basename(clayDir) !== ".clay") return null;
   var origin = "";
   try {
     origin = childProcess.execFileSync("git", ["config", "--get", "remote.origin.url"], {
@@ -64,6 +75,11 @@ function main() {
   }
   var cfg = JSON.parse(fs.readFileSync(opts.configPath, "utf8"));
   var entry = ownerEntryForConfig(opts.configPath, cfg);
+  if (!entry) {
+    console.error("config must live at <project>/.clay/tasks/<id>.json to establish " +
+      "repository ownership; refusing to backtest " + opts.configPath);
+    process.exit(2);
+  }
   var resolved = backlog.resolveGithubSources([entry]);
   if (resolved.conflicts.length) {
     // Fail closed, loudly: an unresolved owner means we cannot say whose
