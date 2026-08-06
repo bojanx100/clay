@@ -39,26 +39,50 @@ function fetchJson(execFn, args, cb) {
 // a Lead tick does — it must never backtest a repository the project does not
 // own, which is precisely the misattribution this resolution exists to stop.
 //
-// The path shape is VALIDATED, not assumed. `git config --get remote.origin.url`
-// walks up to the enclosing repository, so a config at <repo>/deep/nested/x.json
-// would derive project dir <repo>/deep, inherit <repo>'s origin, and then
-// "own" the repo under a bogus label and a bogus ProjectRef — reaching real gh
-// fetches and ledger writes. Requiring the canonical .clay/tasks parents makes
-// the derived project the actual project, and rejects anything else before any
+// The location is VALIDATED, not assumed, and a name check alone is not enough.
+// Every git read walks UP to the enclosing repository, so a config at
+// <repo>/deep/nested/x.json — or even at <repo>/sub/.clay/tasks/x.json, which
+// passes any name check — derives a project dir BELOW the repo root, inherits
+// the repo's origin, and then "owns" the repository under a bogus label and a
+// bogus ProjectRef, reaching real gh fetches and ledger writes.
+//
+// So the derived project directory must BE the repository root, compared
+// through realpath (symlinked temp dirs and /var vs /private/var would
+// otherwise produce false mismatches). Everything else is rejected before any
 // side effect.
+function gitIn(cwd, args) {
+  try {
+    // stderr is discarded: a missing repo or remote is an expected outcome we
+    // report ourselves, not a git error worth spraying at the operator.
+    return childProcess.execFileSync("git", args, {
+      cwd: cwd, encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch (e) {
+    return "";
+  }
+}
+
+function realPath(value) {
+  try {
+    return fs.realpathSync(value);
+  } catch (e) {
+    return "";
+  }
+}
+
 function ownerEntryForConfig(configPath, cfg) {
   var tasksDir = path.dirname(path.resolve(configPath));
   var clayDir = path.dirname(tasksDir);
   var projectDir = path.dirname(clayDir);
   if (path.basename(tasksDir) !== "tasks" || path.basename(clayDir) !== ".clay") return null;
-  var origin = "";
-  try {
-    origin = childProcess.execFileSync("git", ["config", "--get", "remote.origin.url"], {
-      cwd: projectDir, encoding: "utf8", timeout: 5000,
-    }).trim();
-  } catch (e) {
-    origin = "";
-  }
+
+  // The project dir must be the repository root itself, not any directory
+  // inside it that merely happens to contain a .clay/tasks folder.
+  var toplevel = realPath(gitIn(projectDir, ["rev-parse", "--show-toplevel"]));
+  var resolvedProjectDir = realPath(projectDir);
+  if (!toplevel || !resolvedProjectDir || toplevel !== resolvedProjectDir) return null;
+
+  var origin = gitIn(projectDir, ["config", "--get", "remote.origin.url"]);
   return {
     project: path.basename(projectDir),
     projectRef: { projectId: projectIdentity.deterministicProjectId({ path: projectDir }, 0) },
@@ -76,8 +100,9 @@ function main() {
   var cfg = JSON.parse(fs.readFileSync(opts.configPath, "utf8"));
   var entry = ownerEntryForConfig(opts.configPath, cfg);
   if (!entry) {
-    console.error("config must live at <project>/.clay/tasks/<id>.json to establish " +
-      "repository ownership; refusing to backtest " + opts.configPath);
+    console.error("config must live at <project>/.clay/tasks/<id>.json, where <project> " +
+      "is the root of the git repository, to establish repository ownership; " +
+      "refusing to backtest " + opts.configPath);
     process.exit(2);
   }
   var resolved = backlog.resolveGithubSources([entry]);

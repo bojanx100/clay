@@ -160,3 +160,39 @@ test("lead-backtest CLI rejects a config outside <project>/.clay/tasks", functio
   assert.ok(run.stderr.indexOf("issue fetch failed") === -1, "must not reach a gh fetch: " + run.stderr);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test("lead-backtest CLI rejects a .clay/tasks below the repository root", function () {
+  // A name check alone is not enough: <repo>/sub/.clay/tasks/x.json has the
+  // canonical parents but derives <repo>/sub as the project, which inherits
+  // <repo>'s origin through git's upward walk and would "own" the repository
+  // under a bogus label and ProjectRef. The project dir must BE the repo root.
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "lead-backtest-"));
+  childProcess.execFileSync("git", ["init", "-q"], { cwd: dir });
+  childProcess.execFileSync("git", ["remote", "add", "origin", "https://github.com/acme/widgets.git"], { cwd: dir });
+  var tasksDir = path.join(dir, "sub", ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  var configPath = path.join(tasksDir, "x.json");
+  fs.writeFileSync(configPath, JSON.stringify({ id: "x", source: { provider: "github", kind: "issue", repo: "acme/widgets" } }));
+
+  var run = runScript(configPath);
+  assertNoCrash(run.stderr);
+  assert.strictEqual(run.status, 2);
+  assert.match(run.stderr, /root of the git repository/);
+  assert.ok(run.stderr.indexOf("issue fetch failed") === -1, "must not reach a gh fetch: " + run.stderr);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("lead-backtest CLI rejects a config outside any git repository", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "lead-backtest-"));
+  var tasksDir = path.join(dir, ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  var configPath = path.join(tasksDir, "x.json");
+  fs.writeFileSync(configPath, JSON.stringify({ id: "x", source: { provider: "github", kind: "issue", repo: "acme/widgets" } }));
+
+  var run = runScript(configPath);
+  assertNoCrash(run.stderr);
+  assert.strictEqual(run.status, 2);
+  // git's own "fatal: not a git repository" noise must not reach the operator.
+  assert.ok(run.stderr.indexOf("fatal:") === -1, "git stderr must be suppressed: " + run.stderr);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
