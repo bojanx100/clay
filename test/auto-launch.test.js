@@ -735,6 +735,38 @@ test("lead mode on: a bug-scoped project launches once and never twice", async f
   }
 });
 
+// Only PR items carry `item.key` (project-task-sources.js), so an issue's
+// session records an EMPTY itemKey while its claim was taken under the
+// computed "repo#number". If the release path re-derived the key from the
+// session it would never free an issue's claim, and the Done workflow would be
+// refused for work this automation legitimately owns.
+test("lead mode on: an issue's claim is stamped, released and re-acquirable", async function () {
+  var h = makeCutoverHarness({ type: "bug" });
+  try {
+    await h.autoLaunch.launchScheduled("issues");
+    assert.deepStrictEqual(h.started, [11]);
+
+    var claimed = h.gate.leases.get({ projectId: CUTOVER_PROJECT }, h.gate.claimKeyFor("o/r#11"));
+    assert.ok(claimed, "the issue must be claimed under its computed key");
+
+    // The session the launcher handed back carries the canonical key, even
+    // though the issue item itself had no `key`.
+    var session = {
+      localId: 11,
+      taskLauncher: {
+        recipeId: "issues", itemNumber: 11, autoLaunch: true, autoKind: "issue",
+        itemKey: "", automationClaimKey: "o/r#11",
+      },
+    };
+    h.autoLaunch.notifyCompleted(session, "done");
+    assert.strictEqual(
+      h.gate.leases.get({ projectId: CUTOVER_PROJECT }, h.gate.claimKeyFor("o/r#11")), null,
+      "completion must release the issue's claim");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
 test("lead mode on: a still-running session keeps its claim past the lease TTL", function () {
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-heartbeat-"));
   try {
