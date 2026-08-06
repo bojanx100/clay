@@ -5,6 +5,12 @@ var os = require("os");
 var path = require("path");
 
 var { attachAutoLaunch } = require("../lib/project-auto-launch");
+
+// These suites encode LEGACY behavior, which the cutover preserves exactly
+// while Lead mode is off (CTO-ORCHESTRATOR-ROADMAP 1.1, additive-only). Lead
+// mode is stated explicitly so the assertions never depend on the machine's
+// ambient ~/.clay config. Lead-mode-ON behavior is covered separately.
+function LEAD_OFF() { return false; }
 var { attachTaskLauncher } = require("../lib/project-task-launcher");
 
 function makeTaskLauncher() {
@@ -173,7 +179,7 @@ test("auto-launch maxPasses config overrides pr-review recipe default", async fu
       return { localId: 42, title: "PR #10 Fix me" };
     },
   };
-  var autoLaunch = attachAutoLaunch({
+  var autoLaunch = attachAutoLaunch({ getLeadMode: LEAD_OFF,
     cwd: cwd,
     sm: {
       sessions: new Map(),
@@ -252,7 +258,7 @@ test("issue auto-launch relaunches one legacy completed session without launch s
       return { localId: 44, title: "Issue #2002 Bounced issue" };
     },
   };
-  var autoLaunch = attachAutoLaunch({
+  var autoLaunch = attachAutoLaunch({ getLeadMode: LEAD_OFF,
     cwd: cwd,
     sm: {
       sessions: new Map(),
@@ -333,7 +339,7 @@ test("issue auto-launch does not repeatedly relaunch a completed session after s
       throw new Error("should not launch");
     },
   };
-  var autoLaunch = attachAutoLaunch({
+  var autoLaunch = attachAutoLaunch({ getLeadMode: LEAD_OFF,
     cwd: cwd,
     sm: {
       sessions: new Map(),
@@ -417,7 +423,7 @@ test("issue auto-launch does not relaunch an armed issue while a visible complet
       throw new Error("should not launch");
     },
   };
-  var autoLaunch = attachAutoLaunch({
+  var autoLaunch = attachAutoLaunch({ getLeadMode: LEAD_OFF,
     cwd: cwd,
     sm: {
       sessions: new Map(),
@@ -458,7 +464,7 @@ test("disabled auto-launch config ignores stale registry triggers", async functi
   var fetched = 0;
   var launched = 0;
   var updated = null;
-  var autoLaunch = attachAutoLaunch({
+  var autoLaunch = attachAutoLaunch({ getLeadMode: LEAD_OFF,
     cwd: cwd,
     sm: {
       sessions: new Map(),
@@ -548,7 +554,7 @@ test("runScheduled reconciles a drifted schedule record with config", async func
     writeCfg({ enabled: true, recipes: ["pr-review"], cron: "*/5 * * * *" });
     var reg = scheduler.createLoopRegistry({ cwd: cwd });
     reg.load();
-    var autoLaunch = attachAutoLaunch({ cwd: cwd, loopRegistry: reg, fetchItems: function () { return []; } });
+    var autoLaunch = attachAutoLaunch({ getLeadMode: LEAD_OFF, cwd: cwd, loopRegistry: reg, fetchItems: function () { return []; } });
     autoLaunch.ensureSchedule();
     var before = reg.getById("autolaunch_assigned");
     assert.strictEqual(before.task, "pr-review");
@@ -621,7 +627,7 @@ test("launchScheduled skips an issue already live under another recipe", async f
     findAnyLiveSessionForItem: function (item) { return item.number === 5 ? { localId: 99 } : null; },
     startSessionForItem: function (ws, r, item) { started.push(item.number); return { localId: 100 + item.number }; },
   };
-  var autoLaunch = attachAutoLaunch({
+  var autoLaunch = attachAutoLaunch({ getLeadMode: LEAD_OFF,
     cwd: cwd,
     sm: { sessions: new Map(), broadcastSessionList: function () {} },
     getTaskLauncher: function () { return launcher; },
@@ -638,6 +644,229 @@ test("launchScheduled skips an issue already live under another recipe", async f
     assert.strictEqual(result.skipped.length, 1);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+// --- Coop cutover: Lead mode ON -----------------------------------------------
+//
+// With Lead mode on, auto-launch keeps discovering but may only start work its
+// OWN project policy makes autonomous, and only while holding a unique claim.
+// Everything else becomes a proposal for Coop.
+
+var claimLeases = require("../lib/automation-claim-leases");
+var automationAudit = require("../lib/project-automation-audit");
+var { createAutomationGate } = require("../lib/project-automation-gate");
+
+var CUTOVER_PROJECT = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+
+// Builds a real auto-launch wired to a real gate over throwaway state.
+function makeCutoverHarness(recipeFilter) {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-cutover-"));
+  var tasksDir = path.join(cwd, ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  var recipe = {
+    id: "issues",
+    source: { provider: "github", kind: "issue", repo: "o/r" },
+    launch: { defaultLimit: 5 },
+    session: {},
+    completion: {},
+    filter: recipeFilter || {},
+  };
+  fs.writeFileSync(path.join(tasksDir, "issues.json"), JSON.stringify(recipe));
+  fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+    autoLaunch: { enabled: true, recipes: ["issues"], cron: "*/5 * * * *" },
+  }));
+  var started = [];
+  var launcher = {
+    loadRecipe: function () { return recipe; },
+    findExistingSessionForItem: function () { return null; },
+    findAnyLiveSessionForItem: function () { return null; },
+    findAnyVisibleSessionForItem: function () { return null; },
+    startSessionForItem: function (ws, r, item) { started.push(item.number); return { localId: item.number }; },
+  };
+  var gate = createAutomationGate({
+    cwd: cwd,
+    slug: "cutover",
+    projectRef: { projectId: CUTOVER_PROJECT },
+    policyTtlMs: 0,
+    getLeadMode: function () { return true; },
+    leases: claimLeases.createClaimLeases({ file: path.join(cwd, "claims.json") }),
+    audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "cutover" }),
+  });
+  var autoLaunch = attachAutoLaunch({
+    cwd: cwd,
+    sm: { sessions: new Map(), broadcastSessionList: function () {} },
+    getTaskLauncher: function () { return launcher; },
+    automationGate: gate,
+    fetchItems: function () {
+      return [{ number: 11, title: "boom", url: "https://github.com/o/r/issues/11", labels: [{ name: "bug" }] }];
+    },
+  });
+  return { autoLaunch: autoLaunch, started: started, gate: gate, cwd: cwd };
+}
+
+test("lead mode on: a project without bug autonomy proposes instead of launching", async function () {
+  var h = makeCutoverHarness({});
+  try {
+    var result = await h.autoLaunch.launchScheduled("issues");
+    assert.deepStrictEqual(h.started, [], "nothing may start without project autonomy");
+    assert.strictEqual(result.skipped.length, 1);
+    var audit = h.gate.audit.read();
+    assert.strictEqual(audit[audit.length - 1].decision, "propose");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("lead mode on: a bug-scoped project launches once and never twice", async function () {
+  var h = makeCutoverHarness({ type: "bug" });
+  try {
+    await h.autoLaunch.launchScheduled("issues");
+    assert.deepStrictEqual(h.started, [11], "the project's own bug autonomy still applies");
+
+    // A second, overlapping tick must not produce a duplicate launch.
+    var second = await h.autoLaunch.launchScheduled("issues");
+    assert.deepStrictEqual(h.started, [11], "the claim must block a duplicate launch");
+    assert.strictEqual(second.skipped.length, 1);
+    var audit = h.gate.audit.read();
+    assert.strictEqual(audit[audit.length - 1].reason, "claim_already_active");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("lead mode on: a still-running session keeps its claim past the lease TTL", function () {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-heartbeat-"));
+  try {
+    fs.mkdirSync(path.join(cwd, ".clay", "tasks"), { recursive: true });
+    var t = 1000;
+    function now() { return t; }
+    var gate = createAutomationGate({
+      cwd: cwd,
+      slug: "beat",
+      projectRef: { projectId: CUTOVER_PROJECT },
+      policyTtlMs: 0,
+      claimTtlMs: 5000,
+      now: now,
+      getLeadMode: function () { return true; },
+      leases: claimLeases.createClaimLeases({ file: path.join(cwd, "claims.json"), now: now }),
+      audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "beat", now: now }),
+    });
+    // One live auto-launched session, exactly as the runtime would see it.
+    var sessions = new Map();
+    sessions.set("a", { localId: 1, taskLauncher: { autoLaunch: true, itemKey: "o/r#11", workflowCompleted: false } });
+    var autoLaunch = attachAutoLaunch({
+      cwd: cwd,
+      sm: { sessions: sessions, broadcastSessionList: function () {} },
+      getTaskLauncher: function () { return null; },
+      automationGate: gate,
+    });
+
+    gate.leases.acquire({
+      projectRef: { projectId: CUTOVER_PROJECT },
+      key: gate.claimKeyFor("o/r#11"),
+      holder: gate.holder,
+      ttlMs: 5000,
+    });
+
+    // Past the original expiry, but heartbeats happened along the way.
+    t = 4000; autoLaunch.reconcileAutomationClaims();
+    t = 8000; autoLaunch.reconcileAutomationClaims();
+    assert.ok(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")),
+      "a live session's claim must not lapse mid-flight");
+
+    // Once the session is gone, the next reconcile releases the claim.
+    sessions.clear();
+    t = 9000;
+    autoLaunch.reconcileAutomationClaims();
+    assert.strictEqual(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")), null,
+      "an orphaned claim must be released, not left pinned");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+// The Done workflow is where external authority is granted: it tells the agent
+// to comment on the issue, take the PR out of draft and move the board. Under
+// Coop that grant needs a live claim on the item.
+function makeDoneWorkflowHarness(leadMode, gateOverrides) {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-done-"));
+  fs.mkdirSync(path.join(cwd, ".clay", "tasks"), { recursive: true });
+  var gate = createAutomationGate(Object.assign({
+    cwd: cwd,
+    slug: "done",
+    projectRef: { projectId: CUTOVER_PROJECT },
+    policyTtlMs: 0,
+    getLeadMode: function () { return leadMode; },
+    leases: claimLeases.createClaimLeases({ file: path.join(cwd, "claims.json") }),
+    audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "done" }),
+  }, gateOverrides || {}));
+  var tl = attachTaskLauncher({
+    cwd: cwd,
+    sm: { saveSessionFile: function () {}, hideSession: function () {} },
+    sdk: {},
+    getAutomationGate: function () { return gate; },
+    onComplete: function () {},
+    onNeedsInput: function () {},
+  });
+  var session = makeAutoSession();
+  session.taskLauncher.itemKey = "o/r#1975";
+  return { tl: tl, gate: gate, session: session, cwd: cwd };
+}
+
+test("lead mode on: the Done workflow is withheld without a live claim", function () {
+  var h = makeDoneWorkflowHarness(true);
+  try {
+    var directive = h.tl.handleTaskUserMessageDispatched(h.session, "mark as done");
+    assert.ok(directive.indexOf("was not authorized") !== -1, "the grant must be withheld");
+    assert.ok(directive.indexOf("claim_required") !== -1, "and must say why");
+    assert.ok(directive.indexOf("CLAY_TASK_COMPLETE") === -1,
+      "the completion marker instruction must not be handed over");
+    assert.strictEqual(h.session.taskLauncher.closeAfterNextTurn, undefined,
+      "an unauthorized request must not latch a close");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("lead mode on: the Done workflow is granted while the claim is held", function () {
+  var h = makeDoneWorkflowHarness(true);
+  try {
+    h.gate.leases.acquire({
+      projectRef: { projectId: CUTOVER_PROJECT },
+      key: h.gate.claimKeyFor("o/r#1975"),
+      holder: h.gate.holder,
+      ttlMs: 60000,
+    });
+    var directive = h.tl.handleTaskUserMessageDispatched(h.session, "mark as done");
+    assert.ok(directive.indexOf("CLAY_TASK_COMPLETE") !== -1, "the owner-triggered grant should pass");
+    assert.strictEqual(h.session.taskLauncher.closeAfterNextTurn, true);
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("lead mode off: the Done workflow is untouched legacy behavior", function () {
+  var h = makeDoneWorkflowHarness(false);
+  try {
+    var directive = h.tl.handleTaskUserMessageDispatched(h.session, "mark as done");
+    assert.ok(directive.indexOf("CLAY_TASK_COMPLETE") !== -1);
+    assert.strictEqual(h.session.taskLauncher.closeAfterNextTurn, true);
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("lead mode on: a broken project policy stops the launch and takes no claim", async function () {
+  var h = makeCutoverHarness({ type: "bug" });
+  try {
+    fs.writeFileSync(path.join(h.cwd, ".clay", "tasks", "broken.json"), "{not json");
+    h.gate.refresh();
+    await h.autoLaunch.launchScheduled("issues");
+    assert.deepStrictEqual(h.started, [], "a fail-closed policy must stop the launch");
+    assert.deepStrictEqual(h.gate.leases.list(), [], "a denied launch must hold no claim");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
   }
 });
 
@@ -684,7 +913,7 @@ function makeVendorLaunchHarness(rejectedVendors, weights) {
   var entries = Object.keys(rejectedVendors).map(function (v) {
     return { type: "rate_limit_usage", vendor: v, rateLimitType: "5h", status: "rejected", resetsAt: Date.now() + 3600000 };
   });
-  var autoLaunch = attachAutoLaunch({
+  var autoLaunch = attachAutoLaunch({ getLeadMode: LEAD_OFF,
     cwd: cwd,
     sm: { sessions: new Map(), broadcastSessionList: function () {} },
     getTaskLauncher: function () { return launcher; },

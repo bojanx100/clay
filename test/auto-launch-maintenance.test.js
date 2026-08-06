@@ -6,6 +6,12 @@ var path = require("path");
 
 var { attachAutoLaunch } = require("../lib/project-auto-launch");
 
+// These suites encode LEGACY behavior, which the cutover preserves exactly
+// while Lead mode is off (CTO-ORCHESTRATOR-ROADMAP 1.1, additive-only). Lead
+// mode is stated explicitly so the assertions never depend on the machine's
+// ambient ~/.clay config. Lead-mode-ON behavior is covered separately.
+function LEAD_OFF() { return false; }
+
 function makeHarness(kind, cleanupProcessing, fetchItems) {
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-autolaunch-maintenance-"));
   var tasksDir = path.join(cwd, ".clay", "tasks");
@@ -54,7 +60,7 @@ function makeHarness(kind, cleanupProcessing, fetchItems) {
     ci_failing: true,
     latestFeedbackTs: Date.now(),
   }];
-  var autoLaunch = attachAutoLaunch({
+  var autoLaunch = attachAutoLaunch({ getLeadMode: LEAD_OFF,
     cwd: cwd,
     sm: {
       sessions: sessions,
