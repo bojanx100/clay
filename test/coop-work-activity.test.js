@@ -30,7 +30,7 @@ function resolvers() {
 
 test("idle is the durable default and never names a target", function () {
   var activity = workActivity.coopWorkActivity(coopSession(), resolvers());
-  assert.deepEqual(activity, { state: "idle", target: "", backgroundTaskCount: 0 });
+  assert.deepEqual(activity, { state: "idle", target: "", reason: "", backgroundTaskCount: 0 });
 });
 
 test("a foreground turn reports Working on the routed topic title", function () {
@@ -163,6 +163,235 @@ test("a restart that drained all work reports idle, not a stale working state", 
   var activity = workActivity.coopWorkActivity(restarted, resolvers());
   assert.equal(activity.state, "idle");
   assert.equal(activity.target, "");
+});
+
+// --- Waiting is not Idle ------------------------------------------------------
+//
+// The owner observed "Idle — waiting for you" while the sidebar portfolio was
+// open and the required visible Codex reviewer could not be staffed. Idle told
+// the owner their turn was done when Coop was in fact stuck, so the work was
+// never unblocked. Idle must mean there is genuinely nothing left.
+
+function attentionSession(reason, extra) {
+  return coopSession(Object.assign({
+    coopConversationIngress: { nextSequence: 2, recent: [], activeIngressId: null, attention: reason },
+  }, extra || {}));
+}
+
+test("the exact observation: a reviewer that cannot be staffed reports Waiting, not Idle", function () {
+  // No worker is active and there is no orchestration task at all, because the
+  // reviewer could never be staffed in the first place. The old derivation fell
+  // straight through to idle.
+  var session = attentionSession("reviewer_unavailable");
+  var activity = workActivity.coopWorkActivity(session, resolvers());
+  assert.equal(activity.state, "waiting");
+  assert.equal(activity.reason, "reviewer_unavailable");
+  assert.equal(activity.backgroundTaskCount, 0, "nothing is running, so the count stays 0");
+  assert.equal(activity.target, "", "a blocked state names no destination");
+});
+
+test("unresolved durable attention never degrades to idle, whatever the code", function () {
+  var codes = [
+    ["topic_target_unavailable", "target_unavailable"],
+    ["project_target_unavailable", "target_unavailable"],
+    ["model_unavailable", "model_unavailable"],
+    ["provider_unavailable", "model_unavailable"],
+    ["worker_unavailable", "capacity"],
+    // An unrecognized code still blocks: it holds Waiting but claims no cause.
+    ["attention_required", ""],
+  ];
+  for (var i = 0; i < codes.length; i++) {
+    var activity = workActivity.coopWorkActivity(attentionSession(codes[i][0]), resolvers());
+    assert.equal(activity.state, "waiting", codes[i][0] + " must not report idle");
+    assert.equal(activity.reason, codes[i][1], codes[i][0] + " maps to a bounded reason");
+  }
+});
+
+test("a waiting reason is a bounded code and can never carry caller prose", function () {
+  // recordAttention takes a string. If prose ever reached it, neither the
+  // durable file nor the wire may repeat it.
+  var leak = "codex quota exhausted for user bojan@trialview.com on task 4711";
+  assert.equal(workActivity.normalizeAttentionCode(leak), "attention_required");
+  assert.equal(workActivity.waitingReasonFor(leak), "");
+
+  var session = attentionSession(leak);
+  var state = coopControl.clientState(session, resolvers());
+  assert.equal(state.workState, "waiting", "an unclassifiable block is still a block");
+  assert.equal(state.workReason, "");
+  assert.equal(JSON.stringify(state).indexOf("bojan@trialview.com"), -1);
+  assert.equal(JSON.stringify(state).indexOf("quota"), -1);
+
+  // Every emitted reason comes from the closed set.
+  var reasons = ["reviewer_unavailable", "model_unavailable", "capacity", "target_unavailable"];
+  assert.deepEqual(workActivity.WAITING_REASONS, reasons);
+  for (var i = 0; i < reasons.length; i++) {
+    assert.notEqual(workActivity.WAITING_REASONS.indexOf(
+      workActivity.waitingReasonFor(reasons[i])), -1);
+  }
+});
+
+test("admitted portfolio work with no worker reports Waiting on capacity", function () {
+  // A binding reserved but never committed is admitted work nobody picked up.
+  var pending = workActivity.coopWorkActivity(coopSession(), Object.assign(resolvers(), {
+    admittedWork: function () {
+      return [{ portfolioTaskId: "clay-coop-topic-sidebar-controls", status: "pending",
+        statusReason: "reviewer_unavailable" }];
+    },
+  }));
+  assert.equal(pending.state, "waiting");
+  assert.equal(pending.reason, "reviewer_unavailable");
+  assert.equal(pending.backgroundTaskCount, 0, "a binding is not a background task");
+
+  // A current binding flagged for attention counts too, even while active.
+  var flagged = workActivity.coopWorkActivity(coopSession(), Object.assign(resolvers(), {
+    admittedWork: function () {
+      return [{ status: "active", attentionAt: 1754500000000, statusReason: "model_unavailable" }];
+    },
+  }));
+  assert.equal(flagged.state, "waiting");
+  assert.equal(flagged.reason, "model_unavailable");
+
+  // Settled bindings leave Coop genuinely idle.
+  var settled = workActivity.coopWorkActivity(coopSession(), Object.assign(resolvers(), {
+    admittedWork: function () {
+      return [{ status: "active" }, { status: "completed" }];
+    },
+  }));
+  assert.equal(settled.state, "idle");
+});
+
+test("portfolio task identifiers and reason text never reach the serialized state", function () {
+  var state = coopControl.clientState(coopSession(), Object.assign(resolvers(), {
+    admittedWork: function () {
+      return [{
+        portfolioTaskId: "clay-coop-topic-sidebar-controls",
+        idempotencyKey: "staff-clay-coop-topic-sidebar-controls-r2",
+        sessionRef: { sessionStorageId: "worker-storage-id" },
+        status: "pending",
+        statusReason: "anthropic 429 overloaded_error: retry after 30s",
+      }];
+    },
+  }));
+  assert.equal(state.workState, "waiting");
+  assert.equal(state.workReason, "", "unclassifiable provider text yields no claim");
+  var serialized = JSON.stringify(state);
+  assert.equal(serialized.indexOf("clay-coop-topic-sidebar-controls"), -1);
+  assert.equal(serialized.indexOf("worker-storage-id"), -1);
+  assert.equal(serialized.indexOf("overloaded_error"), -1);
+  assert.equal(serialized.indexOf("429"), -1);
+});
+
+test("active work still outranks attention, so Working and Reviewing stay correct", function () {
+  // Attention must not mask work that is genuinely running.
+  var working = workActivity.coopWorkActivity(
+    attentionSession("reviewer_unavailable", { orchestrationTasks: [{ status: "running" }] }), resolvers());
+  assert.equal(working.state, "working");
+  assert.equal(working.reason, "");
+  assert.equal(working.backgroundTaskCount, 1);
+
+  var reviewing = workActivity.coopWorkActivity(
+    attentionSession("reviewer_unavailable", { orchestrationTasks: [{ status: "reviewing" }] }), resolvers());
+  assert.equal(reviewing.state, "reviewing");
+
+  // A foreground turn also outranks it.
+  var foreground = workActivity.coopWorkActivity(
+    attentionSession("reviewer_unavailable", { isProcessing: true }), resolvers());
+  assert.equal(foreground.state, "working");
+});
+
+test("idle survives only when nothing is active, reviewing, waiting, or held", function () {
+  var idle = workActivity.coopWorkActivity(coopSession({
+    coopConversationIngress: { nextSequence: 2, recent: [], activeIngressId: null },
+    orchestrationTasks: [{ status: "completed" }],
+  }), Object.assign(resolvers(), { admittedWork: function () { return []; } }));
+  assert.equal(idle.state, "idle");
+  assert.equal(idle.reason, "");
+});
+
+test("attention is stored as a bounded code and is cleared when its route resolves", function () {
+  var saved = 0;
+  var published = [];
+  var session = coopSession({ coopConversationIngress: { nextSequence: 1, recent: [], activeIngressId: null } });
+  var control = coopControl.attachCoopConversationControl({
+    sm: { saveSessionFile: function () { saved++; } },
+    sendToSession: function (id, state) { published.push(state); },
+  });
+
+  control.recordAttention(session, "reviewer_unavailable");
+  assert.equal(session.coopConversationIngress.attention, "reviewer_unavailable");
+  assert.equal(published[published.length - 1].workState, "waiting");
+  assert.equal(published[published.length - 1].workReason, "reviewer_unavailable");
+
+  // Prose is reduced at the write boundary, so the durable file stays clean.
+  control.recordAttention(session, "codex is down for bojan@trialview.com");
+  assert.equal(session.coopConversationIngress.attention, "attention_required");
+
+  // Without a clear path, one unavailable target would pin Waiting forever.
+  assert.equal(control.clearAttention(session), true);
+  assert.equal(session.coopConversationIngress.attention, undefined);
+  assert.equal(published[published.length - 1].workState, "idle");
+  // Clearing nothing is a no-op rather than a redundant save/publish.
+  var before = published.length;
+  assert.equal(control.clearAttention(session), false);
+  assert.equal(published.length, before);
+});
+
+test("the accept path clears attention, and only after every target check passes", function () {
+  // Clearing inside the earlier route check would flash Idle before the project
+  // availability check re-recorded attention.
+  var context = fs.readFileSync(
+    path.join(__dirname, "..", "lib", "project-user-message-context.js"), "utf8");
+  var clearAt = context.indexOf("coopControl.clearAttention");
+  var unavailableAt = context.indexOf("recordAttention(session, \"project_target_unavailable\")");
+  var metadataAt = context.indexOf("ctx.coopIngress.buildMetadata");
+  assert.ok(clearAt !== -1, "the accept path clears durable attention");
+  assert.ok(clearAt > unavailableAt, "clearing happens after the project target check");
+  assert.ok(clearAt < metadataAt, "clearing happens before the turn is built");
+});
+
+test("a restart replays durable attention as Waiting, matching the live state", function () {
+  // Attention lives on the persisted session, so a restart must not lose it.
+  var restarted = attentionSession("reviewer_unavailable", { orchestrationTasks: [] });
+  var ctx = { getProjectList: function () { return []; }, sm: null, sendToSession: function () {} };
+  var reconnect = coopControl.clientStateFor(ctx, restarted);
+  var live = coopControl.attachCoopConversationControl(ctx).clientState(restarted);
+  assert.deepEqual(reconnect, live);
+  assert.equal(reconnect.workState, "waiting");
+  assert.equal(reconnect.workReason, "reviewer_unavailable");
+  assert.equal(reconnect.backgroundTaskCount, 0);
+});
+
+test("live publish and reconnect read admitted portfolio work from the same store", function () {
+  // resolversFor is the single place both paths get their inputs, so a store
+  // wired into one is wired into both.
+  var store = {
+    listCurrent: function () { return [{ status: "pending", statusReason: "reviewer_unavailable" }]; },
+  };
+  var ctx = { crossProject: { bindingStore: store }, getProjectList: function () { return []; },
+    sm: null, sendToSession: function () {} };
+  var session = coopSession({ coopConversationIngress: { nextSequence: 1, recent: [], activeIngressId: null } });
+  var reconnect = coopControl.clientStateFor(ctx, session);
+  var live = coopControl.attachCoopConversationControl(ctx).clientState(session);
+  assert.deepEqual(reconnect, live);
+  assert.equal(reconnect.workState, "waiting");
+  assert.equal(reconnect.workReason, "reviewer_unavailable");
+
+  // ctx.opts is the other supported shape, and a broken store must not throw.
+  assert.equal(workActivity.resolversFor({ opts: { crossProject: { bindingStore: store } } })
+    .admittedWork()[0].status, "pending");
+  assert.equal(workActivity.resolversFor({}).admittedWork(), null);
+  assert.equal(workActivity.resolversFor({
+    crossProject: { bindingStore: { listCurrent: function () { throw new Error("unreadable"); } } },
+  }).admittedWork(), null);
+});
+
+test("the production user-message wiring supplies the admitted-work store", function () {
+  // Reconnect reads crossProject off the full project ctx. If the live path is
+  // not given the same store, a reconnect shows Waiting where live showed Idle.
+  var wiring = fs.readFileSync(path.join(__dirname, "..", "lib", "project-user-message.js"), "utf8");
+  var attach = wiring.slice(wiring.indexOf("attachCoopConversationControl({"));
+  attach = attach.slice(0, attach.indexOf("});"));
+  assert.match(attach, /crossProject:/);
 });
 
 test("resolversFor reads titles from the injected topic index and project list", function () {

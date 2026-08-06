@@ -100,6 +100,98 @@ function textsOf(node, className) {
   }).map(function (child) { return child.textContent; });
 }
 
+test("the exact observation renders Waiting with its reason, never Idle", async function () {
+  var ui = await loadState();
+  var model = ui.state.coopConversationDisplayModel(serverState({
+    workState: "waiting",
+    workReason: "reviewer_unavailable",
+    backgroundTaskCount: 0,
+  }));
+  assert.equal(model.workLabel, "Waiting — reviewer unavailable");
+  assert.notEqual(model.workLabel, "Idle — waiting for you");
+  assert.equal(model.backgroundLabel, "No background tasks");
+
+  // And it actually reaches the composer strip the owner reads.
+  ui.state.setCoopConversationState(serverState({
+    workState: "waiting", workReason: "reviewer_unavailable", sessionId: 1,
+  }));
+  var node = statusNode(ui);
+  assert.deepEqual(textsOf(node, "coop-conversation-work"), ["Waiting — reviewer unavailable"]);
+  assert.equal(node.dataset.workState, "waiting");
+  assert.match(node.getAttribute("aria-label"), /Waiting — reviewer unavailable/);
+});
+
+test("each bounded waiting reason gets owner-facing wording", async function () {
+  var ui = await loadState();
+  function label(reason) {
+    return ui.state.coopConversationDisplayModel(
+      serverState({ workState: "waiting", workReason: reason })).workLabel;
+  }
+  assert.equal(label("reviewer_unavailable"), "Waiting — reviewer unavailable");
+  assert.equal(label("model_unavailable"), "Waiting — model unavailable");
+  assert.equal(label("capacity"), "Waiting — no worker capacity");
+  assert.equal(label("target_unavailable"), "Waiting — target unavailable");
+  // An unknown or absent reason still says Waiting -- it just claims no cause.
+  assert.equal(label(""), "Waiting");
+  assert.equal(label(undefined), "Waiting");
+  assert.equal(label("codex quota exhausted for bojan@trialview.com"), "Waiting");
+  assert.equal(ui.state.coopConversationDisplayModel(
+    serverState({ workState: "waiting", workReason: "sprinting" })).workReason, "");
+});
+
+test("only Waiting carries a reason, so Working and Idle wording cannot drift", async function () {
+  var ui = await loadState();
+  // A stale reason riding alongside another state must be ignored outright.
+  assert.equal(ui.state.coopConversationDisplayModel(serverState({
+    workState: "idle", workReason: "reviewer_unavailable" })).workLabel, "Idle — waiting for you");
+  assert.equal(ui.state.coopConversationDisplayModel(serverState({
+    workState: "working", workTarget: "Clay", workReason: "reviewer_unavailable" })).workLabel,
+  "Working on Clay");
+  assert.equal(ui.state.coopConversationDisplayModel(serverState({
+    workState: "reviewing", workReason: "capacity" })).workLabel, "Reviewing");
+});
+
+test("Waiting on a reason coexists with Listening rather than replacing it", async function () {
+  var ui = await loadState();
+  var model = ui.state.coopConversationDisplayModel(
+    serverState({ workState: "waiting", workReason: "reviewer_unavailable" }), { listening: true });
+  assert.equal(model.listening, true);
+  assert.equal(model.workLabel, "Waiting — reviewer unavailable");
+
+  ui.store.set({ voiceListening: true });
+  ui.state.setCoopConversationState(serverState({
+    workState: "waiting", workReason: "reviewer_unavailable" }));
+  var node = statusNode(ui);
+  assert.deepEqual(textsOf(node, "coop-conversation-work"), ["Waiting — reviewer unavailable"]);
+  assert.deepEqual(textsOf(node, "coop-conversation-listening"), ["Listening"]);
+  ui.store.set({ voiceListening: false });
+});
+
+test("one renderer serves desktop and mobile, so the reason cannot drift between them", async function () {
+  // The composer status strip is the single surface for Coop work activity.
+  // sidebar-mobile.js renders no work state of its own, so there is no second
+  // label to keep in sync -- assert that rather than trusting it.
+  var modules = path.join(__dirname, "..", "lib", "public", "modules");
+  var mobile = fs.readFileSync(path.join(modules, "sidebar-mobile.js"), "utf8");
+  assert.equal(mobile.indexOf("workState"), -1, "mobile must not derive its own work state");
+  assert.equal(mobile.indexOf("workReason"), -1, "mobile must not derive its own waiting reason");
+  var owners = fs.readdirSync(modules).filter(function (name) {
+    return /\.js$/.test(name) &&
+      fs.readFileSync(path.join(modules, name), "utf8").indexOf("WAITING_REASON_LABELS") !== -1;
+  });
+  assert.deepEqual(owners, ["coop-conversation-state.js"]);
+});
+
+test("the reason survives the wire ingest that once dropped it", async function () {
+  // setCoopConversationState rebuilds the state field by field, so a new field
+  // that is not copied is silently lost between server and render.
+  var ui = await loadState();
+  var stored = ui.state.setCoopConversationState(serverState({
+    workState: "waiting", workReason: "reviewer_unavailable" }));
+  assert.equal(stored.workReason, "reviewer_unavailable");
+  assert.equal(ui.store.get("coopConversationState").workReason, "reviewer_unavailable");
+});
+
 test("every required work state gets its own owner-facing label", async function () {
   var ui = await loadState();
   var labels = ["working", "reviewing", "waiting", "idle"].map(function (state) {
