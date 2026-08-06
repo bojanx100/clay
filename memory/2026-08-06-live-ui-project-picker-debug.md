@@ -51,3 +51,16 @@ project.
 The live daemon was not restarted because other projects had active sessions.
 The server change takes effect on the next normal Clay restart. The unpacked
 Chrome extension must be reloaded once after pulling the extension commit.
+
+## Follow-up: false dev-server-required error
+
+The Webapp Vite server was listening on `::1:6075`, while Clay's development
+port probe connected only to `127.0.0.1`. The session root and configured port
+were correct, but the IPv4-only probe marked the IPv6-only localhost listener
+offline, causing Live UI to return `LIVE_UI_DEV_SERVER_REQUIRED`.
+
+Unmanaged dev-server discovery now checks both IPv4 and IPv6 loopback. A real
+IPv6-only listener regression test fails with the previous implementation and
+passes with the fix. The existing cwd ownership check still decides whether the
+discovered listener belongs to the selected session. Arbitrary production
+listeners on other ports are not adopted as HMR development servers.

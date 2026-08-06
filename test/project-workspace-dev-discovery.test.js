@@ -1,9 +1,11 @@
 var test = require("node:test");
 var assert = require("node:assert");
+var net = require("node:net");
 var resolveUnmanagedDevStatus =
   require("../lib/project-workspace-dev-discovery").resolveUnmanagedDevStatus;
 var isWorkspaceDevControl =
   require("../lib/project-workspace").isWorkspaceDevControl;
+var probeIpv4Port = require("../lib/project-workspace-git").probePort;
 
 function payload(overrides) {
   return Object.assign({
@@ -99,6 +101,7 @@ test("previews the next free port when no external server is running", function 
     ownPorts: [],
     payload: payload,
     probePort: function (port, cb) { cb(false); },
+    probeIpv6Port: function (port, cb) { cb(false); },
     findFreePort: function (basePort, ownPorts, cb) { cb(3000); },
   }, function (status) {
     assert.deepStrictEqual(status, payload({ port: 3000 }));
@@ -114,4 +117,45 @@ test("rejects stale or unrelated clicks as development server controls", functio
     type: "workspace_dev_stop",
     source: "workspace-dev-control",
   }), true);
+});
+
+test("detects a development server bound only to IPv6 localhost", function (t, done) {
+  var server = net.createServer();
+  server.on("error", function (error) {
+    if (error && (error.code === "EAFNOSUPPORT" || error.code === "EADDRNOTAVAIL")) {
+      t.skip("IPv6 loopback is unavailable");
+      done();
+      return;
+    }
+    done(error);
+  });
+  server.listen({ host: "::1", port: 0, ipv6Only: true }, function () {
+    var port = server.address().port;
+    resolveUnmanagedDevStatus({
+      det: { basePort: port },
+      boundDir: "/repo/webapp",
+      ownPorts: [],
+      payload: payload,
+      probePort: probeIpv4Port,
+      portBelongsToDir: function (checkedPort, dir, cb) {
+        assert.strictEqual(checkedPort, port);
+        assert.strictEqual(dir, "/repo/webapp");
+        cb(true);
+      },
+      findFreePort: function () {
+        assert.fail("an IPv6 localhost listener must be detected");
+      },
+    }, function (status) {
+      server.close(function () {
+        assert.deepStrictEqual(status, payload({
+          running: true,
+          portLive: true,
+          external: true,
+          status: "external",
+          port: port,
+        }));
+        done();
+      });
+    });
+  });
 });
