@@ -43,8 +43,20 @@ above in every staffing/spend-class exchange before applying the gates below.
   candidate, last `standup_composed` event's `at`.
 - **Portfolio**: `lib/lead-backlog.buildPortfolio` over the loose items
   plus any GitHub sources from project task configs
-  (`githubSourcesFromTaskConfigs` + `collectGithubIssues`; wrap exec with
+  (`resolveGithubSources` + `collectGithubIssues`; wrap exec with
   per-repo credentials when the active gh account cannot see a repo).
+  Pass `resolveGithubSources` one entry per project —
+  `{ project, projectRef, originRepo, configs }`, where `originRepo` is that
+  project's `git config --get remote.origin.url` and `configs` are its parsed
+  `.clay/tasks/*.json` recipes. A repository is owned by the project whose
+  origin IS that repository; anything else (no owner, several owners, an
+  unusable ProjectRef, disagreeing recipes) FAILS CLOSED into
+  `result.conflicts` and is not fetched. Never substitute your own pick for a
+  conflicted repo — report each conflict in the standup as unresolved
+  ownership and move on. Feed each resolved source straight to
+  `collectGithubIssues`; it labels items with the owning project itself, so do
+  not pass a different project name (2026-08-06: stale Webapp launchers copied
+  into Clay made one issue appear as both `clay#2507` and `webapp#2507`).
 - **Provider health**: derive the live snapshot from the recovery log —
   `require("./lib/lead-health").readHealthSnapshot(require("./lib/config").recoveryLogPath())`
   — and inject it into every `routeWorkItem` call. Missing/empty data

@@ -22,28 +22,134 @@ test("normalizeGithubIssue lowercases labels and parses dates", function () {
   assert.ok(item.updatedAt > 0);
 });
 
-test("githubSourcesFromTaskConfigs extracts repos and filters, dedupes", function () {
-  var configs = [
-    { id: "assigned-to-me", source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv" }, filter: { state: "open", assigned: "me", type: "bug", skipProjectStatuses: ["In progress", "Done"] } },
-    { id: "dup", source: { provider: "github", repo: "trialview/v2" } },
-    { id: "not-github", source: { provider: "linear", repo: "x" } },
-    { id: "no-source" },
-  ];
-  var sources = backlog.githubSourcesFromTaskConfigs(configs);
-  assert.strictEqual(sources.length, 1);
-  assert.strictEqual(sources[0].repo, "trialview/v2");
-  assert.strictEqual(sources[0].filters.assigned, "me");
-  assert.deepStrictEqual(sources[0].filters.skipProjectStatuses, ["In progress", "Done"]);
-  // ghAccount must survive extraction — lead-exec needs it for repos
-  // invisible to the globally active gh account.
-  assert.strictEqual(sources[0].ghAccount, "bojantv");
+// --- Repository-source ownership ---------------------------------------------
+// Regression fixtures for the 2026-08-06 incident: the Clay project carried
+// stale copies of the Webapp launchers, so trialview/v2 was declared by BOTH
+// projects and issue #2507 entered the portfolio as clay#2507 AND webapp#2507.
+// Ownership must be decided by git origin, and every other outcome must fail
+// closed. Webapp's real ProjectRef; Clay's origin is bojanx100/clay.
+var WEBAPP_REF = { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" };
+var CLAY_REF = { projectId: "11111111-2222-5333-8444-555555555555" };
+
+var WEBAPP_ASSIGNED = {
+  id: "assigned-to-me",
+  source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv" },
+  filter: { state: "open", assigned: "me", type: "bug", skipProjectStatuses: ["In progress", "Done"] },
+};
+// The misplaced Clay copy: same repo, no pinned account, no board exclusions.
+var CLAY_STALE_COPY = {
+  id: "assigned-to-me",
+  source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+  filter: { state: "open", assigned: "me", type: "bug" },
+};
+
+function webappEntry(configs) {
+  return { project: "webapp", projectRef: WEBAPP_REF, originRepo: "https://bojantv@github.com/trialview/v2.git", configs: configs };
+}
+function clayEntry(configs) {
+  return { project: "clay", projectRef: CLAY_REF, originRepo: "https://bojanx100@github.com/bojanx100/clay.git", configs: configs };
+}
+
+test("resolveGithubSources binds a repo to the origin-matching project", function () {
+  var result = backlog.resolveGithubSources([
+    webappEntry([WEBAPP_ASSIGNED, { id: "not-github", source: { provider: "linear", repo: "x" } }, { id: "no-source" }]),
+  ]);
+  assert.deepStrictEqual(result.conflicts, []);
+  assert.strictEqual(result.sources.length, 1);
+  assert.strictEqual(result.sources[0].repo, "trialview/v2");
+  assert.strictEqual(result.sources[0].project, "webapp");
+  assert.deepStrictEqual(result.sources[0].projectRef, WEBAPP_REF);
+  assert.strictEqual(result.sources[0].filters.assigned, "me");
+  assert.deepStrictEqual(result.sources[0].filters.skipProjectStatuses, ["In progress", "Done"]);
+  // ghAccount must survive resolution — lead-exec needs it for repos invisible
+  // to the globally active gh account.
+  assert.strictEqual(result.sources[0].ghAccount, "bojantv");
 });
 
-test("githubSourcesFromTaskConfigs defaults ghAccount to null", function () {
-  var sources = backlog.githubSourcesFromTaskConfigs([
-    { id: "a", source: { provider: "github", repo: "o/r" } },
+test("trialview/v2 resolves only under Webapp, never under Clay", function () {
+  // Both orderings, because the old bug was pure scan-order luck.
+  var forward = backlog.resolveGithubSources([clayEntry([CLAY_STALE_COPY]), webappEntry([WEBAPP_ASSIGNED])]);
+  var reverse = backlog.resolveGithubSources([webappEntry([WEBAPP_ASSIGNED]), clayEntry([CLAY_STALE_COPY])]);
+  [forward, reverse].forEach(function (result) {
+    assert.strictEqual(result.sources.length, 1);
+    assert.strictEqual(result.sources[0].project, "webapp");
+    assert.deepStrictEqual(result.sources[0].projectRef, WEBAPP_REF);
+    // Clay's stale copy must not survive in any form.
+    assert.strictEqual(result.sources[0].ghAccount, "bojantv");
+    assert.deepStrictEqual(result.sources[0].filters.skipProjectStatuses, ["In progress", "Done"]);
+    assert.deepStrictEqual(result.conflicts, []);
+  });
+  assert.deepStrictEqual(forward.sources, reverse.sources);
+});
+
+test("a repo no project owns fails closed instead of picking the first", function () {
+  var result = backlog.resolveGithubSources([clayEntry([CLAY_STALE_COPY])]);
+  assert.deepStrictEqual(result.sources, []);
+  assert.strictEqual(result.conflicts.length, 1);
+  assert.strictEqual(result.conflicts[0].repo, "trialview/v2");
+  assert.strictEqual(result.conflicts[0].reason, "unowned_repository_source");
+  assert.strictEqual(result.conflicts[0].candidates[0].project, "clay");
+});
+
+test("two projects claiming the same origin fail closed as ambiguous", function () {
+  var impostor = { project: "webapp-clone", projectRef: CLAY_REF, originRepo: "trialview/v2", configs: [CLAY_STALE_COPY] };
+  var result = backlog.resolveGithubSources([webappEntry([WEBAPP_ASSIGNED]), impostor]);
+  assert.deepStrictEqual(result.sources, []);
+  assert.strictEqual(result.conflicts[0].reason, "ambiguous_repository_owner");
+});
+
+test("an unusable ProjectRef fails closed rather than resolving unowned", function () {
+  var result = backlog.resolveGithubSources([
+    { project: "webapp", projectRef: { projectId: "not-a-uuid" }, originRepo: "trialview/v2", configs: [WEBAPP_ASSIGNED] },
   ]);
-  assert.strictEqual(sources[0].ghAccount, null);
+  assert.deepStrictEqual(result.sources, []);
+  assert.strictEqual(result.conflicts[0].reason, "invalid_project_ref");
+  assert.strictEqual(result.conflicts[0].candidates[0].projectId, null);
+});
+
+test("the owner's disagreeing recipes for one repo fail closed", function () {
+  var narrower = { id: "second", source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv" }, filter: { type: "feature" } };
+  var result = backlog.resolveGithubSources([webappEntry([WEBAPP_ASSIGNED, narrower])]);
+  assert.deepStrictEqual(result.sources, []);
+  assert.strictEqual(result.conflicts[0].reason, "conflicting_repository_recipes");
+});
+
+test("identical duplicate recipes in the owner collapse to one source", function () {
+  var result = backlog.resolveGithubSources([webappEntry([WEBAPP_ASSIGNED, Object.assign({}, WEBAPP_ASSIGNED, { id: "copy" })])]);
+  assert.deepStrictEqual(result.conflicts, []);
+  assert.strictEqual(result.sources.length, 1);
+});
+
+test("pr-review recipes never displace the issue source for a repo", function () {
+  var prReview = { id: "pr-review", source: { provider: "github", kind: "pr-reviews", repo: "trialview/v2", ghAccount: "bojantv" } };
+  var result = backlog.resolveGithubSources([webappEntry([prReview, WEBAPP_ASSIGNED])]);
+  assert.strictEqual(result.sources.length, 1);
+  // The issue recipe's filters survive — a kind-blind extractor would have let
+  // the unfiltered pr-review source win on order and widen the backlog.
+  assert.strictEqual(result.sources[0].filters.type, "bug");
+  assert.deepStrictEqual(result.conflicts, []);
+});
+
+test("origin forms (ssh, https, .git, case) compare as one repo", function () {
+  assert.strictEqual(backlog.normalizeRepoSlug("git@github.com:trialview/v2.git"), "trialview/v2");
+  assert.strictEqual(backlog.normalizeRepoSlug("https://bojantv@github.com/TrialView/V2"), "trialview/v2");
+  assert.strictEqual(backlog.normalizeRepoSlug("trialview/v2"), "trialview/v2");
+  assert.strictEqual(backlog.normalizeRepoSlug("nonsense"), "");
+  assert.strictEqual(backlog.normalizeRepoSlug(null), "");
+  // A lookalike host must never forge ownership evidence, and a non-GitHub
+  // remote must be unusable rather than half-parsed.
+  assert.strictEqual(backlog.normalizeRepoSlug("https://evilgithub.com/trialview/v2"), "");
+  assert.strictEqual(backlog.normalizeRepoSlug("https://gitlab.com/trialview/v2"), "");
+  assert.notStrictEqual(backlog.normalizeRepoSlug("git@github.com:trialview/v2.git"), "");
+  var result = backlog.resolveGithubSources([
+    { project: "webapp", projectRef: WEBAPP_REF, originRepo: "git@github.com:trialview/v2.git", configs: [WEBAPP_ASSIGNED] },
+  ]);
+  assert.strictEqual(result.sources.length, 1);
+  assert.strictEqual(result.sources[0].project, "webapp");
+});
+
+test("the removed first-file extractor is gone, not merely renamed", function () {
+  assert.strictEqual(backlog.githubSourcesFromTaskConfigs, undefined);
 });
 
 test("ghIssueArgs builds the exact gh invocation", function () {
@@ -153,6 +259,39 @@ test("collectGithubIssues normalizes successful output", function (t, done) {
     assert.strictEqual(items[0].source, "github");
     done();
   });
+});
+
+test("issue #2507 cannot be projected as clay#2507", function (t, done) {
+  var issue2507 = [{ number: 2507, title: "Editor crash on paste", body: "", labels: [], state: "OPEN", updatedAt: "2026-08-05T10:00:00Z", url: "https://x/2507" }];
+  var fakeExec = function (cmd, args, cb) { cb(null, JSON.stringify(issue2507)); };
+  var owned = backlog.resolveGithubSources([webappEntry([WEBAPP_ASSIGNED])]).sources[0];
+
+  // The owning project labels the item, whatever the caller passes.
+  backlog.collectGithubIssues(fakeExec, owned, "webapp", function (err, items) {
+    assert.strictEqual(err, null);
+    assert.strictEqual(items[0].id, "webapp#2507");
+    // A caller trying to relabel the same repo under Clay fails closed.
+    backlog.collectGithubIssues(fakeExec, owned, "clay", function (mismatchErr, mismatchItems) {
+      assert.ok(mismatchErr, "relabelling an owned repo must fail");
+      assert.match(mismatchErr.message, /owned by project webapp/);
+      assert.deepStrictEqual(mismatchItems, []);
+      done();
+    });
+  });
+});
+
+test("a duplicated collection cannot become two portfolio items or launches", function () {
+  var issue = backlog.normalizeGithubIssue(
+    { number: 2507, title: "Editor crash on paste", body: "", labels: [{ name: "P0" }], state: "OPEN", updatedAt: "2026-08-05T10:00:00Z", url: "https://x/2507" },
+    "webapp");
+  var portfolio = backlog.buildPortfolio([
+    { project: "webapp", items: [issue] },
+    { project: "webapp", items: [issue] },
+  ], { now: NOW });
+  assert.strictEqual(portfolio.items.length, 1);
+  assert.strictEqual(portfolio.items[0].id, "webapp#2507");
+  assert.strictEqual(portfolio.byProject.webapp.length, 1);
+  assert.strictEqual(portfolio.summary.total, 1);
 });
 
 test("buildPortfolio classifies, routes, scores and orders deterministically", function () {
