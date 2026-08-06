@@ -1102,8 +1102,8 @@ test("owning coordinator resolves a needs-input task after independent verificat
   assert.equal(task.progress, 100);
   assert.equal(task.resolvedByCoordinator, true);
   assert.match(task.verification, /reconnect\.test\.js passed/);
-  assert.ok(task.archivedAt);
-  assert.equal(worker.hidden, true);
+  assert.equal(task.archivedAt, undefined);
+  assert.equal(worker.hidden, undefined);
 });
 
 test("task resolution rejects unverified outcomes and non-owning sessions", function () {
@@ -1572,8 +1572,68 @@ test("restores completed worker ownership for sidebar nesting", function () {
   assert.equal(worker.orchestrationParent.sessionId, 19);
   assert.equal(worker.orchestrationParent.sessionStorageId, "parent-completed");
   assert.equal(worker._subscriber, undefined);
+  assert.equal(worker.hidden, undefined);
+  assert.equal(parent.orchestrationTasks[0].archivedAt, undefined);
+});
+
+test("startup restores workers hidden by premature terminal auto-archive", function () {
+  var task = {
+    taskId: "task-premature-archive",
+    title: "Completed task",
+    status: "completed",
+    archivedAt: 50,
+    workerStorageId: "worker-premature-archive",
+  };
+  var worker = {
+    localId: 90,
+    storageId: "worker-premature-archive",
+    hidden: true,
+    isProcessing: false,
+    history: [],
+    orchestrationParent: {
+      taskId: task.taskId,
+      sessionId: 89,
+      sessionStorageId: "parent-premature-archive",
+    },
+  };
+  var parent = {
+    localId: 89,
+    storageId: "parent-premature-archive",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [task],
+    orchestrationEvents: [{
+      eventId: "event-premature-archive",
+      graphId: "graph-premature-archive",
+      taskId: task.taskId,
+      type: "task_worker_archived",
+      at: 50,
+      data: { reason: "Recovered terminal task worker" },
+    }],
+  };
+  var sessions = new Map([[parent.localId, parent], [worker.localId, worker]]);
+
+  testContext(sessions);
+
+  assert.equal(worker.hidden, undefined);
+  assert.equal(task.archivedAt, undefined);
+  assert.equal(parent.orchestrationEvents.at(-1).type, "task_worker_restored");
+
+  worker.hidden = true;
+  task.archivedAt = 75;
+  parent.orchestrationEvents.push({
+    eventId: "event-explicit-archive",
+    graphId: "graph-premature-archive",
+    taskId: task.taskId,
+    type: "task_worker_archived",
+    at: 75,
+    data: { reason: "Dismissed by user" },
+  });
+
+  testContext(sessions);
+
   assert.equal(worker.hidden, true);
-  assert.ok(parent.orchestrationTasks[0].archivedAt);
+  assert.equal(task.archivedAt, 75);
 });
 
 test("startup archives terminal and safe orphan workers without touching active or Lead workers", function () {

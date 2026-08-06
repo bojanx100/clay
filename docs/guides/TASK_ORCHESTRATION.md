@@ -14,6 +14,11 @@ and sidebar. Owned workers are nested beneath their coordinator in a collapsed
 group by default. The coordinator row expands the worker list; opening or
 searching for a worker expands its owner automatically.
 
+Resolved worker conversations remain nested beneath a visible coordinator so
+their transcripts stay inspectable. The collapsed group shows recent resolved
+work and a count for the rest. Closing a task explicitly archives its worker;
+closing the coordinator archives all descendants.
+
 Click a **Coordinator** badge or use **Demote to normal chat** in the sidebar
 to remove the role without losing the transcript or completed task history.
 An idle coordinator demotes immediately. With active workers, Clay offers to
