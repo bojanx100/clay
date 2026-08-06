@@ -26,6 +26,7 @@ var { buildHandoffContextFromHistory } = require("../lib/handoff-context");
 test("resolveContextWindowForModel matrix: representative Claude/Codex/Copilot model names", function () {
   // Claude family (routed natively or via GitHub Copilot).
   assert.strictEqual(resolveContextWindowForModel("claude-fable-5"), 1000000);
+  assert.strictEqual(resolveContextWindowForModel("claude-opus-5"), 1000000);
   assert.strictEqual(resolveContextWindowForModel("claude-opus-4-8"), 1000000);
   assert.strictEqual(resolveContextWindowForModel("claude-haiku-4-5"), 200000);
   // Codex/OpenAI family.
