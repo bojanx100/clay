@@ -81,7 +81,7 @@ test("Live UI catalog applies project and session access before publishing", fun
   }), ["Shared", "Mine"]);
 });
 
-test("palette endpoint publishes the Live UI catalog only through its explicit scope", function () {
+test("palette endpoint publishes a selected Live UI project only through its explicit scope", function () {
   var projectMap = new Map([
     ["clay", project({ title: "Clay" }, [
       { localId: 9, title: "UI chat" },
@@ -99,12 +99,83 @@ test("palette endpoint publishes the Live UI catalog only through its explicit s
   var body = null;
   var handled = handler.handleRequest({
     method: "GET",
-    url: "/api/palette/search?scope=live-ui",
+    url: "/api/palette/search?scope=live-ui&project=clay",
   }, {
     writeHead: function (status) { statusCode = status; },
     end: function (value) { body = value; },
   }, "/api/palette/search");
   assert.strictEqual(handled, true);
   assert.strictEqual(statusCode, 200);
-  assert.strictEqual(JSON.parse(body).projects[0].sessions[0].title, "UI chat");
+  assert.strictEqual(JSON.parse(body).project.sessions[0].title, "UI chat");
+});
+
+test("Live UI project discovery does not scan sessions", function () {
+  var clay = project({ title: "Clay" }, []);
+  Object.defineProperty(clay.sm, "sessions", {
+    get: function () { throw new Error("project discovery scanned sessions"); },
+  });
+  var result = palette.buildLiveUiProjects(
+    new Map([["clay", clay]]), users(), null, null);
+  assert.deepStrictEqual(result, [{
+    projectSlug: "clay",
+    projectTitle: "Clay",
+    projectIcon: null,
+  }]);
+});
+
+test("Live UI loads only the selected project's visible top-level chats", function () {
+  var other = project({ title: "Other" }, []);
+  Object.defineProperty(other.sm, "sessions", {
+    get: function () { throw new Error("unselected project sessions were scanned"); },
+  });
+  var projects = new Map([
+    ["clay", project({ title: "Clay" }, [
+      { localId: 1, title: "Regular", lastActivity: 20 },
+      { localId: 2, title: "Coordinator", coordinationMode: true, lastActivity: 30 },
+      { localId: 3, title: "Worker", orchestrationGroupParent: { sessionId: 2 } },
+      { localId: 4, title: "Loop", loop: { loopId: "loop-1" } },
+      { localId: 5, title: "Hidden", hidden: true },
+    ])],
+    ["other", other],
+  ]);
+  var result = palette.buildLiveUiProject(
+    projects, users(), null, null, "clay");
+  assert.deepStrictEqual(result.sessions.map(function (session) {
+    return session.title;
+  }), ["Coordinator", "Regular"]);
+});
+
+test("Live UI endpoint discovers projects first and scopes chats by project", function () {
+  var projectMap = new Map([
+    ["clay", project({ title: "Clay" }, [
+      { localId: 9, title: "UI chat" },
+    ])],
+    ["urban-stay", project({ title: "Urban Stay" }, [
+      { localId: 10, title: "Booking chat" },
+    ])],
+  ]);
+  var usersModule = users();
+  usersModule.isMultiUser = function () { return false; };
+  var handler = palette.attachPalette({
+    users: usersModule,
+    projects: projectMap,
+    getMultiUserFromReq: function () { return null; },
+    onGetProjectAccess: null,
+  });
+  function request(url) {
+    var body = null;
+    handler.handleRequest({ method: "GET", url: url }, {
+      writeHead: function () {},
+      end: function (value) { body = value; },
+    }, "/api/palette/search");
+    return JSON.parse(body);
+  }
+  var discovery = request("/api/palette/search?scope=live-ui");
+  assert.strictEqual(discovery.projects.length, 2);
+  assert.strictEqual(discovery.projects[0].sessions, undefined);
+  var selected = request("/api/palette/search?scope=live-ui&project=urban-stay");
+  assert.strictEqual(selected.project.projectSlug, "urban-stay");
+  assert.deepStrictEqual(selected.project.sessions.map(function (session) {
+    return session.title;
+  }), ["Booking chat"]);
 });

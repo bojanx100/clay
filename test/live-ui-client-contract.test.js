@@ -33,10 +33,12 @@ test("extension picker publishes visible sessions and pins its request", functio
   var picker = read("lib/public/modules/live-ui-extension-picker.js");
   var messages = read("lib/public/modules/live-ui-messages.js");
   assert.match(picker, /getCachedSessions/);
-  assert.match(picker, /scope=live-ui/);
+  assert.match(picker, /getCachedProjects/);
+  assert.match(picker, /scope=live-ui&project=/);
   assert.match(picker, /projects: projects/);
   assert.match(picker, /!session\.orchestrationParent/);
   assert.match(picker, /clay_live_ui_identity/);
+  assert.match(picker, /clay_live_ui_project_sessions/);
   assert.match(picker, /clay_live_ui_picker_pair_request/);
   assert.match(picker, /type: "switch_session"/);
   assert.match(picker, /type: "browser_tab_list"/);
