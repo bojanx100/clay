@@ -451,3 +451,34 @@ test("a lease that expires between list and renew is reacquired, not skipped", f
     "running work must end reconciliation holding a claim");
   assert.ok(result.reclaimed >= 1 || result.adopted >= 1);
 });
+
+// Two replay routes previously dropped the sender. Both fail CLOSED (they deny
+// the real owner rather than granting a non-owner), but denying an owner their
+// own Done workflow for no visible reason is its own defect.
+test("steer-requeue carries the original sender across the requeue", function () {
+  var session = { localId: 1, pendingUserMessageQueue: [] };
+  var deps = queueDeps(null);
+
+  // A turn queued by the owner, then steered to the front.
+  queueModule.queuePreparedMessage(session, "mark as done", null, "q1",
+    "mark as done", 0, null, null, { actorUserId: "user-owner" }, deps);
+  var queued = session.pendingUserMessageQueue.splice(0, 1)[0];
+  assert.strictEqual(queued.actorUserId, "user-owner");
+
+  // This mirrors the steer path in project-user-message-handlers.js: the item
+  // is spliced out and re-queued, and the sender must survive that rebuild.
+  queueModule.queuePreparedMessage(session, queued.text, queued.images, queued.queueId,
+    queued.displayText, queued.imageCount, queued.clientMessageId, queued.pastes,
+    { front: true, silent: true, hidden: true, actorUserId: queued.actorUserId || null }, deps);
+
+  assert.strictEqual(session.pendingUserMessageQueue[0].actorUserId, "user-owner",
+    "a steered turn must not become unattributed");
+});
+
+test("a requeued turn with no sender stays null rather than inventing one", function () {
+  var session = { localId: 1, pendingUserMessageQueue: [] };
+  var deps = queueDeps(null);
+  queueModule.queuePreparedMessage(session, "hi", null, "q2", "hi", 0, null, null,
+    { front: true, actorUserId: null }, deps);
+  assert.strictEqual(session.pendingUserMessageQueue[0].actorUserId, null);
+});
