@@ -57,6 +57,7 @@ function harness(overrides) {
   var coordinated = [];
   var closed = [];
   var followedUp = [];
+  var reconnects = [];
   var taskSequence = 0;
   var liveUi = attachProjectLiveUi({
     slug: "clay",
@@ -69,6 +70,18 @@ function harness(overrides) {
           running: true,
           portLive: true,
         }, overrides.workspace || {}));
+      },
+      reconnectLiveUiTarget: function (targetSession, tabUrl, cb) {
+        reconnects.push({ session: targetSession, tabUrl: tabUrl });
+        cb(overrides.reconnect || {
+          ok: true,
+          target: Object.assign({
+            writableRoot: "/repo/clay",
+            localUrl: "http://localhost:4242",
+            running: true,
+            portLive: true,
+          }, overrides.workspace || {}),
+        });
       },
     },
     browserState: browserState,
@@ -143,6 +156,7 @@ function harness(overrides) {
     coordinated: coordinated,
     closed: closed,
     followedUp: followedUp,
+    reconnects: reconnects,
   };
 }
 
@@ -226,6 +240,28 @@ test("rejects stale session claims, stopped dev servers, and wrong origins", fun
   var remote = harness({ tabUrl: "https://example.com/pricing" });
   assert.strictEqual(pair(remote), null);
   assert.strictEqual(remote.sent[0].message.code, "LIVE_UI_ORIGIN_DENIED");
+});
+
+test("reconnects a selected chat only through the server-authorized root check", function () {
+  var state = harness();
+  var paired = pair(state, { reconnectServer: true });
+  assert.ok(paired);
+  assert.strictEqual(state.reconnects.length, 1);
+  assert.strictEqual(state.reconnects[0].session, state.session);
+  assert.strictEqual(state.reconnects[0].tabUrl,
+    "http://localhost:4242/pricing");
+
+  var mismatched = harness({
+    reconnect: {
+      ok: false,
+      code: "LIVE_UI_SERVER_ROOT_MISMATCH",
+      error: "The inspected page is served from a different project root or worktree",
+    },
+  });
+  assert.strictEqual(pair(mismatched, { reconnectServer: true }), null);
+  assert.strictEqual(mismatched.sent[0].message.code,
+    "LIVE_UI_SERVER_ROOT_MISMATCH");
+  assert.strictEqual(mismatched.commands.length, 0);
 });
 
 test("accepts only a server-derived Tailscale or preview origin", function () {

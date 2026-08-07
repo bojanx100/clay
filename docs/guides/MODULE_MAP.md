@@ -173,6 +173,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
 | `coop-self-cleanup-runtime.js` | Project-scoped, Lead-mode-gated Coop projection cleanup, compaction scheduling, and durable audit replay |
 | `project-workspace.js` | `workspace_get`, `workspace_dev_*` | Session workspace context assembly: repo links, worktree binding, PR/preview metadata, dev server lifecycle, and live workspace context patches |
+| `project-workspace-live-ui-binding.js` | Safe Live UI dev-server rebinding to the selected chat's current exact project root/worktree and target origin |
 | `project-workspace-dev-discovery.js` | (called by project workspace) | Detects configured dev ports started outside Workspace while preserving per-worktree port ownership |
 | `project-workspace-git.js` | Git helpers for workspace context: branch, remote, PR, and repo metadata lookups |
 | `session-worktree.js` | Tracks the active git worktree for a session from write-tool paths and cached worktree scans |
