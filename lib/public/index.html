@@ -617,7 +617,12 @@
       <div class="mobile-sheet-handle"></div>
       <div class="mobile-sheet-header">
         <span class="mobile-sheet-title"></span>
-        <button class="mobile-sheet-close"><i data-lucide="x"></i></button>
+        <!-- Mobile has no icon strip, so this is the only project switcher on
+             phones. It lives in static markup, not in a data-driven render, so
+             it survives reconnect, restart, and an empty projection. -->
+        <button class="mobile-sheet-projects" id="mobile-sheet-projects-btn" type="button" aria-label="Switch project" hidden><i data-lucide="layout-grid"></i><span class="mobile-sheet-projects-label">Projects</span></button>
+        <button class="mobile-sheet-back" id="mobile-sheet-back-btn" type="button" aria-label="Back to chat" hidden><i data-lucide="chevron-left"></i><span class="mobile-sheet-projects-label">Chat</span></button>
+        <button class="mobile-sheet-close" type="button" aria-label="Close"><i data-lucide="x"></i></button>
       </div>
       <div class="mobile-sheet-list"></div>
     </div>

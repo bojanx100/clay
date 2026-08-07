@@ -341,6 +341,63 @@
     height: 16px;
   }
 
+  /* Project switcher / back pills. Phones hide the desktop icon strip, so this
+     pill is the owner's only route between projects. It is labelled rather than
+     icon-only so it reads as a switcher at a glance, and the ::after inset
+     widens the tap target to the 44px touch minimum without inflating the
+     visual height next to the 32px close button. */
+  .mobile-sheet-projects,
+  .mobile-sheet-back {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    margin-right: 8px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(var(--accent-rgb), 0.1);
+    color: var(--accent);
+    font-family: "Pretendard", system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-sheet-projects[hidden],
+  .mobile-sheet-back[hidden] {
+    display: none;
+  }
+
+  .mobile-sheet-projects::after,
+  .mobile-sheet-back::after {
+    content: "";
+    position: absolute;
+    inset: -6px -4px;
+  }
+
+  .mobile-sheet-projects:active,
+  .mobile-sheet-back:active {
+    background: rgba(var(--accent-rgb), 0.2);
+  }
+
+  .mobile-sheet-projects .lucide,
+  .mobile-sheet-back .lucide {
+    width: 15px;
+    height: 15px;
+  }
+
+  /* Empty/loading state for the projects sheet before the list arrives. */
+  .mobile-project-empty {
+    padding: 16px 12px;
+    color: var(--text-dimmer);
+    font-family: "Pretendard", system-ui, sans-serif;
+    font-size: 13px;
+  }
+
   /* Scrollable list */
   .mobile-sheet-list {
     flex: 1;

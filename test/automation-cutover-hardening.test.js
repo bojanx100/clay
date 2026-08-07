@@ -1,7 +1,11 @@
-// Regressions for the second round of independent-review findings on the Coop
-// automation cutover. Each test is shaped like the incident it prevents:
-// commit fencing, durability reporting, reconciliation honesty, launch-state
-// rollback, the pre-launch fence, and owner attribution surviving the queue.
+// Regressions for the independent-review findings that survived the pivot to
+// Coop-as-single-writer. Each test is shaped like the incident it prevents:
+// launch-state rollback, owner attribution surviving every replay route, and
+// the deleted claim protocol staying unreachable.
+//
+// The commit-fencing, durability and pre-launch-fence regressions that used to
+// live here went with the bespoke claim protocol they guarded — the boundary
+// no longer holds claims, so those failure modes have no path to occur.
 var test = require("node:test");
 var assert = require("node:assert");
 var fs = require("fs");
@@ -20,19 +24,6 @@ function tempDir(name) {
   return fs.mkdtempSync(path.join(os.tmpdir(), name));
 }
 
-// A workspace whose own policy makes bugs autonomous. beginLaunch re-reads
-// policy, so a fixture without one is correctly refused.
-function autonomousDir(name) {
-  var dir = tempDir(name);
-  var tasks = path.join(dir, ".clay", "tasks");
-  fs.mkdirSync(tasks, { recursive: true });
-  fs.writeFileSync(path.join(tasks, "issues.json"), JSON.stringify({
-    id: "issues", source: { provider: "github", kind: "issue", repo: "o/r" },
-    filter: { type: "bug" },
-  }));
-  return dir;
-}
-
 // Minimal deps for the queue module: it only needs to notify and persist.
 function queueDeps(onSend) {
   return {
@@ -40,21 +31,6 @@ function queueDeps(onSend) {
     sendQueuedUserMessagesState: function () {},
     sm: { saveSessionFile: function () {}, broadcastSessionList: function () {} },
   };
-}
-
-// Newest committed epoch file, under the O_EXCL epoch-commit layout.
-function readCommitted(file) {
-  var dir = path.dirname(file);
-  var base = path.basename(file);
-  var epochs = fs.readdirSync(dir)
-    .filter(function (n) { return n.indexOf(base + ".") === 0 && /\.\d+$/.test(n); })
-    .map(function (n) { return Number(n.slice(base.length + 1)); })
-    .sort(function (a, b) { return b - a; });
-  return epochs.length ? JSON.parse(fs.readFileSync(file + "." + epochs[0], "utf8")) : null;
-}
-
-function claim(key, holder) {
-  return { projectRef: { projectId: PROJECT_A }, key: key, holder: holder };
 }
 
 test("a PR pass consumed for a session that never started is restored", function () {
