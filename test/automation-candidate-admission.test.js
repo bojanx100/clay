@@ -654,3 +654,270 @@ test("#2517: a throwing Coop resolver fails closed rather than propagating", fun
     fs.rmSync(h.dir, { recursive: true, force: true });
   }
 });
+
+// --- Post-commit integration gaps ----------------------------------------------
+
+// pending() used to read state and then delegate to list(), which read AGAIN.
+// If the second read came back malformed, list() returned [] and pending()
+// reported {ok:true, candidates:[]} — corruption laundered into a confident
+// "nothing to admit", which is the exact silent-loss shape this store exists
+// to prevent.
+test("#2517: pending() cannot be fooled by a second read going bad", function () {
+  var dir = tempDir();
+  try {
+    var file = path.join(dir, ".clay", "tasks", "automation-candidates.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    var good = JSON.stringify({
+      schema: "clay.automation_candidates", version: 1,
+      candidates: [{
+        candidateKey: "launch:trialview/v2#2517", itemKey: "trialview/v2#2517",
+        itemClass: "bug", admission: "auto", projectRef: { projectId: WEBAPP },
+        status: "pending", firstSeenAt: 1, lastSeenAt: 1, seenCount: 1, digest: "d",
+      }],
+    });
+    // First read succeeds, every later read is corrupt.
+    var reads = 0;
+    var flaky = Object.create(fs);
+    flaky.readFileSync = function (target, encoding) {
+      if (String(target) === file) {
+        reads++;
+        return reads === 1 ? good : "{not json";
+      }
+      return fs.readFileSync(target, encoding);
+    };
+    var store = createCandidateStore({ fs: flaky, cwd: dir });
+    var result = store.pending({ status: "pending" });
+    assert.strictEqual(reads, 1, "pending() must read exactly once");
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.candidates.length, 1,
+      "the candidate from the read we actually validated must survive");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("#2517: pending() filters the state it validated, not a fresh read", function () {
+  var dir = tempDir();
+  try {
+    var store = createCandidateStore({ cwd: dir });
+    store.upsert(candidate());
+    store.upsert(candidate({
+      candidateKey: "launch:x#1", itemKey: "x#1", admission: "owner_approval",
+    }));
+    store.recordAttention({ projectId: WEBAPP }, "launch:x#1", "owner_approval_required", true);
+    var pending = store.pending({ status: "pending" });
+    assert.strictEqual(pending.ok, true);
+    assert.strictEqual(pending.candidates.length, 1);
+    assert.strictEqual(pending.candidates[0].itemKey, "trialview/v2#2517",
+      "awaiting_owner must not come back as pending");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// An owner-gated deferral that does not persist means the next tick defers it
+// again and prompts the owner again — the per-tick storm aimed at a human.
+test("#2517: an unpersisted owner deferral is a failed admission, not a deferral", function () {
+  var h = harness();
+  try {
+    h.store.upsert(candidate({ admission: "owner_approval", itemClass: "feature" }));
+    // Attention cannot be written.
+    h.store.recordAttention = function () { return { ok: false, reason: "persistence_failed" }; };
+    var result = h.admission.admitPending();
+    assert.strictEqual(result.deferred, 0, "an unpersisted deferral must not count as deferred");
+    assert.strictEqual(result.failed, 1);
+    assert.strictEqual(result.attention[0].reason, "owner_attention_unpersisted");
+    assert.strictEqual(result.ownerDecisions.length, 0,
+      "and must not claim the owner was asked");
+    assert.strictEqual(h.cross.calls.length, 0, "still no binding without approval");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("#2517: a persisted owner deferral is still reported as one precise decision", function () {
+  var h = harness();
+  try {
+    h.store.upsert(candidate({ admission: "owner_approval", itemClass: "feature" }));
+    var result = h.admission.admitPending();
+    assert.strictEqual(result.deferred, 1);
+    assert.strictEqual(result.failed, 0);
+    assert.strictEqual(result.ownerDecisions.length, 1);
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+// The binding-verification path was only ever exercised against an injected
+// fake, so nothing proved it resolves against the REAL router's surface. This
+// builds an actual cross-project router over a real binding store.
+test("#2517: admission verifies replays against the real router surface", function () {
+  var dir = tempDir();
+  try {
+    var { createCrossProjectRouter } = require("../lib/server-cross-project");
+    var leadSession = { coopHome: true, storageId: "coop-home-real" };
+    var targetDelivered = [];
+    var leadContext = {
+      getSessionManager: function () {
+        return { sessions: { forEach: function (fn) { fn(leadSession); } } };
+      },
+    };
+    var targetContext = {
+      deliverCrossProjectEnvelope: function (envelope) {
+        targetDelivered.push(envelope);
+        return { ok: true };
+      },
+      getSessionManager: function () { return { sessions: { forEach: function () {} } }; },
+    };
+    var router = createCrossProjectRouter({
+      bindingFile: path.join(dir, "bindings.json"),
+      deliveryFile: path.join(dir, "delivery.json"),
+      // The router's real option name. Getting this wrong is exactly the class
+      // of wiring error an injected fake cannot catch.
+      getProjectContextById: function (projectId) {
+        if (projectId === "system-lead") return leadContext;
+        if (projectId === WEBAPP) return targetContext;
+        return null;
+      },
+    });
+
+    // The router must expose the two things production wiring depends on.
+    assert.strictEqual(typeof router.coopSessionRef, "function");
+    assert.strictEqual(typeof router.getExecutionBinding, "function",
+      "admission resolves the reader off this canonical name");
+
+    var resolved = router.coopSessionRef();
+    assert.ok(resolved, "the real router must resolve the live Coop session");
+    assert.strictEqual(resolved.projectId, "system-lead");
+    assert.strictEqual(resolved.sessionStorageId, "coop-home-real");
+
+    var store = createCandidateStore({ cwd: dir });
+    // No getBinding injected: admission must find the reader itself.
+    var admission = createCandidateAdmission({
+      candidates: store,
+      crossProject: router,
+      getLeadMode: function () { return true; },
+      resolveCoopSource: function () { return router.coopSessionRef(); },
+    });
+    store.upsert(candidate());
+
+    var first = admission.admitPending();
+    assert.strictEqual(first.admitted, 1, "a real binding must be created: " +
+      JSON.stringify(first.attention));
+    assert.strictEqual(store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517").status,
+      "admitted");
+
+    // Re-admitting the same work against the real store must replay, and the
+    // verification must accept it because it is genuinely our binding.
+    store.upsert(candidate());
+    var reopened = store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517");
+    assert.strictEqual(reopened.status, "admitted", "a re-proposal stays admitted");
+    assert.strictEqual(admission.admitPending().failed, 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("#2517: a router with no binding reader makes replays unverifiable, not assumed", function () {
+  var h = harness();
+  try {
+    var readerless = {
+      coopSessionRef: function () {
+        return { projectId: "system-lead", sessionStorageId: "coop-home-live" };
+      },
+      createProjectExecution: function () { return { ok: false, reason: "active_binding_exists" }; },
+    };
+    var admission = createCandidateAdmission({
+      candidates: h.store,
+      crossProject: readerless,
+      getLeadMode: function () { return true; },
+      resolveCoopSource: function () { return readerless.coopSessionRef(); },
+    });
+    h.store.upsert(candidate());
+    assert.strictEqual(admission.admitPending().attention[0].reason, "binding_unverifiable");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+// server.js indexes project contexts by SLUG, so the router can only resolve a
+// project BY PROJECT ID through a registered resolver. The resolver used to
+// expose only getProjectId and deliverCrossProjectEnvelope — no session manager
+// — so coopSessionRef() could never reach the Lead project's sessions and
+// returned null on every real tick. Admission would then fail closed forever
+// while every unit test passed against an injected fake.
+test("#2517: the router resolves Coop through a registered resolver, as production does", function () {
+  var dir = tempDir();
+  try {
+    var { createCrossProjectRouter } = require("../lib/server-cross-project");
+    var router = createCrossProjectRouter({
+      bindingFile: path.join(dir, "bindings.json"),
+      deliveryFile: path.join(dir, "delivery.json"),
+      // Exactly what server.js supplies: slug-keyed, so projectId lookups miss.
+      getProjectContext: function () { return null; },
+    });
+    assert.strictEqual(router.coopSessionRef(), null,
+      "with no resolver registered there is no Coop session to find");
+
+    router.registerProjectResolver({
+      getProjectId: function () { return "system-lead"; },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+      getSessionManager: function () {
+        return { sessions: { forEach: function (fn) { fn({ coopHome: true, storageId: "coop-home-prod" }); } } };
+      },
+    });
+
+    var ref = router.coopSessionRef();
+    assert.ok(ref, "a registered Lead resolver must expose enough to find Coop");
+    assert.strictEqual(ref.projectId, "system-lead");
+    assert.strictEqual(ref.sessionStorageId, "coop-home-prod");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("#2517: a resolver without a session manager yields no Coop ref rather than throwing", function () {
+  var dir = tempDir();
+  try {
+    var { createCrossProjectRouter } = require("../lib/server-cross-project");
+    var router = createCrossProjectRouter({
+      bindingFile: path.join(dir, "bindings.json"),
+      deliveryFile: path.join(dir, "delivery.json"),
+      getProjectContext: function () { return null; },
+    });
+    router.registerProjectResolver({
+      getProjectId: function () { return "system-lead"; },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    });
+    assert.strictEqual(router.coopSessionRef(), null,
+      "fail closed, and let admission report coop_session_unavailable");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("#2517: a session that is not coopHome is not Coop", function () {
+  var dir = tempDir();
+  try {
+    var { createCrossProjectRouter } = require("../lib/server-cross-project");
+    var router = createCrossProjectRouter({
+      bindingFile: path.join(dir, "bindings.json"),
+      deliveryFile: path.join(dir, "delivery.json"),
+      getProjectContext: function () { return null; },
+    });
+    router.registerProjectResolver({
+      getProjectId: function () { return "system-lead"; },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+      getSessionManager: function () {
+        return { sessions: { forEach: function (fn) {
+          fn({ storageId: "some-worker" });
+          fn({ coopChannel: true, storageId: "a-channel" });
+        } } };
+      },
+    });
+    assert.strictEqual(router.coopSessionRef(), null,
+      "only the canonical coopHome session counts");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
