@@ -60,15 +60,18 @@ function modalDom() {
   return { document: documentRef, opener: opener, modal: modal, text: text, ok: ok, cancel: cancel, backdrop: backdrop };
 }
 
-function keydown(dom, key, shiftKey) {
+function keydown(dom, key, shiftKey, documentHandler) {
   var prevented = 0;
+  var propagationStopped = false;
   var handlers = dom.modal.listeners.keydown || [];
   var event = {
     key: key,
     shiftKey: !!shiftKey,
     preventDefault: function () { prevented++; },
+    stopPropagation: function () { propagationStopped = true; },
   };
   for (var i = 0; i < handlers.length; i++) handlers[i](event);
+  if (!propagationStopped && typeof documentHandler === "function") documentHandler(event);
   return prevented;
 }
 
@@ -112,11 +115,13 @@ test("Escape cancels without callback and restores focus; confirm still fires on
   var dom = modalDom();
   var modal = await loadModal(dom);
   var confirmed = 0;
+  var underlyingEscapeCount = 0;
   modal.initConfirmModal();
   modal.showConfirm("Cancel this action?", function () { confirmed++; });
-  assert.equal(keydown(dom, "Escape", false), 1);
+  assert.equal(keydown(dom, "Escape", false, function () { underlyingEscapeCount++; }), 1);
   assert.equal(dom.modal.classList.contains("hidden"), true);
   assert.equal(confirmed, 0);
+  assert.equal(underlyingEscapeCount, 0, "Escape never reaches the underlying document-level modal handler");
   assert.equal(dom.document.activeElement, dom.opener);
 
   modal.showConfirm("Confirm this action?", function () { confirmed++; });
