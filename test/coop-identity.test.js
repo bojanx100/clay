@@ -141,46 +141,61 @@ test("topic refs are read through every identity key shape the projection uses",
 
 // --- Wiring: every header producer must go through the rule ------------------
 
-test("every header-title producer resolves through the Coop identity rule", function () {
-  // These four are the only paths that write #header-title for a project
-  // session, and each one previously produced a different answer: the
-  // localStorage seed on restart, the info frame on reconnect, the session
-  // switch, and updatePageTitle on every sidebar render.
+test("every header-title producer routes through the one applier", function () {
+  // Six paths could write #header-title, each from its own source. Any one of
+  // them landing after a topic selection reverted the heading to "Coop", so the
+  // rule cannot live in the call sites -- they all delegate.
   var appSource = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "app.js"), "utf8");
-  assert.match(appSource, /import \{ coopHeaderTitle, isCoopProjectSlug \} from '\.\/modules\/coop-identity\.js'/);
   assert.match(appSource, /projectName = coopHeaderTitle\(currentSlug, _cachedProjectName, _cachedProjectName\)/);
 
   var messages = source("app-messages.js");
-  assert.match(messages, /_infoTitle = coopHeaderTitle\(store\.get\('currentSlug'\)/);
-  assert.match(messages, /headerTitleEl\.textContent = _infoTitle/);
+  assert.match(messages, /applyCoopChatHeader\(store\.get\('projectName'\), "Clay"\)/);
+  assert.doesNotMatch(messages, /headerTitleEl\.textContent = _infoTitle/);
 
   var sessions = source("app-messages-sessions.js");
-  assert.match(sessions, /headerTitle = coopHeaderTitle\(currentSlug/);
-  assert.match(sessions, /headerTitleEl\.textContent = headerTitle/);
-  // The old coopHome-only branch is what let a project channel repaint the header.
+  assert.match(sessions, /applyCoopChatHeader\(msg\.title, "Clay"\)/);
+  assert.doesNotMatch(sessions, /headerTitleEl\.textContent = headerTitle/);
   assert.doesNotMatch(sessions, /headerTitleEl\.textContent = msg\.coopHome \? "Coop"/);
 
   var sidebar = source("sidebar.js");
-  assert.match(sidebar, /coopHeaderTitle\(slug, sessionTitle, ctx\.projectName\)/);
-  assert.match(sidebar, /ctx\.headerTitleEl\.textContent = headerTitle/);
+  assert.match(sidebar, /applyCoopChatHeader\(sessionTitle, ctx\.projectName\)/);
+  assert.doesNotMatch(sidebar, /ctx\.headerTitleEl\.textContent = headerTitle/);
   assert.doesNotMatch(sidebar, /textContent = sessionTitle \|\| ctx\.projectName \|\| "Clay"/);
+
+  // The applier is the only module that writes the element.
+  var header = source("coop-header.js");
+  assert.match(header, /el\.textContent = title/);
+});
+
+test("the applier repaints on every input the heading derives from", function () {
+  var header = source("coop-header.js");
+  var sub = header.slice(header.indexOf("store.subscribe("));
+  assert.match(sub, /state\.activeCoopLens !== previous\.activeCoopLens/);
+  assert.match(sub, /state\.activeCoopTopicRef !== previous\.activeCoopTopicRef/);
+  assert.match(sub, /state\.currentSlug !== previous\.currentSlug/);
+  // Delayed projection delivery: a lens restored from a URL or history entry can
+  // precede the projection that carries its canonical title.
+  assert.match(sub, /state\.coopProjectionVersion !== previous\.coopProjectionVersion/);
+  assert.match(sub, /applyCoopChatHeader\(state\.activeSessionTitle, state\.projectName\)/);
 });
 
 test("a mate DM keeps its own header instead of being repainted at all", function () {
-  // app-messages.js already skips its header write in DM mode; updatePageTitle
-  // runs on every session-list render, so it has to bail out entirely. Writing
-  // the underlying session or project title here -- Coop rule or not -- would
-  // still erase the mate's name a moment after app-messages-dm.js set it.
+  // updatePageTitle runs on every session-list render, and the applier runs on
+  // every store change, so both have to bail out in DM mode or they would erase
+  // the mate's name a moment after app-messages-dm.js set it.
   var sidebar = source("sidebar.js");
   var fn = sidebar.slice(sidebar.indexOf("export function updatePageTitle()"));
   fn = fn.slice(0, fn.indexOf("\n}"));
   assert.match(fn, /if \(!!store\.get\('dmMode'\) \|\| document\.body\.classList\.contains\("mate-dm-active"\)\) return;/);
-  // The bail-out must precede every title write in the function.
   var guardAt = fn.indexOf('classList.contains("mate-dm-active")) return;');
   assert.ok(guardAt !== -1);
-  assert.ok(guardAt < fn.indexOf("ctx.headerTitleEl.textContent"));
+  assert.ok(guardAt < fn.indexOf("applyCoopChatHeader"));
   assert.ok(guardAt < fn.indexOf("tbProjectName.textContent"));
   assert.ok(guardAt < fn.indexOf("document.title ="));
+
+  var header = source("coop-header.js");
+  assert.match(header, /function inMateDm\(\)/);
+  assert.match(header, /if \(inMateDm\(\)\) return null;/);
 });
 
 test("no other writer can repaint a Lead identity after connect", function () {
