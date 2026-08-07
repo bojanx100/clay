@@ -75,6 +75,31 @@ function makeGate(options) {
   return { gate: gate, dir: dir, clock: time, leases: store };
 }
 
+// Drive a claim to RUNNING the way the launch path does. Reconciliation only
+// renews RUNNING claims; CLAIMED and LAUNCHING are in-flight states owned by a
+// live turn and are deliberately left alone.
+// A RUNNING claim owned by some other process, seeded directly.
+function seedForeignRunning(store, itemKey, holder, pid) {
+  var key = gateModule.claimKeyFor(itemKey);
+  var base = { projectRef: { projectId: PROJECT_A }, key: key, holder: holder, ttlMs: 60000 };
+  if (pid) base.holderPid = pid;
+  var acquired = store.acquire(base);
+  assert.strictEqual(acquired.ok, true);
+  var withToken = Object.assign({}, base, { token: acquired.lease.token });
+  assert.strictEqual(store.beginLaunch(withToken).ok, true);
+  assert.strictEqual(store.confirmRunning(withToken).ok, true);
+  return acquired.lease.token;
+}
+
+function launchToRunning(gate, key) {
+  var decided = gate.evaluateLaunch(bug(key));
+  assert.strictEqual(decided.decision, "execute", "setup launch should be authorized");
+  var token = decided.lease.token;
+  assert.strictEqual(gate.beginLaunch({ itemKey: key, token: token, itemClass: "bug" }).ok, true);
+  assert.strictEqual(gate.confirmRunning({ itemKey: key, token: token }).ok, true);
+  return token;
+}
+
 function bug(key) {
   return { itemKey: key, item: { labels: [{ name: "bug" }] }, recipeKind: "issue" };
 }
@@ -105,12 +130,7 @@ test("a project's own bug autonomy launches once and only once", function () {
 
 test("a claim held by another runtime blocks a launch here", function () {
   var h = makeGate();
-  h.leases.acquire({
-    projectRef: { projectId: PROJECT_A },
-    key: gateModule.claimKeyFor("trialview/v2#7"),
-    holder: "some-other-daemon",
-    ttlMs: 5000,
-  });
+  seedForeignRunning(h.leases, "trialview/v2#7", "some-other-daemon", 9999);
   var out = h.gate.evaluateLaunch(bug("trialview/v2#7"));
   assert.strictEqual(out.decision, "deny");
   assert.strictEqual(out.reason, "claim_held_elsewhere");
@@ -321,21 +341,37 @@ test("claims survive a restart and still block a different runtime", function ()
   assert.strictEqual(out.reason, "claim_held_elsewhere");
 });
 
-test("reconcile adopts claims whose work is still running and releases the rest", function () {
+test("reconcile renews running work and releases our own orphans", function () {
   var h = makeGate({ claimTtlMs: 400000 });
-  assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#40")).decision, "execute");
-  assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#41")).decision, "execute");
+  launchToRunning(h.gate, "trialview/v2#40");
+  launchToRunning(h.gate, "trialview/v2#41");
 
-  // Past the daemon-overlap grace, so an orphan is genuinely orphaned.
   h.clock.set(1000 + 200000);
   var result = h.gate.reconcileClaims(["trialview/v2#40"]);
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.adopted, 1);
   assert.strictEqual(result.released, 1);
 
-  // The adopted claim still blocks; the released one is free again.
+  // The renewed claim still blocks; the released one is free again.
   assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#40")).reason, "claim_already_active");
   assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#41")).decision, "execute");
+});
+
+// An in-flight launch is owned by a live turn of this process. Reconciliation
+// touching it would race the launch it is trying to protect.
+test("reconcile leaves our own in-flight CLAIMED and LAUNCHING states alone", function () {
+  var h = makeGate({ claimTtlMs: 400000 });
+  var claimed = h.gate.evaluateLaunch(bug("trialview/v2#50"));
+  assert.strictEqual(claimed.decision, "execute");
+  var result = h.gate.reconcileClaims([]);
+  assert.strictEqual(result.released, 0, "a claim mid-launch must not be released");
+  assert.ok(h.gate.holdsClaim("trialview/v2#50"));
+
+  h.gate.beginLaunch({ itemKey: "trialview/v2#50", token: claimed.lease.token, itemClass: "bug" });
+  assert.strictEqual(h.gate.reconcileClaims([]).released, 0);
+  assert.strictEqual(
+    h.leases.get({ projectId: PROJECT_A }, gateModule.claimKeyFor("trialview/v2#50")).state,
+    "LAUNCHING");
 });
 
 // The mirror case, and the one that actually causes duplicate launches: work
@@ -380,7 +416,7 @@ test("concurrent processes never share a holder identity", function () {
   // overlapping its predecessor cannot inherit its authority by accident.
   assert.notStrictEqual(gateFor(4242).holder, a.holder);
 
-  assert.strictEqual(a.evaluateLaunch(bug("shared#1")).decision, "execute");
+  launchToRunning(a, "shared#1");
   assert.strictEqual(b.evaluateLaunch(bug("shared#1")).reason, "claim_held_elsewhere");
 });
 
@@ -396,10 +432,7 @@ test("a live holder's claim is never adopted, even for our own active work", fun
     audit: automationAudit.createAutomationAudit({
       file: path.join(dir, "audit.jsonl"), slug: "live" }),
   });
-  store.acquire({
-    projectRef: { projectId: PROJECT_A }, key: gateModule.claimKeyFor("o/r#1"),
-    holder: "sibling-process", holderPid: 9999, ttlMs: 60000,
-  });
+  seedForeignRunning(store, "o/r#1", "sibling-process", 9999);
   var result = gate.reconcileClaims(["o/r#1"]);
   assert.strictEqual(result.foreign, 1, "a live sibling's claim must be left alone");
   assert.strictEqual(
@@ -420,10 +453,7 @@ test("a dead holder's claim is adopted so a restart does not double-start work",
       file: path.join(dir, "audit.jsonl"), slug: "dead" }),
   });
   // The predecessor process claimed this and then died.
-  store.acquire({
-    projectRef: { projectId: PROJECT_A }, key: gateModule.claimKeyFor("o/r#2"),
-    holder: "previous-process", holderPid: 9999, ttlMs: 60000,
-  });
+  seedForeignRunning(store, "o/r#2", "previous-process", 9999);
   var result = gate.reconcileClaims(["o/r#2"]);
   assert.strictEqual(result.adopted, 1, "a dead holder's claim must be adopted");
   assert.strictEqual(gate.holdsClaim("o/r#2"), true);
@@ -441,10 +471,7 @@ test("an unproven holder is presumed alive so adoption never steals live work", 
       file: path.join(dir, "audit.jsonl"), slug: "unproven" }),
   });
   // No holderPid recorded at all: liveness is unknowable, so hands off.
-  store.acquire({
-    projectRef: { projectId: PROJECT_A }, key: gateModule.claimKeyFor("o/r#3"),
-    holder: "unknown-process", ttlMs: 60000,
-  });
+  seedForeignRunning(store, "o/r#3", "unknown-process", 0);
   var result = gate.reconcileClaims(["o/r#3"]);
   assert.strictEqual(result.foreign, 1);
   assert.strictEqual(
@@ -452,18 +479,54 @@ test("an unproven holder is presumed alive so adoption never steals live work", 
     "unknown-process");
 });
 
-test("reconcile never touches another holder's claim", function () {
+test("reconcile never touches a LIVE foreign holder's claim", function () {
   var h = makeGate();
-  h.leases.acquire({
-    projectRef: { projectId: PROJECT_A },
-    key: gateModule.claimKeyFor("trialview/v2#50"),
-    holder: "another-runtime",
-    ttlMs: 5000,
+  seedForeignRunning(h.leases, "trialview/v2#50", "another-runtime", 9999);
+  // Liveness is what decides, so pin it: this holder is alive.
+  var gate = gateModule.createAutomationGate({
+    cwd: h.dir, slug: "live-foreign", projectRef: { projectId: PROJECT_A },
+    policyTtlMs: 0, holderPid: 4242,
+    getLeadMode: function () { return true; },
+    isHolderAlive: function () { return true; },
+    leases: h.leases,
+    audit: automationAudit.createAutomationAudit({
+      file: path.join(h.dir, "audit.jsonl"), slug: "live-foreign" }),
   });
-  h.gate.reconcileClaims([]);
+  gate.reconcileClaims([]);
   var survivor = h.leases.get({ projectId: PROJECT_A }, gateModule.claimKeyFor("trialview/v2#50"));
-  assert.ok(survivor, "a foreign claim must survive reconciliation");
+  assert.ok(survivor, "a live foreign holder's claim must survive");
   assert.strictEqual(survivor.holder, "another-runtime");
+});
+
+// The mirror: a predecessor that died holding a claim for work nobody is
+// running must not pin that item until its lease lapses.
+test("reconcile clears a provably dead holder's inactive orphan", function () {
+  var h = makeGate();
+  seedForeignRunning(h.leases, "trialview/v2#51", "dead-runtime", 9999);
+  var gate = gateModule.createAutomationGate({
+    cwd: h.dir, slug: "dead-foreign", projectRef: { projectId: PROJECT_A },
+    policyTtlMs: 0, holderPid: 4242,
+    getLeadMode: function () { return true; },
+    isHolderAlive: function (pid) { return pid !== 9999; },
+    leases: h.leases,
+    audit: automationAudit.createAutomationAudit({
+      file: path.join(h.dir, "audit.jsonl"), slug: "dead-foreign" }),
+  });
+  var result = gate.reconcileClaims([]);
+  assert.strictEqual(result.released, 1);
+  assert.strictEqual(
+    h.leases.get({ projectId: PROJECT_A }, gateModule.claimKeyFor("trialview/v2#51")), null,
+    "a dead holder's orphan must not stay pinned");
+});
+
+// And the unprovable case in between: no recorded pid means death cannot be
+// proven, so the claim is left alone rather than guessed away.
+test("reconcile leaves an unprovable foreign claim alone", function () {
+  var h = makeGate();
+  seedForeignRunning(h.leases, "trialview/v2#52", "unknown-runtime", 0);
+  h.gate.reconcileClaims([]);
+  assert.ok(h.leases.get({ projectId: PROJECT_A }, gateModule.claimKeyFor("trialview/v2#52")),
+    "an unprovable holder must be presumed alive");
 });
 
 // --- Audit --------------------------------------------------------------------

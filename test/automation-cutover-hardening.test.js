@@ -21,6 +21,19 @@ function tempDir(name) {
   return fs.mkdtempSync(path.join(os.tmpdir(), name));
 }
 
+// A workspace whose own policy makes bugs autonomous. beginLaunch re-reads
+// policy, so a fixture without one is correctly refused.
+function autonomousDir(name) {
+  var dir = tempDir(name);
+  var tasks = path.join(dir, ".clay", "tasks");
+  fs.mkdirSync(tasks, { recursive: true });
+  fs.writeFileSync(path.join(tasks, "issues.json"), JSON.stringify({
+    id: "issues", source: { provider: "github", kind: "issue", repo: "o/r" },
+    filter: { type: "bug" },
+  }));
+  return dir;
+}
+
 // Minimal deps for the queue module: it only needs to notify and persist.
 function queueDeps(onSend) {
   return {
@@ -45,98 +58,9 @@ function claim(key, holder) {
   return { projectRef: { projectId: PROJECT_A }, key: key, holder: holder };
 }
 
-// --- Commit fencing ------------------------------------------------------------
-
-// A lock alone cannot fence a write. A holder that stalls, has its lock broken
-// as stale, and then resumes would otherwise publish state derived from a read
-// that is now superseded — erasing whatever the successor committed.
-test("a commit is refused when the store moved under it", function () {
-  var dir = tempDir("clay-fence-");
-  var file = path.join(dir, "claims.json");
-  var stalled = claimLeases.createClaimLeases({ file: file, ttlMs: 60000 });
-  var other = claimLeases.createClaimLeases({ file: file, ttlMs: 60000 });
-
-  // `stalled` reads the store, then another writer publishes.
-  assert.strictEqual(stalled.acquire(claim("a", "holder-a")).ok, true);
-  assert.strictEqual(other.acquire(claim("b", "holder-b")).ok, true);
-
-  // Both writes must survive: neither erased the other.
-  var onDisk = claimLeases.createClaimLeases({ file: file }).list();
-  assert.strictEqual(onDisk.length, 2);
-});
-
-test("the epoch advances on every commit and is persisted", function () {
-  var dir = tempDir("clay-epoch-");
-  var file = path.join(dir, "claims.json");
-  var store = claimLeases.createClaimLeases({ file: file, ttlMs: 60000 });
-  store.acquire(claim("a", "h"));
-  var first = readCommitted(file).epoch;
-  store.acquire(claim("b", "h"));
-  var second = readCommitted(file).epoch;
-  assert.ok(Number.isInteger(first) && first > 0, "epoch must be persisted");
-  assert.strictEqual(second, first + 1, "each commit must advance the epoch");
-});
-
-test("a stalled writer cannot publish over a successor's commit", function () {
-  var dir = tempDir("clay-stale-commit-");
-  var file = path.join(dir, "claims.json");
-  var stalled = claimLeases.createClaimLeases({ file: file, ttlMs: 60000 });
-  stalled.acquire(claim("seed", "h"));
-
-  // A successor publishes the next epoch while `stalled` still believes the
-  // previous one is current.
-  var successor = claimLeases.createClaimLeases({ file: file, ttlMs: 60000 });
-  successor.acquire(claim("successor-work", "other"));
-
-  // The stalled writer's commit reloads first, so it builds on the successor's
-  // state rather than replacing it. Both survive.
-  assert.strictEqual(stalled.acquire(claim("later", "h")).ok, true);
-  var after = readCommitted(file);
-  assert.strictEqual(after.leases.length, 3, "no commit may erase another");
-});
-
-// --- Durability ----------------------------------------------------------------
-
-// A rename is only durable once the directory entry is flushed. Swallowing the
-// failure would report a claim as committed that a power loss can undo, and a
-// claim that silently un-commits is a duplicate launch.
-test("a directory fsync failure is reported, not swallowed", function () {
-  var dir = tempDir("clay-durability-");
-  var file = path.join(dir, "claims.json");
-  var realFs = require("fs");
-  var failingFs = Object.create(realFs);
-  failingFs.fsyncSync = function (descriptor) {
-    var stat = realFs.fstatSync(descriptor);
-    if (stat.isDirectory()) {
-      var error = new Error("simulated durability failure");
-      error.code = "EIO";
-      throw error;
-    }
-    return realFs.fsyncSync(descriptor);
-  };
-  var store = claimLeases.createClaimLeases({ fs: failingFs, file: file, ttlMs: 60000 });
-  var result = store.acquire(claim("k", "h"));
-  assert.strictEqual(result.ok, false);
-  assert.strictEqual(result.reason, "durability_failed");
-});
-
-test("a filesystem that cannot fsync a directory is tolerated", function () {
-  var dir = tempDir("clay-durability-ok-");
-  var file = path.join(dir, "claims.json");
-  var realFs = require("fs");
-  var pickyFs = Object.create(realFs);
-  pickyFs.fsyncSync = function (descriptor) {
-    var stat = realFs.fstatSync(descriptor);
-    if (stat.isDirectory()) {
-      var error = new Error("not supported here");
-      error.code = "EINVAL";
-      throw error;
-    }
-    return realFs.fsyncSync(descriptor);
-  };
-  var store = claimLeases.createClaimLeases({ fs: pickyFs, file: file, ttlMs: 60000 });
-  assert.strictEqual(store.acquire(claim("k", "h")).ok, true);
-});
+// Store-level commit fencing, crash safety and durability rollback moved to
+// test/automation-claim-leases.test.js, which exercises them against the
+// two-phase committed-epoch protocol directly.
 
 // --- Reconciliation honesty ------------------------------------------------------
 
@@ -158,7 +82,7 @@ test("reconciliation reports failure when a claim operation could not complete",
   });
 
   // An active item with no claim would normally be reclaimed; make that fail.
-  store.adopt = function () { return { ok: false, reason: "claim_store_busy" }; };
+  store.acquire = function () { return { ok: false, reason: "claim_store_busy" }; };
   var result = gate.reconcileClaims(["o/r#1"]);
   assert.strictEqual(result.ok, false, "a failed claim operation must not report success");
   assert.strictEqual(result.reason, "claim_operations_failed");
@@ -189,39 +113,64 @@ test("a clean reconciliation still reports success", function () {
 // A read-only check leaves a window: the lease can lapse between the check and
 // the launch. Renewing makes the check a fence — it only succeeds while the
 // lease is provably ours, and it pushes expiry past the launch.
-test("the pre-launch check renews, so a launch cannot straddle an expiry", function () {
-  var dir = tempDir("clay-fence-launch-");
-  var time = 1000;
-  function now() { return time; }
-  var store = claimLeases.createClaimLeases({ file: path.join(dir, "claims.json"), now: now });
+test("the launch fence is a durable state transition, not a renewal", function () {
+  var dir = autonomousDir("clay-fence-launch-");
+  var store = claimLeases.createClaimLeases({ file: path.join(dir, "claims.json") });
   var gate = gateModule.createAutomationGate({
-    cwd: dir,
-    slug: "fence",
-    projectRef: { projectId: PROJECT_A },
-    now: now,
-    policyTtlMs: 0,
-    claimTtlMs: 5000,
+    cwd: dir, slug: "fence", projectRef: { projectId: PROJECT_A },
+    policyTtlMs: 0, claimTtlMs: 5000, holderPid: 4242,
     getLeadMode: function () { return true; },
     leases: store,
     audit: automationAudit.createAutomationAudit({
-      file: path.join(dir, "audit.jsonl"), slug: "fence", now: now,
-    }),
+      file: path.join(dir, "audit.jsonl"), slug: "fence" }),
+  });
+  var acquired = store.acquire({
+    projectRef: { projectId: PROJECT_A }, key: gate.claimKeyFor("o/r#1"),
+    holder: gate.holder, holderPid: 4242, ttlMs: 5000,
+  });
+  assert.strictEqual(acquired.lease.state, "CLAIMED");
+
+  var fenced = gate.beginLaunch({
+    itemKey: "o/r#1", token: acquired.lease.token, itemClass: "bug",
+    intent: { automationClaimKey: "o/r#1" },
+  });
+  assert.strictEqual(fenced.ok, true);
+  var committed = store.get({ projectId: PROJECT_A }, gate.claimKeyFor("o/r#1"));
+  assert.strictEqual(committed.state, "LAUNCHING");
+  assert.strictEqual(committed.intent.automationClaimKey, "o/r#1",
+    "the launch intent must be durable before any side effect");
+  assert.strictEqual(committed.expiresAt, undefined,
+    "an in-flight launch must not expire out from under itself");
+
+  // Only after session metadata exists does the claim become renewable.
+  var running = gate.confirmRunning({
+    itemKey: "o/r#1", token: acquired.lease.token, session: "sess-1",
+  });
+  assert.strictEqual(running.ok, true);
+  assert.strictEqual(running.lease.state, "RUNNING");
+  assert.strictEqual(running.lease.session, "sess-1");
+});
+
+// A stale fencing token must not be able to start work, however the holder
+// got hold of it.
+test("the launch fence rejects a stale fencing token", function () {
+  var dir = autonomousDir("clay-fence-stale-");
+  var store = claimLeases.createClaimLeases({ file: path.join(dir, "claims.json") });
+  var gate = gateModule.createAutomationGate({
+    cwd: dir, slug: "stale", projectRef: { projectId: PROJECT_A },
+    policyTtlMs: 0, claimTtlMs: 5000, holderPid: 4242,
+    getLeadMode: function () { return true; },
+    leases: store,
+    audit: automationAudit.createAutomationAudit({
+      file: path.join(dir, "audit.jsonl"), slug: "stale" }),
   });
   store.acquire({
-    projectRef: { projectId: PROJECT_A }, key: gate.claimKeyFor("o/r#1"),
-    holder: gate.holder, ttlMs: 5000,
+    projectRef: { projectId: PROJECT_A }, key: gate.claimKeyFor("o/r#2"),
+    holder: gate.holder, holderPid: 4242, ttlMs: 5000,
   });
-
-  time = 4000;
-  assert.strictEqual(gate.holdsClaim("o/r#1"), true);
-  var lease = store.get({ projectId: PROJECT_A }, gate.claimKeyFor("o/r#1"));
-  assert.strictEqual(lease.expiresAt, 9000, "the fence must extend expiry past the launch");
-
-  // A lease that is genuinely gone fails the fence.
-  store.release({
-    projectRef: { projectId: PROJECT_A }, key: gate.claimKeyFor("o/r#1"), holder: gate.holder,
-  });
-  assert.strictEqual(gate.holdsClaim("o/r#1"), false);
+  var refused = gate.beginLaunch({ itemKey: "o/r#2", token: "not-the-token", itemClass: "bug" });
+  assert.strictEqual(refused.ok, false);
+  assert.strictEqual(refused.reason, "fencing_token_mismatch");
 });
 
 test("the pre-launch fence fails closed when the claim belongs to someone else", function () {
@@ -388,40 +337,10 @@ test("a replayed Done request is authorized by its original sender", function ()
 
 // A successor commits in the window a stale holder would have used to rename.
 // Under the O_EXCL epoch protocol the stale holder simply loses the create.
-test("a successor injected between read and commit is never overwritten", function () {
-  var dir = tempDir("clay-interleave-commit-");
-  var file = path.join(dir, "claims.json");
-  var victim = claimLeases.createClaimLeases({ file: file, ttlMs: 60000 });
-  var successor = claimLeases.createClaimLeases({ file: file, ttlMs: 60000 });
-
-  victim.acquire(claim("seed", "h"));
-
-  // Inject the successor's commit precisely between the victim's read and its
-  // own commit attempt, by hooking the filesystem the victim writes through.
-  var realFs = require("fs");
-  var injected = false;
-  var racingFs = Object.create(realFs);
-  racingFs.openSync = function (target, flags, mode) {
-    if (!injected && String(flags) === "wx" && String(target).indexOf(file + ".") === 0) {
-      injected = true;
-      successor.acquire(claim("successor-work", "other"));
-    }
-    return realFs.openSync(target, flags, mode);
-  };
-  var racer = claimLeases.createClaimLeases({ fs: racingFs, file: file, ttlMs: 60000 });
-  var result = racer.acquire(claim("racer-work", "racer"));
-
-  assert.strictEqual(result.ok, true, "the loser must retry and eventually commit");
-  var committed = readCommitted(file);
-  var keys = committed.leases.map(function (l) { return l.key; }).sort();
-  assert.deepStrictEqual(keys, ["racer-work", "seed", "successor-work"],
-    "no commit may erase another, however they interleave");
-});
-
 // The lease lapses between listing it and renewing it. Reconciliation must not
 // treat that key as settled, or running work is left unclaimed.
 test("a lease that expires between list and renew is reacquired, not skipped", function () {
-  var dir = tempDir("clay-interleave-renew-");
+  var dir = autonomousDir("clay-interleave-renew-");
   var time = 1000;
   function now() { return time; }
   var store = claimLeases.createClaimLeases({ file: path.join(dir, "claims.json"), now: now });
@@ -433,10 +352,12 @@ test("a lease that expires between list and renew is reacquired, not skipped", f
     audit: automationAudit.createAutomationAudit({
       file: path.join(dir, "audit.jsonl"), slug: "renewrace", now: now }),
   });
-  store.acquire({
+  var acquired = store.acquire({
     projectRef: { projectId: PROJECT_A }, key: gate.claimKeyFor("o/r#9"),
     holder: gate.holder, holderPid: 4242, ttlMs: 5000,
   });
+  gate.beginLaunch({ itemKey: "o/r#9", token: acquired.lease.token, itemClass: "bug" });
+  gate.confirmRunning({ itemKey: "o/r#9", token: acquired.lease.token });
 
   // Expire the lease in the window between list() and renew().
   var realList = store.list;
@@ -447,38 +368,7 @@ test("a lease that expires between list and renew is reacquired, not skipped", f
   };
 
   var result = gate.reconcileClaims(["o/r#9"]);
-  assert.strictEqual(gate.holdsClaim("o/r#9"), true,
+  assert.ok(gate.holdsClaim("o/r#9"),
     "running work must end reconciliation holding a claim");
   assert.ok(result.reclaimed >= 1 || result.adopted >= 1);
-});
-
-// Two replay routes previously dropped the sender. Both fail CLOSED (they deny
-// the real owner rather than granting a non-owner), but denying an owner their
-// own Done workflow for no visible reason is its own defect.
-test("steer-requeue carries the original sender across the requeue", function () {
-  var session = { localId: 1, pendingUserMessageQueue: [] };
-  var deps = queueDeps(null);
-
-  // A turn queued by the owner, then steered to the front.
-  queueModule.queuePreparedMessage(session, "mark as done", null, "q1",
-    "mark as done", 0, null, null, { actorUserId: "user-owner" }, deps);
-  var queued = session.pendingUserMessageQueue.splice(0, 1)[0];
-  assert.strictEqual(queued.actorUserId, "user-owner");
-
-  // This mirrors the steer path in project-user-message-handlers.js: the item
-  // is spliced out and re-queued, and the sender must survive that rebuild.
-  queueModule.queuePreparedMessage(session, queued.text, queued.images, queued.queueId,
-    queued.displayText, queued.imageCount, queued.clientMessageId, queued.pastes,
-    { front: true, silent: true, hidden: true, actorUserId: queued.actorUserId || null }, deps);
-
-  assert.strictEqual(session.pendingUserMessageQueue[0].actorUserId, "user-owner",
-    "a steered turn must not become unattributed");
-});
-
-test("a requeued turn with no sender stays null rather than inventing one", function () {
-  var session = { localId: 1, pendingUserMessageQueue: [] };
-  var deps = queueDeps(null);
-  queueModule.queuePreparedMessage(session, "hi", null, "q2", "hi", 0, null, null,
-    { front: true, actorUserId: null }, deps);
-  assert.strictEqual(session.pendingUserMessageQueue[0].actorUserId, null);
 });

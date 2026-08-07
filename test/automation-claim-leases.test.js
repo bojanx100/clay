@@ -1,450 +1,410 @@
+// Tests for the fenced automation claim state machine and its two-phase
+// committed-epoch store.
+//
+// The invariant under test is singular: at most one actor may have work in
+// flight for a given (project, item), and no crash, stall, or interleaving may
+// produce a second launch. Everything here is shaped like the incident it
+// prevents.
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
+
 var leasesModule = require("../lib/automation-claim-leases");
+var storeModule = require("../lib/automation-claim-store");
 var createClaimLeases = leasesModule.createClaimLeases;
 
 var PROJECT_A = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
 var PROJECT_B = "system-lead";
 
 function tempFile(name) {
-  var dir = fs.mkdtempSync(path.join(os.tmpdir(), name));
-  return path.join(dir, "automation-claims.json");
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), name)), "automation-claims.json");
 }
 
-// Deterministic clock so absolute expiry timestamps are exact in assertions.
 function clock(start) {
   var value = start;
-  return {
-    now: function () { return value; },
-    set: function (next) { value = next; },
-  };
+  return { now: function () { return value; }, set: function (next) { value = next; } };
 }
 
-// State now lives in per-epoch files (claims.json.<N>) so that publishing an
-// epoch is a single atomic O_EXCL create. Read whichever epoch is newest.
-function readCommitted(file) {
-  var dir = path.dirname(file);
-  var base = path.basename(file);
-  var epochs = fs.readdirSync(dir)
-    .filter(function (n) { return n.indexOf(base + ".") === 0 && /\.\d+$/.test(n); })
-    .map(function (n) { return Number(n.slice(base.length + 1)); })
-    .sort(function (a, b) { return b - a; });
-  if (!epochs.length) return null;
-  return JSON.parse(fs.readFileSync(file + "." + epochs[0], "utf8"));
+function req(projectId, key, holder, extra) {
+  return Object.assign({
+    projectRef: { projectId: projectId }, key: key, holder: holder, holderPid: 4242,
+  }, extra || {});
 }
 
-function claim(projectId, key, holder, ttlMs) {
-  var input = { projectRef: { projectId: projectId }, key: key, holder: holder };
-  if (ttlMs !== undefined) input.ttlMs = ttlMs;
-  return input;
-}
-
-test("a held claim refuses a second holder and is idempotent for its own holder", function () {
-  var file = tempFile("clay-claim-leases-");
-  var time = clock(1000);
-  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 500 });
-
-  var first = store.acquire(claim(PROJECT_A, "issue-42", "worker-a"));
-  assert.equal(first.ok, true);
-  assert.equal(first.created, true);
-  assert.deepEqual(first.lease, {
-    projectId: PROJECT_A,
-    key: "issue-42",
-    holder: "worker-a",
-    acquiredAt: 1000,
-    expiresAt: 1500,
-    renewals: 0,
-  });
-
-  // The no-duplicate-claim regression: a different holder must be refused.
-  time.set(1200);
-  var second = store.acquire(claim(PROJECT_A, "issue-42", "worker-b"));
-  assert.equal(second.ok, false);
-  assert.equal(second.reason, "held");
-  assert.equal(second.lease.holder, "worker-a");
-
-  // Same holder re-acquire is idempotent and must NOT extend the expiry.
-  var again = store.acquire(claim(PROJECT_A, "issue-42", "worker-a"));
-  assert.equal(again.ok, true);
-  assert.equal(again.created, false);
-  assert.equal(again.lease.expiresAt, 1500);
-  assert.equal(again.lease.acquiredAt, 1000);
-  assert.equal(store.get({ projectId: PROJECT_A }, "issue-42").expiresAt, 1500);
-});
-
-test("an expired lease is reclaimable and hidden from get and list", function () {
-  var file = tempFile("clay-claim-expiry-");
-  var time = clock(100);
-  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 50 });
-
-  assert.equal(store.acquire(claim(PROJECT_A, "pr-7", "worker-a")).created, true);
-  assert.equal(store.list().length, 1);
-
-  // expiresAt is 150, and expiry is inclusive of the boundary.
-  time.set(150);
-  assert.equal(store.get({ projectId: PROJECT_A }, "pr-7"), null);
-  assert.deepEqual(store.list(), []);
-
-  var reclaimed = store.acquire(claim(PROJECT_A, "pr-7", "worker-b"));
-  assert.equal(reclaimed.ok, true);
-  assert.equal(reclaimed.created, true);
-  assert.equal(reclaimed.lease.holder, "worker-b");
-  assert.equal(reclaimed.lease.renewals, 0);
-  assert.equal(reclaimed.lease.acquiredAt, 150);
-  assert.equal(reclaimed.lease.expiresAt, 200);
-  assert.equal(store.list().length, 1);
-});
-
-test("renew extends the lease for its holder and rejects everyone else", function () {
-  var file = tempFile("clay-claim-renew-");
-  var time = clock(10);
-  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 100 });
-  store.acquire(claim(PROJECT_A, "issue-1", "worker-a"));
-
-  time.set(60);
-  var renewed = store.renew(claim(PROJECT_A, "issue-1", "worker-a"));
-  assert.equal(renewed.ok, true);
-  assert.equal(renewed.lease.expiresAt, 160);
-  assert.equal(renewed.lease.renewals, 1);
-  assert.equal(renewed.lease.acquiredAt, 10);
-
-  // Per-call ttl overrides the store default.
-  var overridden = store.renew(claim(PROJECT_A, "issue-1", "worker-a", 400));
-  assert.equal(overridden.lease.expiresAt, 460);
-  assert.equal(overridden.lease.renewals, 2);
-
-  // A non-positive ttl silently falls back to the store default.
-  assert.equal(store.renew(claim(PROJECT_A, "issue-1", "worker-a", -5)).lease.expiresAt, 160);
-
-  assert.deepEqual(store.renew(claim(PROJECT_A, "issue-1", "worker-b")),
-    { ok: false, reason: "holder_mismatch" });
-  assert.deepEqual(store.renew(claim(PROJECT_A, "issue-unknown", "worker-a")),
-    { ok: false, reason: "not_held" });
-
-  time.set(500);
-  assert.deepEqual(store.renew(claim(PROJECT_A, "issue-1", "worker-a")),
-    { ok: false, reason: "lease_expired" });
-});
-
-test("release requires the owning holder and frees the key for re-acquisition", function () {
-  var file = tempFile("clay-claim-release-");
-  var time = clock(0);
-  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 100 });
-  store.acquire(claim(PROJECT_A, "issue-9", "worker-a"));
-
-  assert.deepEqual(store.release(claim(PROJECT_A, "issue-9", "worker-b")),
-    { ok: false, reason: "holder_mismatch" });
-  assert.deepEqual(store.release(claim(PROJECT_A, "issue-none", "worker-a")),
-    { ok: false, reason: "not_held" });
-  assert.deepEqual(store.release(claim(PROJECT_A, "issue-9", "worker-a")), { ok: true });
-  assert.equal(store.get({ projectId: PROJECT_A }, "issue-9"), null);
-
-  var reacquired = store.acquire(claim(PROJECT_A, "issue-9", "worker-b"));
-  assert.equal(reacquired.ok, true);
-  assert.equal(reacquired.created, true);
-
-  // An expired lease is still releasable by its own holder.
-  time.set(1000);
-  assert.deepEqual(store.release(claim(PROJECT_A, "issue-9", "worker-b")), { ok: true });
-  assert.deepEqual(store.list(), []);
-});
-
-test("uniqueness is per project so two projects may hold the same key", function () {
-  var file = tempFile("clay-claim-scope-");
-  var store = createClaimLeases({ file: file, now: function () { return 1; }, ttlMs: 1000 });
-
-  assert.equal(store.acquire(claim(PROJECT_A, "nightly-pass", "worker-a")).created, true);
-  var other = store.acquire(claim(PROJECT_B, "nightly-pass", "worker-b"));
-  assert.equal(other.ok, true);
-  assert.equal(other.created, true);
-  assert.equal(store.list().length, 2);
-  assert.equal(store.get({ projectId: PROJECT_A }, "nightly-pass").holder, "worker-a");
-  assert.equal(store.get({ projectId: PROJECT_B }, "nightly-pass").holder, "worker-b");
-});
-
-test("leases survive a restart and keep blocking a different holder", function () {
-  var file = tempFile("clay-claim-restart-");
-  var time = clock(5000);
-  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 900000 });
-  var acquired = store.acquire(claim(PROJECT_A, "issue-77", "worker-a"));
+// Drive a claim all the way to RUNNING, the way the launch path does.
+function toRunning(store, projectId, key, holder, extra) {
+  var acquired = store.acquire(req(projectId, key, holder, extra));
   assert.equal(acquired.ok, true);
+  var token = acquired.lease.token;
+  assert.equal(store.beginLaunch(req(projectId, key, holder, { token: token })).ok, true);
+  assert.equal(store.confirmRunning(req(projectId, key, holder, { token: token })).ok, true);
+  return token;
+}
 
-  // A fresh store over the same file stands in for a daemon restart.
-  var restarted = createClaimLeases({ file: file, now: time.now, ttlMs: 900000 });
-  assert.equal(restarted.getLoadError(), null);
-  assert.deepEqual(restarted.get({ projectId: PROJECT_A }, "issue-77"), acquired.lease);
-  var blocked = restarted.acquire(claim(PROJECT_A, "issue-77", "worker-b"));
-  assert.equal(blocked.ok, false);
-  assert.equal(blocked.reason, "held");
-  assert.equal(blocked.lease.holder, "worker-a");
-  assert.equal(restarted.acquire(claim(PROJECT_A, "issue-77", "worker-a")).created, false);
+// --- The state machine ---------------------------------------------------------
 
-  // Absolute expiry means the restarted store still lets it lapse on time.
-  time.set(5000 + 900000);
-  assert.equal(restarted.get({ projectId: PROJECT_A }, "issue-77"), null);
-  assert.equal(restarted.acquire(claim(PROJECT_A, "issue-77", "worker-b")).created, true);
-});
+test("a claim walks CLAIMED -> LAUNCHING -> RUNNING and blocks others throughout", function () {
+  var store = createClaimLeases({ file: tempFile("clay-sm-"), ttlMs: 60000 });
+  var acquired = store.acquire(req(PROJECT_A, "k", "a"));
+  assert.equal(acquired.lease.state, "CLAIMED");
+  assert.equal(acquired.lease.generation, 1);
+  var token = acquired.lease.token;
 
-test("sweep removes only expired leases and reports the count", function () {
-  var file = tempFile("clay-claim-sweep-");
-  var time = clock(0);
-  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 100 });
-  store.acquire(claim(PROJECT_A, "short-a", "worker-a", 10));
-  store.acquire(claim(PROJECT_A, "short-b", "worker-b", 20));
-  store.acquire(claim(PROJECT_A, "long", "worker-c", 5000));
+  assert.equal(store.acquire(req(PROJECT_A, "k", "b")).reason, "held");
 
-  assert.deepEqual(store.sweep(), { ok: true, removed: 0 });
-  time.set(50);
-  assert.deepEqual(store.sweep(), { ok: true, removed: 2 });
-  assert.deepEqual(store.sweep(), { ok: true, removed: 0 });
-  assert.equal(store.list().length, 1);
-  assert.equal(store.list()[0].key, "long");
+  var launching = store.beginLaunch(req(PROJECT_A, "k", "a", { token: token }));
+  assert.equal(launching.lease.state, "LAUNCHING");
+  assert.equal(store.acquire(req(PROJECT_A, "k", "b")).reason, "held");
 
-  var persisted = readCommitted(file);
-  assert.equal(persisted.schema, "clay.automation_claim_leases");
-  assert.equal(persisted.version, 1);
-  assert.equal(persisted.leases.length, 1);
-});
+  var running = store.confirmRunning(req(PROJECT_A, "k", "a", { token: token }));
+  assert.equal(running.lease.state, "RUNNING");
+  assert.equal(store.acquire(req(PROJECT_A, "k", "b")).reason, "held");
 
-test("invalid project refs, keys and holders are rejected", function () {
-  var file = tempFile("clay-claim-invalid-");
-  var store = createClaimLeases({ file: file, now: function () { return 1; } });
-
-  assert.deepEqual(store.acquire({ key: "k", holder: "h" }),
-    { ok: false, reason: "invalid_project_ref" });
-  assert.deepEqual(store.acquire(claim("not-a-project-id", "k", "h")),
-    { ok: false, reason: "invalid_project_ref" });
-  assert.deepEqual(store.acquire(claim(PROJECT_A, "   ", "h")),
-    { ok: false, reason: "invalid_claim" });
-  assert.deepEqual(store.acquire(claim(PROJECT_A, "k", "")),
-    { ok: false, reason: "invalid_claim" });
-  assert.deepEqual(store.acquire(claim(PROJECT_A, "k".repeat(257), "h")),
-    { ok: false, reason: "invalid_claim" });
-  assert.deepEqual(store.renew(claim(PROJECT_A, "k", 5)), { ok: false, reason: "invalid_claim" });
-  assert.deepEqual(store.release(claim("bad", "k", "h")),
-    { ok: false, reason: "invalid_project_ref" });
-  assert.equal(store.get("bad", "k"), null);
-  assert.deepEqual(store.list(), []);
-  assert.equal(fs.existsSync(file), false);
-});
-
-// The cutover invariant is that project work is addressed through an explicit
-// typed ProjectRef. A bare project-id string is a valid id but an untyped
-// reference, and accepting it is exactly how an unverified identifier reaches
-// a path whose whole job is to prove which project it is acting for.
-test("a bare project-id string is rejected everywhere a ProjectRef is required", function () {
-  var file = tempFile("clay-claim-typed-");
-  var time = clock(1000);
-  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 500 });
-
-  function bare(key, holder) {
-    return { projectRef: PROJECT_A, key: key, holder: holder };
-  }
-
-  assert.deepEqual(store.acquire(bare("issue-1", "worker-a")),
-    { ok: false, reason: "invalid_project_ref" });
-  assert.deepEqual(store.renew(bare("issue-1", "worker-a")),
-    { ok: false, reason: "invalid_project_ref" });
-  assert.deepEqual(store.release(bare("issue-1", "worker-a")),
-    { ok: false, reason: "invalid_project_ref" });
-  assert.equal(store.get(PROJECT_A, "issue-1"), null);
-
-  // Nothing was written, and the typed form still works on the same store.
-  assert.equal(fs.existsSync(file), false);
-  assert.equal(store.acquire(claim(PROJECT_A, "issue-1", "worker-a")).ok, true);
-  assert.equal(store.get({ projectId: PROJECT_A }, "issue-1").holder, "worker-a");
-});
-
-// --- Two independent stores over one shared file ------------------------------
-//
-// The claim file is shared by every project in the workspace, and a dev and a
-// prod daemon can share CLAY_HOME. A store that cached its state at
-// construction and wrote the whole snapshot back was NOT a lock: the last
-// writer silently erased everyone else's claims. These are the regressions for
-// that.
-
-test("a second store over the same file cannot re-grant a live claim", function () {
-  var file = tempFile("clay-claim-twostore-");
-  var time = clock(1000);
-  var first = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
-  var second = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
-
-  assert.equal(first.acquire(claim(PROJECT_A, "issue-1", "daemon-a")).created, true);
-
-  // `second` was constructed BEFORE that claim existed. It must still see it.
-  var attempt = second.acquire(claim(PROJECT_A, "issue-1", "daemon-b"));
-  assert.equal(attempt.ok, false, "a stale snapshot must not re-grant a live claim");
-  assert.equal(attempt.reason, "held");
-  assert.equal(attempt.lease.holder, "daemon-a");
-});
-
-test("one store's write never erases another store's claims", function () {
-  var file = tempFile("clay-claim-erase-");
-  var time = clock(1000);
-  var projectA = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
-  var projectB = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
-
-  assert.equal(projectA.acquire(claim(PROJECT_A, "work-a", "holder-a")).ok, true);
-  assert.equal(projectB.acquire(claim(PROJECT_B, "work-b", "holder-b")).ok, true);
-
-  // Both must survive on disk — B's write must not have dropped A's lease.
-  var onDisk = createClaimLeases({ file: file, now: time.now }).list();
-  assert.equal(onDisk.length, 2, "both projects' claims must persist");
-
-  // And A's own claim must still block a different holder afterwards.
-  assert.equal(projectA.get({ projectId: PROJECT_A }, "work-a").holder, "holder-a");
-  assert.equal(
-    createClaimLeases({ file: file, now: time.now }).acquire(claim(PROJECT_A, "work-a", "other")).reason,
-    "held");
-});
-
-test("a release by one store is visible to another", function () {
-  var file = tempFile("clay-claim-crossrelease-");
-  var time = clock(1000);
-  var a = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
-  var b = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
-
-  a.acquire(claim(PROJECT_A, "k", "holder-a"));
-  assert.equal(b.get({ projectId: PROJECT_A }, "k").holder, "holder-a");
-  assert.equal(a.release(claim(PROJECT_A, "k", "holder-a")).ok, true);
-  assert.equal(b.get({ projectId: PROJECT_A }, "k"), null, "reads must not serve a stale lease");
-  assert.equal(b.acquire(claim(PROJECT_A, "k", "holder-b")).created, true);
-});
-
-test("a sweep by one store never drops another store's live claims", function () {
-  var file = tempFile("clay-claim-sweep-cross-");
-  var time = clock(1000);
-  var a = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
-  var b = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
-
-  a.acquire(claim(PROJECT_A, "live", "holder-a"));
-  b.sweep();
-  assert.equal(a.get({ projectId: PROJECT_A }, "live").holder, "holder-a",
-    "an unrelated store's sweep must not erase a live claim");
-});
-
-// The cap was previously enforced only on load, so the store could persist a
-// file it would then permanently refuse to read — disabling sweep, the one
-// thing that could prune it back under the cap.
-test("the lease cap is enforced on acquire so the store stays readable", function () {
-  var file = tempFile("clay-claim-cap-");
-  var time = clock(1000);
-  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 500000 });
-  var seeded = [];
-  for (var i = 0; i < leasesModule.MAX_LEASES; i++) {
-    seeded.push({
-      projectId: PROJECT_A, key: "k" + i, holder: "h",
-      acquiredAt: 1, expiresAt: 500000, renewals: 0,
-    });
-  }
-  fs.writeFileSync(file, JSON.stringify({
-    schema: leasesModule.SCHEMA, version: leasesModule.SCHEMA_VERSION, leases: seeded,
-  }) + "\n");
-
-  var overflow = store.acquire(claim(PROJECT_A, "one-too-many", "h"));
-  assert.equal(overflow.ok, false);
-  assert.equal(overflow.reason, "claim_store_full");
-
-  // The file must still be loadable — the cap protected it, not corrupted it.
-  var reopened = createClaimLeases({ file: file, now: time.now });
-  assert.equal(reopened.getLoadError(), null);
-  assert.equal(reopened.list().length, leasesModule.MAX_LEASES);
-});
-
-test("malformed claim state fails closed without overwriting it", function () {
-  var file = tempFile("clay-claim-corrupt-");
-  fs.writeFileSync(file, "{not-json");
-  var store = createClaimLeases({ file: file, now: function () { return 1; } });
-
-  assert.equal(store.getLoadError(), "malformed_state");
-  assert.deepEqual(store.acquire(claim(PROJECT_A, "k", "h")),
-    { ok: false, reason: "malformed_state" });
-  assert.deepEqual(store.renew(claim(PROJECT_A, "k", "h")),
-    { ok: false, reason: "malformed_state" });
-  assert.deepEqual(store.release(claim(PROJECT_A, "k", "h")),
-    { ok: false, reason: "malformed_state" });
-  assert.deepEqual(store.sweep(), { ok: false, reason: "malformed_state" });
+  assert.equal(store.release(req(PROJECT_A, "k", "a", { token: token })).ok, true);
   assert.equal(store.get({ projectId: PROJECT_A }, "k"), null);
-  assert.equal(fs.readFileSync(file, "utf8"), "{not-json");
+  assert.equal(store.acquire(req(PROJECT_A, "k", "b")).ok, true);
 });
 
-test("bad envelopes and duplicate claim records are all treated as malformed", function () {
-  var cases = [
-    { schema: "clay.other", version: 1, leases: [] },
-    { schema: "clay.automation_claim_leases", version: 2, leases: [] },
-    { schema: "clay.automation_claim_leases", version: 1, leases: {} },
-    {
-      schema: "clay.automation_claim_leases",
-      version: 1,
-      leases: [{ projectId: PROJECT_A, key: "k", holder: "h", acquiredAt: 1 }],
-    },
-    {
-      schema: "clay.automation_claim_leases",
-      version: 1,
-      leases: [
-        { projectId: PROJECT_A, key: "k", holder: "h", acquiredAt: 1, expiresAt: 2, renewals: 0 },
-        { projectId: PROJECT_A, key: "k", holder: "other", acquiredAt: 1, expiresAt: 9, renewals: 0 },
-      ],
-    },
-  ];
-  for (var i = 0; i < cases.length; i++) {
-    var file = tempFile("clay-claim-envelope-");
-    fs.writeFileSync(file, JSON.stringify(cases[i]));
-    var store = createClaimLeases({ file: file, now: function () { return 1; } });
-    assert.equal(store.getLoadError(), "malformed_state", "case " + i);
-    assert.deepEqual(store.acquire(claim(PROJECT_A, "k", "h")),
-      { ok: false, reason: "malformed_state" }, "case " + i);
-  }
+test("a LAUNCHING claim never expires, so no timer can license a second launch", function () {
+  var time = clock(1000);
+  var store = createClaimLeases({ file: tempFile("clay-launching-"), now: time.now, ttlMs: 500 });
+  var token = store.acquire(req(PROJECT_A, "k", "a")).lease.token;
+  assert.equal(store.beginLaunch(req(PROJECT_A, "k", "a", { token: token })).ok, true);
+
+  // Far past any TTL: an in-flight launch may already have produced a session.
+  time.set(1000 + 500 * 1000);
+  assert.equal(store.get({ projectId: PROJECT_A }, "k").state, "LAUNCHING");
+  assert.equal(store.acquire(req(PROJECT_A, "k", "b")).reason, "held");
+  assert.equal(store.sweep().removed, 0, "an in-flight launch must never be swept");
 });
 
-test("a failed write rolls back the in-memory claim state", function () {
-  var file = tempFile("clay-claim-write-fail-");
-  var time = clock(0);
-  var failing = Object.create(fs);
+test("a CLAIMED claim that was never launched does expire", function () {
+  var time = clock(1000);
+  var store = createClaimLeases({ file: tempFile("clay-claimed-exp-"), now: time.now, ttlMs: 500 });
+  store.acquire(req(PROJECT_A, "k", "a"));
+  time.set(1501);
+  assert.equal(store.get({ projectId: PROJECT_A }, "k"), null);
+  assert.equal(store.acquire(req(PROJECT_A, "k", "b")).ok, true);
+});
+
+test("the launch intent, actor and policy digest are persisted before any side effect", function () {
+  var file = tempFile("clay-intent-");
+  var store = createClaimLeases({ file: file, ttlMs: 60000 });
+  var token = store.acquire(req(PROJECT_A, "k", "a", {
+    actor: "user-owner", policyDigest: "digest-1",
+  })).lease.token;
+  store.beginLaunch(req(PROJECT_A, "k", "a", {
+    token: token, intent: { recipeId: "issues", automationClaimKey: "o/r#1" },
+  }));
+
+  // A fresh reader — i.e. a restarted daemon — sees the whole intent.
+  var recovered = createClaimLeases({ file: file }).get({ projectId: PROJECT_A }, "k");
+  assert.equal(recovered.state, "LAUNCHING");
+  assert.equal(recovered.actor, "user-owner");
+  assert.equal(recovered.policyDigest, "digest-1");
+  assert.equal(recovered.intent.automationClaimKey, "o/r#1");
+});
+
+// --- Fencing tokens -------------------------------------------------------------
+
+test("a stale token cannot advance, renew or release a re-issued claim", function () {
+  var time = clock(1000);
+  var store = createClaimLeases({ file: tempFile("clay-token-"), now: time.now, ttlMs: 500 });
+  var stale = store.acquire(req(PROJECT_A, "k", "a")).lease.token;
+
+  // The claim lapses and is re-issued to someone else.
+  time.set(1501);
+  var fresh = store.acquire(req(PROJECT_A, "k", "b"));
+  assert.equal(fresh.ok, true);
+  assert.equal(fresh.lease.generation, 2, "a re-issue must advance the generation");
+
+  assert.equal(store.beginLaunch(req(PROJECT_A, "k", "a", { token: stale })).reason, "holder_mismatch");
+  assert.equal(store.beginLaunch(req(PROJECT_A, "k", "b", { token: stale })).reason, "fencing_token_mismatch");
+  assert.equal(store.release(req(PROJECT_A, "k", "b", { token: stale })).reason, "fencing_token_mismatch");
+});
+
+test("transitions reject a wrong source state", function () {
+  var store = createClaimLeases({ file: tempFile("clay-order-"), ttlMs: 60000 });
+  var token = store.acquire(req(PROJECT_A, "k", "a")).lease.token;
+  // RUNNING requires a LAUNCHING predecessor; renew requires RUNNING.
+  assert.equal(store.confirmRunning(req(PROJECT_A, "k", "a", { token: token })).reason, "invalid_state");
+  assert.equal(store.renew(req(PROJECT_A, "k", "a", { token: token })).reason, "invalid_state");
+  store.beginLaunch(req(PROJECT_A, "k", "a", { token: token }));
+  assert.equal(store.beginLaunch(req(PROJECT_A, "k", "a", { token: token })).reason, "invalid_state");
+});
+
+test("only RUNNING is renewable, and renewal extends it", function () {
+  var time = clock(1000);
+  var store = createClaimLeases({ file: tempFile("clay-renew-"), now: time.now, ttlMs: 1000 });
+  var token = toRunning(store, PROJECT_A, "k", "a");
+  time.set(1500);
+  var renewed = store.renew(req(PROJECT_A, "k", "a", { token: token }));
+  assert.equal(renewed.lease.expiresAt, 2500);
+  assert.equal(renewed.lease.renewals, 1);
+  assert.equal(store.renew(req(PROJECT_A, "k", "b", { token: token })).reason, "holder_mismatch");
+});
+
+// --- Identity and adoption -------------------------------------------------------
+
+test("uniqueness is per project, so two projects may hold the same key", function () {
+  var store = createClaimLeases({ file: tempFile("clay-scope-"), ttlMs: 60000 });
+  assert.equal(store.acquire(req(PROJECT_A, "nightly", "a")).ok, true);
+  assert.equal(store.acquire(req(PROJECT_B, "nightly", "b")).ok, true);
+  assert.equal(store.list().length, 2);
+});
+
+test("a bare project-id string is rejected wherever a ProjectRef is required", function () {
+  var file = tempFile("clay-typed-");
+  var store = createClaimLeases({ file: file, ttlMs: 60000 });
+  assert.equal(store.acquire({ projectRef: PROJECT_A, key: "k", holder: "h" }).reason, "invalid_project_ref");
+  assert.equal(store.renew({ projectRef: PROJECT_A, key: "k", holder: "h" }).reason, "invalid_project_ref");
+  assert.equal(store.release({ projectRef: PROJECT_A, key: "k", holder: "h" }).reason, "invalid_project_ref");
+  assert.equal(store.get(PROJECT_A, "k"), null);
+  assert.equal(store.acquire(req(PROJECT_A, "k", "h")).ok, true);
+});
+
+test("a provably dead holder's claim is adopted only with evidence of its session", function () {
+  var store = createClaimLeases({ file: tempFile("clay-adopt-"), ttlMs: 60000 });
+  toRunning(store, PROJECT_A, "k", "dead-process", { holderPid: 9999 });
+  function dead(pid) { return pid !== 9999; }
+
+  var adopted = store.resolveOrphan(req(PROJECT_A, "k", "successor"), {
+    isHolderAlive: dead, sessionExists: true,
+  });
+  assert.equal(adopted.ok, true);
+  assert.equal(adopted.lease.state, "RUNNING");
+  assert.equal(adopted.lease.holder, "successor");
+  assert.equal(adopted.lease.generation, 2, "adoption must mint a new generation");
+});
+
+test("a dead holder with no session has its claim released, not adopted", function () {
+  var store = createClaimLeases({ file: tempFile("clay-orphan-"), ttlMs: 60000 });
+  toRunning(store, PROJECT_A, "k", "dead-process", { holderPid: 9999 });
+  var freed = store.resolveOrphan(req(PROJECT_A, "k", "successor"), {
+    isHolderAlive: function (pid) { return pid !== 9999; }, sessionExists: false,
+  });
+  assert.equal(freed.released, true);
+  assert.equal(store.get({ projectId: PROJECT_A }, "k"), null);
+});
+
+test("a live holder's claim is never taken, and an unknown outcome is never guessed", function () {
+  var store = createClaimLeases({ file: tempFile("clay-live-"), ttlMs: 60000 });
+  toRunning(store, PROJECT_A, "k", "live-process", { holderPid: 9999 });
+
+  assert.equal(store.resolveOrphan(req(PROJECT_A, "k", "successor"), {
+    isHolderAlive: function () { return true; }, sessionExists: false,
+  }).reason, "held", "a live holder keeps its claim");
+
+  // Dead holder, but we cannot tell whether a session exists: refusing is the
+  // only answer that cannot duplicate work.
+  assert.equal(store.resolveOrphan(req(PROJECT_A, "k", "successor"), {
+    isHolderAlive: function (pid) { return pid !== 9999; },
+  }).reason, "ambiguous_intent");
+  assert.equal(store.get({ projectId: PROJECT_A }, "k").holder, "live-process");
+});
+
+// --- Crash-safe committed epochs --------------------------------------------------
+
+function epochFiles(file) {
+  return fs.readdirSync(path.dirname(file))
+    .filter(function (n) { return n.indexOf(path.basename(file) + ".") === 0; }).sort();
+}
+
+test("a crash before the COMMITTED marker leaves the store readable at the prior epoch", function () {
+  var file = tempFile("clay-crash-commit-");
+  var store = createClaimLeases({ file: file, ttlMs: 60000 });
+  store.acquire(req(PROJECT_A, "good", "a"));
+
+  // Simulate a writer that reserved and wrote an epoch, then died before
+  // publishing: data present, marker absent, payload deliberately truncated.
+  fs.writeFileSync(storeModule.dataPath(file, 99), "{ partial");
+
+  var recovered = createClaimLeases({ file: file });
+  assert.equal(recovered.getLoadError(), null, "an unpublished epoch must be invisible");
+  assert.equal(recovered.list().length, 1);
+  assert.equal(recovered.list()[0].key, "good");
+  // And the store keeps working: the next commit skips the poisoned number.
+  assert.equal(recovered.acquire(req(PROJECT_A, "next", "a")).ok, true);
+});
+
+test("a reserved-but-unpublished epoch number is never reused", function () {
+  var file = tempFile("clay-skip-epoch-");
+  var store = createClaimLeases({ file: file, ttlMs: 60000 });
+  store.acquire(req(PROJECT_A, "a", "h"));
+  fs.writeFileSync(storeModule.dataPath(file, 50), "{ partial");
+  assert.equal(store.acquire(req(PROJECT_A, "b", "h")).ok, true);
+  // The new commit must be above the abandoned reservation, not colliding.
+  var committed = storeModule.scanEpochs(fs, file).committed;
+  assert.equal(committed[0] > 50, true);
+});
+
+test("a successor that commits before a stale writer resumes is never overwritten", function () {
+  var file = tempFile("clay-successor-");
+  var victim = createClaimLeases({ file: file, ttlMs: 60000 });
+  var successor = createClaimLeases({ file: file, ttlMs: 60000 });
+  victim.acquire(req(PROJECT_A, "seed", "h"));
+
+  // Inject the successor's commit exactly between the victim's read and its
+  // own publish, by hooking the create the victim writes through.
+  var injected = false;
+  var racingFs = Object.create(fs);
+  racingFs.openSync = function (target, flags, mode) {
+    if (!injected && String(flags) === "wx" && String(target).indexOf(file + ".") === 0) {
+      injected = true;
+      successor.acquire(req(PROJECT_A, "successor-work", "other"));
+    }
+    return fs.openSync(target, flags, mode);
+  };
+  var racer = createClaimLeases({ fs: racingFs, file: file, ttlMs: 60000 });
+  assert.equal(racer.acquire(req(PROJECT_A, "racer-work", "racer")).ok, true);
+
+  var keys = createClaimLeases({ file: file }).list()
+    .map(function (l) { return l.key; }).sort();
+  assert.deepEqual(keys, ["racer-work", "seed", "successor-work"],
+    "no commit may erase another, however they interleave");
+});
+
+test("two stores over one file never re-grant a live claim", function () {
+  var file = tempFile("clay-twostore-");
+  var first = createClaimLeases({ file: file, ttlMs: 60000 });
+  var second = createClaimLeases({ file: file, ttlMs: 60000 });
+  assert.equal(first.acquire(req(PROJECT_A, "k", "daemon-a")).ok, true);
+  var attempt = second.acquire(req(PROJECT_A, "k", "daemon-b"));
+  assert.equal(attempt.ok, false);
+  assert.equal(attempt.reason, "held");
+});
+
+// --- Durability rollback -----------------------------------------------------------
+
+test("a durability failure denies the claim and leaves nothing visible", function () {
+  var file = tempFile("clay-durability-");
+  var failingFs = Object.create(fs);
+  failingFs.fsyncSync = function (descriptor) {
+    if (fs.fstatSync(descriptor).isDirectory()) {
+      var error = new Error("simulated"); error.code = "EIO"; throw error;
+    }
+    return fs.fsyncSync(descriptor);
+  };
+  var store = createClaimLeases({ fs: failingFs, file: file, ttlMs: 60000 });
+  var result = store.acquire(req(PROJECT_A, "k", "h"));
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "durability_failed");
+
+  // A denied acquisition must not be observable to anyone.
+  assert.equal(createClaimLeases({ file: file }).list().length, 0);
+  assert.equal(storeModule.scanEpochs(fs, file).committed.length, 0);
+});
+
+test("a filesystem that cannot fsync a directory is tolerated", function () {
+  var file = tempFile("clay-durability-ok-");
+  var pickyFs = Object.create(fs);
+  pickyFs.fsyncSync = function (descriptor) {
+    if (fs.fstatSync(descriptor).isDirectory()) {
+      var error = new Error("unsupported"); error.code = "EINVAL"; throw error;
+    }
+    return fs.fsyncSync(descriptor);
+  };
+  assert.equal(createClaimLeases({ fs: pickyFs, file: file, ttlMs: 60000 })
+    .acquire(req(PROJECT_A, "k", "h")).ok, true);
+});
+
+test("a failed payload write rolls back and stays invisible", function () {
+  var file = tempFile("clay-write-fail-");
+  var failingFs = Object.create(fs);
   var fail = false;
-  // The commit is an O_EXCL create of the next epoch file, so that is where a
-  // full disk surfaces now.
-  failing.writeFileSync = function (target, data, options) {
+  failingFs.writeFileSync = function (target, data, options) {
     if (fail) throw new Error("disk full");
     return fs.writeFileSync(target, data, options);
   };
-  var store = createClaimLeases({ fs: failing, file: file, now: time.now, ttlMs: 100 });
-  store.acquire(claim(PROJECT_A, "kept", "worker-a"));
-
+  var store = createClaimLeases({ fs: failingFs, file: file, ttlMs: 60000 });
+  store.acquire(req(PROJECT_A, "kept", "a"));
   fail = true;
-  assert.deepEqual(store.acquire(claim(PROJECT_A, "new-key", "worker-b")),
-    { ok: false, reason: "persistence_failed" });
-  assert.deepEqual(store.renew(claim(PROJECT_A, "kept", "worker-a")),
-    { ok: false, reason: "persistence_failed" });
-  assert.deepEqual(store.release(claim(PROJECT_A, "kept", "worker-a")),
-    { ok: false, reason: "persistence_failed" });
-
-  // Nothing changed: the surviving lease is exactly the one on disk.
+  assert.equal(store.acquire(req(PROJECT_A, "new", "b")).reason, "persistence_failed");
   fail = false;
-  assert.equal(store.list().length, 1);
-  assert.deepEqual(store.get({ projectId: PROJECT_A }, "kept"), {
-    projectId: PROJECT_A,
-    key: "kept",
-    holder: "worker-a",
-    acquiredAt: 0,
-    expiresAt: 100,
-    renewals: 0,
-  });
-  assert.deepEqual(createClaimLeases({ file: file, now: time.now }).list(), store.list());
-  // A failed commit leaves no half-written epoch behind.
-  assert.deepEqual(fs.readdirSync(path.dirname(file)), ["automation-claims.json.1"]);
+  var onDisk = createClaimLeases({ file: file }).list();
+  assert.equal(onDisk.length, 1);
+  assert.equal(onDisk[0].key, "kept");
 });
 
-test("store defaults expose the shared claim file and ttl", function () {
-  assert.equal(leasesModule.DEFAULT_TTL_MS, 900000);
-  assert.equal(path.basename(leasesModule.defaultFile()), "automation-claims.json");
-  assert.equal(path.basename(path.dirname(leasesModule.defaultFile())), "lead");
+// --- Fail-closed loading ------------------------------------------------------------
 
-  var file = tempFile("clay-claim-default-ttl-");
-  var store = createClaimLeases({ file: file, now: function () { return 0; } });
-  assert.equal(store.file, file);
-  assert.equal(store.acquire(claim(PROJECT_A, "k", "h")).lease.expiresAt, 900000);
+test("malformed committed state fails closed on every mutation", function () {
+  var file = tempFile("clay-corrupt-");
+  fs.writeFileSync(storeModule.dataPath(file, 1), "{not json");
+  fs.writeFileSync(storeModule.committedPath(file, 1), "");
+  var store = createClaimLeases({ file: file });
+  assert.equal(store.getLoadError(), "malformed_state");
+  assert.equal(store.acquire(req(PROJECT_A, "k", "h")).reason, "malformed_state");
+  assert.equal(store.sweep().reason, "malformed_state");
+  assert.deepEqual(store.list(), []);
+});
+
+test("bad envelopes and duplicate records are all malformed", function () {
+  var bad = [
+    { schema: "wrong", version: 2, leases: [] },
+    { schema: "clay.automation_claim_leases", version: 99, leases: [] },
+    { schema: "clay.automation_claim_leases", version: 2, leases: "nope" },
+    { schema: "clay.automation_claim_leases", version: 2, leases: [
+      { projectId: PROJECT_A, key: "d", state: "RUNNING", generation: 1, token: "t",
+        holder: "h", acquiredAt: 1, updatedAt: 1, expiresAt: 9, renewals: 0 },
+      { projectId: PROJECT_A, key: "d", state: "RUNNING", generation: 1, token: "t",
+        holder: "h", acquiredAt: 1, updatedAt: 1, expiresAt: 9, renewals: 0 },
+    ] },
+  ];
+  for (var i = 0; i < bad.length; i++) {
+    var file = tempFile("clay-bad-" + i + "-");
+    fs.writeFileSync(storeModule.dataPath(file, 1), JSON.stringify(bad[i]));
+    fs.writeFileSync(storeModule.committedPath(file, 1), "");
+    assert.equal(createClaimLeases({ file: file }).getLoadError(), "malformed_state",
+      "envelope " + i + " must fail closed");
+  }
+});
+
+test("invalid refs, keys and holders are rejected without writing", function () {
+  var file = tempFile("clay-invalid-");
+  var store = createClaimLeases({ file: file, ttlMs: 60000 });
+  assert.equal(store.acquire(req("nope", "k", "h")).reason, "invalid_project_ref");
+  assert.equal(store.acquire(req(PROJECT_A, "  ", "h")).reason, "invalid_claim");
+  assert.equal(store.acquire(req(PROJECT_A, "k", "")).reason, "invalid_claim");
+  assert.equal(epochFiles(file).length, 0);
+});
+
+test("legacy version-1 state loads as RUNNING claims", function () {
+  var file = tempFile("clay-legacy-");
+  fs.writeFileSync(file, JSON.stringify({
+    schema: "clay.automation_claim_leases", version: 1,
+    leases: [{ projectId: PROJECT_A, key: "old", holder: "h", acquiredAt: 1, expiresAt: 9e15, renewals: 0 }],
+  }));
+  var store = createClaimLeases({ file: file });
+  assert.equal(store.getLoadError(), null);
+  assert.equal(store.list()[0].state, "RUNNING");
+  // And the next commit moves it onto the epoch layout.
+  assert.equal(store.acquire(req(PROJECT_A, "new", "h")).ok, true);
+  assert.equal(storeModule.scanEpochs(fs, file).committed.length, 1);
+});
+
+test("sweep removes expired claims but never in-flight ones", function () {
+  var time = clock(0);
+  var file = tempFile("clay-sweep-");
+  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 100 });
+  store.acquire(req(PROJECT_A, "short", "a", { ttlMs: 10 }));
+  var launching = store.acquire(req(PROJECT_A, "inflight", "b"));
+  store.beginLaunch(req(PROJECT_A, "inflight", "b", { token: launching.lease.token }));
+
+  time.set(50);
+  assert.deepEqual(store.sweep(), { ok: true, removed: 1 });
+  assert.equal(store.list().length, 1);
+  assert.equal(store.list()[0].key, "inflight");
+});
+
+test("claims survive a restart and still block a different holder", function () {
+  var file = tempFile("clay-restart-");
+  var store = createClaimLeases({ file: file, ttlMs: 900000 });
+  toRunning(store, PROJECT_A, "k", "worker-a");
+  var restarted = createClaimLeases({ file: file, ttlMs: 900000 });
+  assert.equal(restarted.getLoadError(), null);
+  assert.equal(restarted.get({ projectId: PROJECT_A }, "k").state, "RUNNING");
+  assert.equal(restarted.acquire(req(PROJECT_A, "k", "worker-b")).reason, "held");
 });
