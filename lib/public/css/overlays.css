@@ -659,6 +659,13 @@ button.top-bar-pill.pill-accent:hover { background: color-mix(in srgb, var(--acc
   box-shadow: 0 8px 32px rgba(var(--shadow-rgb), 0.5);
 }
 
+.confirm-title {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
 .confirm-text {
   font-size: 14px;
   color: var(--text);

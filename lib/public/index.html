@@ -1799,9 +1799,10 @@
   </div>
 </div>
 
-<div id="confirm-modal" class="hidden">
+<div id="confirm-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-text">
   <div class="confirm-backdrop"></div>
   <div class="confirm-dialog">
+    <div class="confirm-title" id="confirm-title">Confirm action</div>
     <div class="confirm-text" id="confirm-text"></div>
     <div class="confirm-actions">
       <button class="confirm-btn confirm-cancel" id="confirm-cancel">Cancel</button>

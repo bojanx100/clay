@@ -1,9 +1,11 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var fs = require("node:fs");
+var os = require("node:os");
 var path = require("node:path");
 var workActivity = require("../lib/coop-work-activity");
 var coopControl = require("../lib/coop-conversation-control");
+var createTopicIndex = require("../lib/coop-topic-index").createTopicIndex;
 
 var CLAY = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 
@@ -86,6 +88,9 @@ test("each work state is reachable and precedence is stable", function () {
 
   var blocked = coopSession({ orchestrationTasks: [{ status: "blocked" }] });
   assert.equal(workActivity.coopWorkActivity(blocked, resolvers()).state, "waiting");
+
+  var failed = coopSession({ orchestrationTasks: [{ status: "failed" }] });
+  assert.equal(workActivity.coopWorkActivity(failed, resolvers()).state, "waiting");
 
   var running = coopSession({ orchestrationTasks: [{ status: "running" }] });
   assert.equal(workActivity.coopWorkActivity(running, resolvers()).state, "working");
@@ -361,6 +366,20 @@ test("a restart replays durable attention as Waiting, matching the live state", 
   assert.equal(reconnect.backgroundTaskCount, 0);
 });
 
+test("failed-only unfinished work stays Waiting across reconnect and restart", function () {
+  var restarted = coopSession({
+    orchestrationTasks: [{ taskId: "failed-review", status: "failed" }],
+    history: [{ type: "user_message", coopTopicRef: { topicId: "sidebar-controls" } }],
+  });
+  var ctx = { getProjectList: function () { return []; }, sm: null, sendToSession: function () {} };
+  var reconnect = coopControl.clientStateFor(ctx, restarted);
+  var live = coopControl.attachCoopConversationControl(ctx).clientState(restarted);
+  assert.deepEqual(reconnect, live);
+  assert.equal(reconnect.workState, "waiting");
+  assert.equal(reconnect.backgroundTaskCount, 1);
+  assert.equal(reconnect.workTarget, "", "failed background work is not attributed to the latest route");
+});
+
 test("live publish and reconnect read admitted portfolio work from the same store", function () {
   // resolversFor is the single place both paths get their inputs, so a store
   // wired into one is wired into both.
@@ -410,6 +429,77 @@ test("resolversFor reads titles from the injected topic index and project list",
   assert.equal(resolved.topicTitle({ topicId: "gone" }), "");
   assert.equal(resolved.projectTitle({ projectId: CLAY }), "Clay");
   assert.equal(resolved.projectTitle({ projectId: "not-a-project-id" }), "");
+});
+
+test("live and reconnect work labels are projected per recipient ACL", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-work-activity-acl-"));
+  try {
+    var index = createTopicIndex({ file: path.join(dir, "lead", "topics.json") });
+    var durable = index.load();
+    durable.canonicalSessionStorageId = "canonical-coop-home";
+    durable.topics["private-topic"] = {
+      topicRef: { topicId: "private-topic" },
+      title: "Private topic label",
+      keywords: [],
+      group: { kind: "project", projectRef: { projectId: CLAY } },
+      source: "automatic",
+      status: "open",
+      createdAt: 1,
+      updatedAt: 1,
+      eventRefs: [],
+      turnRefs: [],
+      relatedExecutions: [],
+    };
+    index.save();
+
+    var visibleWs = { _clayActiveSession: 4, _clayUser: { id: "visible-user" } };
+    var deniedWs = { _clayActiveSession: 4, _clayUser: { id: "denied-user" } };
+    var direct = [];
+    var shared = [];
+    var seenUserIds = [];
+    var ctx = {
+      clients: new Set([visibleWs, deniedWs]),
+      coopTopicIndex: index,
+      getProjectList: function (userId) {
+        seenUserIds.push(userId);
+        if (userId !== "visible-user") return [];
+        return [{ projectId: CLAY, title: "Private project label" }];
+      },
+      sendTo: function (ws, state) { direct.push({ ws: ws, state: state }); },
+      sendToSession: function (sessionId, state) { shared.push({ sessionId: sessionId, state: state }); },
+      sm: null,
+    };
+    var session = coopSession({
+      isProcessing: true,
+      history: [{
+        type: "user_message",
+        coopTopicRef: { topicId: "private-topic" },
+        coopProjectRef: { projectId: CLAY },
+      }],
+    });
+
+    coopControl.attachCoopConversationControl(ctx).publish(session);
+    assert.equal(shared.length, 0, "recipient-labelled state never uses the shared session broadcast");
+    assert.equal(direct.length, 2);
+    assert.equal(direct.find(function (item) { return item.ws === visibleWs; }).state.workTarget,
+      "Private topic label");
+    assert.equal(direct.find(function (item) { return item.ws === deniedWs; }).state.workTarget, "");
+    assert.equal(JSON.stringify(direct.find(function (item) { return item.ws === deniedWs; }).state)
+      .includes("Private"), false);
+
+    assert.equal(coopControl.clientStateFor(ctx, session, visibleWs).workTarget, "Private topic label");
+    assert.equal(coopControl.clientStateFor(ctx, session, deniedWs).workTarget, "");
+    assert.ok(seenUserIds.indexOf("visible-user") !== -1);
+    assert.ok(seenUserIds.indexOf("denied-user") !== -1);
+
+    var resolutionCount = seenUserIds.length;
+    ctx.clients = new Set();
+    assert.equal(coopControl.attachCoopConversationControl(ctx).publish(session), null);
+    assert.equal(seenUserIds.length, resolutionCount,
+      "no actorless title is materialized when the Coop session has no recipients");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("the serialized state separates work activity from voice listening", function () {
@@ -476,6 +566,14 @@ test("the production user-message wiring supplies the work-target resolvers", fu
   attach = attach.slice(0, attach.indexOf("});"));
   assert.match(attach, /coopTopicIndex:/);
   assert.match(attach, /getProjectList:/);
+  assert.match(attach, /clients:/);
+  assert.match(attach, /sendTo:/);
+
+  var connection = fs.readFileSync(path.join(__dirname, "..", "lib", "project-connection-handlers.js"), "utf8");
+  var reconnect = connection.slice(connection.indexOf("function sessionSwitchedRuntime"));
+  reconnect = reconnect.slice(0, reconnect.indexOf("\nfunction ", 1));
+  assert.match(reconnect, /clientStateFor\(ctx, active, ws\)/,
+    "reconnect projection receives the connected actor too");
 });
 
 test("a dispatched Coop turn is republished once it is actually processing", function () {

@@ -9,6 +9,7 @@ var classification = require("../lib/coop-topic-classification");
 
 var CLAY = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var WEBAPP = "44444444-4444-5444-8444-444444444444";
+var CLOSED_PROJECT = "66666666-6666-5666-8666-666666666666";
 
 function harness() {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-topic-index-"));
@@ -179,6 +180,41 @@ test("ACL projection revokes project topic metadata while retaining safe shared 
     assert.equal(JSON.stringify(visible).includes(WEBAPP), false);
     var revoked = h.index.project({ canAccessProject: function () { return false; } });
     assert.equal(revoked.groups.some(function (group) { return group.kind === "project"; }), false);
+  } finally { h.cleanup(); }
+});
+
+test("closed topics leave the server projection and empty groups disappear", function () {
+  var h = harness();
+  try {
+    var state = h.index.load();
+    state.canonicalSessionStorageId = "canonical-topic-home";
+    state.topics["closed-project-only-topic"] = {
+      topicRef: { topicId: "closed-project-only-topic" },
+      title: "Close this topic",
+      keywords: [],
+      group: { kind: "project", projectRef: { projectId: CLOSED_PROJECT } },
+      source: "automatic",
+      status: "open",
+      createdAt: 1,
+      updatedAt: 1,
+      eventRefs: [],
+      turnRefs: [],
+      relatedExecutions: [],
+    };
+    h.index.save();
+
+    var before = h.index.project({ canAccessProject: function () { return true; } });
+    assert.ok(before.groups.some(function (group) {
+      return group.projectRef && group.projectRef.projectId === CLOSED_PROJECT;
+    }));
+
+    assert.equal(h.index.close({ topicId: "closed-project-only-topic" }).ok, true);
+    var after = h.index.project({ canAccessProject: function () { return true; } });
+    assert.equal(after.groups.some(function (group) {
+      return group.projectRef && group.projectRef.projectId === CLOSED_PROJECT;
+    }), false, "the group disappears when its last open topic closes");
+    assert.equal(JSON.stringify(after).includes("Close this topic"), false);
+    assert.equal(JSON.stringify(after).includes("closed-project-only-topic"), false);
   } finally { h.cleanup(); }
 });
 

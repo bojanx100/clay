@@ -182,6 +182,36 @@ test("both surfaces read section order from the one shared model function", func
   assert.match(mobile, /renderCoopTopicSections/);
 });
 
+test("a projection refresh removes a closed topic and its empty desktop and mobile group", async function () {
+  var ui = await loadTopicControls();
+  ui.projection.setGlobalCoopProjection(projectionMessage({
+    projects: [{
+      projectRef: { projectId: CLAY }, slug: "clay", title: "Clay",
+      topics: [topic("close-refresh", { projectRef: { projectId: CLAY }, title: "Close refresh" })],
+    }],
+  }));
+  assert.deepEqual(sectionShape(ui.model.coopTopicSections(
+    ui.projection.buildGlobalCoopDisplayModel(""))), ["project:Clay"]);
+
+  // The authoritative post-close payload no longer contains the topic. Both
+  // surfaces consume this same model, so neither may retain a stale wrapper.
+  ui.projection.setGlobalCoopProjection(projectionMessage({
+    projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [] }],
+    topics: [],
+  }));
+  var refreshed = ui.projection.buildGlobalCoopDisplayModel("");
+  ["desktop", "mobile"].forEach(function (surface) {
+    assert.deepEqual(ui.model.coopTopicSections(refreshed), [], surface + " drops the empty group");
+  });
+
+  var messages = source("app-messages-sessions.js");
+  var handler = messages.slice(messages.indexOf("function handleGlobalCoopProjection"));
+  handler = handler.slice(0, handler.indexOf("\nfunction ", 1));
+  assert.match(handler, /setGlobalCoopProjection\(msg\)/);
+  assert.match(handler, /renderSessionList\(null\)/);
+  assert.match(source("sidebar-sessions.js"), /if \(refreshMobileChatSheet\) refreshMobileChatSheet\(\)/);
+});
+
 // --- Close action ---
 
 test("cancelling Close is a strict no-op and confirming closes exactly once", async function () {
