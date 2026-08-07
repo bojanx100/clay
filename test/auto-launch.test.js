@@ -807,9 +807,16 @@ test("lead mode on: a still-running session keeps its claim past the lease TTL",
     assert.ok(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")),
       "a live session's claim must not lapse mid-flight");
 
-    // Once the session is gone, the next reconcile releases the claim.
+    // Once the session is gone the claim is released — but only after the
+    // daemon-overlap grace, so a replacement daemon cannot strip a claim the
+    // outgoing process just took.
     sessions.clear();
     t = 9000;
+    autoLaunch.reconcileAutomationClaims();
+    assert.ok(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")),
+      "a just-refreshed orphan is held through the overlap grace");
+
+    t = 8000 + 200000;
     autoLaunch.reconcileAutomationClaims();
     assert.strictEqual(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")), null,
       "an orphaned claim must be released, not left pinned");
@@ -875,6 +882,57 @@ test("lead mode on: the Done workflow is granted while the claim is held", funct
     assert.strictEqual(h.session.taskLauncher.closeAfterNextTurn, true);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// A member with access to a shared auto-launched session must not be able to
+// grant the Done workflow's PR/board authority just by typing "done".
+test("lead mode on: only the session owner can trigger the Done workflow", function () {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-"));
+  try {
+    fs.mkdirSync(path.join(cwd, ".clay", "tasks"), { recursive: true });
+    var gate = createAutomationGate({
+      cwd: cwd, slug: "owner", projectRef: { projectId: CUTOVER_PROJECT }, policyTtlMs: 0,
+      getLeadMode: function () { return true; },
+      leases: claimLeases.createClaimLeases({ file: path.join(cwd, "claims.json") }),
+      audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "owner" }),
+    });
+    var tl = attachTaskLauncher({
+      cwd: cwd,
+      sm: { saveSessionFile: function () {}, hideSession: function () {} },
+      sdk: {},
+      usersModule: { isMultiUser: function () { return true; } },
+      getAutomationGate: function () { return gate; },
+      onComplete: function () {},
+      onNeedsInput: function () {},
+    });
+    gate.leases.acquire({
+      projectRef: { projectId: CUTOVER_PROJECT },
+      key: gate.claimKeyFor("o/r#1975"), holder: gate.holder, ttlMs: 60000,
+    });
+
+    function freshSession() {
+      var session = makeAutoSession();
+      session.taskLauncher.automationClaimKey = "o/r#1975";
+      session.ownerId = "user-owner";
+      return session;
+    }
+
+    var byIntruder = freshSession();
+    var denied = tl.handleTaskUserMessageDispatched(byIntruder, "mark as done", "user-someone-else");
+    assert.ok(denied.indexOf("was not authorized") !== -1, "a non-owner must not be granted the workflow");
+    assert.strictEqual(byIntruder.taskLauncher.closeAfterNextTurn, undefined);
+
+    var anonymous = freshSession();
+    assert.ok(tl.handleTaskUserMessageDispatched(anonymous, "mark as done", null)
+      .indexOf("was not authorized") !== -1, "an unidentified sender must not qualify");
+
+    var byOwner = freshSession();
+    var granted = tl.handleTaskUserMessageDispatched(byOwner, "mark as done", "user-owner");
+    assert.ok(granted.indexOf("CLAY_TASK_COMPLETE") !== -1, "the real owner is still granted it");
+    assert.strictEqual(byOwner.taskLauncher.closeAfterNextTurn, true);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
 

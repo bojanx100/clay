@@ -322,11 +322,12 @@ test("claims survive a restart and still block a different runtime", function ()
 });
 
 test("reconcile adopts claims whose work is still running and releases the rest", function () {
-  var h = makeGate();
+  var h = makeGate({ claimTtlMs: 400000 });
   assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#40")).decision, "execute");
   assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#41")).decision, "execute");
 
-  h.clock.set(2000);
+  // Past the daemon-overlap grace, so an orphan is genuinely orphaned.
+  h.clock.set(1000 + 200000);
   var result = h.gate.reconcileClaims(["trialview/v2#40"]);
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.adopted, 1);
@@ -335,6 +336,36 @@ test("reconcile adopts claims whose work is still running and releases the rest"
   // The adopted claim still blocks; the released one is free again.
   assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#40")).reason, "claim_already_active");
   assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#41")).decision, "execute");
+});
+
+// During a daemon replacement the outgoing process shares this variant's
+// identity and can claim work moments after the incoming one loaded sessions.
+// Releasing a just-refreshed claim would hand that item to a duplicate launch.
+test("reconcile leaves a just-refreshed claim alone during daemon overlap", function () {
+  var h = makeGate({ claimTtlMs: 400000 });
+  assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#42")).decision, "execute");
+
+  h.clock.set(1000 + 5000);
+  var result = h.gate.reconcileClaims([]);
+  assert.strictEqual(result.released, 0, "a fresh claim must not be released");
+  assert.strictEqual(result.skippedRecent, 1);
+  assert.ok(h.gate.holdsClaim("trialview/v2#42"), "the predecessor's claim must survive");
+});
+
+// The mirror case, and the one that actually causes duplicate launches: work
+// still running whose claim lapsed during a long restart.
+test("reconcile re-acquires a lapsed claim for work that is still running", function () {
+  var h = makeGate({ claimTtlMs: 1000 });
+  assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#43")).decision, "execute");
+
+  // Long outage: the lease expires while the session keeps running.
+  h.clock.set(1000 + 500000);
+  assert.strictEqual(h.gate.holdsClaim("trialview/v2#43"), false, "the lease should have lapsed");
+
+  var result = h.gate.reconcileClaims(["trialview/v2#43"]);
+  assert.strictEqual(result.reclaimed, 1);
+  assert.ok(h.gate.holdsClaim("trialview/v2#43"),
+    "running work must not be left unclaimed for another daemon to launch");
 });
 
 // A dev and a prod daemon share CLAY_HOME, so a holder derived only from the
