@@ -807,19 +807,14 @@ test("lead mode on: a still-running session keeps its claim past the lease TTL",
     assert.ok(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")),
       "a live session's claim must not lapse mid-flight");
 
-    // Once the session is gone the claim is released — but only after the
-    // daemon-overlap grace, so a replacement daemon cannot strip a claim the
-    // outgoing process just took.
+    // Once OUR session is gone we release our own claim immediately. There is
+    // no timing heuristic here: a claim belonging to another process is
+    // identified by holder, and only adopted on proof that process is dead.
     sessions.clear();
     t = 9000;
     autoLaunch.reconcileAutomationClaims();
-    assert.ok(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")),
-      "a just-refreshed orphan is held through the overlap grace");
-
-    t = 8000 + 200000;
-    autoLaunch.reconcileAutomationClaims();
     assert.strictEqual(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")), null,
-      "an orphaned claim must be released, not left pinned");
+      "our own orphaned claim must be released, not left pinned");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

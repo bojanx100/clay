@@ -338,20 +338,6 @@ test("reconcile adopts claims whose work is still running and releases the rest"
   assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#41")).decision, "execute");
 });
 
-// During a daemon replacement the outgoing process shares this variant's
-// identity and can claim work moments after the incoming one loaded sessions.
-// Releasing a just-refreshed claim would hand that item to a duplicate launch.
-test("reconcile leaves a just-refreshed claim alone during daemon overlap", function () {
-  var h = makeGate({ claimTtlMs: 400000 });
-  assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#42")).decision, "execute");
-
-  h.clock.set(1000 + 5000);
-  var result = h.gate.reconcileClaims([]);
-  assert.strictEqual(result.released, 0, "a fresh claim must not be released");
-  assert.strictEqual(result.skippedRecent, 1);
-  assert.ok(h.gate.holdsClaim("trialview/v2#42"), "the predecessor's claim must survive");
-});
-
 // The mirror case, and the one that actually causes duplicate launches: work
 // still running whose claim lapsed during a long restart.
 test("reconcile re-acquires a lapsed claim for work that is still running", function () {
@@ -371,36 +357,99 @@ test("reconcile re-acquires a lapsed claim for work that is still running", func
 // A dev and a prod daemon share CLAY_HOME, so a holder derived only from the
 // project slug collides exactly, and one daemon's reconcile would adopt or
 // release the other's live lease.
-test("two daemons sharing the claim file get distinct holder identities", function () {
+// Concurrent processes must never share an identity, or one process's
+// reconciliation can renew or release another's live work. Restart adoption
+// is then decided by evidence that the previous holder is gone, not by
+// reusing its name and not by a timer.
+test("concurrent processes never share a holder identity", function () {
   var dir = workspace([BUG_RECIPE]);
-  function gateWithIdFile(idFile) {
+  function gateFor(pid) {
     return gateModule.createAutomationGate({
       cwd: dir, slug: "same-project", projectRef: { projectId: PROJECT_A },
-      policyTtlMs: 0, instanceIdFile: idFile,
+      policyTtlMs: 0, holderPid: pid,
       getLeadMode: function () { return true; },
       leases: claimLeases.createClaimLeases({ file: path.join(dir, "claims.json") }),
-      audit: automationAudit.createAutomationAudit({ file: path.join(dir, "audit.jsonl"), slug: "same-project" }),
+      audit: automationAudit.createAutomationAudit({
+        file: path.join(dir, "audit.jsonl"), slug: "same-project" }),
     });
   }
-  var daemonA = gateWithIdFile(path.join(dir, "a.id"));
-  var daemonB = gateWithIdFile(path.join(dir, "b.id"));
-  assert.notStrictEqual(daemonA.holder, daemonB.holder,
-    "concurrent daemons must not share a holder identity");
+  var a = gateFor(4242);
+  var b = gateFor(4243);
+  assert.notStrictEqual(a.holder, b.holder);
+  // Even two gates in the SAME process are distinct, so a replacement daemon
+  // overlapping its predecessor cannot inherit its authority by accident.
+  assert.notStrictEqual(gateFor(4242).holder, a.holder);
 
-  // A restart of daemon A reuses A's persisted id, so it can still adopt.
-  var daemonARestarted = gateWithIdFile(path.join(dir, "a.id"));
-  assert.strictEqual(daemonARestarted.holder, daemonA.holder,
-    "a restart of the same daemon must keep its identity");
+  assert.strictEqual(a.evaluateLaunch(bug("shared#1")).decision, "execute");
+  assert.strictEqual(b.evaluateLaunch(bug("shared#1")).reason, "claim_held_elsewhere");
+});
 
-  // B's reconcile must not disturb A's live claim.
-  assert.strictEqual(daemonA.evaluateLaunch(bug("shared#1")).decision, "execute");
-  daemonB.reconcileClaims([]);
-  var survivor = daemonA.leases.get({ projectId: PROJECT_A }, gateModule.claimKeyFor("shared#1"));
-  assert.ok(survivor, "another daemon's reconcile must not release this claim");
-  assert.strictEqual(survivor.holder, daemonA.holder);
+test("a live holder's claim is never adopted, even for our own active work", function () {
+  var dir = workspace([BUG_RECIPE]);
+  var store = claimLeases.createClaimLeases({ file: path.join(dir, "claims.json") });
+  var gate = gateModule.createAutomationGate({
+    cwd: dir, slug: "live", projectRef: { projectId: PROJECT_A }, policyTtlMs: 0,
+    holderPid: 4242,
+    getLeadMode: function () { return true; },
+    isHolderAlive: function () { return true; },
+    leases: store,
+    audit: automationAudit.createAutomationAudit({
+      file: path.join(dir, "audit.jsonl"), slug: "live" }),
+  });
+  store.acquire({
+    projectRef: { projectId: PROJECT_A }, key: gateModule.claimKeyFor("o/r#1"),
+    holder: "sibling-process", holderPid: 9999, ttlMs: 60000,
+  });
+  var result = gate.reconcileClaims(["o/r#1"]);
+  assert.strictEqual(result.foreign, 1, "a live sibling's claim must be left alone");
+  assert.strictEqual(
+    store.get({ projectId: PROJECT_A }, gateModule.claimKeyFor("o/r#1")).holder,
+    "sibling-process");
+});
 
-  // And B cannot launch the same item while A holds it.
-  assert.strictEqual(daemonB.evaluateLaunch(bug("shared#1")).reason, "claim_held_elsewhere");
+test("a dead holder's claim is adopted so a restart does not double-start work", function () {
+  var dir = workspace([BUG_RECIPE]);
+  var store = claimLeases.createClaimLeases({ file: path.join(dir, "claims.json") });
+  var gate = gateModule.createAutomationGate({
+    cwd: dir, slug: "dead", projectRef: { projectId: PROJECT_A }, policyTtlMs: 0,
+    holderPid: 4242,
+    getLeadMode: function () { return true; },
+    isHolderAlive: function (pid) { return pid !== 9999; },
+    leases: store,
+    audit: automationAudit.createAutomationAudit({
+      file: path.join(dir, "audit.jsonl"), slug: "dead" }),
+  });
+  // The predecessor process claimed this and then died.
+  store.acquire({
+    projectRef: { projectId: PROJECT_A }, key: gateModule.claimKeyFor("o/r#2"),
+    holder: "previous-process", holderPid: 9999, ttlMs: 60000,
+  });
+  var result = gate.reconcileClaims(["o/r#2"]);
+  assert.strictEqual(result.adopted, 1, "a dead holder's claim must be adopted");
+  assert.strictEqual(gate.holdsClaim("o/r#2"), true);
+});
+
+test("an unproven holder is presumed alive so adoption never steals live work", function () {
+  var dir = workspace([BUG_RECIPE]);
+  var store = claimLeases.createClaimLeases({ file: path.join(dir, "claims.json") });
+  var gate = gateModule.createAutomationGate({
+    cwd: dir, slug: "unproven", projectRef: { projectId: PROJECT_A }, policyTtlMs: 0,
+    holderPid: 4242,
+    getLeadMode: function () { return true; },
+    leases: store,
+    audit: automationAudit.createAutomationAudit({
+      file: path.join(dir, "audit.jsonl"), slug: "unproven" }),
+  });
+  // No holderPid recorded at all: liveness is unknowable, so hands off.
+  store.acquire({
+    projectRef: { projectId: PROJECT_A }, key: gateModule.claimKeyFor("o/r#3"),
+    holder: "unknown-process", ttlMs: 60000,
+  });
+  var result = gate.reconcileClaims(["o/r#3"]);
+  assert.strictEqual(result.foreign, 1);
+  assert.strictEqual(
+    store.get({ projectId: PROJECT_A }, gateModule.claimKeyFor("o/r#3")).holder,
+    "unknown-process");
 });
 
 test("reconcile never touches another holder's claim", function () {

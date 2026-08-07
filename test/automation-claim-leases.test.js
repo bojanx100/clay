@@ -23,6 +23,19 @@ function clock(start) {
   };
 }
 
+// State now lives in per-epoch files (claims.json.<N>) so that publishing an
+// epoch is a single atomic O_EXCL create. Read whichever epoch is newest.
+function readCommitted(file) {
+  var dir = path.dirname(file);
+  var base = path.basename(file);
+  var epochs = fs.readdirSync(dir)
+    .filter(function (n) { return n.indexOf(base + ".") === 0 && /\.\d+$/.test(n); })
+    .map(function (n) { return Number(n.slice(base.length + 1)); })
+    .sort(function (a, b) { return b - a; });
+  if (!epochs.length) return null;
+  return JSON.parse(fs.readFileSync(file + "." + epochs[0], "utf8"));
+}
+
 function claim(projectId, key, holder, ttlMs) {
   var input = { projectRef: { projectId: projectId }, key: key, holder: holder };
   if (ttlMs !== undefined) input.ttlMs = ttlMs;
@@ -190,7 +203,7 @@ test("sweep removes only expired leases and reports the count", function () {
   assert.equal(store.list().length, 1);
   assert.equal(store.list()[0].key, "long");
 
-  var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
+  var persisted = readCommitted(file);
   assert.equal(persisted.schema, "clay.automation_claim_leases");
   assert.equal(persisted.version, 1);
   assert.equal(persisted.leases.length, 1);
@@ -392,9 +405,11 @@ test("a failed write rolls back the in-memory claim state", function () {
   var time = clock(0);
   var failing = Object.create(fs);
   var fail = false;
-  failing.renameSync = function (from, to) {
+  // The commit is an O_EXCL create of the next epoch file, so that is where a
+  // full disk surfaces now.
+  failing.writeFileSync = function (target, data, options) {
     if (fail) throw new Error("disk full");
-    return fs.renameSync(from, to);
+    return fs.writeFileSync(target, data, options);
   };
   var store = createClaimLeases({ fs: failing, file: file, now: time.now, ttlMs: 100 });
   store.acquire(claim(PROJECT_A, "kept", "worker-a"));
@@ -419,7 +434,8 @@ test("a failed write rolls back the in-memory claim state", function () {
     renewals: 0,
   });
   assert.deepEqual(createClaimLeases({ file: file, now: time.now }).list(), store.list());
-  assert.deepEqual(fs.readdirSync(path.dirname(file)), ["automation-claims.json"]);
+  // A failed commit leaves no half-written epoch behind.
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ["automation-claims.json.1"]);
 });
 
 test("store defaults expose the shared claim file and ttl", function () {
