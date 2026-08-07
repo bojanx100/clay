@@ -494,6 +494,14 @@ test("target reports remain for review and route follow-up to their existing wor
           duration: 23,
         }],
       },
+      attachments: {
+        images: [{
+          mediaType: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+          name: "pricing-mobile.png",
+        }],
+        pastes: ["Viewport: 390x844\nExpected 24px spacing"],
+      },
     },
   });
 
@@ -511,10 +519,12 @@ test("target reports remain for review and route follow-up to their existing wor
   assert.match(state.coordinated[0].context, /\[redacted-email\]/);
   assert.match(state.coordinated[0].context, /https:\/\/api\.example\.com\/pricing/);
   assert.doesNotMatch(state.coordinated[0].context, /token=secret/);
-  assert.deepStrictEqual(state.coordinated[0].imageRefs, [{
-    mediaType: "image/png",
-    file: "live-ui-shot.png",
-  }]);
+  assert.deepStrictEqual(state.coordinated[0].imageRefs, [
+    { mediaType: "image/png", file: "live-ui-shot.png" },
+    { mediaType: "image/png", file: "live-ui-shot.png" },
+  ]);
+  assert.match(state.coordinated[0].context, /pricing-mobile\.png/);
+  assert.match(state.coordinated[0].context, /Expected 24px spacing/);
   assert.ok(state.sent.some(function (entry) {
     return entry.ws === state.extensionWs &&
       entry.message.type === "live_ui_relay" &&
