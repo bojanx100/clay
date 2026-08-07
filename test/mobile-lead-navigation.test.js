@@ -3,27 +3,57 @@ var assert = require("node:assert/strict");
 var fs = require("node:fs");
 var path = require("node:path");
 
-test("mobile chat filter pins the Lead project before ordinary projects", function () {
-  var mobileSidebarPath = path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js");
-  var leadSidebarPath = path.join(__dirname, "..", "lib", "public", "modules", "sidebar-lead.js");
-  var source = fs.readFileSync(mobileSidebarPath, "utf8");
-  var leadSource = fs.readFileSync(leadSidebarPath, "utf8");
-  var start = source.indexOf("function renderSheetSessions(listEl)");
-  var end = source.indexOf("// Helper: create a mobile session item element", start);
-  var renderSource = source.slice(start, end);
+function source(name) {
+  return fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", name), "utf8");
+}
 
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  assert.match(renderSource, /var leadProject = findLeadProject\(getCachedProjectList\(\)\)/);
-  assert.match(renderSource, /chips\.push\(buildProjectChip\(leadProject, false, null\)\)/);
-  assert.ok(
-    renderSource.indexOf("chips.push(buildProjectChip(leadProject, false, null))") <
-      renderSource.indexOf("var grouped = groupProjects(getCachedProjectList())")
+// The mobile chat sheet used to build its own row of project chips. That was a
+// second project switcher stacked under the header control, and because the
+// whole bar was skipped in Coop it also produced the opposite failure there:
+// no switcher at all. Project navigation now has exactly one owner on mobile --
+// the sheet header control and the Projects sheet it opens.
+
+test("the mobile chat sheet no longer builds a second project switcher", function () {
+  var mobile = source("sidebar-mobile.js");
+  var render = mobile.slice(
+    mobile.indexOf("function renderSheetSessions(listEl)"),
+    mobile.indexOf("// Helper: create a mobile session item element")
   );
-  assert.match(renderSource, /decorateMobileLeadChatChip\(chip, p\)/);
-  assert.match(renderSource, /var isCoopRoot = !!p\.coopHome \|\| p\.slug === "lead"/);
-  assert.match(renderSource, /if \(!isCoopRoot\) decorateMobileLeadChatChip\(chip, p\)/);
-  assert.match(renderSource, /if \(!isCoopRoot\) \{/);
-  assert.match(leadSource, /chip\.classList\.add\("lead-chip"\)/);
-  assert.match(leadSource, /appendLeadBadge\(chip, "mobile-chat-chip-lead-badge"\)/);
+  assert.ok(render.length > 0, "renderSheetSessions must exist");
+  assert.doesNotMatch(render, /buildProjectChip/);
+  assert.doesNotMatch(render, /dataset\.type = "project"/);
+  assert.doesNotMatch(render, /switchProject/);
+  assert.doesNotMatch(render, /groupProjects\(getCachedProjectList\(\)\)/);
+  assert.doesNotMatch(render, /mobile-chat-chip-wt-toggle/);
+});
+
+test("the chat sheet's chip bar carries mates only, and vanishes when empty", function () {
+  var mobile = source("sidebar-mobile.js");
+  var render = mobile.slice(
+    mobile.indexOf("function renderSheetSessions(listEl)"),
+    mobile.indexOf("// Helper: create a mobile session item element")
+  );
+  assert.match(render, /chip\.dataset\.type = "mate"/);
+  assert.match(render, /if \(chip\.dataset\.type === "mate"\)/);
+  assert.match(render, /if \(chips\.length > 0\) listEl\.appendChild\(filterBar\)/);
+  // The chip refresh path must not look for project chips any more.
+  assert.match(mobile, /function updateMobileChatChipActive\(chip, currentDmUserId\)/);
+  assert.doesNotMatch(mobile, /chip\.dataset\.type === "project" && chip\.dataset\.slug === currentSlug/);
+});
+
+test("Coop is pinned first in the one surface that switches projects", function () {
+  // The ordering guarantee this file used to make about the Lead chip now lives
+  // in the projects sheet, which is the single entry point.
+  var mobile = source("sidebar-mobile.js");
+  var sheet = mobile.slice(
+    mobile.indexOf("function renderSheetProjects(listEl)"),
+    mobile.indexOf("function renderSheetSessions(listEl)")
+  );
+  assert.ok(sheet.length > 0);
+  assert.match(sheet, /var leadProject = findLeadProject\(projects\)/);
+  assert.ok(sheet.indexOf("createMobileLeadProjectItem") < sheet.indexOf("groupProjects(filterLeadProjects(projects))"));
+
+  var lead = source("sidebar-lead.js");
+  assert.match(lead, /mobile-project-item mobile-lead-project-item/);
+  assert.match(lead, /appendLeadBadge\(row, "mobile-lead-project-badge"\)/);
 });

@@ -327,7 +327,7 @@ test("Coop navigation renders only compact topic chat rows", function () {
   assert.match(topics, /requestCoopTopic\(topic, sendUserAction\).*finishNavigation\(options\)/s);
   assert.match(topics, /requestAllCoopTopics\(sendUserAction\).*finishNavigation\(opts\)/s);
   assert.match(mobile, /onNavigate: finishMobileCoopNavigation/);
-  assert.match(mobile, /if \(getCachedCurrentSlug\(\) === "lead"\) \{\s+mobileChatSheetOpen = true;\s+renderMobileSessionsInto\(listEl\);/);
+  assert.match(mobile, /if \(getCachedCurrentSlug\(\) === "lead"\) \{\s+renderMobileSessionsInto\(listEl\);/);
   assert.doesNotMatch(desktop, /Goals|Decisions|Active work|Verified outcomes|Open canonical project|appendProjectedSessionTree/);
   assert.doesNotMatch(mobile, /Goals|Decisions|Active work|Verified outcomes|Open canonical project|appendMobileProjectedSessionTree/);
   assert.doesNotMatch(topics, /coop-topic-details|coop-topic-drawer|coop-topic-event|coop-topic-actions|openTopicDialog/);
