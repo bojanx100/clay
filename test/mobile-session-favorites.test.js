@@ -20,8 +20,10 @@ test("single-user mobile chat does not render Mate chips", function () {
   var mobileSidebarPath = path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js");
   var mobileSidebarSource = fs.readFileSync(mobileSidebarPath, "utf8");
 
-  assert.match(
-    mobileSidebarSource,
-    /var favoriteChipMates = \(store\.get\('isMultiUserMode'\) \? getCachedMates\(\) : \[\]\)\.filter/
-  );
+  // Single user still yields no chips, and the gate is now stricter: mates also
+  // require the authoritative opt-in flag, so a multi-user server with mates
+  // disabled renders none either. See test/mobile-mates-disabled.test.js.
+  assert.match(mobileSidebarSource, /function mobileMatesEnabled\(\)/);
+  assert.match(mobileSidebarSource, /!!store\.get\('isMultiUserMode'\)/);
+  assert.match(mobileSidebarSource, /if \(!mobileMatesEnabled\(\)\) return \[\];/);
 });
