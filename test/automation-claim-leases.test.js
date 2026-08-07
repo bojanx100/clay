@@ -245,6 +245,102 @@ test("a bare project-id string is rejected everywhere a ProjectRef is required",
   assert.equal(store.get({ projectId: PROJECT_A }, "issue-1").holder, "worker-a");
 });
 
+// --- Two independent stores over one shared file ------------------------------
+//
+// The claim file is shared by every project in the workspace, and a dev and a
+// prod daemon can share CLAY_HOME. A store that cached its state at
+// construction and wrote the whole snapshot back was NOT a lock: the last
+// writer silently erased everyone else's claims. These are the regressions for
+// that.
+
+test("a second store over the same file cannot re-grant a live claim", function () {
+  var file = tempFile("clay-claim-twostore-");
+  var time = clock(1000);
+  var first = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
+  var second = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
+
+  assert.equal(first.acquire(claim(PROJECT_A, "issue-1", "daemon-a")).created, true);
+
+  // `second` was constructed BEFORE that claim existed. It must still see it.
+  var attempt = second.acquire(claim(PROJECT_A, "issue-1", "daemon-b"));
+  assert.equal(attempt.ok, false, "a stale snapshot must not re-grant a live claim");
+  assert.equal(attempt.reason, "held");
+  assert.equal(attempt.lease.holder, "daemon-a");
+});
+
+test("one store's write never erases another store's claims", function () {
+  var file = tempFile("clay-claim-erase-");
+  var time = clock(1000);
+  var projectA = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
+  var projectB = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
+
+  assert.equal(projectA.acquire(claim(PROJECT_A, "work-a", "holder-a")).ok, true);
+  assert.equal(projectB.acquire(claim(PROJECT_B, "work-b", "holder-b")).ok, true);
+
+  // Both must survive on disk — B's write must not have dropped A's lease.
+  var onDisk = createClaimLeases({ file: file, now: time.now }).list();
+  assert.equal(onDisk.length, 2, "both projects' claims must persist");
+
+  // And A's own claim must still block a different holder afterwards.
+  assert.equal(projectA.get({ projectId: PROJECT_A }, "work-a").holder, "holder-a");
+  assert.equal(
+    createClaimLeases({ file: file, now: time.now }).acquire(claim(PROJECT_A, "work-a", "other")).reason,
+    "held");
+});
+
+test("a release by one store is visible to another", function () {
+  var file = tempFile("clay-claim-crossrelease-");
+  var time = clock(1000);
+  var a = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
+  var b = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
+
+  a.acquire(claim(PROJECT_A, "k", "holder-a"));
+  assert.equal(b.get({ projectId: PROJECT_A }, "k").holder, "holder-a");
+  assert.equal(a.release(claim(PROJECT_A, "k", "holder-a")).ok, true);
+  assert.equal(b.get({ projectId: PROJECT_A }, "k"), null, "reads must not serve a stale lease");
+  assert.equal(b.acquire(claim(PROJECT_A, "k", "holder-b")).created, true);
+});
+
+test("a sweep by one store never drops another store's live claims", function () {
+  var file = tempFile("clay-claim-sweep-cross-");
+  var time = clock(1000);
+  var a = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
+  var b = createClaimLeases({ file: file, now: time.now, ttlMs: 5000 });
+
+  a.acquire(claim(PROJECT_A, "live", "holder-a"));
+  b.sweep();
+  assert.equal(a.get({ projectId: PROJECT_A }, "live").holder, "holder-a",
+    "an unrelated store's sweep must not erase a live claim");
+});
+
+// The cap was previously enforced only on load, so the store could persist a
+// file it would then permanently refuse to read — disabling sweep, the one
+// thing that could prune it back under the cap.
+test("the lease cap is enforced on acquire so the store stays readable", function () {
+  var file = tempFile("clay-claim-cap-");
+  var time = clock(1000);
+  var store = createClaimLeases({ file: file, now: time.now, ttlMs: 500000 });
+  var seeded = [];
+  for (var i = 0; i < leasesModule.MAX_LEASES; i++) {
+    seeded.push({
+      projectId: PROJECT_A, key: "k" + i, holder: "h",
+      acquiredAt: 1, expiresAt: 500000, renewals: 0,
+    });
+  }
+  fs.writeFileSync(file, JSON.stringify({
+    schema: leasesModule.SCHEMA, version: leasesModule.SCHEMA_VERSION, leases: seeded,
+  }) + "\n");
+
+  var overflow = store.acquire(claim(PROJECT_A, "one-too-many", "h"));
+  assert.equal(overflow.ok, false);
+  assert.equal(overflow.reason, "claim_store_full");
+
+  // The file must still be loadable — the cap protected it, not corrupted it.
+  var reopened = createClaimLeases({ file: file, now: time.now });
+  assert.equal(reopened.getLoadError(), null);
+  assert.equal(reopened.list().length, leasesModule.MAX_LEASES);
+});
+
 test("malformed claim state fails closed without overwriting it", function () {
   var file = tempFile("clay-claim-corrupt-");
   fs.writeFileSync(file, "{not-json");

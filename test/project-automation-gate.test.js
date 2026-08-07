@@ -255,6 +255,43 @@ test("lead mode off restores legacy behavior and takes no claims at all", functi
   assert.strictEqual(ext.reason, "lead_mode_off_legacy");
 });
 
+// The additive-only rule means Lead mode off must add NO new work: no policy
+// read, and no write to the shared claim file that another project relies on.
+test("lead mode off loads no policy and never touches shared claim state", function () {
+  var dir = workspace([BUG_RECIPE]);
+  var loads = 0;
+  var time = clock(1000);
+  var store = claimLeases.createClaimLeases({ file: path.join(dir, "claims.json"), now: time.now });
+  var gate = gateModule.createAutomationGate({
+    cwd: dir,
+    slug: "off",
+    projectRef: { projectId: PROJECT_A },
+    now: time.now,
+    policyTtlMs: 0,
+    getLeadMode: function () { return false; },
+    loadPolicy: function () { loads++; return { ok: true, policy: null }; },
+    leases: store,
+    audit: automationAudit.createAutomationAudit({ file: path.join(dir, "audit.jsonl"), slug: "off", now: time.now }),
+  });
+
+  gate.evaluateLaunch(bug("x#1"));
+  gate.evaluateExternal({ itemKey: "x#1", externalKind: "merge" });
+  assert.strictEqual(loads, 0, "lead mode off must not read project policy");
+
+  // A Lead-mode-OFF project's tick must not sweep or renew shared claims —
+  // that is how it could erase a Lead-mode-ON project's live claim.
+  store.acquire({
+    projectRef: { projectId: PROJECT_B },
+    key: gateModule.claimKeyFor("other-project-work"),
+    holder: "another-runtime",
+    ttlMs: 60000,
+  });
+  var result = gate.reconcileClaims([]);
+  assert.strictEqual(result.skipped, "lead_mode_off");
+  assert.ok(store.get({ projectId: PROJECT_B }, gateModule.claimKeyFor("other-project-work")),
+    "a lead-mode-off tick must leave another project's claim alone");
+});
+
 test("lead mode off still works when the project policy is broken", function () {
   var dir = workspace([]);
   fs.writeFileSync(path.join(dir, ".clay", "tasks", "broken.json"), "{not json");

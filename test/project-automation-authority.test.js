@@ -403,6 +403,32 @@ test("two projects with different policies decide differently on the same item",
   assert.strictEqual(decide(Object.assign({ policy: strictProject }, item)).decision, "propose");
 });
 
+// A prototype key must not slip past an allowlist and skip a deny-by-default
+// branch, in a module whose stated rule is that a bug never widens authority.
+test("inherited object keys cannot pass the action, kind or class allowlists", function () {
+  var prototypeKeys = ["constructor", "toString", "hasOwnProperty", "__proto__"];
+  for (var i = 0; i < prototypeKeys.length; i++) {
+    var action = authority.decideAutomation({
+      leadMode: true, action: prototypeKeys[i], policy: policy(), holder: HOLDER, now: NOW,
+    });
+    assert.strictEqual(action.decision, "deny", prototypeKeys[i] + " is not an action");
+    assert.strictEqual(action.reason, "invalid_action");
+
+    var external = externalDecision({ externalKind: prototypeKeys[i] });
+    assert.strictEqual(external.decision, "deny", prototypeKeys[i] + " is not an external kind");
+    assert.strictEqual(external.reason, "invalid_external_kind");
+
+    // An inherited class key must fall back to the default stance, not read
+    // an inherited stance off the autonomy table.
+    var launch = decide({
+      itemClass: prototypeKeys[i],
+      policy: policy({ autonomy: { default: "propose" } }),
+      claim: liveClaim(),
+    });
+    assert.strictEqual(launch.decision, "propose", prototypeKeys[i] + " must use the default stance");
+  }
+});
+
 test("decisions are pure — the same input always yields the same output", function () {
   var input = {
     leadMode: true, action: "launch", itemClass: "bug", policy: policy(),
