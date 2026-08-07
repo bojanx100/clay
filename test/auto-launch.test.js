@@ -653,7 +653,6 @@ test("launchScheduled skips an issue already live under another recipe", async f
 // OWN project policy makes autonomous, and only while holding a unique claim.
 // Everything else becomes a proposal for Coop.
 
-var claimLeases = require("../lib/automation-claim-leases");
 var automationAudit = require("../lib/project-automation-audit");
 var { createAutomationGate } = require("../lib/project-automation-gate");
 
@@ -677,6 +676,7 @@ function makeCutoverHarness(recipeFilter) {
     autoLaunch: { enabled: true, recipes: ["issues"], cron: "*/5 * * * *" },
   }));
   var started = [];
+  var candidates = [];
   var launcher = {
     loadRecipe: function () { return recipe; },
     findExistingSessionForItem: function () { return null; },
@@ -684,272 +684,112 @@ function makeCutoverHarness(recipeFilter) {
     findAnyVisibleSessionForItem: function () { return null; },
     startSessionForItem: function (ws, r, item) { started.push(item.number); return { localId: item.number }; },
   };
-  var gate = createAutomationGate({
+  function buildGate() {
+    return createAutomationGate({
+      cwd: cwd,
+      slug: "cutover",
+      projectRef: { projectId: CUTOVER_PROJECT },
+      policyTtlMs: 0,
+      getLeadMode: function () { return true; },
+      emitCandidate: function (candidate) { candidates.push(candidate); },
+      audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "cutover" }),
+    });
+  }
+  function buildAutoLaunch(gate) {
+    return attachAutoLaunch({
+      cwd: cwd,
+      sm: { sessions: new Map(), broadcastSessionList: function () {} },
+      getTaskLauncher: function () { return launcher; },
+      automationGate: gate,
+      fetchItems: function () {
+        return [{ number: 11, title: "boom", url: "https://github.com/o/r/issues/11", labels: [{ name: "bug" }] }];
+      },
+    });
+  }
+  var gate = buildGate();
+  return {
+    autoLaunch: buildAutoLaunch(gate),
+    started: started,
+    candidates: candidates,
+    gate: gate,
     cwd: cwd,
-    slug: "cutover",
-    projectRef: { projectId: CUTOVER_PROJECT },
-    policyTtlMs: 0,
-    getLeadMode: function () { return true; },
-    leases: claimLeases.createClaimLeases({ file: path.join(cwd, "claims.json") }),
-    audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "cutover" }),
-  });
-  var autoLaunch = attachAutoLaunch({
-    cwd: cwd,
-    sm: { sessions: new Map(), broadcastSessionList: function () {} },
-    getTaskLauncher: function () { return launcher; },
-    automationGate: gate,
-    fetchItems: function () {
-      return [{ number: 11, title: "boom", url: "https://github.com/o/r/issues/11", labels: [{ name: "bug" }] }];
-    },
-  });
-  return { autoLaunch: autoLaunch, started: started, gate: gate, cwd: cwd };
+    // A fresh daemon over the same project state.
+    restart: function () { return buildAutoLaunch(buildGate()); },
+  };
 }
 
-test("lead mode on: a project without bug autonomy proposes instead of launching", async function () {
+test("lead mode on: a project without bug autonomy starts nothing", async function () {
   var h = makeCutoverHarness({});
   try {
     var result = await h.autoLaunch.launchScheduled("issues");
-    assert.deepStrictEqual(h.started, [], "nothing may start without project autonomy");
+    assert.deepStrictEqual(h.started, [], "nothing may start under Coop");
     assert.strictEqual(result.skipped.length, 1);
-    var audit = h.gate.audit.read();
-    assert.strictEqual(audit[audit.length - 1].decision, "propose");
+    assert.strictEqual(h.gate.audit.read().pop().decision, "propose");
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
 });
 
-test("lead mode on: a bug-scoped project launches once and never twice", async function () {
+// The headline invariant of the cutover: with Lead mode ON the project
+// launcher starts ZERO sessions, even for work its own policy makes
+// autonomous. Autonomy now decides how Coop ADMITS the candidate, not whether
+// this controller may launch it.
+test("lead mode on: even bug-autonomous work starts zero sessions", async function () {
   var h = makeCutoverHarness({ type: "bug" });
   try {
     await h.autoLaunch.launchScheduled("issues");
-    assert.deepStrictEqual(h.started, [11], "the project's own bug autonomy still applies");
-
-    // A second, overlapping tick must not produce a duplicate launch.
-    var second = await h.autoLaunch.launchScheduled("issues");
-    assert.deepStrictEqual(h.started, [11], "the claim must block a duplicate launch");
-    assert.strictEqual(second.skipped.length, 1);
-    var audit = h.gate.audit.read();
-    assert.strictEqual(audit[audit.length - 1].reason, "claim_already_active");
+    assert.deepStrictEqual(h.started, [], "a project controller may not launch");
+    assert.strictEqual(h.candidates.length, 1, "it proposes instead");
+    assert.strictEqual(h.candidates[0].admission, "auto");
+    assert.strictEqual(h.candidates[0].intent.recipeId, "issues");
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
 });
 
-// Only PR items carry `item.key` (project-task-sources.js), so an issue's
-// session records an EMPTY itemKey while its claim was taken under the
-// computed "repo#number". If the release path re-derived the key from the
-// session it would never free an issue's claim, and the Done workflow would be
-// refused for work this automation legitimately owns.
-test("lead mode on: an issue's claim is stamped, released and re-acquirable", async function () {
+// Two ticks — or two daemons, or two recipes — produce candidates that name
+// the SAME work, so Coop's canonical binding dedupes them to one execution.
+// The controller holds no state, so there is nothing to race.
+test("lead mode on: repeated ticks propose the same work identically", async function () {
   var h = makeCutoverHarness({ type: "bug" });
   try {
     await h.autoLaunch.launchScheduled("issues");
-    assert.deepStrictEqual(h.started, [11]);
-
-    var claimed = h.gate.leases.get({ projectId: CUTOVER_PROJECT }, h.gate.claimKeyFor("o/r#11"));
-    assert.ok(claimed, "the issue must be claimed under its computed key");
-
-    // The session the launcher handed back carries the canonical key, even
-    // though the issue item itself had no `key`.
-    var session = {
-      localId: 11,
-      taskLauncher: {
-        recipeId: "issues", itemNumber: 11, autoLaunch: true, autoKind: "issue",
-        itemKey: "", automationClaimKey: "o/r#11",
-      },
-    };
-    h.autoLaunch.notifyCompleted(session, "done");
-    assert.strictEqual(
-      h.gate.leases.get({ projectId: CUTOVER_PROJECT }, h.gate.claimKeyFor("o/r#11")), null,
-      "completion must release the issue's claim");
+    await h.autoLaunch.launchScheduled("issues");
+    assert.deepStrictEqual(h.started, []);
+    assert.strictEqual(h.candidates.length, 2);
+    assert.strictEqual(h.candidates[0].candidateKey, h.candidates[1].candidateKey);
+    assert.strictEqual(h.candidates[0].projectRef.projectId, h.candidates[1].projectRef.projectId);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
 });
 
-test("lead mode on: a still-running session keeps its claim past the lease TTL", function () {
-  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-heartbeat-"));
+// A restart replays the candidate rather than duplicating work: the controller
+// keeps no launch state under Coop, so the second run is byte-identical.
+test("lead mode on: a restart replays the candidate without local state", async function () {
+  var h = makeCutoverHarness({ type: "bug" });
   try {
-    fs.mkdirSync(path.join(cwd, ".clay", "tasks"), { recursive: true });
-    var t = 1000;
-    function now() { return t; }
-    var gate = createAutomationGate({
-      cwd: cwd,
-      slug: "beat",
-      projectRef: { projectId: CUTOVER_PROJECT },
-      policyTtlMs: 0,
-      claimTtlMs: 5000,
-      now: now,
-      getLeadMode: function () { return true; },
-      leases: claimLeases.createClaimLeases({ file: path.join(cwd, "claims.json"), now: now }),
-      audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "beat", now: now }),
-    });
-    // One live auto-launched session, exactly as the runtime would see it.
-    var sessions = new Map();
-    sessions.set("a", { localId: 1, taskLauncher: { autoLaunch: true, itemKey: "o/r#11", workflowCompleted: false } });
-    var autoLaunch = attachAutoLaunch({
-      cwd: cwd,
-      sm: { sessions: sessions, broadcastSessionList: function () {} },
-      getTaskLauncher: function () { return null; },
-      automationGate: gate,
-    });
-
-    gate.leases.acquire({
-      projectRef: { projectId: CUTOVER_PROJECT },
-      key: gate.claimKeyFor("o/r#11"),
-      holder: gate.holder,
-      ttlMs: 5000,
-    });
-
-    // Past the original expiry, but heartbeats happened along the way.
-    t = 4000; autoLaunch.reconcileAutomationClaims();
-    t = 8000; autoLaunch.reconcileAutomationClaims();
-    assert.ok(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")),
-      "a live session's claim must not lapse mid-flight");
-
-    // Once OUR session is gone we release our own claim immediately. There is
-    // no timing heuristic here: a claim belonging to another process is
-    // identified by holder, and only adopted on proof that process is dead.
-    sessions.clear();
-    t = 9000;
-    autoLaunch.reconcileAutomationClaims();
-    assert.strictEqual(gate.leases.get({ projectId: CUTOVER_PROJECT }, gate.claimKeyFor("o/r#11")), null,
-      "our own orphaned claim must be released, not left pinned");
-  } finally {
-    fs.rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-// The Done workflow is where external authority is granted: it tells the agent
-// to comment on the issue, take the PR out of draft and move the board. Under
-// Coop that grant needs a live claim on the item.
-function makeDoneWorkflowHarness(leadMode, gateOverrides) {
-  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-done-"));
-  fs.mkdirSync(path.join(cwd, ".clay", "tasks"), { recursive: true });
-  var gate = createAutomationGate(Object.assign({
-    cwd: cwd,
-    slug: "done",
-    projectRef: { projectId: CUTOVER_PROJECT },
-    policyTtlMs: 0,
-    getLeadMode: function () { return leadMode; },
-    leases: claimLeases.createClaimLeases({ file: path.join(cwd, "claims.json") }),
-    audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "done" }),
-  }, gateOverrides || {}));
-  var tl = attachTaskLauncher({
-    cwd: cwd,
-    sm: { saveSessionFile: function () {}, hideSession: function () {} },
-    sdk: {},
-    getAutomationGate: function () { return gate; },
-    onComplete: function () {},
-    onNeedsInput: function () {},
-  });
-  var session = makeAutoSession();
-  session.taskLauncher.itemKey = "o/r#1975";
-  return { tl: tl, gate: gate, session: session, cwd: cwd };
-}
-
-test("lead mode on: the Done workflow is withheld without a live claim", function () {
-  var h = makeDoneWorkflowHarness(true);
-  try {
-    var directive = h.tl.handleTaskUserMessageDispatched(h.session, "mark as done");
-    assert.ok(directive.indexOf("was not authorized") !== -1, "the grant must be withheld");
-    assert.ok(directive.indexOf("claim_required") !== -1, "and must say why");
-    assert.ok(directive.indexOf("CLAY_TASK_COMPLETE") === -1,
-      "the completion marker instruction must not be handed over");
-    assert.strictEqual(h.session.taskLauncher.closeAfterNextTurn, undefined,
-      "an unauthorized request must not latch a close");
+    await h.autoLaunch.launchScheduled("issues");
+    var before = JSON.parse(JSON.stringify(h.candidates[0]));
+    var restarted = h.restart();
+    await restarted.launchScheduled("issues");
+    assert.deepStrictEqual(h.started, []);
+    var after = h.candidates[h.candidates.length - 1];
+    assert.strictEqual(after.candidateKey, before.candidateKey);
+    assert.strictEqual(after.admission, before.admission);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
 });
 
-test("lead mode on: the Done workflow is granted while the claim is held", function () {
-  var h = makeDoneWorkflowHarness(true);
-  try {
-    h.gate.leases.acquire({
-      projectRef: { projectId: CUTOVER_PROJECT },
-      key: h.gate.claimKeyFor("o/r#1975"),
-      holder: h.gate.holder,
-      ttlMs: 60000,
-    });
-    var directive = h.tl.handleTaskUserMessageDispatched(h.session, "mark as done");
-    assert.ok(directive.indexOf("CLAY_TASK_COMPLETE") !== -1, "the owner-triggered grant should pass");
-    assert.strictEqual(h.session.taskLauncher.closeAfterNextTurn, true);
-  } finally {
-    fs.rmSync(h.cwd, { recursive: true, force: true });
-  }
-});
-
-// A member with access to a shared auto-launched session must not be able to
-// grant the Done workflow's PR/board authority just by typing "done".
-test("lead mode on: only the session owner can trigger the Done workflow", function () {
-  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-"));
-  try {
-    fs.mkdirSync(path.join(cwd, ".clay", "tasks"), { recursive: true });
-    var gate = createAutomationGate({
-      cwd: cwd, slug: "owner", projectRef: { projectId: CUTOVER_PROJECT }, policyTtlMs: 0,
-      getLeadMode: function () { return true; },
-      leases: claimLeases.createClaimLeases({ file: path.join(cwd, "claims.json") }),
-      audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "owner" }),
-    });
-    var tl = attachTaskLauncher({
-      cwd: cwd,
-      sm: { saveSessionFile: function () {}, hideSession: function () {} },
-      sdk: {},
-      usersModule: { isMultiUser: function () { return true; } },
-      getAutomationGate: function () { return gate; },
-      onComplete: function () {},
-      onNeedsInput: function () {},
-    });
-    gate.leases.acquire({
-      projectRef: { projectId: CUTOVER_PROJECT },
-      key: gate.claimKeyFor("o/r#1975"), holder: gate.holder, ttlMs: 60000,
-    });
-
-    function freshSession() {
-      var session = makeAutoSession();
-      session.taskLauncher.automationClaimKey = "o/r#1975";
-      session.ownerId = "user-owner";
-      return session;
-    }
-
-    var byIntruder = freshSession();
-    var denied = tl.handleTaskUserMessageDispatched(byIntruder, "mark as done", "user-someone-else");
-    assert.ok(denied.indexOf("was not authorized") !== -1, "a non-owner must not be granted the workflow");
-    assert.strictEqual(byIntruder.taskLauncher.closeAfterNextTurn, undefined);
-
-    var anonymous = freshSession();
-    assert.ok(tl.handleTaskUserMessageDispatched(anonymous, "mark as done", null)
-      .indexOf("was not authorized") !== -1, "an unidentified sender must not qualify");
-
-    var byOwner = freshSession();
-    var granted = tl.handleTaskUserMessageDispatched(byOwner, "mark as done", "user-owner");
-    assert.ok(granted.indexOf("CLAY_TASK_COMPLETE") !== -1, "the real owner is still granted it");
-    assert.strictEqual(byOwner.taskLauncher.closeAfterNextTurn, true);
-  } finally {
-    fs.rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-test("lead mode off: the Done workflow is untouched legacy behavior", function () {
-  var h = makeDoneWorkflowHarness(false);
-  try {
-    var directive = h.tl.handleTaskUserMessageDispatched(h.session, "mark as done");
-    assert.ok(directive.indexOf("CLAY_TASK_COMPLETE") !== -1);
-    assert.strictEqual(h.session.taskLauncher.closeAfterNextTurn, true);
-  } finally {
-    fs.rmSync(h.cwd, { recursive: true, force: true });
-  }
-});
-
-test("lead mode on: a broken project policy stops the launch and takes no claim", async function () {
+test("lead mode on: a broken project policy proposes nothing", async function () {
   var h = makeCutoverHarness({ type: "bug" });
   try {
     fs.writeFileSync(path.join(h.cwd, ".clay", "tasks", "broken.json"), "{not json");
     h.gate.refresh();
     await h.autoLaunch.launchScheduled("issues");
-    assert.deepStrictEqual(h.started, [], "a fail-closed policy must stop the launch");
-    assert.deepStrictEqual(h.gate.leases.list(), [], "a denied launch must hold no claim");
+    assert.deepStrictEqual(h.started, []);
+    assert.deepStrictEqual(h.candidates, []);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
