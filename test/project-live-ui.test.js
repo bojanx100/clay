@@ -597,14 +597,12 @@ test("target reports remain for review and route follow-up to their existing wor
     type: "live_ui_relay",
     protocolVersion: 1,
     pairingId: paired.pairingId,
-    clientMessageId: "report-approve-1",
-    event: "report.approve",
+    clientMessageId: "report-dismiss-1",
+    event: "report.dismiss",
     payload: { reportId: firstAccepted.reportId },
   });
-  assert.deepStrictEqual(state.closed, [{
-    taskId: "task-1",
-    reason: "Approved in Live UI",
-  }]);
+  assert.deepStrictEqual(state.closed, []);
+  assert.strictEqual(state.session.orchestrationTasks[0].taskId, "task-1");
   assert.ok(state.sent.some(function (entry) {
     return entry.message.type === "live_ui_relay" &&
       entry.message.event === "report.removed" &&
@@ -617,11 +615,11 @@ test("target reports remain for review and route follow-up to their existing wor
     type: "live_ui_relay",
     protocolVersion: 1,
     pairingId: paired.pairingId,
-    clientMessageId: "report-approve-1",
-    event: "report.approve",
+    clientMessageId: "report-dismiss-1",
+    event: "report.dismiss",
     payload: { reportId: firstAccepted.reportId },
   });
-  assert.strictEqual(state.closed.length, 1);
+  assert.strictEqual(state.closed.length, 0);
   assert.strictEqual(state.sent.filter(function (entry) {
     return entry.message.type === "live_ui_state" && entry.message.state === "error";
   }).length, errorsBeforeDuplicate);
