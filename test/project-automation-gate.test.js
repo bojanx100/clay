@@ -337,6 +337,41 @@ test("reconcile adopts claims whose work is still running and releases the rest"
   assert.strictEqual(h.gate.evaluateLaunch(bug("trialview/v2#41")).decision, "execute");
 });
 
+// A dev and a prod daemon share CLAY_HOME, so a holder derived only from the
+// project slug collides exactly, and one daemon's reconcile would adopt or
+// release the other's live lease.
+test("two daemons sharing the claim file get distinct holder identities", function () {
+  var dir = workspace([BUG_RECIPE]);
+  function gateWithIdFile(idFile) {
+    return gateModule.createAutomationGate({
+      cwd: dir, slug: "same-project", projectRef: { projectId: PROJECT_A },
+      policyTtlMs: 0, instanceIdFile: idFile,
+      getLeadMode: function () { return true; },
+      leases: claimLeases.createClaimLeases({ file: path.join(dir, "claims.json") }),
+      audit: automationAudit.createAutomationAudit({ file: path.join(dir, "audit.jsonl"), slug: "same-project" }),
+    });
+  }
+  var daemonA = gateWithIdFile(path.join(dir, "a.id"));
+  var daemonB = gateWithIdFile(path.join(dir, "b.id"));
+  assert.notStrictEqual(daemonA.holder, daemonB.holder,
+    "concurrent daemons must not share a holder identity");
+
+  // A restart of daemon A reuses A's persisted id, so it can still adopt.
+  var daemonARestarted = gateWithIdFile(path.join(dir, "a.id"));
+  assert.strictEqual(daemonARestarted.holder, daemonA.holder,
+    "a restart of the same daemon must keep its identity");
+
+  // B's reconcile must not disturb A's live claim.
+  assert.strictEqual(daemonA.evaluateLaunch(bug("shared#1")).decision, "execute");
+  daemonB.reconcileClaims([]);
+  var survivor = daemonA.leases.get({ projectId: PROJECT_A }, gateModule.claimKeyFor("shared#1"));
+  assert.ok(survivor, "another daemon's reconcile must not release this claim");
+  assert.strictEqual(survivor.holder, daemonA.holder);
+
+  // And B cannot launch the same item while A holds it.
+  assert.strictEqual(daemonB.evaluateLaunch(bug("shared#1")).reason, "claim_held_elsewhere");
+});
+
 test("reconcile never touches another holder's claim", function () {
   var h = makeGate();
   h.leases.acquire({

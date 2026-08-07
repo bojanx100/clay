@@ -19,7 +19,7 @@ function policy(overrides) {
     projectRef: { projectId: PROJECT_ID },
     derived: true,
     autonomy: { bug: "propose", feature: "propose", ambiguous: "propose", pr_review: "propose", default: "propose" },
-    externalActions: { comment: "approval", merge: "approval", close: "approval" },
+    externalActions: { comment: "approval", done_workflow: "approval", merge: "approval", close: "approval" },
     boardExclusions: [],
     providerRules: { vendors: {} },
     recipes: [],
@@ -315,6 +315,44 @@ test("an owner-triggered comment may proceed without completion evidence", funct
   assert.strictEqual(out.decision, "execute");
   assert.strictEqual(out.reason, "owner_triggered_external");
   assert.strictEqual(out.audit.ownerTriggered, true);
+});
+
+// The Done workflow grants comment + PR un-draft + board move. Filing it under
+// "comment" understated it and would let a project that permitted comments
+// unknowingly permit PR and board mutation, so it has its own kind.
+test("the done workflow is a distinct kind, not a comment", function () {
+  var out = externalDecision({
+    externalKind: "done_workflow", ownerTriggered: true, completion: null,
+  });
+  assert.strictEqual(out.decision, "execute");
+  assert.strictEqual(out.reason, "owner_triggered_external");
+  assert.strictEqual(out.audit.externalKind, "done_workflow");
+
+  // Permitting comments must NOT imply permitting the Done workflow.
+  var commentOnly = policy({
+    externalActions: { comment: "claim", done_workflow: "deny", merge: "approval", close: "approval" },
+  });
+  var blocked = externalDecision({
+    externalKind: "done_workflow", ownerTriggered: true, completion: null, policy: commentOnly,
+  });
+  assert.strictEqual(blocked.decision, "deny");
+  assert.strictEqual(blocked.reason, "policy_denies_external_action");
+});
+
+test("the done workflow still requires a live claim", function () {
+  assert.strictEqual(externalDecision({
+    externalKind: "done_workflow", ownerTriggered: true, completion: null, claim: null,
+  }).reason, "claim_required");
+  assert.strictEqual(externalDecision({
+    externalKind: "done_workflow", ownerTriggered: true, completion: null,
+    claim: liveClaim({ expiresAt: NOW - 1 }),
+  }).reason, "claim_required");
+});
+
+test("the done workflow is not owner-granted without an owner", function () {
+  assert.strictEqual(externalDecision({
+    externalKind: "done_workflow", ownerTriggered: false, completion: null,
+  }).reason, "completion_evidence_required");
 });
 
 test("the carve-out never extends to merge or close", function () {

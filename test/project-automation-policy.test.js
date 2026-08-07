@@ -85,7 +85,7 @@ test("explicit automation block wins and marks the policy as not derived", funct
       autoLaunch: { enabled: true, vendorWeights: { claude: 70, codex: 30 } },
       automation: {
         autonomy: { bug: "autonomous", feature: "deny", ambiguous: "owner_approval", pr_review: "propose", default: "deny" },
-        externalActions: { comment: "claim", merge: "deny", close: "approval" },
+        externalActions: { comment: "claim", done_workflow: "approval", merge: "deny", close: "approval" },
       },
     },
     // A bug recipe would DERIVE bug:autonomous anyway; the explicit block must
@@ -98,7 +98,7 @@ test("explicit automation block wins and marks the policy as not derived", funct
   assert.deepStrictEqual(result.policy.autonomy, {
     bug: "autonomous", feature: "deny", ambiguous: "owner_approval", pr_review: "propose", default: "deny",
   });
-  assert.deepStrictEqual(result.policy.externalActions, { comment: "claim", merge: "deny", close: "approval" });
+  assert.deepStrictEqual(result.policy.externalActions, { comment: "claim", done_workflow: "approval", merge: "deny", close: "approval" });
   assert.deepStrictEqual(result.policy.projectRef, REF_A);
   assert.deepStrictEqual(result.policy.providerRules, { vendors: { claude: 70, codex: 30 } });
   assert.deepStrictEqual(result.policy.recipes, [
@@ -122,7 +122,7 @@ test("a partial explicit block falls back to the restrictive baseline, not to de
   // inherit it silently.
   assert.strictEqual(result.policy.autonomy.bug, "propose");
   assert.deepStrictEqual(result.policy.externalActions,
-    { comment: "approval", merge: "approval", close: "approval" });
+    { comment: "approval", done_workflow: "approval", merge: "approval", close: "approval" });
 });
 
 test("unknown key inside automation is policy_malformed", function () {
@@ -213,7 +213,7 @@ test("derivation never yields an external action other than approval", function 
   var policy = load(cwd).policy;
   assert.strictEqual(policy.derived, true);
   var actions = Object.keys(policy.externalActions);
-  assert.deepStrictEqual(actions.sort(), ["close", "comment", "merge"]);
+  assert.deepStrictEqual(actions.sort(), ["close", "comment", "done_workflow", "merge"]);
   for (var i = 0; i < actions.length; i++) {
     assert.strictEqual(policy.externalActions[actions[i]], "approval");
   }
@@ -264,7 +264,7 @@ test("missing .clay/tasks yields the restrictive default and is not an error", f
     bug: "propose", feature: "propose", ambiguous: "propose", pr_review: "propose", default: "propose",
   });
   assert.deepStrictEqual(result.policy.externalActions,
-    { comment: "approval", merge: "approval", close: "approval" });
+    { comment: "approval", done_workflow: "approval", merge: "approval", close: "approval" });
   assert.deepStrictEqual(result.policy.sources, []);
   assert.deepStrictEqual(result.policy.recipes, []);
   assert.deepStrictEqual(result.policy.boardExclusions, []);
