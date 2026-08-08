@@ -1034,6 +1034,96 @@
   text-transform: uppercase;
 }
 
+/* --- Action required queue ---------------------------------------------- */
+/* Sits above the lenses. Deliberately louder than a topic row: these are the
+   only rows in the sidebar that are blocked on the owner personally. */
+.coop-action-queue {
+  margin: 0 8px 10px;
+  padding: 6px;
+  border: 1px solid var(--attention-border, var(--border-subtle));
+  border-radius: 8px;
+  background: var(--attention-bg, var(--sidebar-hover));
+}
+
+.coop-action-queue-heading {
+  padding: 2px 4px 6px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.coop-action-item-wrapper { margin: 2px 0; }
+
+.coop-action-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.coop-action-item:hover,
+.coop-action-item:focus-visible { background: var(--sidebar-hover); }
+.coop-action-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Stacked, not side by side: sharing one line let the project chip eat a
+   quarter of the width and truncated the title to "Codex review of the s...",
+   which is the one string that identifies the work. */
+.coop-action-item-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+}
+
+.coop-action-item-project {
+  flex: 0 0 auto;
+  color: var(--text-dimmer);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.coop-action-item-title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* The question wraps rather than ellipsing on one line, but is clamped so one
+   verbose worker cannot push the topic list off the screen. `anywhere` is what
+   stops a long unbroken token (a URL) from overflowing the row horizontally. */
+.coop-action-item-decision {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.action-item-links { display: flex; flex-wrap: wrap; gap: 8px; padding: 1px 7px 3px; }
+.action-item-link { overflow-wrap: anywhere; color: var(--text-dimmer); font-size: 10px; text-decoration: none; }
+.action-item-link:hover { color: var(--accent); text-decoration: underline; }
+
 .coop-topic-overview { margin: 0 8px 4px; }
 
 .coop-topic-all,
