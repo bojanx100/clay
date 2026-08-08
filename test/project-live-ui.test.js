@@ -855,7 +855,7 @@ test("target reports remain for review and route follow-up to their existing wor
   assert.strictEqual(state.coordinated.length, 2);
 
   state.session.orchestrationTasks[0].status = "completed";
-  state.session.orchestrationTasks[0].resolvedByCoordinator = true;
+  state.session.orchestrationTasks[0].resolvedByCoordinator = false;
   await new Promise(function (resolve) { setTimeout(resolve, 750); });
   assert.ok(state.sent.some(function (entry) {
     return entry.message.type === "live_ui_relay" &&
