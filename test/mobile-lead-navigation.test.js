@@ -55,5 +55,26 @@ test("Coop is pinned first in the one surface that switches projects", function 
 
   var lead = source("sidebar-lead.js");
   assert.match(lead, /mobile-project-item mobile-lead-project-item/);
-  assert.match(lead, /appendLeadBadge\(row, "mobile-lead-project-badge"\)/);
+  // The row is still pinned and still distinguishable by its own class, but it
+  // no longer carries a "Lead" badge: that is Coop's internal power mode, not a
+  // name the owner should ever read. Ordering is what this test guards; the
+  // identity is asserted below.
+  assert.ok(lead.indexOf("appendLeadBadge") === -1, "the owner-facing Lead badge is gone");
+  // Rendered literals only -- prose about the internal mode is fine and useful.
+  assert.ok(lead.indexOf('textContent = "Lead"') === -1, "no literal Lead identity may be rendered");
+  assert.match(lead, /COOP_IDENTITY/);
+});
+
+test("no owner-facing surface renders the internal Lead identity", function () {
+  // "Lead" is a routing/capability mode. Every producer the owner can see must
+  // name the product "Coop", including when project metadata is missing or
+  // stale -- the fallback used to be the literal internal name.
+  ["sidebar-lead.js", "sidebar-sessions-model.js", "sidebar-mobile-coordinators.js"]
+    .forEach(function (file) {
+      var text = source(file);
+      assert.ok(text.indexOf('label: "Lead"') === -1, file + " must not label a section Lead");
+      assert.ok(text.indexOf('textContent = "Lead"') === -1, file + " must not render Lead");
+    });
+  var lead = source("sidebar-lead.js");
+  assert.match(lead, /\|\| COOP_IDENTITY;/, "the fallback identity is Coop, not Lead");
 });

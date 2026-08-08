@@ -243,3 +243,55 @@ test("owner-facing blockers are kept, not swept up with the narration", function
   ];
   assert.deepEqual(relevance.mainLensEventIndexes(history), [0, 1]);
 });
+
+
+// --- thinking_delta and the bounded replay window ----------------------------
+//
+// thinking_delta is emitted per token by lib/sdk-message-processor.js:592 and
+// was missing from this denylist, so reasoning streamed into Main. It is not
+// merely noise: Main replays a BOUNDED window, so a single verbose turn's
+// deltas could fill it entirely and push the owner's own question out of view.
+
+test("thinking_delta is operational on the real emitted shape", function () {
+  // Verbatim shape from sdk-message-processor.js:592.
+  var record = { type: "thinking_delta", text: "let me consider the rollup" };
+  assert.ok(relevance.isOperationalEvent(record));
+  assert.deepEqual(relevance.mainLensEventIndexes([record]), []);
+});
+
+test("any future thinking_* type is caught by shape, not by an exact name", function () {
+  // The denylist has now been wrong twice about this vocabulary; the prefix
+  // guard is what stops a third round.
+  assert.ok(relevance.isOperationalEvent({ type: "thinking_summary" }));
+  assert.ok(relevance.isOperationalEvent({ type: "thinking_signature" }));
+  assert.ok(!relevance.isOperationalEvent({ type: "delta", text: "hi" }));
+});
+
+test("a flood of thinking deltas cannot push the owner question out of Main", function () {
+  // The reported failure: 601 deltas in one turn, and Main's initial 300-event
+  // window began at a thinking delta, so the question was gone while the answer
+  // remained -- the conversation read as an answer to nothing.
+  var history = [{ type: "user_message", text: "ship the parent-only icons?" }];
+  for (var i = 0; i < 601; i++) history.push({ type: "thinking_delta", text: "t" + i });
+  history.push({ type: "delta", text: "Yes, shipping them." });
+  history.push({ type: "done" });
+
+  var main = relevance.mainLensEventIndexes(history);
+  assert.deepEqual(main, [0, 602, 603]);
+  // The window is bounded; what matters is that the question survives it.
+  var windowed = main.slice(-300);
+  assert.ok(windowed.indexOf(0) !== -1, "the owner question must stay inside the window");
+  assert.ok(main.length < 310, "601 deltas must not consume the window");
+});
+
+test("the two relevance paths agree about thinking_delta", function () {
+  // Not a comparison of two lists this file wrote: the client module is loaded
+  // and asked directly, so a fix applied to only one side fails here.
+  var fs = require("node:fs");
+  var pathMod = require("node:path");
+  var client = fs.readFileSync(
+    pathMod.join(__dirname, "..", "lib", "public", "modules", "coop-lens-relevance.js"), "utf8");
+  assert.match(client, /thinking_delta: true/);
+  assert.match(client, /isThinkingShaped/);
+  assert.ok(relevance.isOperationalEvent({ type: "thinking_delta" }));
+});

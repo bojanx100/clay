@@ -253,7 +253,7 @@ test("a card is a real control that opens the decision panel in place", async fu
 
 test("the panel states project, canonical title, evidence and the exact question", async function () {
   var ctx = await harness();
-  ctx.store.set({ openCoopActionItemId: "webapp-project-id|webapp#2503" });
+  ctx.store.set({ openCoopActionItemId: "webapp-project-id|issue#2503" });
   var out = await renderedQueue(ctx, {});
   var panel = byClass(out.container, "coop-action-detail")[0];
   assert.equal(textOf(panel, "coop-action-detail-meta"),
@@ -267,7 +267,7 @@ test("the panel states project, canonical title, evidence and the exact question
 
 test("the panel offers exactly the three owner decisions", async function () {
   var ctx = await harness();
-  ctx.store.set({ openCoopActionItemId: "webapp-project-id|webapp#2503" });
+  ctx.store.set({ openCoopActionItemId: "webapp-project-id|issue#2503" });
   var out = await renderedQueue(ctx, {});
   var labels = byClass(out.container, "coop-action-decide").map(function (b) { return b.textContent; });
   assert.deepEqual(labels, ["Advance", "Request changes", "Keep waiting"]);
@@ -275,7 +275,7 @@ test("the panel offers exactly the three owner decisions", async function () {
 
 test("the preview artifact and session stay available as secondary actions", async function () {
   var ctx = await harness();
-  ctx.store.set({ openCoopActionItemId: "webapp-project-id|webapp#2503" });
+  ctx.store.set({ openCoopActionItemId: "webapp-project-id|issue#2503" });
   var sessions = [];
   var out = await renderedQueue(ctx, { openSession: function (d) { sessions.push(d); } });
   var links = byClass(out.container, "action-item-link").map(function (l) { return l.textContent; });
@@ -294,7 +294,7 @@ test("the preview artifact and session stay available as secondary actions", asy
 test("an outbound issue link does not also navigate the row", async function () {
   var ctx = await harness();
   var sessions = [], projects = [];
-  ctx.store.set({ openCoopActionItemId: "webapp-project-id|webapp#2503" });
+  ctx.store.set({ openCoopActionItemId: "webapp-project-id|issue#2503" });
   var out = await renderedQueue(ctx, {
     openSession: function (d) { sessions.push(d); },
     openProject: function (s) { projects.push(s); },
@@ -461,8 +461,9 @@ test("a malformed item is dropped rather than rendered blank", async function ()
 // real acknowledgement, and the rule they exist to protect is that deciding one
 // item leaves the other untouched.
 
-var ID_2503 = "webapp-project-id|webapp#2503";
-var ID_2517 = "webapp-project-id|webapp#2517";
+// Canonical identity is project + ISSUE now, not the client ref.
+var ID_2503 = "webapp-project-id|issue#2503";
+var ID_2517 = "webapp-project-id|issue#2517";
 
 async function openPanel(ctx, itemId, sent, extra) {
   ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
@@ -796,4 +797,125 @@ test("every interaction state changes the render signature", async function () {
 
   ack(ctx, sent, { decision: "advance" });
   assert.notEqual(ctx.ui.actionQueueSignature(), pending, "the result must repaint");
+});
+
+
+// --- dropped ACK across a reconnect -----------------------------------------
+//
+// The earlier reconnect test emptied the queue first, which cleared pending
+// state as a side effect and so never modelled the real path: the socket drops
+// AFTER a successful send but BEFORE the ack, then the identical projection
+// comes back. That left the item pending forever with every control disabled.
+
+test("a decision interrupted by a reconnect becomes retryable, not stuck", async function () {
+  var ctx = await harness();
+  var sent = [];
+  var container = await openPanel(ctx, ID_2503, sent);
+  decideButton(container, "Advance").click();
+  assert.equal(ctx.ui.isDecisionPending(ID_2503), true);
+
+  // Socket drops before the ack; the new socket can never deliver it.
+  assert.equal(ctx.ui.notifyCoopReconnect(), true);
+  // The authoritative projection comes back IDENTICAL -- the item is still
+  // queued, so the decision did not land.
+  ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
+
+  assert.equal(ctx.ui.isDecisionPending(ID_2503), false, "pending must not survive the reconnect");
+  assert.equal((ctx.store.get("coopActionError") || {})[ID_2503], "interrupted");
+
+  var view = element("div");
+  // Same recording transport, so the retry below is actually observable.
+  ctx.ui.renderCoopActionQueue(view, {
+    send: function (msg) { sent.push(msg); return true; },
+  });
+  var panel = byClass(view, "coop-action-detail")[0];
+  assert.equal(byClass(panel, "coop-action-state-error")[0].textContent,
+    "The connection dropped before this was recorded. Try again.");
+  // Retry is genuinely possible again.
+  var buttons = byClass(panel, "coop-action-decide");
+  assert.equal(buttons.length, 3);
+  buttons.forEach(function (b) { assert.ok(!b.disabled); });
+  decideButton(view, "Advance").click();
+  assert.equal(sent.length, 2, "the owner can retry after an interrupted decision");
+});
+
+test("an interrupted decision whose item is gone is pruned, not shown as failed", async function () {
+  var ctx = await harness();
+  var sent = [];
+  var container = await openPanel(ctx, ID_2503, sent);
+  decideButton(container, "Advance").click();
+  ctx.ui.notifyCoopReconnect();
+
+  // This time the decision DID land before the drop, so the item is gone.
+  var remaining = ctx.ui.normalizeActionQueue(serverProjection())
+    .filter(function (i) { return i.itemId !== ID_2503; });
+  ctx.ui.setActionQueue(remaining);
+
+  assert.equal(ctx.ui.isDecisionPending(ID_2503), false);
+  assert.equal((ctx.store.get("coopActionError") || {})[ID_2503], undefined,
+    "work that was decided must not be reported as interrupted");
+  var view = element("div");
+  ctx.ui.renderCoopActionQueue(view, {});
+  assert.equal(rowFor(view, "2503"), null);
+  assert.ok(rowFor(view, "2517"), "and the other item is untouched");
+});
+
+test("a reconnect with nothing in flight changes nothing", async function () {
+  var ctx = await harness();
+  ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
+  var before = ctx.ui.actionQueueSignature();
+  assert.equal(ctx.ui.notifyCoopReconnect(), false);
+  ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
+  assert.equal(ctx.ui.actionQueueSignature(), before, "an idle reconnect must not churn");
+});
+
+test("the reconnect hook is actually wired to the socket opening", function () {
+  var fs = require("node:fs");
+  var connection = fs.readFileSync(
+    path.join(__dirname, "..", "lib", "public", "modules", "app-connection.js"), "utf8");
+  assert.match(connection, /notifyCoopReconnect\(\);/);
+  assert.match(connection, /import \{ notifyCoopReconnect \} from '\.\/coop-action-queue-ui\.js';/);
+});
+
+// --- acceptance surface ------------------------------------------------------
+
+test("finished work offers Accept instead of Advance", async function () {
+  var ctx = await harness();
+  var items = ctx.ui.normalizeActionQueue(serverProjection());
+  items[0] = Object.assign({}, items[0], { kind: "acceptance" });
+  ctx.ui.setActionQueue(items);
+  ctx.store.set({ openCoopActionItemId: items[0].itemId });
+  var view = element("div");
+  var sent = [];
+  ctx.ui.renderCoopActionQueue(view, { send: function (m) { sent.push(m); return true; } });
+
+  var labels = byClass(view, "coop-action-decide").map(function (b) { return b.textContent; });
+  assert.deepEqual(labels, ["Accept as done", "Request changes", "Keep waiting"]);
+  decideButton(view, "Accept as done").click();
+  assert.equal(sent[0].decision, "accept");
+});
+
+test("an accepted item offers Reopen, so acceptance is revocable in the UI", async function () {
+  var ctx = await harness();
+  var items = ctx.ui.normalizeActionQueue(serverProjection());
+  items[0] = Object.assign({}, items[0], { kind: "acceptance" });
+  ctx.ui.setActionQueue(items);
+  var id = items[0].itemId;
+  ctx.store.set({ openCoopActionItemId: id });
+  var sent = [];
+  var view = element("div");
+  ctx.ui.renderCoopActionQueue(view, { send: function (m) { sent.push(m); return true; } });
+  decideButton(view, "Accept as done").click();
+  ctx.ui.handleDecisionResult({
+    type: "coop_action_decision_result", ok: true, itemId: id,
+    requestId: sent[0].requestId, decision: "accept",
+  });
+
+  var done = element("div");
+  ctx.ui.renderCoopActionQueue(done, { send: function (m) { sent.push(m); return true; } });
+  assert.match(byClass(done, "coop-action-state-done")[0].textContent, /Accepted\. This work is done\./);
+  var reopen = byClass(done, "coop-action-decide")[0];
+  assert.equal(reopen.textContent, "Reopen");
+  reopen.click();
+  assert.equal(sent[sent.length - 1].decision, "revoke_acceptance");
 });

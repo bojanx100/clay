@@ -175,14 +175,56 @@ test("the same issue seen twice is one item, preferring the one with a session",
   assert.ok(items[0].links.map(function (l) { return l.label; }).indexOf("PR #2504") !== -1);
 });
 
-test("resolving one decision removes only that item", function () {
-  var resolved = task2503({ status: "completed" });
+test("finished work stays as an acceptance item, it does not silently vanish", function () {
+  // The owner's rule: a terminal implementation state is NOT Done. Finishing
+  // must produce a durable owner-facing item, otherwise the work disappears
+  // from view and ownerAcceptance is never written, which is exactly why the
+  // Done state was unreachable.
+  var finished = task2503({ status: "completed" });
   var items = queue.buildActionQueue([
-    webappProject([coordinator(), resolved, task2517()], [session2503()]),
+    webappProject([coordinator(), finished, task2517()], [session2503()]),
+  ], {});
+  assert.equal(items.length, 2);
+  var item = byIssue(items, "2503");
+  assert.ok(item, "finished-but-unaccepted work stays in the queue");
+  assert.equal(item.kind, "acceptance");
+  assert.match(item.decision, /accept it, or send it back/);
+});
+
+test("accepted work leaves the queue, and only that item", function () {
+  var accepted = task2503({
+    status: "completed",
+    ownerAcceptance: { status: "accepted", at: 10, withdrawnAt: null },
+  });
+  var items = queue.buildActionQueue([
+    webappProject([coordinator(), accepted, task2517()], [session2503()]),
   ], {});
   assert.equal(items.length, 1);
   assert.equal(items[0].title, "Excel Viewer - view only");
   assert.equal(byIssue(items, "2503"), null);
+});
+
+test("a revoked acceptance puts the work back in front of the owner", function () {
+  // Acceptance is revocable, so withdrawing it must reopen the item rather
+  // than leaving the work accepted-but-hidden.
+  var revoked = task2503({
+    status: "completed",
+    ownerAcceptance: { status: "accepted", at: 10, withdrawnAt: 20 },
+  });
+  var items = queue.buildActionQueue([
+    webappProject([coordinator(), revoked], []),
+  ], {});
+  assert.equal(items.length, 1);
+  assert.equal(items[0].kind, "acceptance");
+});
+
+test("dismissed and cancelled work is not asked about", function () {
+  ["dismissed", "cancelled"].forEach(function (status) {
+    var items = queue.buildActionQueue([
+      webappProject([coordinator(), task2503({ status: status })], []),
+    ], {});
+    assert.deepEqual(items, [], status + " must not become an acceptance item");
+  });
 });
 
 // --- coordinators, cross-project, ordering, ACL -----------------------------
