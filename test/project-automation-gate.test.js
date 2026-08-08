@@ -39,6 +39,16 @@ function workspace(recipes) {
   return dir;
 }
 
+// Committed bindings the fixture is willing to attest, keyed taskId:revision.
+var committedBindings = {};
+
+function attestBinding(taskId, revision, overrides) {
+  committedBindings[taskId + ":" + revision] = Object.assign({
+    portfolioTaskId: taskId, bindingRevision: revision, status: "active",
+    mode: "project_coordinator", targetProject: { projectId: PROJECT_A },
+  }, overrides || {});
+}
+
 function makeGate(options) {
   var opts = options || {};
   var dir = opts.cwd || workspace([BUG_RECIPE]);
@@ -50,7 +60,16 @@ function makeGate(options) {
     projectRef: { projectId: opts.projectId || PROJECT_A },
     policyTtlMs: 0,
     getLeadMode: function () { return leadMode; },
-    emitCandidate: function (candidate) { candidates.push(candidate); },
+    emitCandidate: function (candidate) {
+      candidates.push(candidate);
+      // Typed: a handoff that does not report success is now a failed handoff.
+      return { ok: true, created: true, changed: true };
+    },
+    // External authorization is now PROVEN against a committed binding, so the
+    // fixture must supply one rather than relying on shape.
+    getExecutionBinding: function (taskId, revision) {
+      return committedBindings[taskId + ":" + revision] || null;
+    },
     audit: automationAudit.createAutomationAudit({
       file: path.join(dir, "audit.jsonl"), slug: "webapp",
     }),
@@ -184,6 +203,7 @@ test("an external action is refused without a canonical Coop binding", function 
 
 test("a Coop binding plus completion evidence authorizes an external action", function () {
   var h = makeGate();
+  attestBinding("task-1", 1);
   var out = h.gate.evaluateExternal({
     itemKey: "trialview/v2#11", externalKind: "merge",
     coopAuthorization: { portfolioTaskId: "task-1", bindingRevision: 1 },
@@ -194,6 +214,7 @@ test("a Coop binding plus completion evidence authorizes an external action", fu
 
 test("a Coop binding still cannot skip completion evidence for merge or close", function () {
   var h = makeGate();
+  attestBinding("task-1", 1);
   var kinds = ["merge", "close"];
   for (var i = 0; i < kinds.length; i++) {
     var out = h.gate.evaluateExternal({
@@ -269,7 +290,7 @@ test("every decision is audited, proposals included", function () {
   assert.ok(proposal.policyDigest);
 });
 
-test("a candidate delivery failure never breaks the tick", function () {
+test("a candidate delivery failure is a typed denial, not a proposal", function () {
   var dir = workspace([BUG_RECIPE]);
   var gate = gateModule.createAutomationGate({
     cwd: dir, slug: "boom", projectRef: { projectId: PROJECT_A }, policyTtlMs: 0,
@@ -279,5 +300,114 @@ test("a candidate delivery failure never breaks the tick", function () {
       file: path.join(dir, "audit.jsonl"), slug: "boom" }),
   });
   var out = gate.evaluateLaunch(bug("x#9"));
-  assert.strictEqual(out.decision, "propose");
+  // A proposal nobody received is not a proposal. Reporting proposed_to_coop
+  // here claimed the work had been handed over when no durable record existed.
+  assert.strictEqual(out.decision, "deny");
+  assert.strictEqual(out.reason, "candidate_delivery_threw");
+  assert.strictEqual(out.handoffFailed, true);
+  assert.strictEqual(out.candidate, null);
+});
+
+test("a sink that reports failure is a typed denial too", function () {
+  var dir = workspace([BUG_RECIPE]);
+  var gate = gateModule.createAutomationGate({
+    cwd: dir, slug: "sink", projectRef: { projectId: PROJECT_A }, policyTtlMs: 0,
+    getLeadMode: function () { return true; },
+    emitCandidate: function () { return { ok: false, reason: "persistence_failed" }; },
+    audit: automationAudit.createAutomationAudit({
+      file: path.join(dir, "audit.jsonl"), slug: "sink" }),
+  });
+  var out = gate.evaluateLaunch(bug("x#10"));
+  assert.strictEqual(out.decision, "deny");
+  assert.strictEqual(out.reason, "persistence_failed");
+});
+
+test("no candidate sink at all is a denial rather than a silent success", function () {
+  var dir = workspace([BUG_RECIPE]);
+  var gate = gateModule.createAutomationGate({
+    cwd: dir, slug: "nosink", projectRef: { projectId: PROJECT_A }, policyTtlMs: 0,
+    getLeadMode: function () { return true; },
+    audit: automationAudit.createAutomationAudit({
+      file: path.join(dir, "audit.jsonl"), slug: "nosink" }),
+  });
+  assert.strictEqual(gate.evaluateLaunch(bug("x#11")).reason, "candidate_sink_unavailable");
+});
+
+// --- External authorization must be PROVEN, not shaped ------------------------
+
+test("a fabricated task id cannot authorize a merge", function () {
+  var h = makeGate();
+  var out = h.gate.evaluateExternal({
+    itemKey: "trialview/v2#12", externalKind: "merge",
+    // Well-shaped and completely invented.
+    coopAuthorization: { portfolioTaskId: "totally-made-up", bindingRevision: 1 },
+    completion: evidence(), approval: { granted: true, by: "owner" },
+    ownerTriggered: true,
+  });
+  assert.strictEqual(out.decision, "deny");
+  assert.strictEqual(out.reason, "coop_authorization_unknown");
+});
+
+test("a reserved-but-uncommitted binding does not authorize", function () {
+  var h = makeGate();
+  attestBinding("task-pending", 1, { status: "pending" });
+  assert.strictEqual(h.gate.evaluateExternal({
+    itemKey: "x", externalKind: "merge",
+    coopAuthorization: { portfolioTaskId: "task-pending", bindingRevision: 1 },
+    completion: evidence(), approval: { granted: true, by: "owner" },
+  }).reason, "coop_authorization_not_committed");
+});
+
+test("a binding for another project does not authorize this one", function () {
+  var h = makeGate();
+  attestBinding("task-foreign", 1, { targetProject: { projectId: PROJECT_B } });
+  assert.strictEqual(h.gate.evaluateExternal({
+    itemKey: "x", externalKind: "merge",
+    coopAuthorization: { portfolioTaskId: "task-foreign", bindingRevision: 1 },
+    completion: evidence(), approval: { granted: true, by: "owner" },
+  }).reason, "coop_authorization_foreign_project");
+});
+
+test("a mismatched revision does not authorize", function () {
+  var h = makeGate();
+  attestBinding("task-rev", 1);
+  assert.strictEqual(h.gate.evaluateExternal({
+    itemKey: "x", externalKind: "merge",
+    coopAuthorization: { portfolioTaskId: "task-rev", bindingRevision: 7 },
+    completion: evidence(), approval: { granted: true, by: "owner" },
+  }).reason, "coop_authorization_unknown");
+});
+
+test("the owner-triggered carve-out needs authentic provenance too", function () {
+  var h = makeGate();
+  // Owner-triggered done_workflow normally skips completion evidence — but only
+  // on a real binding. A fabricated one must not unlock it.
+  assert.strictEqual(h.gate.evaluateExternal({
+    itemKey: "x", externalKind: "done_workflow", ownerTriggered: true,
+    coopAuthorization: { portfolioTaskId: "invented", bindingRevision: 1 },
+    completion: null, approval: { granted: true, by: "owner" },
+  }).decision, "deny");
+
+  attestBinding("task-real", 1);
+  assert.strictEqual(h.gate.evaluateExternal({
+    itemKey: "x", externalKind: "done_workflow", ownerTriggered: true,
+    coopAuthorization: { portfolioTaskId: "task-real", bindingRevision: 1 },
+    completion: null, approval: { granted: true, by: "owner" },
+  }).decision, "execute");
+});
+
+test("without a binding reader nothing external is authorized", function () {
+  var dir = workspace([BUG_RECIPE]);
+  var gate = gateModule.createAutomationGate({
+    cwd: dir, slug: "noreader", projectRef: { projectId: PROJECT_A }, policyTtlMs: 0,
+    getLeadMode: function () { return true; },
+    emitCandidate: function () { return { ok: true }; },
+    audit: automationAudit.createAutomationAudit({
+      file: path.join(dir, "audit.jsonl"), slug: "noreader" }),
+  });
+  assert.strictEqual(gate.evaluateExternal({
+    itemKey: "x", externalKind: "merge",
+    coopAuthorization: { portfolioTaskId: "t", bindingRevision: 1 },
+    completion: evidence(), approval: { granted: true, by: "owner" },
+  }).reason, "coop_authorization_unverifiable");
 });

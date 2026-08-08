@@ -691,7 +691,11 @@ function makeCutoverHarness(recipeFilter) {
       projectRef: { projectId: CUTOVER_PROJECT },
       policyTtlMs: 0,
       getLeadMode: function () { return true; },
-      emitCandidate: function (candidate) { candidates.push(candidate); },
+      emitCandidate: function (candidate) {
+        candidates.push(candidate);
+        // Typed handoff: an untyped return now reads as a lost candidate.
+        return { ok: true, created: true, changed: true };
+      },
       audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "cutover" }),
     });
   }
