@@ -116,16 +116,17 @@ test("membership refs outside the transcript never count as relevant", function 
 test("Main keeps the conversation and drops execution narration", function () {
   var history = [
     userMessage("restore the switcher"),
-    { type: "thinking", text: "considering" },
-    { type: "tool_use", name: "Bash", input: { command: "ls" } },
-    { type: "tool_result", text: "a b c" },
+    { type: "thinking_stop" },
+    { type: "tool_start", id: "exec-1", name: "Bash" },
+    { type: "tool_executing", id: "exec-1", name: "Bash", input: { command: "ls" } },
+    { type: "tool_result", id: "exec-1", content: "a b c", is_error: false },
     { type: "delta", text: "Restored it." },
     { type: "context_usage", tokens: 10 },
     { type: "info", text: "Switched provider" },
     { type: "done" },
   ];
   var main = relevance.mainLensEventIndexes(history);
-  assert.deepEqual(main, [0, 4, 7]);
+  assert.deepEqual(main, [0, 5, 8]);
 });
 
 test("Main keeps genuine questions and blockers", function () {
@@ -172,4 +173,73 @@ test("operational classification matches the durable skip list", function () {
   assert.ok(!relevance.isOperationalEvent(null));
   // digest_checkpoint is already skipped by sessions-history; keep agreement.
   assert.ok(relevance.isInternalHistoryItem({ type: "digest_checkpoint" }));
+});
+
+// --- real record shapes from the owner's canonical transcript ---------------
+//
+// The first version of the denylist guessed "tool_use"/"tool_call"/"thinking".
+// This system emits none of those. Against the owner's actual 48,243-record
+// transcript that left 3,423 tool records -- 2,970 of them Bash -- classified as
+// conversation and visible in Main. These fixtures are copied from that file.
+
+test("real tool record types are operational", function () {
+  // Verbatim shapes, keys and all.
+  var start = { type: "tool_start", id: "exec-ffa6f91a", name: "Bash", _ts: 1785944087707 };
+  var executing = { type: "tool_executing", id: "exec-ffa6f91a", name: "Bash",
+    input: { command: "/bin/zsh -lc \"wc -l SKILL.md\"" }, _ts: 1785944087707 };
+  var result = { type: "tool_result", id: "exec-ffa6f91a", content: "", is_error: false, _ts: 1785944087707 };
+  var thinkingStop = { type: "thinking_stop", _ts: 1785941650814 };
+
+  assert.ok(relevance.isOperationalEvent(start));
+  assert.ok(relevance.isOperationalEvent(executing));
+  assert.ok(relevance.isOperationalEvent(result));
+  assert.ok(relevance.isOperationalEvent(thinkingStop));
+
+  var main = relevance.mainLensEventIndexes([start, executing, result, thinkingStop]);
+  assert.deepEqual(main, [], "no tool record may reach Main");
+});
+
+test("a Bash turn keeps its conversation and drops its execution", function () {
+  var history = [
+    { type: "user_message", text: "check the file" },
+    { type: "tool_start", id: "exec-1", name: "Bash" },
+    { type: "tool_executing", id: "exec-1", name: "Bash", input: { command: "wc -l x" } },
+    { type: "tool_result", id: "exec-1", content: "42 x", is_error: false },
+    { type: "delta", text: "It has 42 lines." },
+    { type: "done" },
+  ];
+  assert.deepEqual(relevance.mainLensEventIndexes(history), [0, 4, 5]);
+});
+
+test("an unknown tool type is caught by shape, not by its name", function () {
+  // Protects transcripts written by builds this one has never seen: tool traffic
+  // is correlated by an execution id plus a tool name or a result payload.
+  assert.ok(relevance.isToolShapedRecord({ type: "tool_future", id: "exec-9", name: "Bash" }));
+  assert.ok(relevance.isToolShapedRecord({ type: "whatever", id: "exec-9", content: "out", is_error: true }));
+  assert.ok(relevance.isOperationalEvent({ type: "totally_new_tool_event", id: "exec-9", name: "Grep" }));
+  // A conversational record with an id but real text is not tool-shaped.
+  assert.ok(!relevance.isToolShapedRecord({ type: "user_message", id: "m-1", text: "hello" }));
+  assert.ok(!relevance.isToolShapedRecord({ type: "delta", text: "hi" }));
+  assert.ok(!relevance.isToolShapedRecord({ type: "done" }));
+});
+
+test("scheduled Lead-tick plumbing never reaches Main", function () {
+  var history = [
+    { type: "scheduled_message_queued", id: "s-1", text: "↻ Lead tick" },
+    { type: "scheduled_message_sent", id: "s-1" },
+    { type: "user_message", text: "a real question" },
+    { type: "done" },
+  ];
+  assert.deepEqual(relevance.mainLensEventIndexes(history), [2, 3]);
+});
+
+test("owner-facing blockers are kept, not swept up with the narration", function () {
+  // These are things the owner must act on, so they stay in Main even though
+  // they are not conversation in the strictest sense.
+  var history = [
+    { type: "error", text: "build failed" },
+    { type: "auth_required", text: "re-authenticate" },
+    { type: "tool_start", id: "e1", name: "Bash" },
+  ];
+  assert.deepEqual(relevance.mainLensEventIndexes(history), [0, 1]);
 });
