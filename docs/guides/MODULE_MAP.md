@@ -101,6 +101,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-live-ui-workspace.js` | Server-authoritative inspected-port ownership mapping across registered projects and git worktrees |
 | `project-live-ui-pairing.js` | Existing/new chat pairing against a server-verified Live UI workspace plus safe target metadata |
 | `project-live-ui-reports.js` | Coordinator-owned Live UI report creation, React/source context, worker-color identity, compact status relay, and verified worker cleanup |
+| `project-live-ui-report-store.js` | Session-backed Live UI worker-card recovery, validation, dismissal tombstones, and restart-safe task reconstruction |
 | `project-live-ui-attachments.js` | Bounded Live UI clipboard image/text validation, image persistence, and worker-context formatting |
 | `project-live-ui-context.js` | Bounded DOM/React selection-packet validation, safe source paths, sensitive-field exclusion, PII scrubbing, and fingerprints |
 | `lib/public/modules/live-ui.js` | Workspace Live UI entry, pairing lifecycle presentation, and current sanitized selection |

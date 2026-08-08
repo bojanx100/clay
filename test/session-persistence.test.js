@@ -179,6 +179,40 @@ test("Coop ingress recovery state persists without creating a second conversatio
   }
 });
 
+test("Live UI worker cards persist with their coordinator session", async function () {
+  var h = makeSessionHarness();
+  try {
+    var session = [...h.sm.sessions.values()][0];
+    session.storageId = "live-ui-coordinator";
+    session.liveUiReports = [{
+      reportId: "report-1",
+      taskId: "task-1",
+      title: "Fix the clock",
+      status: "working",
+      message: "Being worked on.",
+      selection: null,
+      workerSessionId: 17,
+      workerColor: "#55A7FF",
+    }];
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(readSessionMeta(h, "live-ui-coordinator").liveUiReports.length, 1);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = [...restored.sessions.values()].find(function (candidate) {
+      return candidate.storageId === "live-ui-coordinator";
+    });
+    assert.strictEqual(restoredSession.liveUiReports[0].reportId, "report-1");
+    assert.strictEqual(restoredSession.liveUiReports[0].taskId, "task-1");
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
 function sessionFile(h, storageId) {
   return path.join(h.sessionsDir, storageId + ".jsonl");
 }

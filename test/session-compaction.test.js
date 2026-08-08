@@ -352,6 +352,11 @@ test("compaction moves a settled coordinator graph and retargets worker lineage"
       completionRevision: 1,
       graphDigest: "terminal-graph",
     },
+    liveUiReports: [{
+      reportId: "report-done",
+      taskId: "task-done",
+      dismissed: false,
+    }],
     history: [{ type: "user_message", text: "Summarize the completed work", _ts: 1 }],
   };
   var worker = {
@@ -390,8 +395,10 @@ test("compaction moves a settled coordinator graph and retargets worker lineage"
   assert.strictEqual(continuation.orchestrationGraphId, "graph-1");
   assert.strictEqual(continuation.orchestrationProjectCompletion.graphDigest, "terminal-graph");
   assert.strictEqual(continuation.orchestrationTasks[0].taskId, "task-done");
+  assert.strictEqual(continuation.liveUiReports[0].reportId, "report-done");
   assert.strictEqual(source.coordinationMode, undefined);
   assert.strictEqual(source.orchestrationTasks, undefined);
+  assert.strictEqual(source.liveUiReports, undefined);
   assert.strictEqual(worker.orchestrationParent.sessionId, continuation.localId);
   assert.strictEqual(worker.orchestrationParent.sessionStorageId, continuation.storageId);
   assert.ok(saved.indexOf(worker) !== -1);

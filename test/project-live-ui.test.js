@@ -25,9 +25,12 @@ function harness(overrides) {
     cliSessionId: "provider-session",
     title: "Framer workflow",
     hidden: false,
-    orchestrationTasks: [],
+    orchestrationTasks: overrides.orchestrationTasks || [],
     orchestrationEvents: [],
   };
+  if (Array.isArray(overrides.liveUiReports)) {
+    session.liveUiReports = overrides.liveUiReports;
+  }
   var alternateSession = {
     localId: 8,
     storageId: "alternate-storage",
@@ -61,6 +64,7 @@ function harness(overrides) {
   var probes = [];
   var createdSessions = [];
   var taskSequence = 0;
+  var saved = [];
   var liveUi = attachProjectLiveUi({
     slug: "clay",
     registry: registry,
@@ -118,6 +122,9 @@ function harness(overrides) {
         [session.localId, session],
         [alternateSession.localId, alternateSession],
       ]),
+      saveSessionFile: function (targetSession) {
+        saved.push(targetSession);
+      },
     },
     usersModule: {
       isMultiUser: function () { return true; },
@@ -192,6 +199,7 @@ function harness(overrides) {
     attachments: attachments,
     probes: probes,
     createdSessions: createdSessions,
+    saved: saved,
   };
 }
 
@@ -215,6 +223,20 @@ function prove(state, pairingState) {
   var pairCommand = state.commands.filter(function (entry) {
     return entry.command === "live_ui_pair";
   })[0];
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: pairingState.pairingId,
+    event: "target.prove",
+    payload: { nonce: pairCommand.args.nonce },
+  });
+}
+
+function proveLatest(state, pairingState) {
+  var pairCommands = state.commands.filter(function (entry) {
+    return entry.command === "live_ui_pair";
+  });
+  var pairCommand = pairCommands[pairCommands.length - 1];
   state.liveUi.handleLiveUiMessage(state.extensionWs, {
     type: "live_ui_relay",
     protocolVersion: 1,
@@ -530,6 +552,154 @@ test("target reload reconnects and a control reload rebinds with rotation", func
   assert.ok(rebound);
   assert.notStrictEqual(rebound.message.reconnectCredential,
     paired.reconnectCredential);
+});
+
+test("a new pairing restores every non-dismissed Live UI worker for the chat", function () {
+  var state = harness();
+  var firstPair = pair(state);
+  prove(state, firstPair);
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: firstPair.pairingId,
+    clientMessageId: "durable-report",
+    event: "report.submit",
+    payload: {
+      text: "Keep this worker attached to the chat",
+      screenshot: {
+        mediaType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      },
+    },
+  });
+  assert.strictEqual(state.session.liveUiReports.length, 1);
+  assert.ok(state.saved.indexOf(state.session) !== -1);
+
+  state.liveUi.handleLiveUiMessage(state.controlWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: firstPair.pairingId,
+    event: "control.unpair",
+  });
+  state.sent.length = 0;
+  var secondPair = pair(state, { requestId: "request-2" });
+  proveLatest(state, secondPair);
+  var snapshot = state.sent.find(function (entry) {
+    return entry.ws === state.extensionWs &&
+      entry.message.type === "live_ui_relay" &&
+      entry.message.event === "reports.snapshot";
+  });
+  assert.ok(snapshot);
+  assert.strictEqual(snapshot.message.payload.reports.length, 1);
+  assert.strictEqual(snapshot.message.payload.reports[0].title,
+    "Keep this worker attached to the chat");
+});
+
+test("persisted Live UI workers are reconstructed after a server restart", function () {
+  var state = harness({
+    orchestrationTasks: [{
+      taskId: "task-restored",
+      clientRef: "live-ui-report:report-restored",
+      title: "Restore the pricing worker",
+      status: "running",
+      workerSessionId: 144,
+      workerColor: "#36C6A7",
+    }],
+    liveUiReports: [{
+      reportId: "report-restored",
+      taskId: "task-restored",
+      title: "Restore the pricing worker",
+      status: "working",
+      message: "Being worked on.",
+      selection: null,
+      workerSessionId: 144,
+      workerColor: "#36C6A7",
+    }],
+  });
+  var paired = pair(state);
+  prove(state, paired);
+  var snapshot = state.sent.find(function (entry) {
+    return entry.ws === state.extensionWs &&
+      entry.message.type === "live_ui_relay" &&
+      entry.message.event === "reports.snapshot";
+  });
+  assert.strictEqual(snapshot.message.payload.reports.length, 1);
+  assert.strictEqual(snapshot.message.payload.reports[0].reportId,
+    "report-restored");
+  assert.strictEqual(snapshot.message.payload.reports[0].worker.sessionId, 144);
+});
+
+test("legacy Live UI tasks recover once without resurrecting dismissed cards", function () {
+  var state = harness({
+    orchestrationTasks: [{
+      taskId: "legacy-live-ui-task",
+      clientRef: "live-ui:old-pair:old-message",
+      title: "Legacy clock worker",
+      status: "completed",
+      resolvedByCoordinator: true,
+      workerSessionId: 151,
+      workerColor: "#A78BFA",
+    }],
+  });
+  var firstPair = pair(state);
+  prove(state, firstPair);
+  var firstSnapshot = state.sent.find(function (entry) {
+    return entry.message.type === "live_ui_relay" &&
+      entry.message.event === "reports.snapshot";
+  });
+  assert.strictEqual(firstSnapshot.message.payload.reports.length, 1);
+  assert.strictEqual(firstSnapshot.message.payload.reports[0].reportId,
+    "legacy-live-ui-task");
+
+  state.liveUi.handleLiveUiMessage(state.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: firstPair.pairingId,
+    clientMessageId: "dismiss-legacy-worker",
+    event: "report.dismiss",
+    payload: { reportId: "legacy-live-ui-task" },
+  });
+  state.liveUi.handleLiveUiMessage(state.controlWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: firstPair.pairingId,
+    event: "control.unpair",
+  });
+  state.sent.length = 0;
+  var secondPair = pair(state, { requestId: "request-after-dismiss" });
+  proveLatest(state, secondPair);
+  var secondSnapshot = state.sent.find(function (entry) {
+    return entry.message.type === "live_ui_relay" &&
+      entry.message.event === "reports.snapshot";
+  });
+  assert.strictEqual(secondSnapshot.message.payload.reports.length, 0);
+  assert.strictEqual(state.session.liveUiReports[0].dismissed, true);
+});
+
+test("closed orchestration workers are omitted from restored Live UI cards", function () {
+  var state = harness({
+    orchestrationTasks: [{
+      taskId: "task-closed",
+      clientRef: "live-ui-report:report-closed",
+      title: "Closed worker",
+      status: "cancelled",
+    }],
+    liveUiReports: [{
+      reportId: "report-closed",
+      taskId: "task-closed",
+      title: "Closed worker",
+      status: "working",
+      message: "Being worked on.",
+    }],
+  });
+  var paired = pair(state);
+  prove(state, paired);
+  var snapshot = state.sent.find(function (entry) {
+    return entry.message.type === "live_ui_relay" &&
+      entry.message.event === "reports.snapshot";
+  });
+  assert.strictEqual(snapshot.message.payload.reports.length, 0);
+  assert.strictEqual(state.session.liveUiReports[0].dismissed, true);
 });
 
 test("an unknown rebind revokes the stale extension pairing after restart", function () {
