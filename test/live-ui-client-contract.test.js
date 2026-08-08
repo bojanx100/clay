@@ -43,9 +43,13 @@ test("extension picker publishes visible sessions and pins its request", functio
   assert.match(picker, /type: "switch_session"/);
   assert.match(picker, /type: "browser_tab_list"/);
   assert.match(picker, /type: "live_ui_request_pair"/);
+  assert.match(picker, /type: "live_ui_probe_target"/);
+  assert.match(picker, /type: "live_ui_create_bound_session"/);
+  assert.match(picker, /attachWorkspace: message\.attachWorkspace === true/);
   assert.match(picker, /reconnectServer: message\.reconnectServer === true/);
   assert.match(picker, /message\.code \|\| null/);
   assert.match(messages, /forwardLiveUiPickerState/);
+  assert.match(messages, /forwardLiveUiTargetWorkspace/);
   assert.doesNotMatch(picker, /localStorage/);
   assert.ok(picker.split("\n").length < 500);
 });

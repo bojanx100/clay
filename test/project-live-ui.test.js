@@ -57,7 +57,9 @@ function harness(overrides) {
   var coordinated = [];
   var closed = [];
   var followedUp = [];
-  var reconnects = [];
+  var attachments = [];
+  var probes = [];
+  var createdSessions = [];
   var taskSequence = 0;
   var liveUi = attachProjectLiveUi({
     slug: "clay",
@@ -71,17 +73,35 @@ function harness(overrides) {
           portLive: true,
         }, overrides.workspace || {}));
       },
-      reconnectLiveUiTarget: function (targetSession, tabUrl, cb) {
-        reconnects.push({ session: targetSession, tabUrl: tabUrl });
-        cb(overrides.reconnect || {
+      attachLiveUiTarget: function (targetSession, tabUrl, userId, cb) {
+        attachments.push({ session: targetSession, tabUrl: tabUrl, userId: userId });
+        cb(overrides.attach || {
           ok: true,
           target: Object.assign({
+            projectSlug: "clay",
+            projectLabel: "Clay",
             writableRoot: "/repo/clay",
             localUrl: "http://localhost:4242",
             running: true,
             portLive: true,
           }, overrides.workspace || {}),
         });
+      },
+      inspectLiveUiTarget: function (tabUrl, userId, cb) {
+        probes.push({ tabUrl: tabUrl, userId: userId });
+        cb(overrides.probe || {
+          ok: true,
+          target: {
+            projectSlug: "clay",
+            projectLabel: "Clay",
+            worktreeLabel: "design",
+            writableRoot: "/repo/.worktrees/design",
+          },
+        });
+      },
+      bindLiveUiTarget: function (targetSession, target) {
+        targetSession.devCwdAbs = target.writableRoot;
+        return true;
       },
     },
     browserState: browserState,
@@ -104,6 +124,19 @@ function harness(overrides) {
       canAccessSession: function (userId, targetSession) {
         return userId === "user-a" && !targetSession.denied;
       },
+    },
+    createSessionForMessage: function (ws, message) {
+      var created = {
+        localId: 9,
+        storageId: "created-storage",
+        title: "New chat",
+        hidden: false,
+        coordinationMode: message.coordinator === true,
+        orchestrationTasks: [],
+        orchestrationEvents: [],
+      };
+      createdSessions.push(created);
+      return created;
     },
     saveImageFile: function () { return "live-ui-shot.png"; },
     taskOrchestrator: {
@@ -156,7 +189,9 @@ function harness(overrides) {
     coordinated: coordinated,
     closed: closed,
     followedUp: followedUp,
-    reconnects: reconnects,
+    attachments: attachments,
+    probes: probes,
+    createdSessions: createdSessions,
   };
 }
 
@@ -242,26 +277,82 @@ test("rejects stale session claims, stopped dev servers, and wrong origins", fun
   assert.strictEqual(remote.sent[0].message.code, "LIVE_UI_ORIGIN_DENIED");
 });
 
-test("reconnects a selected chat only through the server-authorized root check", function () {
+test("attaches a selected chat only through the server-authorized workspace check", function () {
   var state = harness();
-  var paired = pair(state, { reconnectServer: true });
+  var paired = pair(state, { attachWorkspace: true });
   assert.ok(paired);
-  assert.strictEqual(state.reconnects.length, 1);
-  assert.strictEqual(state.reconnects[0].session, state.session);
-  assert.strictEqual(state.reconnects[0].tabUrl,
+  assert.strictEqual(state.attachments.length, 1);
+  assert.strictEqual(state.attachments[0].session, state.session);
+  assert.strictEqual(state.attachments[0].userId, "user-a");
+  assert.strictEqual(state.attachments[0].tabUrl,
     "http://localhost:4242/pricing");
 
   var mismatched = harness({
-    reconnect: {
+    attach: {
       ok: false,
-      code: "LIVE_UI_SERVER_ROOT_MISMATCH",
-      error: "The inspected page is served from a different project root or worktree",
+      code: "LIVE_UI_TARGET_PROJECT_MISMATCH",
+      error: "The inspected server belongs to a different Clay project",
     },
   });
-  assert.strictEqual(pair(mismatched, { reconnectServer: true }), null);
+  assert.strictEqual(pair(mismatched, { attachWorkspace: true }), null);
   assert.strictEqual(mismatched.sent[0].message.code,
-    "LIVE_UI_SERVER_ROOT_MISMATCH");
+    "LIVE_UI_TARGET_PROJECT_MISMATCH");
   assert.strictEqual(mismatched.commands.length, 0);
+});
+
+test("probes the inspected server without exposing its absolute path", function () {
+  var state = harness();
+  state.liveUi.handleLiveUiMessage(state.controlWs, {
+    type: "live_ui_probe_target",
+    protocolVersion: 1,
+    requestId: "probe-1",
+    targetTabId: 42,
+  });
+  var message = state.sent[state.sent.length - 1].message;
+  assert.strictEqual(message.type, "live_ui_target_workspace");
+  assert.strictEqual(message.state, "matched");
+  assert.strictEqual(message.projectSlug, "clay");
+  assert.strictEqual(message.worktreeLabel, "design");
+  assert.strictEqual(JSON.stringify(message).indexOf("/repo/"), -1);
+});
+
+test("remote previews can defer project choice while retaining exact-origin checks", function () {
+  var state = harness({
+    tabUrl: "https://preview.example.dev/account",
+    probe: {
+      ok: false,
+      code: "LIVE_UI_TARGET_LISTENER_NOT_FOUND",
+      error: "No local server process owns the inspected port",
+    },
+  });
+  state.liveUi.handleLiveUiMessage(state.controlWs, {
+    type: "live_ui_probe_target",
+    protocolVersion: 1,
+    requestId: "probe-preview",
+    targetTabId: 42,
+  });
+  var message = state.sent[state.sent.length - 1].message;
+  assert.strictEqual(message.state, "manual");
+  assert.strictEqual(message.projectSlug, null);
+});
+
+test("creates and pairs a coordinator chat bound to the inspected workspace", function () {
+  var state = harness();
+  state.liveUi.handleLiveUiMessage(state.controlWs, {
+    type: "live_ui_create_bound_session",
+    protocolVersion: 1,
+    requestId: "create-1",
+    targetTabId: 42,
+  });
+  assert.strictEqual(state.createdSessions.length, 1);
+  assert.strictEqual(state.createdSessions[0].coordinationMode, true);
+  assert.strictEqual(state.createdSessions[0].devCwdAbs, "/repo/clay");
+  var pairing = state.sent.filter(function (entry) {
+    return entry.message.type === "live_ui_state" &&
+      entry.message.state === "pairing";
+  })[0];
+  assert.ok(pairing);
+  assert.strictEqual(pairing.message.sessionId, "created-storage");
 });
 
 test("accepts only a server-derived Tailscale or preview origin", function () {
@@ -548,6 +639,8 @@ test("target reports remain for review and route follow-up to their existing wor
   assert.match(state.coordinated[0].context, /React component: PricingCard/);
   assert.match(state.coordinated[0].context,
     /Likely source: src\/components\/PricingCard\.tsx:18/);
+  assert.match(state.coordinated[0].context,
+    /Writable root: \/repo\/clay/);
   assert.match(state.coordinated[0].ownedPaths,
     /^Live UI report .+ Likely component source: src\/components\/PricingCard\.tsx\./);
   assert.match(state.coordinated[0].ownedPaths,
@@ -691,5 +784,7 @@ test("loopback origin validation is exact and excludes production URLs", functio
     "http://localhost:3000");
   assert.strictEqual(exactLoopbackOrigin("https://127.0.0.1:7292/app"),
     "https://127.0.0.1:7292");
+  assert.strictEqual(exactLoopbackOrigin("http://[::1]:4242/app"),
+    "http://[::1]:4242");
   assert.strictEqual(exactLoopbackOrigin("https://example.com"), null);
 });

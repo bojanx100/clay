@@ -98,6 +98,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `server-cross-project.js` | Daemon cross-project router: non-authoritative legacy text notifications, typed durable delivery by stable ProjectRef/SessionRef, and controlled legacy-to-project execution migration |
 | `cross-project-delivery.js` | Typed delivery envelopes, atomic bounded outbox/inbox/cursor persistence, acknowledgement, ordered replay/retry, and dead-letter state |
 | `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
+| `project-live-ui-workspace.js` | Server-authoritative inspected-port ownership mapping across registered projects and git worktrees |
+| `project-live-ui-pairing.js` | Existing/new chat pairing against a server-verified Live UI workspace plus safe target metadata |
 | `project-live-ui-reports.js` | Coordinator-owned Live UI report creation, React/source context, worker-color identity, compact status relay, and verified worker cleanup |
 | `project-live-ui-attachments.js` | Bounded Live UI clipboard image/text validation, image persistence, and worker-context formatting |
 | `project-live-ui-context.js` | Bounded DOM/React selection-packet validation, safe source paths, sensitive-field exclusion, PII scrubbing, and fingerprints |
