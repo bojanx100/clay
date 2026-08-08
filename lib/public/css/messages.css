@@ -2143,3 +2143,22 @@ body.wide-view .turn-meta {
   body.wide-view:not(.mate-dm-active) .tool-group { max-width: var(--content-width); }
   body.wide-view:not(.mate-dm-active) .turn-meta { max-width: var(--content-width); }
 }
+
+/* --- Coop lens filtering ---------------------------------------------------
+   Main shows the conversation; All shows everything. Blocks are classified as
+   they are created and marked with data-coop-relevance, then filtered here.
+
+   Filtering rather than removing is deliberate. #messages children must stay a
+   flat, ordered list: addToMessages stamps clayTs/historyIndex and re-pins the
+   scheduled bubble, pre-thinking dots and activity indicator to the bottom;
+   renderVendorSwitchDivider walks messagesEl.children comparing clayTs to
+   insert itself in timestamp order; shouldGroupMessage reads lastElementChild;
+   prependOlderHistory renumbers every [data-turn]; app-cursors queries
+   [data-turn]. Dropping or wrapping blocks would break ordering, grouping and
+   pagination in ways that only surface after scrolling back.
+
+   It also makes lens switching instant and lossless: the same DOM is revealed
+   or hidden, so no block can be duplicated, dropped or reordered. */
+#messages[data-coop-lens="main"] > [data-coop-relevance="internal"] {
+  display: none;
+}
