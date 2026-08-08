@@ -77,6 +77,15 @@ test("destroy() stops the project-local self-cleanup runtime", function () {
   assert.equal(timers.coopSelfCleanupRuntime, null);
 });
 
+test("destroy() unregisters the project Live UI route", function () {
+  var disposeCalls = 0;
+  var destroy = createProjectDestroy(minimalDestroyCtx());
+
+  destroy({ dispose: function () { disposeCalls++; } });
+
+  assert.equal(disposeCalls, 1);
+});
+
 test("destroy() does not throw when the watchdog stop function itself throws", function () {
   var taskOrchestrator = {
     stopCoopWatchdog: function () { throw new Error("boom"); },

@@ -47,7 +47,7 @@ function harness(overrides) {
       42: { id: 42, url: overrides.tabUrl || "http://localhost:4242/pricing" },
     },
   };
-  var registry = createLiveUiRegistry({
+  var registry = overrides.registry || createLiveUiRegistry({
     serverInstanceId: "server-a",
     random: (function () {
       var value = 0;
@@ -66,7 +66,7 @@ function harness(overrides) {
   var taskSequence = 0;
   var saved = [];
   var liveUi = attachProjectLiveUi({
-    slug: "clay",
+    slug: overrides.slug || "clay",
     registry: registry,
     workspace: {
       getLiveUiTarget: function (targetSession, cb) {
@@ -552,6 +552,80 @@ test("target reload reconnects and a control reload rebinds with rotation", func
   assert.ok(rebound);
   assert.notStrictEqual(rebound.message.reconnectCredential,
     paired.reconnectCredential);
+});
+
+test("target reports stay routed to their paired project after control navigation", function () {
+  var pairedProject = harness({ slug: "webapp" });
+  var pairingState = pair(pairedProject);
+  prove(pairedProject, pairingState);
+  pairedProject.liveUi.handleDisconnect(pairedProject.controlWs);
+  pairedProject.controlWs.readyState = 3;
+
+  var currentProject = harness({
+    slug: "clay",
+    registry: pairedProject.registry,
+  });
+  currentProject.liveUi.handleLiveUiMessage(currentProject.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    requestId: "cross-project-rebind",
+    pairingId: pairingState.pairingId,
+    event: "control.rebind",
+    payload: { reconnectCredential: pairingState.reconnectCredential },
+  });
+  assert.strictEqual(pairedProject.registry.getPair(pairingState.pairingId).state,
+    "paired");
+  currentProject.liveUi.handleLiveUiMessage(currentProject.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: pairingState.pairingId,
+    clientMessageId: "cross-project-report",
+    event: "report.submit",
+    payload: {
+      text: "Keep the expanded grid above the content.",
+      screenshot: {
+        mediaType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      },
+    },
+  });
+
+  assert.strictEqual(pairedProject.coordinated.length, 1);
+  assert.strictEqual(pairedProject.coordinated[0].objective,
+    "Keep the expanded grid above the content.");
+  assert.strictEqual(currentProject.sent.filter(function (entry) {
+    return entry.message.type === "live_ui_state" &&
+      entry.message.code === "LIVE_UI_PROJECT_MISMATCH";
+  }).length, 0);
+});
+
+test("cross-project routing rejects a different extension user", function () {
+  var pairedProject = harness({ slug: "webapp" });
+  var pairingState = pair(pairedProject);
+  prove(pairedProject, pairingState);
+  pairedProject.liveUi.handleDisconnect(pairedProject.controlWs);
+  pairedProject.controlWs.readyState = 3;
+  pairedProject.extensionWs.readyState = 3;
+
+  var currentProject = harness({
+    slug: "clay",
+    registry: pairedProject.registry,
+  });
+  currentProject.extensionWs._clayUser = { id: "user-b" };
+  currentProject.liveUi.handleLiveUiMessage(currentProject.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: pairingState.pairingId,
+    clientMessageId: "wrong-user-report",
+    event: "report.submit",
+    payload: { text: "This must not reach the paired project." },
+  });
+
+  assert.strictEqual(pairedProject.coordinated.length, 0);
+  assert.strictEqual(currentProject.sent.filter(function (entry) {
+    return entry.message.type === "live_ui_state" &&
+      entry.message.code === "LIVE_UI_EXTENSION_OFFLINE";
+  }).length, 1);
 });
 
 test("a new pairing restores every non-dismissed Live UI worker for the chat", function () {

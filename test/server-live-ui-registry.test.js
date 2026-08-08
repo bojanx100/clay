@@ -269,3 +269,31 @@ test("integration API accepts messages once and disconnects its control owner", 
   assert.strictEqual(disconnected.length, 1);
   assert.strictEqual(disconnected[0].state, "reconnecting");
 });
+
+test("project routes and extension connections have explicit lifecycles", function () {
+  var state = fixture();
+  var calls = 0;
+  var unregister = state.registry.registerProjectHandler("webapp", function () {
+    calls += 1;
+    return true;
+  });
+  var ws = { readyState: 1 };
+  state.registry.rememberExtensionConnection({
+    extensionInstanceId: "extension-a",
+    userId: "user-a",
+    ws: ws,
+  });
+
+  assert.strictEqual(state.registry.routeProjectMessage("webapp", ws, {}), true);
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(state.registry.extensionConnection(
+    "extension-a", "user-a"), ws);
+  assert.strictEqual(state.registry.extensionConnection(
+    "extension-a", "user-b"), null);
+
+  unregister();
+  state.registry.forgetExtensionConnection(ws);
+  assert.strictEqual(state.registry.routeProjectMessage("webapp", ws, {}), false);
+  assert.strictEqual(state.registry.extensionConnection(
+    "extension-a", "user-a"), null);
+});
