@@ -842,6 +842,31 @@
   .mobile-coop-action-item-project { flex: 0 0 auto; color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
   .mobile-coop-action-item-title { display: -webkit-box; overflow: hidden; font-size: 14px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
   .mobile-coop-action-item-decision { display: -webkit-box; overflow: hidden; color: var(--text-secondary); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+  .mobile-coop-action-item { position: relative; }
+  .mobile-coop-action-item-chevron { position: absolute; top: 10px; right: 10px; color: var(--text-dimmer); font-size: 11px; }
+  /* Focus must be visible on the phone too: these rows are keyboard-reachable
+     from an external keyboard and from switch control. */
+  .mobile-coop-action-item:focus-visible,
+  .mobile-coop-action-decide:focus-visible,
+  .mobile-coop-action-note:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .mobile-coop-action-detail { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 6px; padding: 10px; border-radius: 9px; background: rgba(var(--overlay-rgb), .06); }
+  .mobile-coop-action-detail-meta { color: var(--text-dimmer); font-size: 11px; font-weight: 700; overflow-wrap: anywhere; }
+  .mobile-coop-action-detail-evidence,
+  .mobile-coop-action-detail-asked { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+  .mobile-coop-action-detail-asked { color: var(--text); }
+  .mobile-coop-action-detail-links { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .mobile-coop-action-detail-open { min-height: 32px; padding: 0; border: 0; background: transparent; color: var(--text-dimmer); font: inherit; font-size: 12px; text-decoration: underline; }
+  .mobile-coop-action-note { width: 100%; padding: 8px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; resize: vertical; }
+  .mobile-coop-action-decisions { display: flex; flex-wrap: wrap; gap: 8px; }
+  /* 44px targets: these commit an owner decision. */
+  .mobile-coop-action-decide { min-height: 44px; padding: 10px 14px; border: 1px solid var(--border-subtle); border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 650; }
+  .mobile-coop-action-decide:disabled { opacity: .5; }
+  .mobile-coop-action-decide-advance { border-color: var(--accent); color: var(--accent); }
+  .mobile-coop-action-detail-state { margin: 0; font-size: 12px; line-height: 1.35; }
+  .mobile-coop-action-state-pending { color: var(--text-dimmer); }
+  .mobile-coop-action-state-error { color: var(--danger, #e5534b); }
+  .mobile-coop-action-state-done { color: var(--success, #3fb950); }
+
   .mobile-action-item-links { display: flex; flex-wrap: wrap; gap: 10px; padding: 2px 10px 4px; }
   .mobile-action-item-link { overflow-wrap: anywhere; color: var(--text-dimmer); font-size: 11px; text-decoration: none; }
 
