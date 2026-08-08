@@ -153,7 +153,9 @@ test("the compact project-grouped topic list and its controls are preserved", fu
   // One shared render path for desktop and mobile.
   assert.match(topics, /export function renderCoopTopicSections\(container, model, options\)/);
   // All/topic routing.
-  assert.match(topics, /requestAllCoopTopics\(sendUserAction\)/);
+  assert.match(topics, /requestAllCoopTopics\)/);
+  assert.match(topics, /requestMainCoopLens\)/);
+  assert.match(topics, /onSelect\(sendUserAction\)/);
   assert.match(topics, /requestCoopTopic\(topic, sendUserAction\)/);
   // Close + related-links expander on every row, and no empty wrappers.
   assert.match(topics, /main\.appendChild\(createTopicCloseButton\(topic, options\)\)/);

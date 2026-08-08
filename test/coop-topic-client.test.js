@@ -325,7 +325,12 @@ test("Coop navigation renders only compact topic chat rows", function () {
   assert.match(topics, /topicActivity\(topic\)/);
   assert.match(topics, /topic\.unread > 0/);
   assert.match(topics, /requestCoopTopic\(topic, sendUserAction\).*finishNavigation\(options\)/s);
-  assert.match(topics, /requestAllCoopTopics\(sendUserAction\).*finishNavigation\(opts\)/s);
+  // All and Main are now two mutually exclusive lens buttons built by one
+  // helper, so the routing assertion follows the helper rather than a direct
+  // call. Both still route through sendUserAction and finish navigation.
+  assert.match(topics, /lensButton\("All", [^)]*requestAllCoopTopics\)/);
+  assert.match(topics, /lensButton\("Main", [^)]*requestMainCoopLens\)/);
+  assert.match(topics, /onSelect\(sendUserAction\).*finishNavigation\(opts\)/s);
   assert.match(mobile, /onNavigate: finishMobileCoopNavigation/);
   assert.match(mobile, /if \(getCachedCurrentSlug\(\) === "lead"\) \{\s+renderMobileSessionsInto\(listEl\);/);
   assert.doesNotMatch(desktop, /Goals|Decisions|Active work|Verified outcomes|Open canonical project|appendProjectedSessionTree/);
