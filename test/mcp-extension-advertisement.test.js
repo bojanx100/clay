@@ -254,3 +254,32 @@ test("cached MCP advertisement sends once when the WebSocket reconnects", async 
   appMisc.flushPendingExtMessages();
   assert.equal(sent.length, 2);
 });
+
+test("Live UI bridge messages wait for the Clay WebSocket to reconnect", async function () {
+  var sent = [];
+  var ws = {
+    readyState: 0,
+    send: function (payload) { sent.push(JSON.parse(payload)); }
+  };
+  var appMisc = await loadAppMisc(ws);
+  appMisc.handleExtensionTabList({
+    tabs: [{ id: 42, title: "Target" }],
+    extensionId: "extension-1"
+  });
+  assert.equal(appMisc.handleLiveUiBridgeMessage({
+    type: "clay_live_ui_relay",
+    envelope: {
+      type: "live_ui_relay",
+      protocolVersion: 1,
+      pairingId: "pair-1",
+      event: "target.reconnect"
+    }
+  }), true);
+  assert.equal(sent.length, 0);
+
+  ws.readyState = 1;
+  appMisc.flushPendingExtMessages();
+  assert.equal(sent[0].type, "browser_tab_list");
+  assert.equal(sent[1].type, "live_ui_relay");
+  assert.equal(sent[1].event, "target.reconnect");
+});
