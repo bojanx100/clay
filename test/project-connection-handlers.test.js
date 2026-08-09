@@ -660,6 +660,9 @@ test("revoked project topics fail closed for selection and every existing-topic 
     ctx.slug = "lead";
     ctx.coopTopicIndex = index;
     ctx.getGlobalCoopProjection = function () { return { type: "global_coop_projection", coop: null, projects: [], topics: [] }; };
+    // The canonical owner is connected (single-user shape); the ACL under
+    // test is project visibility, not authority.
+    ctx.isCoopTopicOwner = function () { return true; };
     var connection = handlers.attachConnectionHandlers(ctx);
     var ws = new FakeWebSocket();
     connection.handleConnection(ws, null, function () {}, function () {});

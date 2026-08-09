@@ -182,27 +182,60 @@ test("both surfaces read section order from the one shared model function", func
   assert.match(mobile, /renderCoopTopicSections/);
 });
 
-test("a projection refresh removes a closed topic and its empty desktop and mobile group", async function () {
+test("Close moves a topic to the Done section and Reopen restores it without loss", async function () {
   var ui = await loadTopicControls();
-  ui.projection.setGlobalCoopProjection(projectionMessage({
-    projects: [{
-      projectRef: { projectId: CLAY }, slug: "clay", title: "Clay",
-      topics: [topic("close-refresh", { projectRef: { projectId: CLAY }, title: "Close refresh" })],
-    }],
-  }));
+  function payload(status, workState, stateSource) {
+    return projectionMessage({
+      projects: [{
+        projectRef: { projectId: CLAY }, slug: "clay", title: "Clay",
+        topics: [topic("close-refresh", {
+          projectRef: { projectId: CLAY }, title: "Close refresh",
+          status: status, workState: workState, stateSource: stateSource,
+          eventRefs: [{ sessionStorageId: "s", eventIndex: 3 }],
+        })],
+      }],
+    });
+  }
+  ui.projection.setGlobalCoopProjection(payload("open", "needs_input", "unlinked_default"));
   assert.deepEqual(sectionShape(ui.model.coopTopicSections(
     ui.projection.buildGlobalCoopDisplayModel(""))), ["project:Clay"]);
 
-  // The authoritative post-close payload no longer contains the topic. Both
-  // surfaces consume this same model, so neither may retain a stale wrapper.
-  ui.projection.setGlobalCoopProjection(projectionMessage({
-    projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [] }],
-    topics: [],
-  }));
-  var refreshed = ui.projection.buildGlobalCoopDisplayModel("");
-  ["desktop", "mobile"].forEach(function (surface) {
-    assert.deepEqual(ui.model.coopTopicSections(refreshed), [], surface + " drops the empty group");
+  // The authoritative post-close payload still contains the topic -- closed
+  // topics stay projectable as Done evidence -- so both surfaces move it to
+  // the compact Done section rather than dropping it.
+  ui.projection.setGlobalCoopProjection(payload("closed", "done", "topic_closed"));
+  var closedModel = ui.projection.buildGlobalCoopDisplayModel("");
+  var closedSections = ui.model.coopTopicSections(closedModel);
+  assert.deepEqual(sectionShape(closedSections), ["done:Done"]);
+  var closedTopic = closedSections[0].topics[0];
+  assert.equal(closedTopic.status, "closed");
+
+  // A closed row offers Reopen, not a dead second Close, and reopening sends
+  // exactly the reopen message for the live topic.
+  var sent = [];
+  var button = ui.close.createTopicCloseButton(closedTopic, {
+    send: function (message) { sent.push(message); return true; },
   });
+  assert.equal(button.textContent, "Reopen");
+  assert.equal(button.getAttribute("aria-label"), "Reopen topic Close refresh");
+  button.click();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, "coop_topic_reopen");
+  assert.deepEqual(sent[0].topicRef, { topicId: "close-refresh" });
+
+  // The post-reopen payload restores the topic to its open section with its
+  // membership intact: nothing about the history was lost in the round trip.
+  ui.projection.setGlobalCoopProjection(payload("open", "needs_input", "unlinked_default"));
+  var reopened = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
+  assert.deepEqual(sectionShape(reopened), ["project:Clay"]);
+  assert.equal(reopened[0].topics[0].title, "Close refresh");
+
+  // An open row still offers Close, and the confirmation copy tells the truth
+  // about where the topic goes: the Done section, not oblivion.
+  var openButton = ui.close.createTopicCloseButton(reopened[0].topics[0], { send: function () { return true; } });
+  assert.equal(openButton.textContent, "Close");
+  assert.match(source("sidebar-coop-topic-close.js"), /Done section/);
+  assert.doesNotMatch(source("sidebar-coop-topic-close.js"), /stops appearing/);
 
   var messages = source("app-messages-sessions.js");
   var handler = messages.slice(messages.indexOf("function handleGlobalCoopProjection"));
@@ -561,4 +594,29 @@ test("no forbidden Coop sidebar affordance reappears", function () {
   // The two leaf controls stay independent of the app connection graph.
   assert.doesNotMatch(links, /from '\.\/app-connection\.js'/);
   assert.doesNotMatch(closeSource, /from '\.\/app-connection\.js'/);
+});
+
+// --- ARIA wiring for the Review and Done disclosures ---
+
+test("the Review and Done disclosures wire aria-controls to stable panels kept in the DOM", function () {
+  // Both disclosures previously set aria-expanded with no aria-controls and
+  // omitted the panel while collapsed, so the attribute pointed at nothing.
+  var review = source("sidebar-coop-topic-review.js");
+  assert.match(review, /var panelId = prefix \+ "coop-topic-review-panel-" \+ id\.replace/,
+    "review panel ids are stable per topic and unique per surface");
+  assert.match(review, /toggle\.setAttribute\("aria-controls", panelId\)/);
+  assert.match(review, /toggle\.setAttribute\("aria-expanded", open \? "true" : "false"\)/);
+  assert.match(review, /panel\.id = panelId/);
+  assert.match(review, /panel\.hidden = !open/,
+    "the collapsed review panel is hidden, not omitted, so aria-controls resolves");
+
+  var topics = source("sidebar-coop-topics.js");
+  assert.match(topics, /var panelId = prefix \+ "coop-topic-done-panel"/,
+    "the Done panel id is stable and the prefix keeps desktop/mobile unique");
+  assert.match(topics, /toggle\.setAttribute\("aria-controls", panelId\)/);
+  assert.match(topics, /toggle\.setAttribute\("aria-expanded", open \? "true" : "false"\)/);
+  assert.match(topics, /panel\.hidden = !open/);
+  // Both toggles are real buttons, so Enter/Space activation is native.
+  assert.match(review, /toggle = document\.createElement\("button"\)/);
+  assert.match(topics, /toggle = document\.createElement\("button"\)/);
 });
