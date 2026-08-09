@@ -54,7 +54,37 @@ and no owner question to ask.
 
 ## Review target
 
-HEAD `af93548f6f` on `bojan`. Pin inspection so later commits cannot contaminate
+HEAD is now `8ac2d90aa8` on `bojan` (was `af93548f6f` when this file was
+written). Two further admitted fixes landed since and are IN SCOPE:
+
+- `4c526833e8` — portfolio bindings: a delegation that fails before the task
+  exists no longer strands a `pending` reservation. Adds a non-blocking,
+  ref-less, re-armable `unrouted` status, caller-scoped rollback, and bounded
+  reconciliation on store load and on invocation. This is the infrastructure
+  defect that blocked this very review gate; the five stranded records were
+  reconciled through the supported API, not by hand-editing state.
+  Review especially: that the age bound cannot cancel a binding that is
+  legitimately mid-start, that only the reserving caller releases, that no
+  duplicate worker is possible, and that exact-r1 retry and r2-after-failure are
+  both safe.
+- `8ac2d90aa8` — Main filtering: injected control prompts (the scheduled Lead
+  tick, resume/continue markers, worker-update envelopes, compaction
+  re-injections) reached Main as bare `user_message` records carrying no
+  durable internal flag at all. Now classified by OWNER PROVENANCE
+  (`from` / `fromName` / `clientMessageId` / `coopIngress*`), never by prose, on
+  the replay path, the live client path, and at topic admission.
+  Review especially: that no genuine owner message can be hidden — including an
+  owner message whose text mentions the tick — that assistant output is never
+  swept up, that `coopIngress*` presence with an empty value does not count as
+  provenance, and that All remains full fidelity.
+
+Verified on the owner's real transcripts: internal control records in Main went
+to zero across all three (51945 / 30209 / 5722 records) while All is unchanged
+and every owner message is preserved (102 / 41 / 8). Browser QA at 1440x900 and
+390x844: Main showed zero tick markers and zero control envelopes; switching to
+All revealed them again (20/20 blocks visible).
+
+Original target for the seven-fix audit below: Pin inspection so later commits cannot contaminate
 it:
 
     git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout af93548f6f
