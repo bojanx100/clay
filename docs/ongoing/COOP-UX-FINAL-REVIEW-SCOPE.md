@@ -345,6 +345,47 @@ HEAD (owner-visible before: 0 topics; after: 42). Hardening in this segment:
   suppressed and the migration is a reload-stable no-op on the second run. A
   valid-data/zero-projected-topics outcome now fails the suite.
 
+MIGRATION-TRIGGER SEGMENT (follows the ZERO-TOPICS REGRESSION SEGMENT above):
+owner evidence at ~15:45 falsified the prior trigger assumption — a genuine
+owner message in the canonical Coop session left `titleRetrofitAudit=0` and
+`anchorAudit=0`, proving real owner Coop traffic bypasses the
+`validateCoopTopicIngress` hook the previous segment relied on. Superseding
+design, exactly as directed:
+
+- **`ensureTitleRetrofit(session)`** (new in `coop-topic-index.js`): an
+  exactly-once, index-stamped migration (`state.titleRetrofit
+  {schemaVersion, completedAt, retitled, mergedToUncategorised}`). Runs
+  reconcile-then-retrofit against the daemon's authoritative cached index and
+  cached canonical session, saves once, and thereafter is a single property
+  check. Fails closed without burning the stamp when the canonical history is
+  unavailable (`canonical_history_unavailable`), so an early empty-history
+  call can never suppress every topic and mark the migration done.
+- **Invoked from `advanceCanonicalCoopTopics`** in
+  `global-coop-projection.js` — the one daemon path proven to execute with
+  the real cached canonical session (topics demonstrably render through it),
+  running on every projection build with no owner test message required. The
+  projection built immediately after the migration already carries the new
+  titles, so the normal broadcast path distributes them.
+- **Anchor-audit staleness bug found and fixed while proving this**
+  (`coop-topic-anchors.js` `isProjectable`): the projection trusted a
+  current-schema `anchorAudit` verdict unconditionally, so a topic audited at
+  zero anchors (e.g. reconciled before its first turn — exactly what the new
+  always-on migration makes routine) stayed suppressed forever even after
+  genuinely earning a proven turn. `isProjectable` now trusts the audit only
+  while `anchorCount` still matches the topic's current `turnRefs` length and
+  live-proves otherwise, mirroring `reconcileAnchors`'s own re-evaluation
+  rule. Caught by the existing live-index test the moment the migration ran
+  on its fixture — the test suite did its job.
+- **Regression test using the exact failed ingress shape**
+  (`test/global-coop-projection.test.js`): a fingerprint-intact garbled
+  automatic topic anchored to a real owner turn, then nothing but
+  `buildGlobalCoopProjection` — no message ingress at all. Asserts the
+  persisted title is fixed and coherent, topicId preserved, seed title
+  untouched, the stamp persisted, the returned projection carries the new
+  title, a fresh index instance over the same file reports
+  `alreadyComplete` without re-running, and an empty-history call refuses
+  without stamping.
+
 Verified on the owner's real transcripts: internal control records in Main went
 to zero across all three (51945 / 30209 / 5722 records) while All is unchanged
 and every owner message is preserved (102 / 41 / 8). Browser QA at 1440x900 and

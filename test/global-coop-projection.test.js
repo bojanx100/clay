@@ -185,6 +185,86 @@ test("global Coop projection exposes bounded topic lenses and revokes denied pro
   }
 });
 
+test("building the global projection alone migrates pre-fix garbled titles exactly once", function () {
+  // Owner evidence 2026-08-09 ~15:45: a genuine owner message in the canonical
+  // Coop session left titleRetrofitAudit=0 -- the message-ingress retrofit
+  // hook never ran for real owner traffic. The projection build is the daemon
+  // path proven to execute with the cached canonical session, so the
+  // migration must complete through it with NO message ingress at all.
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-title-migration-"));
+  try {
+    var file = path.join(dir, "lead", "topics.json");
+    var index = createTopicIndex({ file: file, now: function () { return 10; } });
+    var home = session(1, {
+      storageId: "canonical-topic-home", coopHome: true,
+      history: [
+        { type: "user_message", text: "Navigation session restoration and sidebar", from: "owner", fromName: "Admin", clientMessageId: "cm-fixture" },
+        { type: "delta_replace", text: "The navigation restoration is complete." },
+        { type: "done" },
+      ],
+    });
+    var lead = project("system-lead", "lead", [home], { isLead: true });
+    buildGlobalCoopProjection({ projects: [lead], coopTopicIndex: index });
+
+    // Inject a topic exactly as the old classifier minted it: contraction
+    // fragment title, fingerprint intact, legacy-anchored to the real owner
+    // turn -- the same shape as the ~30 garbled production rows.
+    var crypto = require("node:crypto");
+    var garbledTitle = "Don Session Restoration Sidebar";
+    var digest = crypto.createHash("sha256").update("uncategorised\n" + garbledTitle.toLowerCase()).digest("hex");
+    var topicId = "auto-" + digest.slice(0, 24);
+    var state = index.load();
+    state.topics[topicId] = {
+      topicRef: { topicId: topicId }, title: garbledTitle, group: { kind: "uncategorised" },
+      source: "automatic", status: "open", createdAt: 1, updatedAt: 1,
+      keywords: [], eventRefs: [], relatedExecutions: [],
+      turnRefs: [{ sessionStorageId: "canonical-topic-home", startEventIndex: 0, endEventIndex: 2 }],
+    };
+    index.save();
+    delete index.load().titleRetrofit;
+
+    // The failing ingress shape: the owner opens the app, the projection is
+    // built. Nothing else happens.
+    var visible = buildGlobalCoopProjection({ projects: [lead], coopTopicIndex: index });
+
+    var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
+    var migrated = persisted.topics[topicId];
+    assert.notEqual(migrated.title, garbledTitle, "the garbled title is fixed by projection alone");
+    assert.doesNotMatch(migrated.title, /\bDon\b/);
+    assert.equal(migrated.topicRef.topicId, topicId, "identity preserved");
+    assert.equal(migrated.titleRetrofitAudit.action, "retitled");
+    assert.equal(persisted.titleRetrofit.schemaVersion, 1, "the exactly-once stamp is persisted");
+    var seed = persisted.topics["navigation-session-restoration"];
+    assert.equal(seed.title, "Navigation and session restoration", "seed titles untouched");
+    var shown = [];
+    visible.topicProjection.groups.forEach(function (group) {
+      group.topics.forEach(function (t) { shown.push(t.title); });
+    });
+    assert.equal(shown.indexOf(garbledTitle), -1, "the broadcast projection carries the new title");
+    assert.ok(shown.indexOf(migrated.title) !== -1);
+
+    // Exactly once: a fresh process (new index instance over the same file)
+    // must see the stamp and never re-run the migration body.
+    var restarted = createTopicIndex({ file: file, now: function () { return 99; } });
+    var again = restarted.ensureTitleRetrofit(home);
+    assert.equal(again.alreadyComplete, true);
+    buildGlobalCoopProjection({ projects: [lead], coopTopicIndex: restarted });
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).titleRetrofit.completedAt,
+      persisted.titleRetrofit.completedAt, "restart never re-stamps or re-runs");
+
+    // Fail closed: an empty cached history must not run or burn the stamp.
+    var emptyFile = path.join(dir, "lead", "topics-empty.json");
+    fs.copyFileSync(file, emptyFile);
+    var emptyIndex = createTopicIndex({ file: emptyFile, now: function () { return 50; } });
+    delete emptyIndex.load().titleRetrofit;
+    var bare = { storageId: "canonical-topic-home", coopHome: true, history: [] };
+    assert.equal(emptyIndex.ensureTitleRetrofit(bare).code, "canonical_history_unavailable");
+    assert.equal(emptyIndex.load().titleRetrofit, undefined, "stamp is not burned on an unusable call");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("topic related-session links stay top-level, ACL-filtered, and reference-only", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-related-sessions-"));
   try {
