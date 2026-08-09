@@ -458,3 +458,98 @@ test("server and client agree about injected user messages", function () {
   // tick arriving mid-turn is hidden without waiting for a reload.
   assert.match(client, /if \(isInjectedUserMessage\(message\)\) return RELEVANCE_INTERNAL;/);
 });
+
+
+// --- topic lens replay, which is a SEPARATE path from Main --------------------
+//
+// Owner-reported after the Main fix: topic chats still showed internal records.
+// Root cause: topic membership is stored as turn SPANS, and
+// boundedMembershipIndexes expanded each [startEventIndex, endEventIndex] range
+// wholesale. A span necessarily contains everything between the owner's message
+// and the answer -- tool traffic, thinking, rate-limit and status envelopes, and
+// injected control prompts. Main filtered; this path did not. Against one real
+// session that leaked 809 internal records into topic replay (670 tool records,
+// 77 rate_limit, 33 message_uuid, 11 injected user_messages).
+
+test("a topic lens replays only owner-relevant records from its spans", function () {
+  var history = [
+    { type: "user_message", text: "ship the icons?", from: "u1", fromName: "Admin", clientMessageId: "cm-1" },
+    { type: "thinking_start" },
+    { type: "thinking_delta", text: "considering" },
+    { type: "tool_start", id: "exec-1", name: "Bash" },
+    { type: "tool_executing", id: "exec-1", name: "Bash", input: { command: "ls" } },
+    { type: "tool_result", id: "exec-1", content: "a b c", is_error: false },
+    { type: "rate_limit", remaining: 10 },
+    { type: "message_uuid", uuid: "u-1" },
+    { type: "user_message", text: "\u21bb Lead tick" },
+    { type: "delta", text: "Shipping them." },
+    { type: "done" },
+  ];
+  var kept = relevance.ownerRelevantIndexes(history, [0,1,2,3,4,5,6,7,8,9,10]);
+  assert.deepEqual(kept, [0, 9, 10],
+    "the span keeps the owner question and the answer, nothing between");
+});
+
+test("topic replay and Main agree exactly on the same history", function () {
+  // A topic lens is a filter over the owner conversation, not a raw span
+  // replay, so the two must never disagree about what counts as conversation.
+  var history = [
+    { type: "user_message", text: "q", from: "u1", fromName: "Admin" },
+    { type: "tool_start", id: "e1", name: "Bash" },
+    { type: "user_message", text: "\u21bb Resuming after restart" },
+    { type: "delta", text: "a" },
+    { type: "info", text: "switched provider" },
+    { type: "done" },
+  ];
+  var all = history.map(function (_, i) { return i; });
+  assert.deepEqual(relevance.ownerRelevantIndexes(history, all),
+    relevance.mainLensEventIndexes(history));
+});
+
+test("narrowing never invents an index the membership did not admit", function () {
+  // Topic membership decides WHICH turns belong; relevance only narrows within
+  // them. A record outside the span must not appear just because it is
+  // owner-relevant, or a topic would absorb unrelated owner conversation.
+  var history = [
+    { type: "user_message", text: "topic A", from: "u1", fromName: "Admin" },
+    { type: "delta", text: "answer A" },
+    { type: "user_message", text: "unrelated topic B", from: "u1", fromName: "Admin" },
+    { type: "delta", text: "answer B" },
+  ];
+  assert.deepEqual(relevance.ownerRelevantIndexes(history, [0, 1]), [0, 1]);
+  assert.deepEqual(relevance.ownerRelevantIndexes(history, [2, 3]), [2, 3]);
+  // Out-of-range and malformed indexes are dropped rather than throwing.
+  assert.deepEqual(relevance.ownerRelevantIndexes(history, [99, -1, null, 0]), [0]);
+});
+
+test("boundedMembershipIndexes applies the narrowing on the real seam", function () {
+  var conn = require("../lib/coop-topic-connection");
+  var history = [
+    { type: "user_message", text: "q", from: "u1", fromName: "Admin", clientMessageId: "cm-1" },
+    { type: "tool_start", id: "e1", name: "Bash" },
+    { type: "tool_result", id: "e1", content: "out", is_error: false },
+    { type: "user_message", text: "\u21bb Lead tick" },
+    { type: "delta", text: "answer" },
+    { type: "done" },
+  ];
+  var session = { storageId: "s1", history: history };
+  var topic = {
+    turnRefs: [{ sessionStorageId: "s1", startEventIndex: 0, endEventIndex: 5 }],
+    eventRefs: [],
+  };
+  assert.deepEqual(conn.boundedMembershipIndexes(topic, session), [0, 4, 5],
+    "the whole span is admitted, then narrowed to the conversation");
+});
+
+test("an owner message mentioning internal terms survives topic replay", function () {
+  var conn = require("../lib/coop-topic-connection");
+  var history = [
+    { type: "user_message", text: "why do I have lead tick every time I send you a message?",
+      from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-1" },
+    { type: "delta", text: "Because it is scheduled." },
+    { type: "done" },
+  ];
+  var session = { storageId: "s1", history: history };
+  var topic = { turnRefs: [{ sessionStorageId: "s1", startEventIndex: 0, endEventIndex: 2 }] };
+  assert.deepEqual(conn.boundedMembershipIndexes(topic, session), [0, 1, 2]);
+});

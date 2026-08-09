@@ -29,7 +29,7 @@ function makeSession(id) {
     storageId: "storage-" + id,
     cliSessionId: "cli-" + id,
     title: "Session " + id,
-    history: [{ type: "user_message", text: "hello" }],
+    history: [{ type: "user_message", text: "hello", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" }],
     pendingPermissions: {
       request: { requestId: "request", toolName: "Bash", toolInput: { command: "pwd" }, toolUseId: "tool", decisionReason: "needs approval", mateId: "mate" },
     },
@@ -434,7 +434,7 @@ test("Lead topic operations select a canonical lens and resolve only exact refer
     home.coopHome = true;
     home.coopTopicSelection = { topicRef: { topicId: "legacy-topic" }, projectRef: null };
     home.history = [
-      { type: "user_message", text: "Codex auth topic event" },
+      { type: "user_message", text: "Codex auth topic event", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "The authentication result is ready." },
       { type: "done" },
     ];
@@ -535,7 +535,7 @@ test("Coop topic selection is isolated per socket and preserves a prior selectio
     home.storageId = "canonical-topic-home";
     home.coopHome = true;
     home.history = [
-      { type: "user_message", text: "Codex authentication topic" },
+      { type: "user_message", text: "Codex authentication topic", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "Final answer" },
       { type: "done" },
     ];
@@ -598,10 +598,10 @@ test("topic pagination stays membership-bounded and fails closed after ACL revoc
     home.storageId = "canonical-topic-home";
     home.coopHome = true;
     home.history = [
-      { type: "user_message", text: "Codex auth page" },
+      { type: "user_message", text: "Codex auth page", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "Topic-only answer" },
       { type: "done" },
-      { type: "user_message", text: "Unrelated page" },
+      { type: "user_message", text: "Unrelated page", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "Must not leak" },
       { type: "done" },
     ];
@@ -652,7 +652,7 @@ test("revoked project topics fail closed for selection and every existing-topic 
     home.storageId = "canonical-topic-home";
     home.coopHome = true;
     home.history = [
-      { type: "user_message", text: "A complete canonical turn" },
+      { type: "user_message", text: "A complete canonical turn", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "A complete final answer" },
       { type: "done" },
     ];
