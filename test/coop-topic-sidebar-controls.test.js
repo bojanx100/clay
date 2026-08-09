@@ -210,15 +210,18 @@ test("Close moves a topic to the Done section and Reopen restores it without los
   var closedTopic = closedSections[0].topics[0];
   assert.equal(closedTopic.status, "closed");
 
-  // A closed row offers Reopen, not a dead second Close, and reopening sends
-  // exactly the reopen message for the live topic.
+  // A closed row's overflow menu offers Reopen, not a dead second Close, and
+  // activating it sends exactly the reopen message for the live topic.
   var sent = [];
-  var button = ui.close.createTopicCloseButton(closedTopic, {
+  var menu = ui.close.createTopicMenu(closedTopic, {
     send: function (message) { sent.push(message); return true; },
   });
-  assert.equal(button.textContent, "Reopen");
-  assert.equal(button.getAttribute("aria-label"), "Reopen topic Close refresh");
-  button.click();
+  var toggle = byClass(menu, "coop-topic-menu-toggle")[0];
+  var item = byClass(menu, "coop-topic-menu-item")[0];
+  assert.equal(item.textContent, "Reopen topic");
+  assert.equal(item.getAttribute("aria-label"), "Reopen topic Close refresh");
+  toggle.click();
+  item.click();
   assert.equal(sent.length, 1);
   assert.equal(sent[0].type, "coop_topic_reopen");
   assert.deepEqual(sent[0].topicRef, { topicId: "close-refresh" });
@@ -230,10 +233,11 @@ test("Close moves a topic to the Done section and Reopen restores it without los
   assert.deepEqual(sectionShape(reopened), ["project:Clay"]);
   assert.equal(reopened[0].topics[0].title, "Close refresh");
 
-  // An open row still offers Close, and the confirmation copy tells the truth
-  // about where the topic goes: the Done section, not oblivion.
-  var openButton = ui.close.createTopicCloseButton(reopened[0].topics[0], { send: function () { return true; } });
-  assert.equal(openButton.textContent, "Close");
+  // An open row's menu still offers Close behind the confirmation, and the
+  // confirmation copy tells the truth about where the topic goes: the Done
+  // section, not oblivion.
+  var openMenu = ui.close.createTopicMenu(reopened[0].topics[0], { send: function () { return true; } });
+  assert.equal(byClass(openMenu, "coop-topic-menu-item")[0].textContent, "Close topic…");
   assert.match(source("sidebar-coop-topic-close.js"), /Done section/);
   assert.doesNotMatch(source("sidebar-coop-topic-close.js"), /stops appearing/);
 
@@ -329,25 +333,54 @@ test("Close fails closed when no transport is available", async function () {
   assert.equal(confirmed, 0);
 });
 
-test("the close button stops the click so it never navigates the row", async function () {
+test("the overflow menu is a keyboard-usable menu whose item never navigates the row", async function () {
   var ui = await loadTopicControls();
   var selected = topic("row-topic", { projectRef: { projectId: CLAY }, title: "Row topic" });
   ui.projection.setGlobalCoopProjection(projectionMessage({
     projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [selected] }],
   }));
   var known = ui.projection.buildGlobalCoopDisplayModel("").projects[0].topics[0];
-  var stopped = 0;
   var prompts = [];
-  var button = ui.close.createTopicCloseButton(known, {
+  var menu = ui.close.createTopicMenu(known, {
     confirm: function (text, onConfirm) { prompts.push(onConfirm); },
     send: function () { return true; },
   });
-  assert.equal(button.tagName, "BUTTON");
-  assert.equal(button.className, "coop-topic-close");
-  assert.equal(button.getAttribute("aria-label"), "Close topic Row topic");
-  button.listeners.click[0]({ stopPropagation: function () { stopped++; } });
+
+  // Menu ARIA contract: haspopup toggle wired to a real menu kept in the DOM.
+  var toggle = byClass(menu, "coop-topic-menu-toggle")[0];
+  var list = byClass(menu, "coop-topic-menu-list")[0];
+  var item = byClass(menu, "coop-topic-menu-item")[0];
+  assert.equal(toggle.tagName, "BUTTON");
+  assert.equal(toggle.getAttribute("aria-haspopup"), "menu");
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(toggle.getAttribute("aria-controls"), list.id);
+  assert.equal(toggle.getAttribute("aria-label"), "Topic options for Row topic");
+  assert.equal(list.getAttribute("role"), "menu");
+  assert.equal(list.hidden, true, "the menu starts collapsed");
+  assert.equal(item.getAttribute("role"), "menuitem");
+  assert.equal(item.getAttribute("aria-label"), "Close topic Row topic");
+
+  // Opening reflects into aria-expanded; the menu stays in the DOM either way.
+  toggle.click();
+  assert.equal(list.hidden, false);
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+
+  // Escape closes the menu and returns focus to the toggle.
+  var focused = [];
+  toggle.focus = function () { focused.push("toggle"); };
+  menu.listeners.keydown[0]({ key: "Escape", stopPropagation: function () {} });
+  assert.equal(list.hidden, true);
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  assert.deepEqual(focused, ["toggle"]);
+
+  // Activating the item stops propagation (never navigates the row), closes
+  // the menu, and routes Close through the explicit confirmation.
+  toggle.click();
+  var stopped = 0;
+  item.listeners.click[0]({ stopPropagation: function () { stopped++; } });
   assert.equal(stopped, 1);
-  assert.equal(prompts.length, 1);
+  assert.equal(list.hidden, true, "acting closes the menu");
+  assert.equal(prompts.length, 1, "Close still goes through the confirmation");
 });
 
 // --- Related-sessions expander ---
@@ -619,4 +652,64 @@ test("the Review and Done disclosures wire aria-controls to stable panels kept i
   // Both toggles are real buttons, so Enter/Space activation is native.
   assert.match(review, /toggle = document\.createElement\("button"\)/);
   assert.match(topics, /toggle = document\.createElement\("button"\)/);
+});
+
+// --- Topic-row layout contract (title primary, quiet meta line, one overflow) ---
+
+test("the topic row keeps the title primary and the state on a quiet secondary line", function () {
+  var topics = source("sidebar-coop-topics.js");
+  // The title is the only content of the row button besides the unread badge:
+  // no dot, no state pill competing with it on the title line.
+  var rowBuilder = topics.slice(topics.indexOf("function createTopicRow("));
+  rowBuilder = rowBuilder.slice(0, rowBuilder.indexOf("\nfunction ", 1));
+  assert.ok(rowBuilder.indexOf("row.appendChild(title)") !== -1);
+  assert.ok(rowBuilder.indexOf("meta.appendChild(activityEl)") !== -1,
+    "the state text renders on the meta line, not inside the row button");
+  assert.ok(rowBuilder.indexOf("meta.appendChild(marker)") !== -1,
+    "the reinforcing dot lives on the meta line beside its words");
+  // The row's accessible name still announces the state even though it moved
+  // visually below the title.
+  assert.ok(rowBuilder.indexOf("topicAriaLabel(topic, activity)") !== -1);
+  // The meta line follows the omit-empty-wrapper rule and carries the single
+  // visible Review action only when one is actionable.
+  assert.match(topics, /if \(activity \|\| review\) \{/);
+  assert.match(topics, /if \(review\) meta\.appendChild\(review\)/);
+  // No loud pill treatment returns: the desktop state text is plain words.
+  var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
+  var activityRule = css.slice(css.indexOf(".coop-topic-activity {"));
+  activityRule = activityRule.slice(0, activityRule.indexOf("}"));
+  assert.doesNotMatch(activityRule, /text-transform: uppercase|border:/);
+});
+
+test("Close and Reopen live behind one overflow menu with the confirm gate intact", function () {
+  var closeSource = source("sidebar-coop-topic-close.js");
+  // One toggle, one role=menu list kept in the DOM, one menuitem.
+  assert.match(closeSource, /toggle\.setAttribute\("aria-haspopup", "menu"\)/);
+  assert.match(closeSource, /toggle\.setAttribute\("aria-controls", menuId\)/);
+  assert.match(closeSource, /list\.setAttribute\("role", "menu"\)/);
+  assert.match(closeSource, /item\.setAttribute\("role", "menuitem"\)/);
+  // Close still routes through the explicit confirmation and Reopen does not.
+  assert.match(closeSource, /if \(closed\) requestTopicReopen\(topic, opts\);\s*else requestTopicClose\(topic, opts\);/);
+  // Escape closes and returns focus to the toggle; leaving focus dismisses.
+  assert.match(closeSource, /event\.key !== "Escape"/);
+  assert.match(closeSource, /toggle\.focus\(\)/);
+  assert.match(closeSource, /addEventListener\("focusout"/);
+  // The menu is the only lifecycle affordance: no bare always-visible Close
+  // text button survives on the row.
+  var topics = source("sidebar-coop-topics.js");
+  assert.match(topics, /createTopicMenu\(topic, options\)/);
+  assert.doesNotMatch(topics, /createTopicCloseButton/);
+});
+
+test("both surfaces style the meta line and the overflow menu", function () {
+  var desktop = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
+  var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"), "utf8");
+  ["coop-topic-meta", "coop-topic-menu-toggle", "coop-topic-menu-list", "coop-topic-menu-item"].forEach(function (name) {
+    assert.ok(desktop.indexOf("." + name) !== -1, "desktop styles ." + name);
+    assert.ok(mobile.indexOf(".mobile-" + name) !== -1, "mobile styles .mobile-" + name);
+  });
+  // Touch has no hover: the mobile toggle must not be hover-revealed and must
+  // keep a 42px target.
+  assert.match(mobile, /\.mobile-coop-topic-menu-toggle \{[^}]*min-height: 42px/);
+  assert.doesNotMatch(mobile, /\.mobile-coop-topic-menu-toggle \{[^}]*opacity: 0/);
 });

@@ -158,7 +158,7 @@ test("the compact project-grouped topic list and its controls are preserved", fu
   assert.match(topics, /onSelect\(sendUserAction\)/);
   assert.match(topics, /requestCoopTopic\(topic, sendUserAction\)/);
   // Close + related-links expander on every row, and no empty wrappers.
-  assert.match(topics, /main\.appendChild\(createTopicCloseButton\(topic, options\)\)/);
+  assert.match(topics, /main\.appendChild\(createTopicMenu\(topic, options\)\)/);
   assert.match(topics, /createTopicLinksExpander\(topic, options\)/);
   assert.match(topics, /if \(!topics \|\| topics\.length === 0\) return 0/);
   // Project grouping still renders a heading per project section.

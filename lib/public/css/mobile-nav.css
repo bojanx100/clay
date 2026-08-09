@@ -878,36 +878,38 @@
   .mobile-coop-topic-all:active,
   .mobile-coop-topic-row:active,
   .mobile-coop-topic-row.active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
-  .mobile-coop-topic-group { margin: 5px 8px 11px 12px; }
+  .mobile-coop-topic-group { margin: 6px 8px 14px 12px; }
   .mobile-coop-topic-group-heading { padding: 7px 8px 5px; color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-  .mobile-coop-topic-row.has-state { flex-wrap: wrap; row-gap: 2px; }
-  .mobile-coop-topic-row.has-state .mobile-coop-topic-title { flex: 1 1 100%; }
-  .mobile-coop-topic-activity { flex: 0 0 auto; margin-left: 0; padding: 2px 6px; border: 1px solid transparent; border-radius: 5px; font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; }
-  .mobile-coop-topic-activity-working { border-color: var(--border-subtle); color: var(--text-dimmer); }
-  .mobile-coop-topic-activity-needs_input { border-color: var(--accent); color: var(--accent); }
-  .mobile-coop-topic-activity-done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
+  /* State words on a quiet secondary line under the title -- same structure as
+     desktop, so the title stays the primary content and never competes with a
+     loud bordered pill repeated down the list. */
+  .mobile-coop-topic-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; padding: 0 10px 3px 11px; }
+  .mobile-coop-topic-activity { flex: 0 0 auto; font-size: 11px; line-height: 1.5; white-space: nowrap; }
+  .mobile-coop-topic-activity-working { color: var(--text-dimmer); }
+  .mobile-coop-topic-activity-needs_input { color: var(--warning, #d99824); }
+  .mobile-coop-topic-activity-done { color: var(--success, #3fb950); }
   .mobile-coop-topic-title { overflow: hidden; flex: 1 1 auto; text-overflow: ellipsis; white-space: nowrap; }
-  .mobile-coop-topic-wrapper { margin: 2px 0 3px; }
+  .mobile-coop-topic-wrapper { margin: 3px 0 5px; }
   .mobile-coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
-  .mobile-coop-topic-row { min-height: 42px; gap: 8px; padding: 9px 10px; font-size: 13px; }
+  .mobile-coop-topic-row { min-height: 40px; gap: 8px; padding: 9px 10px 4px 11px; font-size: 14px; }
   .mobile-coop-topic-status { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--text-dimmer); }
   .mobile-coop-topic-status-active,
   .mobile-coop-topic-status-running { background: var(--accent); }
   .mobile-coop-topic-status-blocked,
   .mobile-coop-topic-status-failed,
   .mobile-coop-topic-status-needs_input { background: var(--warning, #d99824); }
-  .mobile-coop-topic-row.attention .mobile-coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }
+  .mobile-coop-topic-wrapper.attention .mobile-coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }
   .mobile-coop-topic-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* Closed short label set (Working / Needs input / Done): never truncate. */
-  .mobile-coop-topic-activity { flex-shrink: 0; color: var(--text-dimmer); font-size: 11px; white-space: nowrap; }
   .mobile-coop-topic-unread { flex: 0 0 auto; padding: 2px 6px; border-radius: 9px; background: rgba(var(--accent-rgb), .14); color: var(--accent); font-size: 10px; }
 
-  /* Same two controls as desktop. Touch has no hover, so Close stays visible
-     and keeps a 42px tap target. */
-  .mobile-coop-topic-main { display: flex; align-items: center; gap: 4px; }
+  /* Same single overflow control as desktop. Touch has no hover, so the
+     toggle stays visible and keeps a 42px tap target. */
+  .mobile-coop-topic-main { display: flex; align-items: flex-start; gap: 4px; }
   .mobile-coop-topic-main .mobile-coop-topic-row { min-width: 0; }
-  .mobile-coop-topic-close {
+  .mobile-coop-topic-menu { position: relative; flex: 0 0 auto; }
+  .mobile-coop-topic-menu-toggle {
     flex: 0 0 auto;
+    min-width: 42px;
     min-height: 42px;
     padding: 9px 10px;
     border: 0;
@@ -915,9 +917,37 @@
     background: transparent;
     color: var(--text-dimmer);
     font: inherit;
-    font-size: 12px;
+    font-size: 15px;
+    line-height: 1;
   }
-  .mobile-coop-topic-close:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
+  .mobile-coop-topic-menu-toggle:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
+  .mobile-coop-topic-menu-list {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 2px);
+    right: 0;
+    min-width: 160px;
+    padding: 4px;
+    background: var(--sidebar-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 6px 22px rgba(var(--shadow-rgb), 0.4);
+  }
+  .mobile-coop-topic-menu-item {
+    display: block;
+    width: 100%;
+    min-height: 42px;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .mobile-coop-topic-menu-item:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
 
   .mobile-coop-topic-links-wrapper { margin: 0 0 3px 15px; }
   .mobile-coop-topic-links-toggle {
@@ -1640,10 +1670,11 @@
 
 @media (max-width: 900px) {
   /* Per-topic owner review on the phone sheet: same flow, touch-sized. */
-  .mobile-coop-topic-review { margin: 0 0 3px 12px; }
-  .mobile-coop-topic-review-toggle { display: block; width: 100%; min-height: 38px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-dimmer); cursor: pointer; font: inherit; font-size: 12px; text-align: left; }
+  .mobile-coop-topic-review { display: contents; }
+  .mobile-coop-topic-review-toggle { flex: 0 0 auto; min-height: 34px; margin-left: auto; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-dimmer); cursor: pointer; font: inherit; font-size: 12px; text-align: left; }
   .mobile-coop-topic-review-toggle:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
-  .mobile-coop-topic-review-panel { padding: 6px 10px 8px; border-left: 1px solid var(--border-subtle); margin: 2px 0 2px 4px; }
+  .mobile-coop-topic-review-toggle[aria-expanded="true"] { color: var(--text-secondary); }
+  .mobile-coop-topic-review-panel { flex: 1 1 100%; padding: 6px 10px 8px; border-left: 1px solid var(--border-subtle); margin: 2px 0 2px 4px; }
   .mobile-coop-topic-review-provenance { margin-bottom: 6px; color: var(--text-dimmer); font-size: 12px; line-height: 1.4; }
   .mobile-coop-topic-review-note-history { margin-bottom: 6px; color: var(--text-secondary); font-size: 12px; }
   .mobile-coop-topic-review-error { margin-bottom: 6px; color: var(--warning, #d99824); font-size: 12px; }
