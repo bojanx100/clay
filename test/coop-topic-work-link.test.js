@@ -144,6 +144,16 @@ test("the projection seam is actually supplied now", function () {
   assert.match(server, /coopTopicState\.projectedTopicState\(topicRef/);
   assert.match(server, /tasks: coopSession\.orchestrationTasks/);
   assert.match(server, /isProcessing: !!coopSession\.isProcessing/);
+  // The canonical session for state must be read through the API the project
+  // context actually exposes. A getSessions() probe matched nothing, returned
+  // null on every connection, and blanked every computed state live while all
+  // direct index.project tests stayed green.
+  assert.doesNotMatch(server, /lead\.getSessions\(/);
+  var stateAccessor = server.slice(
+    server.indexOf("function canonicalCoopSessionForState"),
+    server.indexOf("function connectedUserIsCoopOwner"));
+  assert.match(stateAccessor, /getSessionManager/);
+  assert.match(stateAccessor, /coopHome/);
 
   var projection = fs.readFileSync(path.join(__dirname, "..", "lib", "coop-topic-projection.js"), "utf8");
   assert.match(projection, /workState: cleanProjectionText\(computed\.workState, 32\)/);
