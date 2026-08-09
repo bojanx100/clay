@@ -306,3 +306,115 @@ test("CLI session import preserves original message timestamps as _ts", function
     fs.rmSync(projectDir, { recursive: true, force: true });
   }
 });
+
+test("a Claude rollout is still importable when a large pasted attachment straddles the descriptor read boundary", function () {
+  // Root cause: readCliSessionDescriptor used to do one fixed-size (64KB)
+  // read. Real conversations that open with a pasted screenshot embed a
+  // large base64 image inline in the very first "user" JSON line; when that
+  // line straddles the read cutoff, JSON.parse silently fails on it (and
+  // anything after), userCount looks like 0, and the whole real session
+  // vanishes from the import picker. This reproduces that shape with a
+  // synthetic oversized first line, then real content further in the file.
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-large-attachment-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions-cli-descriptors")];
+
+    var utils = require("../lib/utils");
+    var config = require("../lib/config");
+    var encoded = utils.encodeCwd(projectDir);
+    var cliDir = path.join(config.REAL_HOME, ".claude", "projects", encoded);
+    fs.mkdirSync(cliDir, { recursive: true });
+
+    var sessionId = "big-attachment-session-1";
+    var hugeBase64 = "A".repeat(200 * 1024); // 200KB, well past the old 64KB cap
+    var firstUserText = "why did I get this message in my chat ?";
+    var lines = [
+      JSON.stringify({ type: "mode", mode: "default" }),
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-07-16T10:00:00.000Z",
+        message: {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: hugeBase64 } },
+            { type: "text", text: firstUserText },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-07-16T10:00:05.000Z",
+        message: { role: "assistant", content: [{ type: "text", text: "Let me check that." }] },
+      }),
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-07-16T10:01:00.000Z",
+        message: { role: "user", content: "Any update?" },
+      }),
+    ];
+    fs.writeFileSync(path.join(cliDir, sessionId + ".jsonl"), lines.join("\n") + "\n");
+
+    function isValidCliSessionId(cliSid) { return typeof cliSid === "string" && /^[A-Za-z0-9_-]+$/.test(cliSid); }
+    var descriptorsMod = require("../lib/sessions-cli-descriptors");
+    var descApi = descriptorsMod.attachSessionCliDescriptors({ cwd: projectDir, isValidCliSessionId: isValidCliSessionId });
+
+    var desc = descApi.readCliSessionDescriptor(sessionId);
+    assert.ok(desc, "session with a large first-line attachment must still produce a descriptor");
+    assert.strictEqual(desc.cliSid, sessionId);
+    assert.strictEqual(desc.preview, firstUserText);
+    assert.strictEqual(desc.title, firstUserText);
+  } finally {
+    if (typeof oldHome === "string") process.env.HOME = oldHome;
+    else delete process.env.HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions-cli-descriptors")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("a genuinely empty 'hi'-only Claude rollout stays excluded after the descriptor read fix", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-hi-only-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions-cli-descriptors")];
+
+    var utils = require("../lib/utils");
+    var config = require("../lib/config");
+    var encoded = utils.encodeCwd(projectDir);
+    var cliDir = path.join(config.REAL_HOME, ".claude", "projects", encoded);
+    fs.mkdirSync(cliDir, { recursive: true });
+
+    var sessionId = "hi-only-session-1";
+    var lines = [
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-07-16T10:00:00.000Z",
+        message: { role: "user", content: "hi" },
+      }),
+    ];
+    fs.writeFileSync(path.join(cliDir, sessionId + ".jsonl"), lines.join("\n") + "\n");
+
+    function isValidCliSessionId(cliSid) { return typeof cliSid === "string" && /^[A-Za-z0-9_-]+$/.test(cliSid); }
+    var descriptorsMod = require("../lib/sessions-cli-descriptors");
+    var descApi = descriptorsMod.attachSessionCliDescriptors({ cwd: projectDir, isValidCliSessionId: isValidCliSessionId });
+
+    assert.strictEqual(descApi.readCliSessionDescriptor(sessionId), null, "a lone 'hi' test session must remain excluded");
+  } finally {
+    if (typeof oldHome === "string") process.env.HOME = oldHome;
+    else delete process.env.HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions-cli-descriptors")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
