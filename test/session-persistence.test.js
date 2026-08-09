@@ -74,6 +74,104 @@ test("Lead sessions keep exactly one durable, protected Coop home", async functi
   }
 });
 
+test("hiding a session stamps closedAt exactly once and persists it (does not fall back to file mtime)", async function () {
+  var h = makeSessionHarness();
+  try {
+    var session = [...h.sm.sessions.values()][0];
+    session.storageId = "closed-once";
+    session.cliSessionId = "closed-once";
+    session.title = "Some closed session";
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(readSessionMeta(h, "closed-once").closedAt, undefined,
+      "closedAt is not written while the session is still open");
+
+    h.sm.hideSession(session.localId, null);
+    var firstClosedAt = readSessionMeta(h, "closed-once").closedAt;
+    assert.strictEqual(typeof firstClosedAt, "number", "hiding stamps a numeric closedAt");
+
+    // A later unrelated save (e.g. an orchestrator update, coop channel
+    // change, or any other saveSessionFile call after the session is
+    // already hidden) must not bump closedAt — retries/re-saves of an
+    // already-closed session are idempotent.
+    await wait(5);
+    session.title = "Some closed session (edited by unrelated code path)";
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(readSessionMeta(h, "closed-once").closedAt, firstClosedAt,
+      "closedAt is stable across unrelated re-saves of an already-hidden session");
+
+    // Simulate a Clay restart: reload from disk and confirm the persisted
+    // lastActivity (not the storage file's OS mtime) is restored, so
+    // unrelated bulk rewrites of the storage file cannot corrupt it.
+    var persistedLastActivity = readSessionMeta(h, "closed-once").lastActivity;
+    assert.strictEqual(typeof persistedLastActivity, "number", "lastActivity is persisted explicitly");
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = [...restored.sessions.values()].find(function (s) {
+      return s.storageId === "closed-once";
+    });
+    assert.ok(restoredSession, "hidden session survives reload");
+    assert.strictEqual(restoredSession.closedAt, firstClosedAt);
+    assert.strictEqual(restoredSession.lastActivity, persistedLastActivity,
+      "restored lastActivity comes from the persisted value, not file mtime");
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("two unrelated sessions closed at different times keep distinct closedAt after a shared bulk rewrite", async function () {
+  var h = makeSessionHarness();
+  try {
+    var sessions = [...h.sm.sessions.values()];
+    var a = sessions[0];
+    a.storageId = "closed-a";
+    a.cliSessionId = "closed-a";
+    a.title = "First closed session";
+    h.sm.saveSessionFile(a);
+    h.sm.hideSession(a.localId, null);
+    var closedAtA = a.closedAt;
+    var lastActivityA = readSessionMeta(h, "closed-a").lastActivity;
+
+    await wait(10);
+
+    var b = h.sm.createSessionRaw({});
+    b.storageId = "closed-b";
+    b.cliSessionId = "closed-b";
+    b.title = "Second closed session, closed later";
+    h.sm.sessions.set(b.localId, b);
+    h.sm.saveSessionFile(b);
+    h.sm.hideSession(b.localId, null);
+    var closedAtB = b.closedAt;
+    var lastActivityB = readSessionMeta(h, "closed-b").lastActivity;
+
+    assert.notStrictEqual(closedAtA, closedAtB,
+      "two unrelated sessions closed at different times must not collapse to one timestamp");
+
+    // Simulate an unrelated bulk rewrite that touches both files' OS mtime
+    // at the same instant (the exact corruption reported by the owner).
+    fs.utimesSync(sessionFile(h, "closed-a"), new Date(), new Date());
+    fs.utimesSync(sessionFile(h, "closed-b"), new Date(), new Date());
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredA = [...restored.sessions.values()].find(function (s) { return s.storageId === "closed-a"; });
+    var restoredB = [...restored.sessions.values()].find(function (s) { return s.storageId === "closed-b"; });
+    assert.strictEqual(restoredA.lastActivity, lastActivityA);
+    assert.strictEqual(restoredB.lastActivity, lastActivityB);
+    assert.notStrictEqual(restoredA.lastActivity, restoredB.lastActivity,
+      "bulk mtime rewrite must not corrupt distinct closed sessions into one timestamp");
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
 test("Lead upgrade promotes the most recently viewed ordinary root session", async function () {
   var h = makeSessionHarness();
   try {
