@@ -30,22 +30,22 @@ function canonicalSession() {
     coopHome: true,
     storageId: "canonical-topic-home",
     history: [
-      { type: "user_message", text: "Codex auth secret-body-should-never-persist and queued ingress recovery" },
+      { type: "user_message", text: "Codex auth secret-body-should-never-persist and queued ingress recovery", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "Final assistant authentication and recovery reply" },
       { type: "done" },
-      { type: "user_message", text: "An unrelated design discussion" },
+      { type: "user_message", text: "An unrelated design discussion", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "Final assistant: Coop canonical conversation architecture uses a ProjectRef channel" },
       { type: "done" },
-      { type: "user_message", text: "Navigation session restoration and sidebar hierarchy for desktop mobile" },
+      { type: "user_message", text: "Navigation session restoration and sidebar hierarchy for desktop mobile", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "Final assistant navigation reply" },
       { type: "done" },
-      { type: "user_message", text: "Worker lifecycle binding completion remains project owned" },
+      { type: "user_message", text: "Worker lifecycle binding completion remains project owned", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "Final assistant lifecycle reply" },
       { type: "done" },
-      { type: "user_message", text: "Webapp triage and session cleanup" },
+      { type: "user_message", text: "Webapp triage and session cleanup", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "Final assistant webapp reply" },
       { type: "done" },
-      { type: "user_message", text: "A quiet unmatched turn" },
+      { type: "user_message", text: "A quiet unmatched turn", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "Final assistant unmatched reply" },
       { type: "done" },
     ],
@@ -129,7 +129,7 @@ test("topic metadata operations preserve references and nested execution links",
     assert.equal(h.index.resolve(selected.topicRef).topic.source, "automatic");
     assert.equal(h.index.resolve(mergeSource.topicRef).topic.source, "automatic");
     session.history.push(
-      { type: "user_message", text: "owner-selected body is never copied", coopTopicRef: selected.topicRef },
+      { type: "user_message", text: "owner-selected body is never copied", coopTopicRef: selected.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "final response body is never copied" },
       { type: "done" }
     );
@@ -338,7 +338,7 @@ test("automatic classification reuses durable topics and infers a bounded projec
     assert.deepEqual(h.index.classifyCanonicalIngress(session, { text: firstText }, options), Object.assign({}, first, { created: false }));
     assert.equal(Object.keys(h.index.load().topics).length, before + 1, "related and duplicate ingress do not create a topic per turn");
 
-    session.history.push({ type: "user_message", text: firstText, coopTopicRef: first.topicRef }, { type: "done" });
+    session.history.push({ type: "user_message", text: firstText, coopTopicRef: first.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" }, { type: "done" });
     var followUp = h.index.classifyCanonicalIngress(session, { text: "yes, continue" }, options);
     assert.deepEqual(followUp.topicRef, first.topicRef, "low-information follow-up keeps the recent durable topic");
 

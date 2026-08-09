@@ -26,7 +26,10 @@ async function loadRelevance() {
 
 test("conversational blocks are owner-relevant live", async function () {
   var lens = await loadRelevance();
-  assert.equal(lens.messageRelevance({ type: "user_message", text: "restore it" }), "owner");
+  assert.equal(lens.messageRelevance({
+    type: "user_message", text: "restore it",
+    from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-1",
+  }), "owner");
   assert.equal(lens.messageRelevance({ type: "delta", text: "working on it" }), "owner");
   assert.equal(lens.messageRelevance({ type: "delta_replace", text: "done" }), "owner");
   assert.equal(lens.messageRelevance({ type: "result", text: "done" }), "owner");
@@ -62,9 +65,16 @@ test("the live Lead tick is internal, recognised by flag not by label text", asy
   var lens = await loadRelevance();
   // It reaches the client as an ordinary user_message whose text is a label.
   assert.ok(lens.isInternalMessage({ type: "user_message", text: "↻ Lead tick", autoAction: true }));
-  // Matching the label text would rot the moment the label changes, and would
-  // also swallow an owner who happened to type it.
-  assert.ok(!lens.isInternalMessage({ type: "user_message", text: "↻ Lead tick" }));
+  // Matching the label text would rot the moment the label changes. The rule is
+  // provenance: an owner who types those exact words is still the owner, and
+  // their message carries the markers the injected prompt never has.
+  assert.ok(!lens.isInternalMessage({
+    type: "user_message", text: "↻ Lead tick",
+    from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-1",
+  }));
+  // And the injected prompt is internal even with no flag at all, which is the
+  // shape 198 real records in the owner's transcript actually have.
+  assert.ok(lens.isInternalMessage({ type: "user_message", text: "↻ Lead tick" }));
 });
 
 test("worker fan-in is internal live", async function () {

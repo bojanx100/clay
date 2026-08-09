@@ -11,7 +11,23 @@ var completeTurns = require("../lib/coop-topic-extraction").completeTurns;
 // invisible in the transcript could still create and populate a topic -- which
 // is exactly how a topic that opens onto an empty lens becomes possible.
 
+// Real owner-message shape, copied from the owner's Coop transcript: a message
+// the owner actually typed always carries provenance (from / fromName /
+// clientMessageId / coopIngress*). An injected control prompt carries none of
+// it, which is the ONLY durable way to tell them apart -- both are user_message
+// records and the text can say anything.
 function userMessage(text, extra) {
+  return Object.assign({
+    type: "user_message",
+    text: text,
+    from: "a66ce4a1-b807-46da-b9c3-e62686e4b28e",
+    fromName: "Admin",
+    clientMessageId: "cm-owner-1",
+  }, extra || {});
+}
+
+// Verbatim shape of an injected prompt: type, text and nothing else.
+function injectedMessage(text, extra) {
   return Object.assign({ type: "user_message", text: text }, extra || {});
 }
 
@@ -168,7 +184,7 @@ test("operational classification matches the durable skip list", function () {
   assert.ok(relevance.isOperationalEvent({ type: "thinking" }));
   assert.ok(relevance.isOperationalEvent({ type: "permission_request" }));
   assert.ok(relevance.isOperationalEvent({ type: "context_usage" }));
-  assert.ok(!relevance.isOperationalEvent({ type: "user_message" }));
+  assert.ok(!relevance.isOperationalEvent(userMessage("hello")));
   assert.ok(!relevance.isOperationalEvent({ type: "delta" }));
   assert.ok(!relevance.isOperationalEvent(null));
   // digest_checkpoint is already skipped by sessions-history; keep agreement.
@@ -201,7 +217,7 @@ test("real tool record types are operational", function () {
 
 test("a Bash turn keeps its conversation and drops its execution", function () {
   var history = [
-    { type: "user_message", text: "check the file" },
+    userMessage("check the file"),
     { type: "tool_start", id: "exec-1", name: "Bash" },
     { type: "tool_executing", id: "exec-1", name: "Bash", input: { command: "wc -l x" } },
     { type: "tool_result", id: "exec-1", content: "42 x", is_error: false },
@@ -227,7 +243,7 @@ test("scheduled Lead-tick plumbing never reaches Main", function () {
   var history = [
     { type: "scheduled_message_queued", id: "s-1", text: "↻ Lead tick" },
     { type: "scheduled_message_sent", id: "s-1" },
-    { type: "user_message", text: "a real question" },
+    userMessage("a real question"),
     { type: "done" },
   ];
   assert.deepEqual(relevance.mainLensEventIndexes(history), [2, 3]);
@@ -271,7 +287,7 @@ test("a flood of thinking deltas cannot push the owner question out of Main", fu
   // The reported failure: 601 deltas in one turn, and Main's initial 300-event
   // window began at a thinking delta, so the question was gone while the answer
   // remained -- the conversation read as an answer to nothing.
-  var history = [{ type: "user_message", text: "ship the parent-only icons?" }];
+  var history = [userMessage("ship the parent-only icons?")];
   for (var i = 0; i < 601; i++) history.push({ type: "thinking_delta", text: "t" + i });
   history.push({ type: "delta", text: "Yes, shipping them." });
   history.push({ type: "done" });
@@ -294,4 +310,151 @@ test("the two relevance paths agree about thinking_delta", function () {
   assert.match(client, /thinking_delta: true/);
   assert.match(client, /isThinkingShaped/);
   assert.ok(relevance.isOperationalEvent({ type: "thinking_delta" }));
+});
+
+
+// --- injected control prompts, by provenance not prose -----------------------
+//
+// Owner-reported: Main still showed "Lead tick" and related internal messages.
+// Reproduced against the owner's real Coop transcripts: 198 records reach Main
+// as bare user_message records -- {type, text, _ts} and nothing else. They carry
+// no autoAction, no internalOnly, no synthetic and no origin, so every existing
+// flag check passed them through. Genuine owner messages in the same transcripts
+// always carry provenance (from / fromName / clientMessageId / coopIngress*).
+// That is the separation, and it never looks at the words.
+
+// Verbatim shapes from ~/.clay/sessions/-Users-bojansubotic--clay-lead-workspace.
+var REAL_INJECTED = [
+  { type: "user_message", text: "\u21bb Lead tick", _ts: 1785944821005 },
+  { type: "user_message", text: "\u21bb Resuming after restart", _ts: 1785944821006 },
+  { type: "user_message", text: "\u21bb Resuming the interrupted response", _ts: 1785944821007 },
+  { type: "user_message", text: "\u21bb Continuing on Codex via GitHub Copilot", _ts: 1785944821008 },
+  { type: "user_message", text: "\u21bb Continuing on codex after reset", _ts: 1785944821009 },
+  { type: "user_message", text: "\u21bb Continuing on Claude via GitHub Copilot", _ts: 1785944821010 },
+  { type: "user_message", text: "[Clay worker update] Task ID: task-5645f446", _ts: 1785944821011 },
+  { type: "user_message", text: "Continue from the compacted Coop context.", compactedRetry: true, _ts: 1785944821012 },
+  { type: "user_message", text: "You are a bounded worker owned by a Clay coordinator.", synthetic: true, origin: { kind: "automation" }, _ts: 1785944821013 },
+  { type: "user_message", text: "[Coordinator update for task task-58af9276]", synthetic: true, origin: { kind: "task-notification" }, _ts: 1785944821014 },
+];
+
+test("every real injected control record is classified internal", function () {
+  REAL_INJECTED.forEach(function (record) {
+    assert.ok(relevance.isOperationalEvent(record),
+      "must be internal: " + JSON.stringify(record.text));
+  });
+  assert.deepEqual(relevance.mainLensEventIndexes(REAL_INJECTED), [],
+    "no injected control record may reach Main");
+});
+
+test("a genuine owner message is kept even when it talks about the tick", function () {
+  // Verbatim from the transcript. Prose mentions the tick; provenance says the
+  // owner typed it. Prose must never decide.
+  var real = {
+    type: "user_message",
+    text: "why do I have lead tick every time I send you a message?",
+    clientMessageId: "cm-mshdmhi3-2he4lg",
+    coopIngressId: "coop:871a194b:3",
+    coopIngressSequence: 3,
+    from: "a66ce4a1-b807-46da-b9c3-e62686e4b28e",
+    fromName: "Admin",
+  };
+  assert.ok(!relevance.isOperationalEvent(real));
+  assert.deepEqual(relevance.mainLensEventIndexes([real]), [0]);
+  assert.ok(relevance.hasOwnerProvenance(real));
+});
+
+test("each provenance marker alone is enough to keep an owner message", function () {
+  // Older clients stamp different subsets, so any one marker must suffice or a
+  // real message from an older build would silently vanish.
+  [{ from: "u1" }, { fromName: "Admin" }, { clientMessageId: "cm-1" },
+   { coopIngressId: "coop:x:1" }, { coopIngressKey: "input:cm-1" }].forEach(function (marker) {
+    var record = Object.assign({ type: "user_message", text: "hello" }, marker);
+    assert.ok(relevance.hasOwnerProvenance(record), JSON.stringify(marker));
+    assert.deepEqual(relevance.mainLensEventIndexes([record]), [0], JSON.stringify(marker));
+  });
+});
+
+test("provenance is only consulted for user_message carriers", function () {
+  // Assistant output has no provenance fields and must not be swept up by this
+  // rule -- it is the bulk of what Main exists to show.
+  assert.ok(!relevance.isInjectedUserMessage({ type: "delta", text: "answer" }));
+  assert.ok(!relevance.isOperationalEvent({ type: "delta", text: "answer" }));
+  assert.ok(!relevance.isOperationalEvent({ type: "result", text: "done" }));
+  assert.deepEqual(
+    relevance.mainLensEventIndexes([{ type: "delta", text: "a" }, { type: "done" }]),
+    [0, 1]);
+});
+
+test("a compaction re-injection is dropped while the owner original stays", function () {
+  // Both carry the same text; only the provenanced one is what the owner sent.
+  // Verbatim pair from the transcript, five seconds apart.
+  var history = [
+    { type: "user_message", text: "Am i logged in", clientMessageId: "cm-x",
+      from: "a66ce4a1", fromName: "Admin", _ts: 1785941790839 },
+    { type: "user_message", text: "Am i logged in", compactedRetry: true, _ts: 1785941795666 },
+    { type: "delta", text: "Yes." },
+  ];
+  assert.deepEqual(relevance.mainLensEventIndexes(history), [0, 2],
+    "the duplicate re-injection is noise, the owner original is content");
+});
+
+test("injected control prompts cannot mint or populate a topic", function () {
+  var completeTurns = require("../lib/coop-topic-extraction").completeTurns;
+  var events = [
+    { type: "user_message", text: "\u21bb Lead tick" },
+    { type: "delta", text: "Ticking." },
+    { type: "done" },
+  ];
+  var turn = completeTurns(events, 0).turns[0];
+  assert.ok(!relevance.isOwnerRelevantTurn(turn),
+    "a tick must not admit a topic or drive Working/Needs input/Done");
+
+  var ownerEvents = [
+    { type: "user_message", text: "ship it?", from: "u1", fromName: "Admin", clientMessageId: "cm-1" },
+    { type: "delta", text: "Shipping." },
+    { type: "done" },
+  ];
+  var ownerTurn = completeTurns(ownerEvents, 0).turns[0];
+  assert.ok(relevance.isOwnerRelevantTurn(ownerTurn), "owner conversation still admits topics");
+  assert.equal(ownerTurn.fromName, "Admin");
+  assert.equal(ownerTurn.clientMessageId, "cm-1", "the turn record must carry provenance");
+});
+
+test("the injected prompts do not consume the bounded replay window", function () {
+  // The tick fires on every owner message, so at real volume it would otherwise
+  // crowd the owner's own words out of a bounded Main window.
+  var history = [];
+  for (var i = 0; i < 400; i++) history.push({ type: "user_message", text: "\u21bb Lead tick" });
+  history.push({ type: "user_message", text: "the real question", from: "u1", fromName: "Admin" });
+  history.push({ type: "delta", text: "the real answer" });
+
+  var main = relevance.mainLensEventIndexes(history);
+  assert.deepEqual(main, [400, 401]);
+  assert.ok(main.slice(-300).indexOf(400) !== -1,
+    "the owner question must survive the window");
+});
+
+test("All keeps everything the injected filter removes from Main", function () {
+  var history = REAL_INJECTED.concat([
+    { type: "user_message", text: "owner", from: "u1", fromName: "Admin" },
+  ]);
+  var main = relevance.mainLensEventIndexes(history);
+  assert.deepEqual(main, [REAL_INJECTED.length], "Main keeps only the owner turn");
+  // All is every index by construction; assert Main is a strict subset of it.
+  var all = history.map(function (_, i) { return i; });
+  main.forEach(function (i) { assert.ok(all.indexOf(i) !== -1); });
+  assert.ok(main.length < all.length, "All stays full fidelity");
+});
+
+test("server and client agree about injected user messages", function () {
+  var fs = require("node:fs");
+  var pathMod = require("node:path");
+  var client = fs.readFileSync(
+    pathMod.join(__dirname, "..", "lib", "public", "modules", "coop-lens-relevance.js"), "utf8");
+  assert.match(client, /hasOwnerProvenance/);
+  assert.match(client, /isInjectedUserMessage/);
+  assert.match(client, /coopIngress/);
+  // The live path marks blocks with the same rule the replay path applies, so a
+  // tick arriving mid-turn is hidden without waiting for a reload.
+  assert.match(client, /if \(isInjectedUserMessage\(message\)\) return RELEVANCE_INTERNAL;/);
 });

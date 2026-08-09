@@ -28,7 +28,7 @@ var TOPICS_UI = clientSource("sidebar-coop-topics.js");
 
 function conversation() {
   return [
-    { type: "user_message", text: "restore the switcher" },
+    { type: "user_message", text: "restore the switcher", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-1" },
     { type: "thinking", text: "considering" },
     { type: "tool_use", name: "Bash", input: { command: "ls" } },
     { type: "tool_result", text: "output" },

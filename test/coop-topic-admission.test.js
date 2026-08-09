@@ -24,9 +24,17 @@ function harness() {
   };
 }
 
+// Owner turns carry real provenance, matching the owner's transcript. An
+// injected control prompt has none, which is how admission tells them apart
+// without reading the words.
 function turn(text, extra) {
   return [
-    Object.assign({ type: "user_message", text: text }, extra || {}),
+    Object.assign({
+      type: "user_message", text: text,
+      from: "a66ce4a1-b807-46da-b9c3-e62686e4b28e",
+      fromName: "Admin",
+      clientMessageId: "cm-owner-" + String(text).length,
+    }, extra || {}),
     { type: "delta_replace", text: "assistant reply about " + text },
     { type: "done" },
   ];
