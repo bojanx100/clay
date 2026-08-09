@@ -394,14 +394,15 @@ test("v2 revisits a v1 machine-retitled topic even though its fingerprint no lon
   var report = retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; }, now: function () { return 77; } });
 
   assert.equal(report.retitled, 1);
-  assert.equal(t.title, "None have been taken and you were idle");
+  assert.equal(t.title, "Why were you idle and why didn't you…",
+    "the most diagnostic clause of the proven turn names the subject");
   assert.equal(t.titleRetrofitAudit.schemaVersion, retrofit.TITLE_RETROFIT_SCHEMA_VERSION);
   assert.equal(t.topicRef.topicId, fingerprintTopicId("Placeholder", { kind: "uncategorised" }), "topic ID never changes");
 
-  // Terminal at v2: a second pass leaves the readable title alone.
+  // Terminal at the current schema: a second pass leaves the title alone.
   var again = retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
   assert.equal(again.retitled, 0);
-  assert.equal(t.title, "None have been taken and you were idle");
+  assert.equal(t.title, "Why were you idle and why didn't you…");
 });
 
 test("a genuinely owner-renamed title stays protected at v2", function () {
@@ -415,19 +416,85 @@ test("a genuinely owner-renamed title stays protected at v2", function () {
 });
 
 test("two topics deriving the same readable title stay distinct", function () {
-  var built = historyOf(["let me know when it's finished", "let me know when it's finished please and thanks"]);
-  var a = automaticTopic("Let Know Finished Sidebar Done", [built.starts[0]]);
-  a.title = "Let Know Finished Sidebar Done";
+  var built = historyOf(["the sidebar filter is broken on mobile", "the sidebar filter is broken on mobile again today"]);
+  var a = automaticTopic("Sidebar Filter Broken Mobile One", [built.starts[0]]);
+  a.title = "Sidebar Filter Broken Mobile One";
   a.titleRetrofitAudit = { schemaVersion: 1, checkedAt: 5, provenCount: 1, action: "retitled" };
-  var b = automaticTopic("Let Know Finished Please Thanks", [built.starts[1]]);
-  b.title = "Let Know Finished Please Thanks";
+  var b = automaticTopic("Sidebar Filter Broken Mobile Two", [built.starts[1]]);
+  b.title = "Sidebar Filter Broken Mobile Two";
   b.titleRetrofitAudit = { schemaVersion: 1, checkedAt: 5, provenCount: 1, action: "retitled" };
   var idx = indexWith([a, b, uncategorisedTopic()]);
 
   retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
 
   assert.notEqual(a.title, b.title, "identical derivations never collide in the sidebar");
-  var expected = ["Let me know when it's finished", "Let me know when it's finished please and…"];
+  var expected = ["The sidebar filter is broken on mobile", "The sidebar filter is broken on mobile again…"];
   assert.ok(expected.indexOf(a.title) !== -1 || /\(\d+\)$/.test(a.title));
   assert.ok(expected.indexOf(b.title) !== -1 || /\(\d+\)$/.test(b.title));
+});
+
+// --- non-diagnostic fragment titles (owner correction, revision 24) -----------
+// v2 produced readable but non-diagnostic titles: vague owner utterances kept
+// as topic names. Each case below is a verified live example. A topic keeps
+// its own row only when some proven turn contains a clause naming a concrete
+// subject; otherwise it folds into Uncategorised conversations.
+
+test("a vague utterance topic borrows its subject from the rest of the proven turn", function () {
+  var built = historyOf(["Actually you know what, scratch 1... the project button is ok"]);
+  var t = automaticTopic("Placeholder", built.starts);
+  t.title = "You know what, scratch 1";
+  t.titleRetrofitAudit = { schemaVersion: 2, checkedAt: 5, provenCount: 1, action: "retitled" };
+  var idx = indexWith([t, uncategorisedTopic()]);
+
+  var report = retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
+
+  assert.equal(report.retitled, 1);
+  assert.equal(t.title, "The project button is ok");
+  assert.equal(t.topicRef.topicId, fingerprintTopicId("Placeholder", { kind: "uncategorised" }));
+});
+
+test("'Can you implement that' takes its subject from the informative clause that follows", function () {
+  var built = historyOf(["ok can you implement that... one note opus 5 is still not a part of sdk, what the session told me..."]);
+  var t = automaticTopic("Placeholder", built.starts);
+  t.title = "Can you implement that";
+  t.titleRetrofitAudit = { schemaVersion: 2, checkedAt: 5, provenCount: 1, action: "retitled" };
+  var idx = indexWith([t, uncategorisedTopic()]);
+  retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
+  assert.equal(t.title, "One note opus 5 is still not a…");
+});
+
+test("a topic with no defensible subject anywhere merges into Uncategorised conversations", function () {
+  ["Yea, so... let me look", "It's all working... that can't be true", "does this look like it? yes"].forEach(function (turn) {
+    var built = historyOf([turn]);
+    var t = automaticTopic("Placeholder " + turn.length, built.starts);
+    t.title = classification.readableTitle(turn);
+    t.titleRetrofitAudit = { schemaVersion: 2, checkedAt: 5, provenCount: 1, action: "retitled" };
+    var catchAll = uncategorisedTopic();
+    var idx = indexWith([t, catchAll]);
+
+    var report = retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
+
+    assert.equal(report.mergedToUncategorised, 1, turn + " must merge");
+    assert.equal(t.status, "merged");
+    assert.deepEqual(t.mergedInto, { topicId: "uncategorised-conversations" });
+    assert.equal(catchAll.turnRefs.length, 1, "membership preserved in the catch-all");
+    assert.equal(catchAll.title, "Uncategorised conversations", "seed title untouched");
+  });
+});
+
+test("a diagnostic v2 title stays terminal at v3 instead of churning", function () {
+  var built = historyOf(["For session import, I am missing some sessions, and the dates are incorrect"]);
+  var t = automaticTopic("Placeholder", built.starts);
+  t.title = "For session import, I am missing some sessions…";
+  t.titleRetrofitAudit = { schemaVersion: 2, checkedAt: 5, provenCount: 1, action: "retitled" };
+  var idx = indexWith([t, uncategorisedTopic()]);
+
+  var report = retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
+
+  assert.equal(report.mergedToUncategorised, 0, "an evidenced distinct topic is never merged");
+  assert.equal(t.status, "open");
+  assert.match(t.title, /session import/i, "the factual subject is preserved");
+
+  var again = retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
+  assert.equal(again.retitled + again.mergedToUncategorised, 0, "idempotent at v3");
 });
