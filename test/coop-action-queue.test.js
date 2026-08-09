@@ -471,3 +471,32 @@ test("the queue obeys the projection's session ACL for destinations", function (
   assert.ok(a, "the decision itself is still visible");
   assert.equal(a.destination, null, "but it must not route to a session the actor cannot open");
 });
+
+
+test("the projection emits finished work as an acceptance item end to end", function () {
+  // Coordinator QA could not exercise this live because the real queue was
+  // empty (no attention-state and no completed-unaccepted tasks existed), so
+  // the server->client shape for acceptance items is pinned here instead of
+  // being taken on trust.
+  var accepted = Object.assign(task2503(), {
+    status: "completed",
+    ownerAcceptance: { status: "accepted", at: 5, withdrawnAt: null },
+  });
+  var awaiting = Object.assign(task2517(), { status: "completed", resolutionSummary: "" });
+
+  var projection = buildGlobalCoopProjection({
+    projects: leadAnd(proj(WEBAPP_UUID, "webapp", [
+      sess(10, { coordinationMode: true, orchestrationTasks: [coordinator(), accepted, awaiting] }),
+    ])),
+  });
+
+  assert.equal(projection.actionQueue.length, 1, "accepted work leaves; unaccepted work stays");
+  var item = projection.actionQueue[0];
+  assert.equal(item.kind, "acceptance");
+  assert.equal(item.title, "Excel Viewer - view only");
+  assert.equal(item.status, "completed");
+  assert.match(item.decision, /accept it, or send it back/);
+  // The client normalizer must preserve the kind, or the panel would offer
+  // Advance instead of Accept.
+  assert.equal(item.taskId, "task-2517");
+});

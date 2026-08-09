@@ -919,3 +919,44 @@ test("an accepted item offers Reopen, so acceptance is revocable in the UI", asy
   reopen.click();
   assert.equal(sent[sent.length - 1].decision, "revoke_acceptance");
 });
+
+
+test("a real acceptance item from the server builder renders Accept, not Advance", async function () {
+  // End to end on the client side: the SERVER builder produces the item, the
+  // real normalizer consumes it, and the real panel renders it. The earlier
+  // acceptance test set `kind` by hand, so it could not catch the kind being
+  // dropped in normalizeActionQueue or ignored by the renderer.
+  var ctx = await harness();
+  var items = buildActionQueue([{
+    projectRef: { projectId: "webapp-project-id" }, slug: "webapp", title: "Webapp",
+    sessions: [{ localId: 1, storageId: "coord", orchestrationTasks: [
+      { taskId: "coord", title: "Reconcile", status: "needs_input", updatedAt: 500 },
+      { taskId: "task-2517", parentTaskId: "coord", title: "Excel Viewer - view only",
+        status: "completed", clientRef: "webapp#2517", prNumber: "2526",
+        prUrl: "https://github.com/acme/webapp/pull/2526",
+        resolutionSummary: "Viewer shipped read-only behind the flag.", updatedAt: 200 },
+    ] }],
+  }], {});
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].kind, "acceptance");
+
+  ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue({
+    type: "global_coop_projection", actionQueue: items,
+  }));
+  var id = ctx.ui.getActionQueue()[0].itemId;
+  assert.equal(id, "webapp-project-id|issue#2517", "canonical issue identity survives");
+  ctx.store.set({ openCoopActionItemId: id });
+
+  var sent = [];
+  var view = element("div");
+  ctx.ui.renderCoopActionQueue(view, { send: function (m) { sent.push(m); return true; } });
+  assert.deepEqual(
+    byClass(view, "coop-action-decide").map(function (b) { return b.textContent; }),
+    ["Accept as done", "Request changes", "Keep waiting"]);
+  assert.equal(textOf(view, "coop-action-detail-evidence"), "Viewer shipped read-only behind the flag.");
+
+  decideButton(view, "Accept as done").click();
+  assert.equal(sent[0].decision, "accept");
+  assert.equal(sent[0].taskId, "task-2517");
+});
