@@ -81,12 +81,13 @@ test("decisions go through the live socket, with the transport injected", functi
   assert.match(surface, /send: sendUserAction/);
 });
 
-test("the sidebar injects topic navigation into the immediate action index", function () {
+test("the sidebar injects topic navigation into the Now index", function () {
   var topics = read("lib/public/modules/sidebar-coop-topics.js");
-  assert.match(topics, /openTopic: function \(item\)/);
-  assert.match(topics, /findGlobalCoopTopic\(item\.topicRef, item\.projectRef\)/);
+  assert.match(topics, /renderCoopNowIndex\(container/);
+  assert.match(topics, /openTopic: function \(entry\)/);
+  assert.match(topics, /findGlobalCoopTopic\(entry\.topicRef, entry\.projectRef\)/);
   assert.match(topics, /if \(!found\) return false;/,
-    "a missing topic must fall through to the session destination");
+    "an unresolvable topic must fail closed instead of navigating nowhere");
 });
 
 test("the surface styles live with the conversation, desktop and phone alike", function () {

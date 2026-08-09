@@ -3,6 +3,7 @@ var assert = require("node:assert/strict");
 var path = require("node:path");
 var pathToFileURL = require("node:url").pathToFileURL;
 var buildActionQueue = require("../lib/coop-action-queue").buildActionQueue;
+var buildNowIndex = require("../lib/coop-now-index").buildNowIndex;
 
 // The rendered queue, driven for real: build the DOM the module actually
 // produces, dispatch real clicks, and assert on what the owner would see and
@@ -153,16 +154,38 @@ function serverProjection() {
   return { type: "global_coop_projection", coop: { localId: 7 }, projects: [], topics: [], actionQueue: items };
 }
 
-async function renderedQueue(ctx, options) {
-  ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
+// A realistic topic projection: one genuinely working topic, one current
+// attention topic, one quiet historical topic, one accepted Done topic.
+function topicFixture() {
+  return [
+    { topicRef: { topicId: "topic-working" }, projectRef: { projectId: "p1" }, title: "Build the sidebar shell",
+      workState: "working", stateSource: "task_working", updatedAt: 300 },
+    { topicRef: { topicId: "topic-attn" }, projectRef: { projectId: "p1" }, title: "Mail attachment icons",
+      workState: "needs_input", stateSource: "task_attention", updatedAt: 100 },
+    { topicRef: { topicId: "topic-historical" }, projectRef: null, title: "Old recorded question",
+      workState: "needs_input", stateSource: "owner_disposition:unlinked_historical", updatedAt: 50 },
+    { topicRef: { topicId: "topic-done" }, projectRef: null, title: "Accepted work",
+      workState: "done", stateSource: "task_accepted", updatedAt: 400 },
+  ];
+}
+
+function nowMessage(topics, queueItems) {
+  return {
+    type: "global_coop_projection",
+    nowIndex: buildNowIndex(topics || topicFixture(), queueItems || []),
+  };
+}
+
+async function renderedNow(ctx, options, message) {
+  ctx.ui.setNowIndex(ctx.ui.normalizeNowIndex(message || nowMessage()));
   var container = element("div");
-  var count = ctx.ui.renderCoopActionQueue(container, options || {});
+  var count = ctx.ui.renderCoopNowIndex(container, options || {});
   return { container: container, count: count };
 }
 
-function rowFor(container, issue, mobile) {
+function nowRowFor(container, topicId, mobile) {
   var rows = byClass(container, (mobile ? "mobile-" : "") + "coop-action-item");
-  return rows.filter(function (r) { return r.dataset.actionItemId.indexOf("#" + issue) !== -1; })[0] || null;
+  return rows.filter(function (r) { return r.dataset.nowTopicId === topicId; })[0] || null;
 }
 
 
@@ -175,147 +198,126 @@ function renderedPanel(ctx, itemId, options) {
   return container;
 }
 
-// --- link-only sidebar index --------------------------------------------------
+// --- the link-only "Now" index -------------------------------------------------
 
-test("the index renders one link row per decision and no coordinator row", async function () {
+test("the Now index renders attention first, then Working now, nothing quiet", async function () {
   var ctx = await harness();
-  var out = await renderedQueue(ctx);
+  var out = await renderedNow(ctx);
   assert.equal(out.count, 2);
   var rows = byClass(out.container, "coop-action-item");
   assert.equal(rows.length, 2);
-  assert.equal(byClass(out.container, "coop-action-queue").length, 1);
-  assert.equal(textOf(out.container, "coop-action-queue-heading"), "Immediate action");
-  assert.ok(out.container.textContent.indexOf("Reconcile open Webapp issues") === -1,
-    "an internal reconciliation coordinator must never render as owner work");
+  assert.equal(textOf(out.container, "coop-action-queue-heading"), "Now");
+  // Attention outranks working in the ordering.
+  assert.equal(rows[0].dataset.nowTopicId, "topic-attn");
+  assert.equal(textOf(rows[0], "coop-action-item-reason"), "Needs your attention");
+  assert.equal(rows[1].dataset.nowTopicId, "topic-working");
+  assert.equal(textOf(rows[1], "coop-action-item-reason"), "Working now");
+  // Quiet historical and accepted Done topics never reach the index.
+  assert.equal(nowRowFor(out.container, "topic-historical"), null);
+  assert.equal(nowRowFor(out.container, "topic-done"), null);
 });
 
-test("each row shows the work title and a concise truthful reason, nothing more", async function () {
+test("a genuinely active topic appears with the exact reason Working now", async function () {
   var ctx = await harness();
-  var out = await renderedQueue(ctx);
-  var row = rowFor(out.container, "2503");
-  assert.equal(textOf(row, "coop-action-item-title"), "Mail attachment (parent/child) icons");
-  assert.equal(textOf(row, "coop-action-item-reason"), "Needs your answer");
-  var other = rowFor(out.container, "2517");
-  assert.equal(textOf(other, "coop-action-item-reason"), "Waiting for your answer");
-  // The raw worker question stays out of the sidebar: it belongs next to the
-  // evidence in the topic surface.
-  assert.equal(out.container.textContent.indexOf("Ship parent-only icons"), -1);
+  var out = await renderedNow(ctx, {}, nowMessage([
+    { topicRef: { topicId: "topic-working" }, projectRef: null, title: "Build the sidebar shell",
+      workState: "working", stateSource: "task_working", updatedAt: 10 },
+  ]));
+  assert.equal(out.count, 1);
+  var row = nowRowFor(out.container, "topic-working");
+  assert.equal(textOf(row, "coop-action-item-title"), "Build the sidebar shell");
+  assert.equal(textOf(row, "coop-action-item-reason"), "Working now");
+});
+
+test("attention wins when the same topic is both active and actionable", async function () {
+  var ctx = await harness();
+  var topics = [
+    { topicRef: { topicId: "topic-both" }, projectRef: null, title: "Contested topic",
+      workState: "working", stateSource: "task_working", updatedAt: 10 },
+  ];
+  var queue = [{ itemId: "p1|issue#9", topicRef: { topicId: "topic-both" },
+    kind: "acceptance", status: "completed", updatedAt: 20 }];
+  var out = await renderedNow(ctx, {}, nowMessage(topics, queue));
+  assert.equal(out.count, 1, "strictly one row per canonical TopicRef");
+  var row = nowRowFor(out.container, "topic-both");
+  assert.equal(row.dataset.nowKind, "attention");
+  assert.equal(textOf(row, "coop-action-item-reason"), "Worker finished — review the result");
 });
 
 test("no consequential decision renders in the sidebar", async function () {
   var ctx = await harness();
-  var items = ctx.ui.normalizeActionQueue(serverProjection());
-  items[0] = Object.assign({}, items[0], { kind: "acceptance" });
-  ctx.ui.setActionQueue(items);
-  var container = element("div");
-  ctx.ui.renderCoopActionQueue(container, { send: function () { return true; } });
-  assert.equal(byClass(container, "coop-action-decide").length, 0,
+  var out = await renderedNow(ctx, { send: function () { return true; } });
+  assert.equal(byClass(out.container, "coop-action-decide").length, 0,
     "no Accept / Request changes buttons in the sidebar");
-  assert.equal(byClass(container, "coop-action-note").length, 0, "no note field");
-  assert.equal(byClass(container, "coop-action-detail").length, 0, "no decision panel");
-  var texts = container.textContent;
+  assert.equal(byClass(out.container, "coop-action-note").length, 0, "no note field");
+  assert.equal(byClass(out.container, "coop-action-detail").length, 0, "no decision panel");
+  var texts = out.container.textContent;
   ["Accept as done", "Request changes", "Keep waiting", "Advance"].forEach(function (verb) {
     assert.equal(texts.indexOf(verb), -1, verb + " must not render in the sidebar");
   });
 });
 
-test("an acceptance item states the truthful reason for looking", async function () {
+test("a row opens its canonical topic and nothing else", async function () {
   var ctx = await harness();
-  var items = ctx.ui.normalizeActionQueue(serverProjection());
-  items[0] = Object.assign({}, items[0], { kind: "acceptance" });
-  ctx.ui.setActionQueue(items);
-  var container = element("div");
-  ctx.ui.renderCoopActionQueue(container, {});
-  var row = rowFor(container, "2503");
-  assert.equal(textOf(row, "coop-action-item-reason"), "Worker finished — review the result");
-});
-
-test("a topic-linked row opens the canonical topic, not a second inventory", async function () {
-  var ctx = await harness();
-  var items = ctx.ui.normalizeActionQueue(serverProjection());
-  items[0] = Object.assign({}, items[0], { topicRef: { topicId: "topic-a" } });
-  ctx.ui.setActionQueue(items);
-  var container = element("div");
-  var openedTopics = [], openedSessions = [];
-  ctx.ui.renderCoopActionQueue(container, {
-    openTopic: function (item) { openedTopics.push(item.topicRef.topicId); return true; },
-    openSession: function (d) { openedSessions.push(d); },
+  var openedTopics = [];
+  var out = await renderedNow(ctx, {
+    openTopic: function (entry) { openedTopics.push(entry.topicRef.topicId); return true; },
   });
-  var row = rowFor(container, "2503");
+  var row = nowRowFor(out.container, "topic-attn");
   assert.equal(row.tagName, "BUTTON");
   assert.match(row.getAttribute("aria-label"), /opens the topic$/);
   row.click();
-  assert.deepEqual(openedTopics, ["topic-a"], "navigates by canonical TopicRef");
-  assert.deepEqual(openedSessions, [], "the topic wins; no session is opened too");
+  assert.deepEqual(openedTopics, ["topic-attn"], "navigates by canonical TopicRef");
 });
 
-test("a row with no topic link falls back to the existing session", async function () {
+test("a queue decision without a topic link never becomes a Now row", async function () {
   var ctx = await harness();
-  ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
-  var container = element("div");
-  var openedSessions = [];
-  ctx.ui.renderCoopActionQueue(container, {
-    openTopic: function () { throw new Error("no topicRef, must not be called"); },
-    openSession: function (d) { openedSessions.push(d); },
-  });
-  rowFor(container, "2503").click();
-  assert.deepEqual(openedSessions[0], {
-    ref: { projectId: "webapp-project-id", sessionStorageId: "sess-2503" },
-    slug: "webapp", localId: 41,
-  }, "the existing session opens; the row never invites a duplicate");
+  var queue = ctx.ui.normalizeActionQueue(serverProjection());
+  assert.ok(queue.length > 0 && !queue[0].topicRef, "fixture: raw task rows carry no topic");
+  var out = await renderedNow(ctx, {}, nowMessage([], queue));
+  assert.equal(out.count, 0, "raw task rows are excluded; the index contains topics only");
 });
 
-test("a failed topic resolution falls back to the session instead of going nowhere", async function () {
+test("dedup is strict: a topic never appears twice", async function () {
   var ctx = await harness();
-  var items = ctx.ui.normalizeActionQueue(serverProjection());
-  items[0] = Object.assign({}, items[0], { topicRef: { topicId: "gone-topic" } });
-  ctx.ui.setActionQueue(items);
-  var container = element("div");
-  var openedSessions = [];
-  ctx.ui.renderCoopActionQueue(container, {
-    openTopic: function () { return false; },
-    openSession: function (d) { openedSessions.push(d); },
-  });
-  rowFor(container, "2503").click();
-  assert.equal(openedSessions.length, 1);
+  var topics = topicFixture().concat(topicFixture());
+  var out = await renderedNow(ctx, {}, nowMessage(topics));
+  assert.equal(out.count, 2);
+  var rows = byClass(out.container, "coop-action-item");
+  var ids = rows.map(function (r) { return r.dataset.nowTopicId; });
+  assert.deepEqual(ids.slice().sort(), ["topic-attn", "topic-working"]);
 });
 
-test("two decisions in one topic collapse into a single link", async function () {
+test("ordering is deterministic and the index is bounded", async function () {
   var ctx = await harness();
-  var items = ctx.ui.normalizeActionQueue(serverProjection());
-  items = items.map(function (i) { return Object.assign({}, i, { topicRef: { topicId: "topic-a" } }); });
-  ctx.ui.setActionQueue(items);
-  var container = element("div");
-  var count = ctx.ui.renderCoopActionQueue(container, {});
-  assert.equal(count, 1, "one row per canonical topic");
-  var rows = byClass(container, "coop-action-item");
-  assert.equal(rows.length, 1);
-  assert.match(textOf(rows[0], "coop-action-item-reason"), /\(\+1 more\)$/,
-    "the row says there is more than one thing waiting in the topic");
+  var topics = [];
+  for (var i = 0; i < 30; i++) {
+    topics.push({ topicRef: { topicId: "w-" + String(100 + i) }, projectRef: null,
+      title: "Working " + i, workState: "working", stateSource: "task_working", updatedAt: 30 - i });
+  }
+  var out = await renderedNow(ctx, {}, nowMessage(topics));
+  assert.equal(out.count, 20, "bounded at MAX_NOW_ITEMS");
+  var rows = byClass(out.container, "coop-action-item");
+  var byTime = rows.map(function (r) { return r.dataset.nowTopicId; });
+  // Oldest first, so the index does not reshuffle under the owner.
+  assert.equal(byTime[0], "w-129");
+  var again = await renderedNow(ctx, {}, nowMessage(topics.slice().reverse()));
+  var againIds = byClass(again.container, "coop-action-item").map(function (r) { return r.dataset.nowTopicId; });
+  assert.deepEqual(againIds, byTime, "input order does not leak into output order");
 });
 
 test("an empty index renders nothing at all", async function () {
   var ctx = await harness();
-  ctx.ui.setActionQueue([]);
+  ctx.ui.setNowIndex([]);
   var container = element("div");
-  assert.equal(ctx.ui.renderCoopActionQueue(container, {}), 0);
+  assert.equal(ctx.ui.renderCoopNowIndex(container, {}), 0);
   assert.equal(container.children.length, 0,
-    "no heading, no empty-state: nothing is being asked of the owner");
+    "no heading, no empty-state: nothing is genuinely current");
 });
 
-test("resolving one decision removes only that row", async function () {
+test("the phone surface renders the same link-only index with its own classes", async function () {
   var ctx = await harness();
-  var all = ctx.ui.normalizeActionQueue(serverProjection());
-  ctx.ui.setActionQueue(all.filter(function (i) { return i.itemId.indexOf("#2503") === -1; }));
-  var container = element("div");
-  assert.equal(ctx.ui.renderCoopActionQueue(container, {}), 1);
-  assert.equal(textOf(container, "coop-action-item-title"), "Excel Viewer - view only");
-  assert.equal(rowFor(container, "2503"), null);
-});
-
-test("the phone surface renders the same link-only index with touch-sized rows", async function () {
-  var ctx = await harness();
-  var out = await renderedQueue(ctx, { mobile: true });
+  var out = await renderedNow(ctx, { mobile: true });
   assert.equal(out.count, 2);
   assert.equal(byClass(out.container, "mobile-coop-action-queue").length, 1);
   assert.equal(byClass(out.container, "mobile-coop-action-item").length, 2);
@@ -323,8 +325,9 @@ test("the phone surface renders the same link-only index with touch-sized rows",
   assert.equal(byClass(out.container, "coop-action-item").length, 0);
   assert.equal(byClass(out.container, "mobile-coop-action-decide").length, 0,
     "no decision verbs on the phone sheet either");
-  var row = rowFor(out.container, "2503", true);
-  assert.equal(textOf(row, "mobile-coop-action-item-title"), "Mail attachment (parent/child) icons");
+  var row = nowRowFor(out.container, "topic-attn", true);
+  assert.equal(textOf(row, "mobile-coop-action-item-title"), "Mail attachment icons");
+  assert.equal(textOf(out.container, "mobile-coop-action-queue-heading"), "Now");
 });
 
 // --- lifecycle --------------------------------------------------------------
@@ -346,6 +349,20 @@ test("the index contributes its own render signature term", async function () {
 
   ctx.ui.setActionQueue([]);
   assert.equal(ctx.ui.actionQueueSignature(), "");
+});
+
+test("the Now index contributes its own repaint signature term", async function () {
+  var ctx = await harness();
+  ctx.ui.setNowIndex(ctx.ui.normalizeNowIndex(nowMessage()));
+  var before = ctx.ui.nowIndexSignature();
+  assert.ok(before.indexOf("topic-attn") !== -1 && before.indexOf("Working now") !== -1);
+  // A topic finishing work must change the signature, or the stale row stays.
+  ctx.ui.setNowIndex(ctx.ui.normalizeNowIndex(nowMessage(topicFixture().filter(function (t) {
+    return t.topicRef.topicId !== "topic-working";
+  }))));
+  assert.notEqual(ctx.ui.nowIndexSignature(), before);
+  ctx.ui.setNowIndex([]);
+  assert.equal(ctx.ui.nowIndexSignature(), "");
 });
 
 test("a status change on the same item still repaints", async function () {
@@ -433,8 +450,8 @@ test("the queue module does not drag the application hub into the sidebar", func
 
 test("a row with no injected navigation is inert, not a crash", async function () {
   var ctx = await harness();
-  var out = await renderedQueue(ctx, {});
-  var row = rowFor(out.container, "2503");
+  var out = await renderedNow(ctx, {});
+  var row = nowRowFor(out.container, "topic-attn");
   // Fails closed: a surface that forgets to inject navigation renders a
   // disabled row that does nothing, rather than throwing inside a handler.
   assert.equal(row.disabled, true);
@@ -677,9 +694,8 @@ test("Keep waiting records nothing as decided and leaves the item queued", async
 
   assert.equal((ctx.store.get("coopActionDone") || {})[ID_2503], undefined,
     "nothing was decided, so nothing is reported as decided");
-  var stillThere = element("div");
-  ctx.ui.renderCoopActionQueue(stillThere, {});
-  assert.ok(rowFor(stillThere, "2503"), "the item stays open");
+  assert.ok(ctx.ui.getActionQueue().some(function (i) { return i.itemId === ID_2503; }),
+    "the item stays queued");
 });
 
 // --- isolation between two independent items ---------------------------------
@@ -794,10 +810,9 @@ test("a decided item's state does not survive onto the next queue", async functi
     .filter(function (i) { return i.itemId !== ID_2503; });
   ctx.ui.setActionQueue(remaining);
   assert.equal((ctx.store.get("coopActionDone") || {})[ID_2503], undefined);
-  var after = element("div");
-  ctx.ui.renderCoopActionQueue(after, {});
-  assert.equal(rowFor(after, "2503"), null, "only the decided item left");
-  assert.ok(rowFor(after, "2517"), "and only it");
+  var ids = ctx.ui.getActionQueue().map(function (i) { return i.itemId; });
+  assert.ok(ids.indexOf(ID_2503) === -1, "only the decided item left");
+  assert.ok(ids.some(function (id) { return id.indexOf("#2517") !== -1; }), "and only it");
 });
 
 test("reconnect restores the queue and the item is decidable again", async function () {
@@ -882,10 +897,9 @@ test("an interrupted decision whose item is gone is pruned, not shown as failed"
   assert.equal(ctx.ui.isDecisionPending(ID_2503), false);
   assert.equal((ctx.store.get("coopActionError") || {})[ID_2503], undefined,
     "work that was decided must not be reported as interrupted");
-  var view = element("div");
-  ctx.ui.renderCoopActionQueue(view, {});
-  assert.equal(rowFor(view, "2503"), null);
-  assert.ok(rowFor(view, "2517"), "and the other item is untouched");
+  var kept = ctx.ui.getActionQueue().map(function (i) { return i.itemId; });
+  assert.ok(kept.indexOf(ID_2503) === -1);
+  assert.ok(kept.some(function (id) { return id.indexOf("#2517") !== -1; }), "and the other item is untouched");
 });
 
 test("a reconnect with nothing in flight changes nothing", async function () {
