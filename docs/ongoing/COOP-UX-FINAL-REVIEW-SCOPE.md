@@ -397,12 +397,26 @@ Live topic browser QA at `ace812cdb9` passed on a selected topic
 zero Lead-tick markers, zero internal-marked DOM records, with the canonical
 topic title in the header.
 
+READABLE-TITLE SEGMENT (`85c576a63a`, retrofit schema v2): the owner rejected
+the v1 retrofit output — titles like 'Taken Idle Didnt Take Messages' were
+bag-of-words keyword joins that reordered and dropped the owner's words.
+`derivedMetadata` now derives titles via `readableTitle()`: the first clause of
+the proven owner turn verbatim, order and contractions preserved, front
+boilerplate stripped, bounded to 8 words / 60 chars with an ellipsis. Schema v2
+re-runs the projection-path migration exactly once; v1 machine-retitled topics
+(audit action "retitled") are revisited despite the broken creation
+fingerprint, while owner-renamed titles (no such audit), seeds, and topic IDs
+stay protected. New titles are collision-checked. Live result: all 20 v1
+word-salad titles replaced with readable owner phrases (26 retitled total),
+stamp `{schemaVersion:2}` stable across reloads, 34 rows on desktop 1440x900
+and phone 390x844, zero console errors.
+
 PIN INSPECTION HERE — the current review target, not the older commits listed
-below (`090961890c` is the zero-topics regression fix segment on top of
-`62c7d848c9`; the earlier note about `f4688c9603`/`ace812cdb9` still holds for
+below (`85c576a63a` is the readable-title retrofit v2 segment on top of
+`5ab5c552f2`; the earlier note about `f4688c9603`/`ace812cdb9` still holds for
 the Part 1 history):
 
-    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 090961890c
+    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 85c576a63a
 
 The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
