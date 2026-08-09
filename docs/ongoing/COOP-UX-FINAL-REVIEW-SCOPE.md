@@ -37,6 +37,7 @@ verbatim, rather than being reconstructed from memory and quietly drifting.
   `lib/coop-action-queue.js, lib/coop-action-decision.js,
   lib/coop-topic-relevance.js, lib/coop-topic-state.js,
   lib/coop-topic-disposition.js, lib/coop-topic-index.js,
+  lib/coop-topic-index-migrations.js, lib/coop-topic-management.js,
   lib/coop-topic-projection.js,
   lib/coop-topic-connection.js, lib/coop-topic-live-index.js,
   lib/global-coop-projection.js, lib/project-task-orchestrator.js,
@@ -463,12 +464,52 @@ on both surfaces, zero console errors. The isolated end-to-end owner decision
 `test/coop-topic-disposition.test.js` against fixtures, never against real
 owner work. Full suite 1768/1774 with only the six pre-existing baselines.
 
-PIN INSPECTION HERE — the current review target, not the older commits listed
-below (`9592e5a9c9` is the evidence-based state segment on top of
-`581b3da81a`; the earlier note about `f4688c9603`/`ace812cdb9` still holds for
-the Part 1 history):
+REVIEW-FINDINGS SEGMENT (`db5fc84d24`, revision 29): the independent Codex
+review of `9592e5a9c9` returned NOT READY with eight findings; all are fixed
+and regression-covered in this single commit. P1-1: every mutating topic
+operation (close/reopen/disposition/action decision) now requires canonical
+owner identity via `isOwnerSocket` in the new `lib/coop-topic-management.js`
+— slug AND injected `isCoopTopicOwner`, failing closed when the check is
+missing; `projection_request` stays read-only. P1-2: both replay resolve
+sites in `coop-topic-connection.js` pass `includeClosed=true`, so closed Done
+topics replay their own indexed history on initial selection and reconnect
+instead of falling to full canonical replay. P1-3: dispositions carry a
+monotonic `revision` with an `expectedRevision` precondition
+(`stale_disposition` on mismatch) plus bounded durable request dedup
+persisted in the index (`dispositionRequests`, cap 32) that replays duplicate
+requestIds without a second write and rejects requestId reuse across topics
+(`request_conflict`); both survive restart because they live in the index
+file. P2-4: dismissed/cancelled tasks (`ABANDONED_STATUSES`) no longer strand
+topics in undecidable Needs input — all-abandoned topics fall back through
+foreground/closed/disposition with stateSource `task_abandoned`, and the
+review panel admits topic-scoped verbs for them. P2-5: successful decisions
+fan out the authoritative projection to all connected owner viewers via
+injected `refreshCoopTopicViewers` (ACL-filtered); dedup replays do not fan
+out. P2-6: closed topics render Reopen instead of Close and the close copy
+says the topic moves to the collapsed Done section; Close→Done→Reopen
+round-trip is tested. P3-7: Review and Done disclosures carry stable
+`aria-controls` panel ids with panels kept in the DOM when collapsed. P3-8:
+`coop-topic-index.js` (487) and `coop-topic-connection.js` (457) are back
+under the 500-line limit via two new focused modules,
+`lib/coop-topic-index-migrations.js` (migrations + disposition writer +
+request dedup) and `lib/coop-topic-management.js` (owner-gated mutations +
+fan-out). Verification: isolated CLAY_HOME full suite 1781/1781 (zero
+failures), live-config full suite 1775/1781 with only the six pre-existing
+routing/catalog baselines, focused topic suites 109/109. Real index survived
+a daemon restart with stamps and all 33 `unlinked_historical` dispositions
+byte-identical; raw WS projection shows 31 rows, 0 blanks, every disposition
+projecting `revision`; desktop 1440x900 and phone 390x844 QA green (0
+blanks/dups/truncations/overflow, 31/31 review toggles with resolving
+aria-controls, review panel opens with provenance and the three verbs, zero
+console errors). No real owner dispositions were mutated.
 
-    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 9592e5a9c9
+PIN INSPECTION HERE — the current review target, not the older commits listed
+below (`db5fc84d24` is the review-findings segment on top of `9592e5a9c9`,
+which is the evidence-based state segment on top of `581b3da81a`; the earlier
+note about `f4688c9603`/`ace812cdb9` still holds for the Part 1 history).
+`9592e5a9c9` and `cde8fb67dc` are superseded as final gates:
+
+    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout db5fc84d24
 
 The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
