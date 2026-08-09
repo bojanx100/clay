@@ -1235,6 +1235,29 @@
   text-transform: uppercase;
 }
 
+/* The state reads as words first. It was colour-only before, which rendered 41
+   identical dots with nothing to tell them apart. flex-shrink: 0 keeps the
+   label whole when the title is long -- a truncated "Needs inp..." is worse
+   than a truncated title. */
+.coop-topic-activity {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 1px 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.coop-topic-activity-working { border-color: var(--border-subtle); color: var(--text-dimmer); }
+.coop-topic-activity-needs_input { border-color: var(--accent); color: var(--accent); }
+.coop-topic-activity-done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
+
+/* The title yields before the label does. */
+.coop-topic-title { overflow: hidden; flex: 1 1 auto; text-overflow: ellipsis; white-space: nowrap; }
+
 .coop-topic-wrapper { margin: 1px 0 2px; }
 .coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
 .coop-topic-row { min-height: 29px; gap: 6px; padding: 5px 7px; font-size: 11px; }

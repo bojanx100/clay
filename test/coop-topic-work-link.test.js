@@ -93,8 +93,10 @@ test("mixed topics render independent states from one task list", function () {
 
   assert.equal(topicState.coopTopicState(TOPIC, { tasks: s.orchestrationTasks }).state, "working");
   assert.equal(topicState.coopTopicState(OTHER, { tasks: s.orchestrationTasks }).state, "done");
-  // A third topic with nothing linked stays unlabelled.
-  assert.equal(topicState.coopTopicState({ topicId: "unrelated" }, { tasks: s.orchestrationTasks }).state, "");
+  // A third topic with nothing linked reads Working -- the honest default for
+  // an open conversation -- and critically does NOT inherit either neighbour's
+  // state, which is what this test exists to prove.
+  assert.equal(topicState.coopTopicState({ topicId: "unrelated" }, { tasks: s.orchestrationTasks }).state, "working");
 });
 
 // --- the seam and the UI ----------------------------------------------------
@@ -130,7 +132,10 @@ test("the generic Active copy is gone from the client", function () {
   assert.match(topics, /needs_input: "Needs input"/);
   assert.match(topics, /done: "Done"/);
   // No label at all when there is no derived state.
-  assert.match(topics, /return WORK_STATE_LABELS\[state\] \|\| "";/);
+  // The label falls back to Working rather than to an empty string. Returning
+  // "" is exactly what made the sidebar render 41 identical dots with no text:
+  // no topic in the real index has linked work, so the label never populated.
+  assert.match(topics, /return WORK_STATE_LABELS\[state\] \|\| WORK_STATE_LABELS\.working;/);
 
   // And the dead `active` field is no longer normalized or emitted.
   var model = fs.readFileSync(

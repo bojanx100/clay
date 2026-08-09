@@ -24,13 +24,29 @@ function accepted() {
 
 // --- no linked work means no label ------------------------------------------
 
-test("a topic with no linked work gets no state", function () {
-  assert.equal(stateOf([]), "");
-  assert.equal(stateOf(null), "");
-  // Work linked to a DIFFERENT topic must not leak into this one.
-  assert.equal(stateOf([{ taskId: "x", status: "running", coopTopicRef: OTHER }]), "");
+test("a topic with no linked work reads as Working, never blank", function () {
+  // Owner-reported: every topic rendered an identical dot with no text. The
+  // cause was this case returning "", and NO topic in the real 41-topic index
+  // has linked canonical work -- so the label was never populated at all. A
+  // topic with no linked task is an open conversation: not blocked on the
+  // owner, not accepted. That is Working.
+  assert.equal(stateOf([]), "working");
+  assert.equal(stateOf(null), "working");
+  // Work linked to a DIFFERENT topic still must not leak in: this topic is
+  // Working because it has no work of its own, not because of the other's.
+  assert.equal(stateOf([{ taskId: "x", status: "needs_input", coopTopicRef: OTHER }]), "working");
   // A task with no link at all is not attributable and must not be guessed at.
-  assert.equal(stateOf([{ taskId: "y", status: "running", coopTopicRef: null }]), "");
+  assert.equal(stateOf([{ taskId: "y", status: "needs_input", coopTopicRef: null }]), "working");
+});
+
+test("the default never fabricates Needs input or Done", function () {
+  // Working is the honest default precisely because it claims nothing. The two
+  // states that DO make a claim about the owner or about completion must still
+  // require real linked evidence, or the label is decoration again.
+  assert.notEqual(stateOf([]), "needs_input");
+  assert.notEqual(stateOf([]), "done");
+  assert.equal(stateOf([task("needs_input")]), "needs_input");
+  assert.equal(stateOf([Object.assign(task("completed"), { ownerAcceptance: accepted() })]), "done");
 });
 
 test("state is never inferred from existence, messages, timestamps or recency", function () {
@@ -40,7 +56,10 @@ test("state is never inferred from existence, messages, timestamps or recency", 
     tasks: [],
     topic: { status: "open", updatedAt: Date.now(), turnRefs: [{}, {}, {}], eventRefs: [{}] },
   });
-  assert.equal(derived.state, "");
+  // Rich in every other signal, it still falls to the default and is never
+  // promoted to a state that claims something about the owner or completion.
+  assert.equal(derived.state, "working");
+  assert.equal(derived.taskCount, 0);
 });
 
 // --- the required transition sequence ---------------------------------------
@@ -150,9 +169,16 @@ test("Done is a label, never a lifecycle change", function () {
 test("foreground work counts for the exact lens being addressed", function () {
   assert.equal(stateOf([], { isProcessing: true, topicRef: TOPIC }), "working");
   // ...and only that lens. Background work must not be credited by recency.
-  assert.equal(stateOf([], { isProcessing: true, topicRef: OTHER }), "");
-  assert.equal(stateOf([], { isProcessing: false, topicRef: TOPIC }), "");
-  assert.equal(stateOf([], { isProcessing: true, topicRef: null }), "");
+  // These now read Working via the default rather than via foreground, which is
+  // the point: foreground must never be the thing that PROMOTES a state.
+  assert.equal(stateOf([], { isProcessing: true, topicRef: OTHER }), "working");
+  assert.equal(stateOf([], { isProcessing: false, topicRef: TOPIC }), "working");
+  assert.equal(stateOf([], { isProcessing: true, topicRef: null }), "working");
+  // Foreground on the exact lens is still recorded, so the distinction survives.
+  assert.equal(topicState.coopTopicState(TOPIC, {
+    tasks: [], foreground: { isProcessing: true, topicRef: TOPIC } }).foreground, true);
+  assert.equal(topicState.coopTopicState(TOPIC, {
+    tasks: [], foreground: { isProcessing: true, topicRef: OTHER } }).foreground, false);
 });
 
 test("foreground work does not override the owner needing to decide", function () {
@@ -184,8 +210,8 @@ test("the projected shape lights attention only for Needs input", function () {
   assert.equal(done.attention, false);
 
   var none = topicState.projectedTopicState(TOPIC, { tasks: [] });
-  assert.equal(none.workState, "");
-  assert.equal(none.attention, false);
+  assert.equal(none.workState, "working", "every row must carry a readable state");
+  assert.equal(none.attention, false, "and the default must not raise attention");
 });
 
 test("awaiting acceptance is reported so the owner can be told why", function () {
