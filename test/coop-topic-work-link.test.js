@@ -98,6 +98,37 @@ test("mixed topics render independent states from one task list", function () {
   assert.equal(topicState.coopTopicState({ topicId: "unrelated" }, { tasks: s.orchestrationTasks }).state, "");
 });
 
+test("a task created on the canonical Coop session infers its topic from the owner's last routed turn", function () {
+  var s = session();
+  s.history.push({ type: "user_message", coopTopicRef: TOPIC });
+  var task = create(s);
+  assert.deepEqual(task.coopTopicRef, { topicId: "coop-conversation-architecture" });
+});
+
+test("an explicit ref always wins over the inferred one", function () {
+  var s = session();
+  s.history.push({ type: "user_message", coopTopicRef: TOPIC });
+  var task = create(s, { coopTopicRef: OTHER });
+  assert.deepEqual(task.coopTopicRef, { topicId: "queued-message-recovery" });
+});
+
+test("a non-Coop session never infers a topic, even with matching history shape", function () {
+  var s = session();
+  s.coopHome = false;
+  s.history.push({ type: "user_message", coopTopicRef: TOPIC });
+  assert.equal(create(s).coopTopicRef, null);
+});
+
+test("inference reads the last routed turn, not stale earlier ones", function () {
+  var s = session();
+  s.history.push({ type: "user_message", coopTopicRef: TOPIC });
+  var first = create(s);
+  s.history.push({ type: "user_message", coopTopicRef: OTHER });
+  var second = create(s);
+  assert.deepEqual(first.coopTopicRef, { topicId: "coop-conversation-architecture" });
+  assert.deepEqual(second.coopTopicRef, { topicId: "queued-message-recovery" });
+});
+
 // --- the seam and the UI ----------------------------------------------------
 
 test("the projection seam is actually supplied now", function () {

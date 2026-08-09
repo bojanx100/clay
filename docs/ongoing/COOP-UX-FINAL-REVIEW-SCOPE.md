@@ -141,6 +141,79 @@ it and persist in the canonical index; no retro-cleanup or fragment
 suppression/separation has been implemented. This is the owner's stated root
 problem alongside the missing work links and must not be reported as resolved.
 
+FOLLOW-UP SEGMENT: three of the remaining gaps above are now addressed;
+retro-cleanup of already-minted fragments is not.
+
+- **Task-to-topic linking is now populated.** `orchestration-task-graph.js`
+  `createTask` was setting `coopTopicRef` from the caller's explicit input only,
+  and no caller ever passed one — confirmed against the live canonical session
+  (`~/.clay`), which has 23 real persisted `orchestrationTasks`, all with
+  `coopTopicRef: undefined`. It now falls back, when the caller passed nothing
+  and the task is being created on the canonical Coop session itself
+  (`session.coopHome`), to that session's own `coopWorkActivity.latestCoopRoute`
+  — the durable "last routed owner turn" record already used elsewhere for the
+  same purpose. This is real evidence (the owner's own last-addressed topic on
+  the exact session about to own the task), captured once at creation and never
+  recomputed, same as an explicit ref. A worker or project-coordinator session
+  has no such route to read and stays unlinked. `coop-topic-state.js`'s
+  evidence-based Working/Needs input/Done precedence was already correct and
+  unchanged; it can now actually see linked work. Tests:
+  `test/coop-topic-work-link.test.js`.
+- **Garbled auto-titles were traced to two separate, fixable bugs in
+  `coop-topic-classification.js`**, not to anchor drift (anchor drift was
+  already fixed and is a different defect). First: `normalizeText` replaced
+  apostrophes with whitespace, so a contraction like "don't" split into a real
+  word ("don") plus an orphan fragment ("t", silently dropped for being too
+  short) — "don" then survived stopword filtering and showed up as a stray word
+  in the derived title (e.g. "Don Create Project Categorised Them"). Apostrophes
+  are now dropped without inserting a space, so contractions collapse to one
+  token ("dont"), and the collapsed forms are in the stopword list. Second: the
+  stopword list only covered ~20 words, so ordinary function/modal/question
+  words ("should", "would", "been", "none", "what", "were", ...) survived
+  filtering and read as scrambled nonsense next to real content words even
+  though the underlying word order was never altered. The list is now a
+  fuller, still-deterministic set of common English function words. Verified:
+  "What do you mean by checking whether it should be delegated" now titles as
+  "Checking Whether Delegated" (was "What Mean Checking Should Delegated");
+  "Don't create a project, just categorise them" now titles as "Create Project
+  Categorise Them" (was "Don Create Project Categorised Them").
+- **Single-turn fragment topics are no longer minted for low-information
+  turns with nothing to attach to.** `classifyIngress` already had a
+  `lowInformation(text)` check, but it only reused a *recent* topic when one
+  existed — a low-information turn with no recent topic (e.g. early in a
+  session, or after a topic gap) fell through to automatic-topic creation and
+  minted its own permanent one-off topic from 1-2 words ("Where Arre Now",
+  "Does Look Like", "How Going Show" — all confirmed still present in the live
+  index with 1-2 turnRefs each, real owner turns, not anchor-drift artifacts).
+  Such a turn now falls back to the `uncategorised-conversations` catch-all
+  instead, so it is preserved (nothing is orphaned) but does not get its own
+  sidebar row. Scoped to the uncategorised group only — a low-information turn
+  inside a named project conversation still goes through the normal path.
+  Tests: `test/coop-topic-index.test.js`.
+- **Retro-cleanup of the ~30 already-minted fragment topics was deliberately
+  NOT attempted.** Their `topicId` is a hash of their (bad) derived title, so
+  the only way to retroactively fix them is a `RETRO_VERSION` bump, which
+  clears `turnRefs`/`eventRefs` on every automatic topic and replays the
+  canonical session's entire history through the classifier from event 0. That
+  is a much larger blast radius than a title fix — it can reshuffle which
+  existing topics turns land in project-wide, not just repair titles — and was
+  judged too risky to do inside this segment without owner sign-off on that
+  specific trade-off. They remain visible with their original (now
+  demonstrably fixable) titles until a dedicated retro-cleanup pass is run.
+- **Full live-daemon visual QA (desktop + phone) was not performed this
+  segment.** Spinning up any daemon instance against a copy of the canonical
+  session/task data — even for read-only visual verification — starts the
+  same autonomous Lead-tick loop the production instance runs, spawning real
+  worker sessions against live model providers on copied data. That is not a
+  safe way to visually verify a sidebar rendering change, so it was not done.
+  Verification for this segment is: full test suite (1730 tests, 1724 pass,
+  the same 6 pre-existing unrelated provider/model-routing failures as
+  before, 0 new failures), plus direct inspection of the live canonical
+  topic index and session file to confirm the diagnoses above against real
+  data. The sidebar's rendering code itself (dot/label/wrap suppression,
+  Main/All lens behavior) was not touched this segment and remains covered by
+  the existing passing tests from the prior segment.
+
 Verified on the owner's real transcripts: internal control records in Main went
 to zero across all three (51945 / 30209 / 5722 records) while All is unchanged
 and every owner message is preserved (102 / 41 / 8). Browser QA at 1440x900 and

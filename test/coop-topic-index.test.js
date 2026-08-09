@@ -364,6 +364,65 @@ test("automatic classification reuses durable topics and infers a bounded projec
   } finally { h.cleanup(); }
 });
 
+test("automatic titles do not garble contractions into orphan fragments", function () {
+  // "don't" used to split into "don" (a spurious surviving word, 3 letters
+  // long) plus "t" (dropped for being too short), leaving stray tokens like
+  // "Don" in the derived title. It must now collapse to a single stopword.
+  var withContraction = classification.automaticTopicId(
+    "Don't create a project, just categorise them", { kind: "uncategorised" });
+  var withoutContraction = classification.automaticTopicId(
+    "Do not create a project, just categorise them", { kind: "uncategorised" });
+  assert.equal(withContraction, withoutContraction,
+    "the contracted and spelled-out phrasing must derive the same coherent title");
+});
+
+test("automatic titles filter common function words so short phrasing stays coherent", function () {
+  var session = canonicalSession();
+  var h = harness();
+  try {
+    h.index.ensureRetro(session, retroOptions());
+    var options = { projects: [], isProjectAvailable: function () { return false; } };
+    var result = h.index.classifyCanonicalIngress(session, {
+      text: "What do you mean by checking whether it should be delegated",
+    }, options);
+    assert.equal(result.ok, true);
+    var title = h.index.resolve(result.topicRef).topic.title;
+    // None of the leftover words are grammatically-empty filler; every word
+    // in the title carries real content.
+    assert.doesNotMatch(title, /\b(What|Should|Mean|Been|None|Were|Was)\b/);
+  } finally { h.cleanup(); }
+});
+
+test("a low-information turn with no recent topic lands in the catch-all, not a fresh single-turn topic", function () {
+  var session = canonicalSession();
+  var h = harness();
+  try {
+    h.index.ensureRetro(session, retroOptions());
+    var options = { projects: [], isProjectAvailable: function () { return false; } };
+    var before = Object.keys(h.index.load().topics).length;
+    var result = h.index.classifyCanonicalIngress(session, { text: "Where are we now" }, options);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.topicRef, { topicId: "uncategorised-conversations" });
+    assert.equal(Object.keys(h.index.load().topics).length, before,
+      "a throwaway low-information turn must not mint its own permanent topic");
+  } finally { h.cleanup(); }
+});
+
+test("a low-information turn still reuses a recent open topic instead of falling to the catch-all", function () {
+  var session = canonicalSession();
+  var h = harness();
+  try {
+    h.index.ensureRetro(session, retroOptions());
+    var options = { projects: [], isProjectAvailable: function () { return false; } };
+    var first = h.index.classifyCanonicalIngress(session, {
+      text: "Renderer caching regression details in Workbench Alpha must be verified",
+    }, options);
+    session.history.push({ type: "user_message", text: "x", coopTopicRef: first.topicRef }, { type: "done" });
+    var followUp = h.index.classifyCanonicalIngress(session, { text: "yes, continue" }, options);
+    assert.deepEqual(followUp.topicRef, first.topicRef);
+  } finally { h.cleanup(); }
+});
+
 test("retro version upgrades replace stale derived memberships and preserve managed topics", function () {
   var h = harness();
   try {
