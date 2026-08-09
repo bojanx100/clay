@@ -411,12 +411,29 @@ word-salad titles replaced with readable owner phrases (26 retitled total),
 stamp `{schemaVersion:2}` stable across reloads, 34 rows on desktop 1440x900
 and phone 390x844, zero console errors.
 
+DIAGNOSTIC-SUBJECT SEGMENT (`581b3da81a`, retrofit schema v3): the owner
+corrected the v2 output — readable but non-diagnostic fragments remained as
+topic names ('Yea, so', 'Can you implement that', 'Does this look like it',
+'You know what, scratch 1', "It's all working"). `diagnosticTitle()` returns
+the first clause of a turn carrying at least two concrete content words
+(stopwords, front boilerplate, and vague verbs set aside); new admissions
+prefer it. Schema v3 scans every proven turn of a machine-titled topic for a
+diagnostic clause — 'You know what, scratch 1' → 'The project button is ok',
+'Can you implement that' → 'One note opus 5 is still not a…' — and merges
+fragments with no defensible subject anywhere into Uncategorised conversations
+with membership preserved ('Yea, so', "It's all working", "Let me know when
+it's finished is the…"). Live result: 8 retitled, 3 merged, stamp
+`{schemaVersion:3}` stable across reloads and a daemon restart, 31 rows on
+desktop 1440x900 and phone 390x844 (34 − 3 merges), all eight seed/owner
+titles untouched, zero duplicate titles, zero blank labels, zero console
+errors. Full suite 1753/1759 with only the six pre-existing baselines.
+
 PIN INSPECTION HERE — the current review target, not the older commits listed
-below (`85c576a63a` is the readable-title retrofit v2 segment on top of
-`5ab5c552f2`; the earlier note about `f4688c9603`/`ace812cdb9` still holds for
+below (`581b3da81a` is the diagnostic-subject v3 segment on top of
+`85c576a63a`; the earlier note about `f4688c9603`/`ace812cdb9` still holds for
 the Part 1 history):
 
-    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 85c576a63a
+    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 581b3da81a
 
 The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
