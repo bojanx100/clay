@@ -54,7 +54,7 @@ and no owner question to ask.
 
 ## Review target
 
-HEAD is now `f4688c9603` on `bojan` (was `af93548f6f` when this file was
+HEAD is now `c8d0b6e4b7` on `bojan` (was `af93548f6f` when this file was
 written). Two further admitted fixes landed since and are IN SCOPE:
 
 - `4c526833e8` — portfolio bindings: a delegation that fails before the task
@@ -91,6 +91,33 @@ written). Two further admitted fixes landed since and are IN SCOPE:
   index membership did not admit (so a topic cannot absorb unrelated owner
   conversation), that All is untouched by this path, and that topic membership
   correctness — which turns belong — is still a separate concern from relevance.
+
+- `e3642d466a` then `c8d0b6e4b7` — topic state labels. e3642d466a made Working
+  the default when a topic had no linked task, so every visible topic declared
+  Working. The owner rejected it: the labels were useless and factually
+  unsupported. c8d0b6e4b7 reverts that default. State is evidence-based again --
+  Working only for linked active work or foreground on that exact lens, Needs
+  input only for linked owner-attention or terminal-unaccepted work, Done only
+  for linked completed work WITH durable owner acceptance; existence, recency
+  and message content remain non-inputs. Explicit text labels are kept for
+  topics that DO have a real state, stacked under the title so a real label
+  never crushes it.
+  MEASURED GROUND TRUTH, and the reason no label currently appears: there are
+  ZERO canonical task records anywhere in ~/.clay -- not zero links, zero tasks.
+  So no topic can carry a truthful state today and silence on all 42 rows is the
+  correct output, not a rendering bug.
+  Review especially: that no code path can produce a state without exact linked
+  evidence, and that the differentiated-states test genuinely proves rows do not
+  all read the same when evidence exists.
+
+KNOWN NOT DONE, admitted and still open: the topic list still contains
+internal-derived and fragmentary topics ("Resuming After Restart", "Resuming
+Interrupted Response", "None Been Taken Were Idle", "Don Create Project
+Categorised Them" and ~30 similar single-turn fragments). The provenance fix
+stops NEW internal-derived topics being admitted, but these were minted before
+it and persist in the canonical index; no retro-cleanup or fragment
+suppression/separation has been implemented. This is the owner's stated root
+problem alongside the missing work links and must not be reported as resolved.
 
 Verified on the owner's real transcripts: internal control records in Main went
 to zero across all three (51945 / 30209 / 5722 records) while All is unchanged
