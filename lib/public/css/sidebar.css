@@ -1239,9 +1239,15 @@
    identical dots with nothing to tell them apart. flex-shrink: 0 keeps the
    label whole when the title is long -- a truncated "Needs inp..." is worse
    than a truncated title. */
+/* The row wraps so the label sits under the title instead of competing with it
+   for a ~200px sidebar. Keeping both on one line crushed titles to about twelve
+   characters ("Codex authe...", "Don Underst..."), which trades one unreadable
+   thing for another. */
+.coop-topic-row { flex-wrap: wrap; row-gap: 2px; }
+
 .coop-topic-activity {
   flex: 0 0 auto;
-  margin-left: auto;
+  margin-left: 0;
   padding: 1px 5px;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -1255,8 +1261,6 @@
 .coop-topic-activity-needs_input { border-color: var(--accent); color: var(--accent); }
 .coop-topic-activity-done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
 
-/* The title yields before the label does. */
-.coop-topic-title { overflow: hidden; flex: 1 1 auto; text-overflow: ellipsis; white-space: nowrap; }
 
 .coop-topic-wrapper { margin: 1px 0 2px; }
 .coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
@@ -1270,7 +1274,9 @@
 .coop-topic-status-closed,
 .coop-topic-status-archived { background: var(--text-dimmer); }
 .coop-topic-row.attention .coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }
-.coop-topic-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* flex-basis 100% so the label wraps to its own line rather than competing for
+   a ~200px sidebar, which crushed titles to about twelve characters. */
+.coop-topic-title { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .coop-topic-activity { max-width: 44%; overflow: hidden; color: var(--text-dimmer); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .coop-topic-unread { flex: 0 0 auto; padding: 1px 5px; border-radius: 8px; background: rgba(var(--accent-rgb), .14); color: var(--accent); font-size: 9px; }
 

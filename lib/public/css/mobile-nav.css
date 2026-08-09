@@ -880,7 +880,9 @@
   .mobile-coop-topic-row.active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
   .mobile-coop-topic-group { margin: 5px 8px 11px 12px; }
   .mobile-coop-topic-group-heading { padding: 7px 8px 5px; color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-  .mobile-coop-topic-activity { flex: 0 0 auto; margin-left: auto; padding: 2px 6px; border: 1px solid transparent; border-radius: 5px; font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; }
+  .mobile-coop-topic-row { flex-wrap: wrap; row-gap: 2px; }
+  .mobile-coop-topic-title { flex: 1 1 100%; }
+  .mobile-coop-topic-activity { flex: 0 0 auto; margin-left: 0; padding: 2px 6px; border: 1px solid transparent; border-radius: 5px; font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; }
   .mobile-coop-topic-activity-working { border-color: var(--border-subtle); color: var(--text-dimmer); }
   .mobile-coop-topic-activity-needs_input { border-color: var(--accent); color: var(--accent); }
   .mobile-coop-topic-activity-done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
