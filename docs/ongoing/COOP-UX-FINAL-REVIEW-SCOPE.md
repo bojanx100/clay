@@ -46,7 +46,8 @@ verbatim, rather than being reconstructed from memory and quietly drifting.
   lib/public/modules/coop-action-queue-ui.js, coop-lens-relevance.js,
   coop-header.js, coop-identity.js, global-coop-projection.js,
   sidebar-coop-topics.js, sidebar-coop-topic-model.js,
-  sidebar-coop-topic-review.js, sidebar-sessions.js, sidebar-sessions-model.js,
+  sidebar-coop-topic-review.js, sidebar-coop-topic-close.js,
+  sidebar-coop-topic-links.js, sidebar-sessions.js, sidebar-sessions-model.js,
   sidebar-mobile.js, sidebar-mobile-coordinators.js, sidebar-lead.js,
   app-connection.js, app-messages-sessions.js, app-projects.js,
   lib/public/css/sidebar.css, mobile-nav.css, messages.css, test/,
@@ -503,13 +504,37 @@ blanks/dups/truncations/overflow, 31/31 review toggles with resolving
 aria-controls, review panel opens with provenance and the three verbs, zero
 console errors). No real owner dispositions were mutated.
 
-PIN INSPECTION HERE — the current review target, not the older commits listed
-below (`db5fc84d24` is the review-findings segment on top of `9592e5a9c9`,
-which is the evidence-based state segment on top of `581b3da81a`; the earlier
-note about `f4688c9603`/`ace812cdb9` still holds for the Part 1 history).
-`9592e5a9c9` and `cde8fb67dc` are superseded as final gates:
+TOPIC-ROW LAYOUT SEGMENT (`3f3315bdb8`, owner-approved redesign): the owner
+rejected the previous list rendering as cramped and visually noisy — 31
+identical uppercase "NEEDS INPUT" pills plus Review and Close controls
+repeated on every row overwhelmed the titles. The row now leads with the
+title as its only primary content; the state renders on a quiet secondary
+meta line as plain words with the reinforcing dot (no borders, no uppercase,
+never truncating), while the row's accessible name still announces
+"title, state". Review stays the single visible action, inline on the meta
+line, only when a topic-scoped decision is actionable; stateless
+non-reviewable rows render no meta line at all. Close/Reopen moved behind a
+compact overflow menu per row (`createTopicMenu` in
+sidebar-coop-topic-close.js): aria-haspopup="menu"/aria-controls on the
+toggle, role=menu/menuitem, Escape closes and returns focus to the toggle,
+focusout dismisses, Close keeps the explicit confirmation modal, Reopen stays
+one activation. Vertical rhythm and group spacing increased on both surfaces;
+mobile keeps 42px touch targets with an always-visible toggle. Strictly a
+client rendering change: topic state semantics, owner ACLs, dispositions,
+request dedup, closed-topic discoverability/replay, canonical TopicRefs, and
+all migrations are untouched. Layout-contract, menu-behaviour ARIA/keyboard,
+and cross-surface CSS regression tests added; isolated CLAY_HOME full suite
+1784/1784; live QA at 1440x900 and 390x844 showed 31 rows, 0 blank states,
+0 overflow, 31/31 resolving aria-controls, zero console errors, no owner
+data mutated.
 
-    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout db5fc84d24
+PIN INSPECTION HERE — the current review target, not the older commits listed
+below (`3f3315bdb8` is the layout segment on top of `db5fc84d24`, the
+review-findings segment on top of `9592e5a9c9`; the earlier note about
+`f4688c9603`/`ace812cdb9` still holds for the Part 1 history).
+`db5fc84d24`, `9592e5a9c9` and `cde8fb67dc` are superseded as final gates:
+
+    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 3f3315bdb8
 
 The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
