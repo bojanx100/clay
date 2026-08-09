@@ -54,7 +54,7 @@ and no owner question to ask.
 
 ## Review target
 
-HEAD is now `c8d0b6e4b7` on `bojan` (was `af93548f6f` when this file was
+HEAD is now `3fc7f0a11a` on `bojan` (was `af93548f6f` when this file was
 written). Two further admitted fixes landed since and are IN SCOPE:
 
 - `4c526833e8` — portfolio bindings: a delegation that fails before the task
@@ -109,6 +109,28 @@ written). Two further admitted fixes landed since and are IN SCOPE:
   Review especially: that no code path can produce a state without exact linked
   evidence, and that the differentiated-states test genuinely proves rows do not
   all read the same when evidence exists.
+
+- `3fc7f0a11a` — no status affordance without a truthful state. Reverting the
+  fabricated label left its LAYOUT behind: the row still wrapped and the dot was
+  still rendered unconditionally, so every stateless topic drew a floating dot
+  on a reserved blank status line above its title. The dot and the wrap are now
+  conditional on a real label. Verified live after restart at 1440x900 and
+  390x844: 43 rows, zero dots, zero labels, zero wrapped rows, uniform
+  single-line height (29px desktop / 42px phone), zero dot-without-label.
+
+NEW DIAGNOSIS of the fragment problem, replacing the earlier guess. The
+admission filter (coop-topic-index.js:384, topicHasRelevantTurn) IS active and
+history IS supplied, yet "Resuming After Restart", "None Been Taken Were Idle"
+and "Where Arre Now" all pass it. Resolving their stored turnRefs against the
+canonical history shows why: startEventIndex points at `scheduled_message_sent`,
+`delta` and `done` records respectively -- not at owner turn-start records. The
+persisted membership indices have drifted out of alignment with the history they
+reference, so admission is evaluating the wrong records and topic titles are
+derived from whatever record the index happens to land on. This is a membership
+ANCHORING defect, not a relevance defect, and it is the real root of both the
+fragment titles and the surviving internal-derived topics. Fixing it means
+re-anchoring or re-deriving topic membership against canonical history; it was
+NOT attempted here.
 
 KNOWN NOT DONE, admitted and still open: the topic list still contains
 internal-derived and fragmentary topics ("Resuming After Restart", "Resuming
