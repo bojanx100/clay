@@ -1243,7 +1243,12 @@
    for a ~200px sidebar. Keeping both on one line crushed titles to about twelve
    characters ("Codex authe...", "Don Underst..."), which trades one unreadable
    thing for another. */
-.coop-topic-row { flex-wrap: wrap; row-gap: 2px; }
+/* Only a row that actually HAS a state wraps to a second line. A stateless row
+   stays a single line of dot-free title, instead of reserving a blank status
+   row with a floating dot above it. */
+.coop-topic-row.has-state { flex-wrap: wrap; row-gap: 2px; }
+
+.coop-topic-row.has-state .coop-topic-title { flex: 1 1 100%; }
 
 .coop-topic-activity {
   flex: 0 0 auto;
@@ -1276,7 +1281,9 @@
 .coop-topic-row.attention .coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }
 /* flex-basis 100% so the label wraps to its own line rather than competing for
    a ~200px sidebar, which crushed titles to about twelve characters. */
-.coop-topic-title { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coop-topic-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coop-topic-row.has-state .coop-topic-title { flex: 1 1 100%; }
+
 .coop-topic-activity { max-width: 44%; overflow: hidden; color: var(--text-dimmer); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .coop-topic-unread { flex: 0 0 auto; padding: 1px 5px; border-radius: 8px; background: rgba(var(--accent-rgb), .14); color: var(--accent); font-size: 9px; }
 

@@ -145,8 +145,12 @@ test("the generic Active copy is gone from the client", function () {
 test("the status dot and aria label only claim what is true", function () {
   var topics = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topics.js"), "utf8");
-  // Dot follows the derived state, and is neutral without one.
-  assert.match(topics, /topic\.workState \? " coop-topic-status-" \+ topicStatusClass\(topic\.workState\) : ""/);
+  // The dot exists ONLY alongside a truthful label. A "neutral" dot with no
+  // state left every stateless row rendering a floating dot on a reserved blank
+  // status line above the title, which is a claim of nothing occupying space.
+  assert.match(topics, /if \(activity\) \{\s*var marker = document\.createElement\("span"\);/);
+  assert.match(topics, /\(activity \? " has-state" : ""\)/);
+  assert.doesNotMatch(topics, /topic\.workState \? " coop-topic-status-"/);
   // The aria label no longer announces the durable "open" lifecycle status,
   // which was true of every visible topic and told a screen-reader user nothing.
   assert.doesNotMatch(topics, /text\(topic\.status, "quiet"\)/);
