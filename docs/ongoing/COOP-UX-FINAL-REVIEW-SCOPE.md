@@ -357,10 +357,11 @@ zero Lead-tick markers, zero internal-marked DOM records, with the canonical
 topic title in the header.
 
 PIN INSPECTION HERE — the current review target, not the older commits listed
-below (`f4688c9603` is `ace812cdb9` plus this scope document; no production code
-differs between them):
+below (`090961890c` is the zero-topics regression fix segment on top of
+`62c7d848c9`; the earlier note about `f4688c9603`/`ace812cdb9` still holds for
+the Part 1 history):
 
-    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout f4688c9603
+    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 090961890c
 
 The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
