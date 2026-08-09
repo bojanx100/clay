@@ -27,7 +27,7 @@ test("a completed All turn advances the durable index and refreshes only its con
       coopHome: true,
       ownerId: "owner",
       history: [
-        { type: "user_message", text: "An earlier unmatched conversation" },
+        { type: "user_message", text: "An earlier unmatched conversation", from: "owner", fromName: "Admin", clientMessageId: "cm-fixture" },
         { type: "delta_replace", text: "Earlier final answer" },
         { type: "done" },
       ],
@@ -40,7 +40,7 @@ test("a completed All turn advances the durable index and refreshes only its con
     }, home).ok, true);
 
     home.history.push(
-      { type: "user_message", text: "Codex authentication from All without a TopicRef" },
+      { type: "user_message", text: "Codex authentication from All without a TopicRef", from: "owner", fromName: "Admin", clientMessageId: "cm-fixture" },
       { type: "delta_replace", text: "The final authentication response" },
       { type: "done" }
     );

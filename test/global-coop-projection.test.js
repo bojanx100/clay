@@ -122,7 +122,7 @@ test("global Coop projection exposes bounded topic lenses and revokes denied pro
     var home = session(1, {
       storageId: "canonical-topic-home", coopHome: true,
       history: [
-        { type: "user_message", text: "Navigation session restoration and sidebar" },
+        { type: "user_message", text: "Navigation session restoration and sidebar", from: "owner", fromName: "Admin", clientMessageId: "cm-fixture" },
         { type: "delta_replace", text: "The navigation restoration is complete." },
         { type: "done" },
       ],
@@ -192,7 +192,7 @@ test("topic related-session links stay top-level, ACL-filtered, and reference-on
     var home = session(1, {
       storageId: "canonical-topic-home", coopHome: true,
       history: [
-        { type: "user_message", text: "Navigation session restoration and sidebar" },
+        { type: "user_message", text: "Navigation session restoration and sidebar", from: "owner", fromName: "Admin", clientMessageId: "cm-fixture" },
         { type: "delta_replace", text: "The navigation restoration is complete." },
         { type: "done" },
       ],
