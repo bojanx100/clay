@@ -110,14 +110,14 @@ async function harness() {
   // per-item interaction state left by one test would silently suppress the
   // next one's decision (submitDecision refuses while a decision is pending).
   storeModule.store.set({
-    openCoopActionItemId: null,
     coopActionPending: {},
     coopActionError: {},
     coopActionNote: {},
     coopActionDone: {},
   });
   var ui = await import(modulePath("coop-action-queue-ui.js"));
-  return { store: storeModule.store, ui: ui };
+  var panel = await import(modulePath("coop-action-decision-panel.js"));
+  return { store: storeModule.store, ui: ui, panel: panel };
 }
 
 // The real server payload, from the real builder.
@@ -126,7 +126,8 @@ function serverProjection() {
     projectRef: { projectId: "webapp-project-id" }, slug: "webapp", title: "Webapp",
     sessions: [
       {
-        localId: 1, storageId: "coord-home", orchestrationTasks: [
+        localId: 40, storageId: "sess-coord",
+        orchestrationTasks: [
           { taskId: "coord-reconcile", title: "Reconcile open Webapp issues", status: "needs_input", updatedAt: 500 },
           {
             taskId: "task-2503", parentTaskId: "coord-reconcile",
@@ -164,152 +165,136 @@ function rowFor(container, issue, mobile) {
   return rows.filter(function (r) { return r.dataset.actionItemId.indexOf("#" + issue) !== -1; })[0] || null;
 }
 
-test("the queue renders one row per decision and no coordinator row", async function () {
+
+// The contextual decision panel, rendered where the topic decision surface
+// puts it -- never in the sidebar.
+function renderedPanel(ctx, itemId, options) {
+  var item = ctx.ui.getActionQueue().filter(function (i) { return i.itemId === itemId; })[0];
+  var container = element("div");
+  container.appendChild(ctx.panel.createActionDecisionPanel(item, options || {}));
+  return container;
+}
+
+// --- link-only sidebar index --------------------------------------------------
+
+test("the index renders one link row per decision and no coordinator row", async function () {
   var ctx = await harness();
   var out = await renderedQueue(ctx);
   assert.equal(out.count, 2);
   var rows = byClass(out.container, "coop-action-item");
   assert.equal(rows.length, 2);
   assert.equal(byClass(out.container, "coop-action-queue").length, 1);
-  assert.equal(textOf(out.container, "coop-action-queue-heading"), "Action required");
+  assert.equal(textOf(out.container, "coop-action-queue-heading"), "Immediate action");
   assert.ok(out.container.textContent.indexOf("Reconcile open Webapp issues") === -1,
     "an internal reconciliation coordinator must never render as owner work");
 });
 
-test("each rendered row names its project, its work, and the exact question", async function () {
+test("each row shows the work title and a concise truthful reason, nothing more", async function () {
   var ctx = await harness();
   var out = await renderedQueue(ctx);
   var row = rowFor(out.container, "2503");
-  assert.equal(textOf(row, "coop-action-item-project"), "Webapp");
   assert.equal(textOf(row, "coop-action-item-title"), "Mail attachment (parent/child) icons");
-  assert.equal(textOf(row, "coop-action-item-decision"), "Ship parent-only icons, or wait for child rollup?");
-  // Readable without entering the project: the project name is on the row.
-  // The suffix tells a screen-reader user what activating the card actually
-  // does, which is open a decision -- not navigate away.
-  assert.equal(row.getAttribute("aria-label"),
-    "Webapp, Mail attachment (parent/child) icons, Ship parent-only icons, " +
-    "or wait for child rollup?, opens decision options");
+  assert.equal(textOf(row, "coop-action-item-reason"), "Needs your answer");
+  var other = rowFor(out.container, "2517");
+  assert.equal(textOf(other, "coop-action-item-reason"), "Waiting for your answer");
+  // The raw worker question stays out of the sidebar: it belongs next to the
+  // evidence in the topic surface.
+  assert.equal(out.container.textContent.indexOf("Ship parent-only icons"), -1);
 });
 
-test("the rendered rows are not cross-wired", async function () {
+test("no consequential decision renders in the sidebar", async function () {
   var ctx = await harness();
-  var out = await renderedQueue(ctx);
-  var a = rowFor(out.container, "2503");
-  var b = rowFor(out.container, "2517");
-  assert.equal(textOf(a, "coop-action-item-title"), "Mail attachment (parent/child) icons");
-  assert.equal(textOf(b, "coop-action-item-title"), "Excel Viewer - view only");
-  assert.equal(textOf(b, "coop-action-item-decision"), "Approve PR #2526?");
-
-  // Links live in the decision panel now, so open each item and check the
-  // artifacts it offers belong to that item alone.
-  function linksWhenOpen(itemId) {
-    ctx.store.set({ openCoopActionItemId: itemId });
-    var container = element("div");
-    ctx.ui.renderCoopActionQueue(container, {});
-    return byClass(container, "action-item-link").map(function (l) { return l.textContent; });
-  }
-  var forA = linksWhenOpen(a.dataset.actionItemId);
-  assert.ok(forA.indexOf("Issue #2503") !== -1);
-  assert.ok(forA.indexOf("PR #2504") !== -1);
-  assert.ok(forA.indexOf("PR #2526") === -1, "#2503 must not carry #2517's PR");
-
-  var forB = linksWhenOpen(b.dataset.actionItemId);
-  assert.ok(forB.indexOf("Issue #2517") !== -1);
-  assert.ok(forB.indexOf("PR #2526") !== -1);
-  assert.ok(forB.indexOf("PR #2504") === -1, "#2517 must not carry #2503's PR");
-  ctx.store.set({ openCoopActionItemId: null });
-});
-
-test("a card is a real control that opens the decision panel in place", async function () {
-  var ctx = await harness();
-  var sessions = [], projects = [];
-  var out = await renderedQueue(ctx, {
-    openSession: function (d) { sessions.push(d); },
-    openProject: function (s) { projects.push(s); },
+  var items = ctx.ui.normalizeActionQueue(serverProjection());
+  items[0] = Object.assign({}, items[0], { kind: "acceptance" });
+  ctx.ui.setActionQueue(items);
+  var container = element("div");
+  ctx.ui.renderCoopActionQueue(container, { send: function () { return true; } });
+  assert.equal(byClass(container, "coop-action-decide").length, 0,
+    "no Accept / Request changes buttons in the sidebar");
+  assert.equal(byClass(container, "coop-action-note").length, 0, "no note field");
+  assert.equal(byClass(container, "coop-action-detail").length, 0, "no decision panel");
+  var texts = container.textContent;
+  ["Accept as done", "Request changes", "Keep waiting", "Advance"].forEach(function (verb) {
+    assert.equal(texts.indexOf(verb), -1, verb + " must not render in the sidebar");
   });
-  var row = rowFor(out.container, "2503");
-  // Native button: Enter/Space, tab order and the focus ring come from the
-  // platform rather than being re-implemented on a div.
+});
+
+test("an acceptance item states the truthful reason for looking", async function () {
+  var ctx = await harness();
+  var items = ctx.ui.normalizeActionQueue(serverProjection());
+  items[0] = Object.assign({}, items[0], { kind: "acceptance" });
+  ctx.ui.setActionQueue(items);
+  var container = element("div");
+  ctx.ui.renderCoopActionQueue(container, {});
+  var row = rowFor(container, "2503");
+  assert.equal(textOf(row, "coop-action-item-reason"), "Worker finished — review the result");
+});
+
+test("a topic-linked row opens the canonical topic, not a second inventory", async function () {
+  var ctx = await harness();
+  var items = ctx.ui.normalizeActionQueue(serverProjection());
+  items[0] = Object.assign({}, items[0], { topicRef: { topicId: "topic-a" } });
+  ctx.ui.setActionQueue(items);
+  var container = element("div");
+  var openedTopics = [], openedSessions = [];
+  ctx.ui.renderCoopActionQueue(container, {
+    openTopic: function (item) { openedTopics.push(item.topicRef.topicId); return true; },
+    openSession: function (d) { openedSessions.push(d); },
+  });
+  var row = rowFor(container, "2503");
   assert.equal(row.tagName, "BUTTON");
-  assert.equal(row.type, "button");
-  assert.equal(row.getAttribute("aria-expanded"), "false");
-  assert.ok(row.getAttribute("aria-controls"));
-  assert.match(row.getAttribute("aria-label"), /opens decision options$/);
-
+  assert.match(row.getAttribute("aria-label"), /opens the topic$/);
   row.click();
-  // Activating must NOT navigate: the whole point is deciding without entering
-  // the project.
-  assert.deepEqual(sessions, [], "opening a decision must not leave Coop");
-  assert.deepEqual(projects, []);
-  assert.equal(ctx.store.get("openCoopActionItemId"), row.dataset.actionItemId);
-
-  var reopened = await renderedQueue(ctx, {});
-  var openRow = rowFor(reopened.container, "2503");
-  assert.equal(openRow.getAttribute("aria-expanded"), "true");
-  assert.equal(byClass(reopened.container, "coop-action-detail").length, 1);
-  assert.equal(byClass(reopened.container, "coop-action-detail")[0].id,
-    openRow.getAttribute("aria-controls"), "the panel is the one the card points at");
+  assert.deepEqual(openedTopics, ["topic-a"], "navigates by canonical TopicRef");
+  assert.deepEqual(openedSessions, [], "the topic wins; no session is opened too");
 });
 
-test("the panel states project, canonical title, evidence and the exact question", async function () {
+test("a row with no topic link falls back to the existing session", async function () {
   var ctx = await harness();
-  ctx.store.set({ openCoopActionItemId: "webapp-project-id|issue#2503" });
-  var out = await renderedQueue(ctx, {});
-  var panel = byClass(out.container, "coop-action-detail")[0];
-  assert.equal(textOf(panel, "coop-action-detail-meta"),
-    "Webapp \u00b7 Mail attachment (parent/child) icons");
-  assert.equal(textOf(panel, "coop-action-detail-asked"),
-    "Ship parent-only icons, or wait for child rollup?");
-  assert.equal(textOf(panel, "coop-action-detail-evidence"), "Waiting on the owner");
-  assert.equal(panel.getAttribute("role"), "group");
-  assert.match(panel.getAttribute("aria-label"), /Mail attachment/);
-});
-
-test("the panel offers exactly the three owner decisions", async function () {
-  var ctx = await harness();
-  ctx.store.set({ openCoopActionItemId: "webapp-project-id|issue#2503" });
-  var out = await renderedQueue(ctx, {});
-  var labels = byClass(out.container, "coop-action-decide").map(function (b) { return b.textContent; });
-  assert.deepEqual(labels, ["Advance", "Request changes", "Keep waiting"]);
-});
-
-test("the preview artifact and session stay available as secondary actions", async function () {
-  var ctx = await harness();
-  ctx.store.set({ openCoopActionItemId: "webapp-project-id|issue#2503" });
-  var sessions = [];
-  var out = await renderedQueue(ctx, { openSession: function (d) { sessions.push(d); } });
-  var links = byClass(out.container, "action-item-link").map(function (l) { return l.textContent; });
-  assert.ok(links.indexOf("Issue #2503") !== -1);
-  assert.ok(links.indexOf("PR #2504") !== -1, "the preview artifact stays reachable");
-  // The session is a secondary action inside the panel, not the card's job.
-  var open = byClass(out.container, "coop-action-detail-open")[0];
-  assert.equal(open.textContent, "Open session");
-  open.click();
-  assert.deepEqual(sessions[0], {
+  ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
+  var container = element("div");
+  var openedSessions = [];
+  ctx.ui.renderCoopActionQueue(container, {
+    openTopic: function () { throw new Error("no topicRef, must not be called"); },
+    openSession: function (d) { openedSessions.push(d); },
+  });
+  rowFor(container, "2503").click();
+  assert.deepEqual(openedSessions[0], {
     ref: { projectId: "webapp-project-id", sessionStorageId: "sess-2503" },
     slug: "webapp", localId: 41,
-  });
+  }, "the existing session opens; the row never invites a duplicate");
 });
 
-test("an outbound issue link does not also navigate the row", async function () {
+test("a failed topic resolution falls back to the session instead of going nowhere", async function () {
   var ctx = await harness();
-  var sessions = [], projects = [];
-  ctx.store.set({ openCoopActionItemId: "webapp-project-id|issue#2503" });
-  var out = await renderedQueue(ctx, {
-    openSession: function (d) { sessions.push(d); },
-    openProject: function (s) { projects.push(s); },
+  var items = ctx.ui.normalizeActionQueue(serverProjection());
+  items[0] = Object.assign({}, items[0], { topicRef: { topicId: "gone-topic" } });
+  ctx.ui.setActionQueue(items);
+  var container = element("div");
+  var openedSessions = [];
+  ctx.ui.renderCoopActionQueue(container, {
+    openTopic: function () { return false; },
+    openSession: function (d) { openedSessions.push(d); },
   });
-  var link = byClass(out.container, "action-item-link")[0];
-  // Properties, not attributes: real DOM reflects these, the fake node does not.
-  assert.equal(link.rel, "noopener noreferrer");
-  assert.equal(link.target, "_blank");
-  assert.match(link.href, /github\.com/);
-  link.click();
-  assert.deepEqual(sessions, []);
-  assert.deepEqual(projects, [], "the link stops propagation so the row does not navigate too");
+  rowFor(container, "2503").click();
+  assert.equal(openedSessions.length, 1);
 });
 
-test("an empty queue renders nothing at all", async function () {
+test("two decisions in one topic collapse into a single link", async function () {
+  var ctx = await harness();
+  var items = ctx.ui.normalizeActionQueue(serverProjection());
+  items = items.map(function (i) { return Object.assign({}, i, { topicRef: { topicId: "topic-a" } }); });
+  ctx.ui.setActionQueue(items);
+  var container = element("div");
+  var count = ctx.ui.renderCoopActionQueue(container, {});
+  assert.equal(count, 1, "one row per canonical topic");
+  var rows = byClass(container, "coop-action-item");
+  assert.equal(rows.length, 1);
+  assert.match(textOf(rows[0], "coop-action-item-reason"), /\(\+1 more\)$/,
+    "the row says there is more than one thing waiting in the topic");
+});
+
+test("an empty index renders nothing at all", async function () {
   var ctx = await harness();
   ctx.ui.setActionQueue([]);
   var container = element("div");
@@ -328,7 +313,7 @@ test("resolving one decision removes only that row", async function () {
   assert.equal(rowFor(container, "2503"), null);
 });
 
-test("the phone surface renders the same queue with touch-sized rows", async function () {
+test("the phone surface renders the same link-only index with touch-sized rows", async function () {
   var ctx = await harness();
   var out = await renderedQueue(ctx, { mobile: true });
   assert.equal(out.count, 2);
@@ -336,30 +321,15 @@ test("the phone surface renders the same queue with touch-sized rows", async fun
   assert.equal(byClass(out.container, "mobile-coop-action-item").length, 2);
   // Desktop classes must not leak onto the phone surface, or the CSS misses.
   assert.equal(byClass(out.container, "coop-action-item").length, 0);
+  assert.equal(byClass(out.container, "mobile-coop-action-decide").length, 0,
+    "no decision verbs on the phone sheet either");
   var row = rowFor(out.container, "2503", true);
   assert.equal(textOf(row, "mobile-coop-action-item-title"), "Mail attachment (parent/child) icons");
 });
 
 // --- lifecycle --------------------------------------------------------------
 
-test("an unopenable session offers no Open session action", async function () {
-  var ctx = await harness();
-  var items = ctx.ui.normalizeActionQueue(serverProjection());
-  var target = items.filter(function (i) { return i.itemId.indexOf("#2503") !== -1; })[0];
-  // Exactly what the old, invented destination shape looked like.
-  target.destination = { projectId: "p", sessionStorageId: "s", localId: 41 };
-  target.hasExistingSession = false;
-  ctx.ui.setActionQueue(items);
-  ctx.store.set({ openCoopActionItemId: target.itemId });
-  var container = element("div");
-  var sessions = [];
-  ctx.ui.renderCoopActionQueue(container, { openSession: function (d) { sessions.push(d); } });
-  assert.equal(byClass(container, "coop-action-detail-open").length, 0,
-    "a session that cannot be opened must not be offered");
-  assert.deepEqual(sessions, []);
-});
-
-test("the queue contributes its own render signature term", async function () {
+test("the index contributes its own render signature term", async function () {
   var ctx = await harness();
   ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
   var withBoth = ctx.ui.actionQueueSignature();
@@ -384,7 +354,6 @@ test("a status change on the same item still repaints", async function () {
   ctx.ui.setActionQueue(items);
   var before = ctx.ui.actionQueueSignature();
   var moved = ctx.ui.normalizeActionQueue(serverProjection());
-  moved[0].decision = "Blocked -- needs you to unblock it";
   moved[0].status = "blocked";
   ctx.ui.setActionQueue(moved);
   assert.notEqual(ctx.ui.actionQueueSignature(), before);
@@ -397,6 +366,26 @@ test("a reconnect that resends the identical projection does not churn", async f
   ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
   assert.equal(ctx.ui.actionQueueSignature(), first,
     "identical state must produce an identical signature, or every push repaints");
+});
+
+test("decision interaction state stays out of the sidebar signature", async function () {
+  // The sidebar rows are link-only, so pending/error/done state must not churn
+  // the session-list repaint; the topic decision surface subscribes to those
+  // keys itself.
+  var ctx = await harness();
+  ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
+  var base = ctx.ui.actionQueueSignature();
+  var sent = [];
+  ctx.ui.submitDecision({ itemId: ID_2503, taskId: "task-2503", projectRef: {} }, "advance",
+    { send: function (m) { sent.push(m); return true; } });
+  assert.equal(ctx.ui.actionQueueSignature(), base);
+
+  var fs = require("node:fs");
+  var surface = fs.readFileSync(
+    path.join(__dirname, "..", "lib", "public", "modules", "coop-topic-decision-surface.js"), "utf8");
+  ["coopActionPending", "coopActionError", "coopActionDone", "coopActionQueue"].forEach(function (key) {
+    assert.ok(surface.indexOf(key) !== -1, "the decision surface repaints on " + key);
+  });
 });
 
 test("a projection with no queue clears the previous one", async function () {
@@ -424,23 +413,33 @@ test("the queue module does not drag the application hub into the sidebar", func
   assert.deepEqual(imports, ["import { store } from './store.js';"],
     "the queue UI must stay dependency-light");
 
+  // The panel module carries only the store and the transport it draws.
+  var panelSrc = fs.readFileSync(
+    path.join(__dirname, "..", "lib", "public", "modules", "coop-action-decision-panel.js"), "utf8");
+  var panelImports = panelSrc.match(/^import .*from '.*';$/gm) || [];
+  assert.deepEqual(panelImports, [
+    "import { store } from './store.js';",
+    "import { submitDecision } from './coop-action-queue-ui.js';",
+  ]);
+
   // And the surfaces, which may import the hub, actually supply the navigation.
   var desktop = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "modules", "sidebar-sessions.js"), "utf8");
   var mobile = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"), "utf8");
   assert.match(desktop, /openSession: openResolvedGlobalSession/);
-  assert.match(desktop, /openProject: switchProject/);
   assert.match(mobile, /openSession: openResolvedGlobalSession/);
-  assert.match(mobile, /openProject: switchProject/);
 });
 
 test("a row with no injected navigation is inert, not a crash", async function () {
   var ctx = await harness();
   var out = await renderedQueue(ctx, {});
-  // Fails closed: a surface that forgets to inject navigation renders a queue
-  // that does nothing, rather than throwing inside a click handler.
-  assert.doesNotThrow(function () { rowFor(out.container, "2503").click(); });
+  var row = rowFor(out.container, "2503");
+  // Fails closed: a surface that forgets to inject navigation renders a
+  // disabled row that does nothing, rather than throwing inside a handler.
+  assert.equal(row.disabled, true);
+  assert.match(row.getAttribute("aria-label"), /no destination available$/);
+  assert.doesNotThrow(function () { row.click(); });
 });
 
 test("a malformed item is dropped rather than rendered blank", async function () {
@@ -455,11 +454,12 @@ test("a malformed item is dropped rather than rendered blank", async function ()
   assert.equal(queue[0].decision, "Needs your attention");
 });
 
-// --- owner decision flow -----------------------------------------------------
+// --- contextual decision panel ------------------------------------------------
 //
-// The card is the decision, not a link. These drive the real buttons and the
-// real acknowledgement, and the rule they exist to protect is that deciding one
-// item leaves the other untouched.
+// The panel is the decision, anchored to canonical evidence in the topic
+// surface. These drive the real buttons and the real acknowledgement, and the
+// rule they exist to protect is that deciding one item leaves the other
+// untouched.
 
 // Canonical identity is project + ISSUE now, not the client ref.
 var ID_2503 = "webapp-project-id|issue#2503";
@@ -467,12 +467,9 @@ var ID_2517 = "webapp-project-id|issue#2517";
 
 async function openPanel(ctx, itemId, sent, extra) {
   ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
-  ctx.store.set({ openCoopActionItemId: itemId });
-  var container = element("div");
-  ctx.ui.renderCoopActionQueue(container, Object.assign({
+  return renderedPanel(ctx, itemId, Object.assign({
     send: function (msg) { sent.push(msg); return true; },
   }, extra || {}));
-  return container;
 }
 
 function decideButton(container, label, mobile) {
@@ -489,6 +486,82 @@ function ack(ctx, sent, payload) {
     ok: true,
   }, payload || {}));
 }
+
+test("the panel states project, canonical title, evidence and the exact question", async function () {
+  var ctx = await harness();
+  var panel = await openPanel(ctx, ID_2503, []);
+  assert.equal(textOf(panel, "coop-action-detail-meta"),
+    "Webapp \u00b7 Mail attachment (parent/child) icons");
+  assert.equal(textOf(panel, "coop-action-detail-asked"),
+    "Ship parent-only icons, or wait for child rollup?");
+  assert.equal(textOf(panel, "coop-action-detail-evidence"), "Waiting on the owner");
+  var group = byClass(panel, "coop-action-detail")[0];
+  assert.equal(group.getAttribute("role"), "group");
+  assert.match(group.getAttribute("aria-label"), /Mail attachment/);
+});
+
+test("the panel offers exactly the three owner decisions", async function () {
+  var ctx = await harness();
+  var panel = await openPanel(ctx, ID_2503, []);
+  var labels = byClass(panel, "coop-action-decide").map(function (b) { return b.textContent; });
+  assert.deepEqual(labels, ["Advance", "Request changes", "Keep waiting"]);
+});
+
+test("the panel says what the decision will do before the owner chooses", async function () {
+  var ctx = await harness();
+  var panel = await openPanel(ctx, ID_2503, []);
+  assert.match(textOf(panel, "coop-action-detail-consequence"),
+    /Advance tells the coordinator to proceed/);
+});
+
+test("the panel is not cross-wired: each item's links belong to it alone", async function () {
+  var ctx = await harness();
+  var forA = byClass(await openPanel(ctx, ID_2503, []), "action-item-link")
+    .map(function (l) { return l.textContent; });
+  assert.ok(forA.indexOf("Issue #2503") !== -1);
+  assert.ok(forA.indexOf("PR #2504") !== -1);
+  assert.ok(forA.indexOf("PR #2526") === -1, "#2503 must not carry #2517's PR");
+
+  var forB = byClass(await openPanel(ctx, ID_2517, []), "action-item-link")
+    .map(function (l) { return l.textContent; });
+  assert.ok(forB.indexOf("Issue #2517") !== -1);
+  assert.ok(forB.indexOf("PR #2526") !== -1);
+  assert.ok(forB.indexOf("PR #2504") === -1, "#2517 must not carry #2503's PR");
+});
+
+test("an outbound issue link opens the artifact, not a navigation handler", async function () {
+  var ctx = await harness();
+  var panel = await openPanel(ctx, ID_2503, []);
+  var link = byClass(panel, "action-item-link")[0];
+  // Properties, not attributes: real DOM reflects these, the fake node does not.
+  assert.equal(link.rel, "noopener noreferrer");
+  assert.equal(link.target, "_blank");
+  assert.match(link.href, /github\.com/);
+});
+
+test("an acceptance item without canonical evidence withholds the decision", async function () {
+  var ctx = await harness();
+  var items = ctx.ui.normalizeActionQueue(serverProjection());
+  items[0] = Object.assign({}, items[0], { kind: "acceptance", evidence: "", links: [] });
+  ctx.ui.setActionQueue(items);
+  var panel = renderedPanel(ctx, ID_2503, { send: function () { return true; } });
+  // Fail closed: no verbs, no note field, and a truthful explanation instead.
+  assert.equal(byClass(panel, "coop-action-decide").length, 0);
+  assert.equal(byClass(panel, "coop-action-note").length, 0);
+  assert.match(textOf(panel, "coop-action-state-withheld"), /decision is withheld/);
+});
+
+test("an acceptance item with a recorded result offers the decision", async function () {
+  var ctx = await harness();
+  var items = ctx.ui.normalizeActionQueue(serverProjection());
+  items[0] = Object.assign({}, items[0], { kind: "acceptance", evidence: "Shipped behind a flag." });
+  ctx.ui.setActionQueue(items);
+  var panel = renderedPanel(ctx, ID_2503, { send: function () { return true; } });
+  assert.deepEqual(byClass(panel, "coop-action-decide").map(function (b) { return b.textContent; }),
+    ["Accept as done", "Request changes", "Keep waiting"]);
+});
+
+// --- owner decision flow -----------------------------------------------------
 
 test("Advance sends a decision routed by canonical project and task identity", async function () {
   var ctx = await harness();
@@ -514,7 +587,7 @@ test("Request changes refuses to send without a note, then sends it", async func
   assert.equal((ctx.store.get("coopActionError") || {})[ID_2503], "note_required");
 
   // The owner types a note; it is stored, not just held in the DOM, because a
-  // projection push re-renders the sidebar underneath them.
+  // projection push re-renders the surface underneath them.
   var note = byClass(container, "coop-action-note")[0];
   note.value = "Split the viewer toggle out.";
   note.listeners.input[0]({});
@@ -547,7 +620,7 @@ test("a second activation cannot produce a second decision", async function () {
   assert.equal(byClass(pendingView, "coop-action-state-pending")[0].getAttribute("role"), "status");
 });
 
-test("the pending state clears into success and the row reports it", async function () {
+test("the pending state clears into success and the panel reports it", async function () {
   var ctx = await harness();
   var sent = [];
   var container = await openPanel(ctx, ID_2503, sent);
@@ -594,7 +667,7 @@ test("an unknown error code still says something true", async function () {
     "The decision could not be recorded.");
 });
 
-test("Keep waiting closes the panel and leaves the item in the queue", async function () {
+test("Keep waiting records nothing as decided and leaves the item queued", async function () {
   var ctx = await harness();
   var sent = [];
   var container = await openPanel(ctx, ID_2503, sent);
@@ -602,7 +675,6 @@ test("Keep waiting closes the panel and leaves the item in the queue", async fun
   assert.equal(sent[0].decision, "keep_waiting");
   ack(ctx, sent, { decision: "keep_waiting", changed: false });
 
-  assert.equal(ctx.store.get("openCoopActionItemId"), null, "the panel collapses");
   assert.equal((ctx.store.get("coopActionDone") || {})[ID_2503], undefined,
     "nothing was decided, so nothing is reported as decided");
   var stillThere = element("div");
@@ -624,12 +696,10 @@ test("deciding one item leaves the other untouched in every respect", async func
   assert.equal((ctx.store.get("coopActionError") || {})[ID_2517], undefined);
   assert.equal((ctx.store.get("coopActionDone") || {})[ID_2517], undefined);
 
-  var both = element("div");
-  ctx.store.set({ openCoopActionItemId: ID_2517 });
-  ctx.ui.renderCoopActionQueue(both, {});
-  assert.ok(rowFor(both, "2517"), "#2517 is untouched and still decidable");
-  assert.equal(byClass(both, "coop-action-decide").length, 3);
-  assert.equal(byClass(both, "coop-action-state-done").length, 0,
+  var other = renderedPanel(ctx, ID_2517, {});
+  assert.equal(byClass(other, "coop-action-decide").length, 3,
+    "#2517 is untouched and still decidable");
+  assert.equal(byClass(other, "coop-action-state-done").length, 0,
     "#2517 must not inherit #2503's success state");
 });
 
@@ -638,7 +708,7 @@ test("an ack for one item never resolves the other", async function () {
   var sent = [];
   var a = await openPanel(ctx, ID_2503, sent);
   decideButton(a, "Advance").click();
-  var b = await openPanel(ctx, ID_2517, sent);
+  var b = renderedPanel(ctx, ID_2517, { send: function (msg) { sent.push(msg); return true; } });
   decideButton(b, "Advance").click();
   assert.equal(sent.length, 2);
 
@@ -676,16 +746,13 @@ test("a late ack for a superseded attempt cannot clear a newer one", async funct
 test("an offline decision fails visibly instead of spinning forever", async function () {
   var ctx = await harness();
   ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
-  ctx.store.set({ openCoopActionItemId: ID_2503 });
-  var container = element("div");
   // No transport at all: the surface could not supply one.
-  ctx.ui.renderCoopActionQueue(container, {});
+  var container = renderedPanel(ctx, ID_2503, {});
   decideButton(container, "Advance").click();
   assert.equal(ctx.ui.isDecisionPending(ID_2503), false);
   assert.equal((ctx.store.get("coopActionError") || {})[ID_2503], "disconnected");
 
-  var shown = element("div");
-  ctx.ui.renderCoopActionQueue(shown, {});
+  var shown = renderedPanel(ctx, ID_2503, {});
   assert.equal(byClass(shown, "coop-action-state-error")[0].textContent,
     "You are offline. Reconnect and try again.");
 });
@@ -693,9 +760,7 @@ test("an offline decision fails visibly instead of spinning forever", async func
 test("a send that the socket rejects does not leave the item pending", async function () {
   var ctx = await harness();
   ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
-  ctx.store.set({ openCoopActionItemId: ID_2503 });
-  var container = element("div");
-  ctx.ui.renderCoopActionQueue(container, { send: function () { return false; } });
+  var container = renderedPanel(ctx, ID_2503, { send: function () { return false; } });
   decideButton(container, "Advance").click();
   assert.equal(ctx.ui.isDecisionPending(ID_2503), false);
   assert.equal((ctx.store.get("coopActionError") || {})[ID_2503], "disconnected");
@@ -714,8 +779,6 @@ test("a restart that clears the queue drops all per-item interaction state", asy
   assert.deepEqual(ctx.store.get("coopActionError"), {});
   assert.deepEqual(ctx.store.get("coopActionPending"), {});
   assert.deepEqual(ctx.store.get("coopActionNote"), {});
-  assert.equal(ctx.store.get("openCoopActionItemId"), null,
-    "a panel cannot stay open on work that no longer exists");
 });
 
 test("a decided item's state does not survive onto the next queue", async function () {
@@ -751,7 +814,7 @@ test("reconnect restores the queue and the item is decidable again", async funct
 
 // --- mobile ------------------------------------------------------------------
 
-test("the phone surface offers the same decisions with its own class names", async function () {
+test("the phone panel offers the same decisions with its own class names", async function () {
   var ctx = await harness();
   var sent = [];
   var container = await openPanel(ctx, ID_2503, sent, { mobile: true });
@@ -766,39 +829,6 @@ test("the phone surface offers the same decisions with its own class names", asy
   decideButton(container, "Advance", true).click();
   assert.equal(sent[0].taskId, "task-2503");
 });
-
-test("the phone card carries the same disclosure semantics", async function () {
-  var ctx = await harness();
-  var sent = [];
-  var container = await openPanel(ctx, ID_2503, sent, { mobile: true });
-  var row = rowFor(container, "2503", true);
-  assert.equal(row.tagName, "BUTTON");
-  assert.equal(row.getAttribute("aria-expanded"), "true");
-  assert.equal(byClass(container, "mobile-coop-action-detail")[0].id,
-    row.getAttribute("aria-controls"));
-});
-
-// --- repaint -----------------------------------------------------------------
-
-test("every interaction state changes the render signature", async function () {
-  var ctx = await harness();
-  ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
-  var base = ctx.ui.actionQueueSignature();
-
-  ctx.store.set({ openCoopActionItemId: ID_2503 });
-  var opened = ctx.ui.actionQueueSignature();
-  assert.notEqual(opened, base, "opening a panel must repaint");
-
-  var sent = [];
-  ctx.ui.submitDecision({ itemId: ID_2503, taskId: "task-2503", projectRef: {} }, "advance",
-    { send: function (m) { sent.push(m); return true; } });
-  var pending = ctx.ui.actionQueueSignature();
-  assert.notEqual(pending, opened, "a pending decision must repaint");
-
-  ack(ctx, sent, { decision: "advance" });
-  assert.notEqual(ctx.ui.actionQueueSignature(), pending, "the result must repaint");
-});
-
 
 // --- dropped ACK across a reconnect -----------------------------------------
 //
@@ -823,19 +853,17 @@ test("a decision interrupted by a reconnect becomes retryable, not stuck", async
   assert.equal(ctx.ui.isDecisionPending(ID_2503), false, "pending must not survive the reconnect");
   assert.equal((ctx.store.get("coopActionError") || {})[ID_2503], "interrupted");
 
-  var view = element("div");
   // Same recording transport, so the retry below is actually observable.
-  ctx.ui.renderCoopActionQueue(view, {
+  var panel = renderedPanel(ctx, ID_2503, {
     send: function (msg) { sent.push(msg); return true; },
   });
-  var panel = byClass(view, "coop-action-detail")[0];
   assert.equal(byClass(panel, "coop-action-state-error")[0].textContent,
     "The connection dropped before this was recorded. Try again.");
   // Retry is genuinely possible again.
   var buttons = byClass(panel, "coop-action-decide");
   assert.equal(buttons.length, 3);
   buttons.forEach(function (b) { assert.ok(!b.disabled); });
-  decideButton(view, "Advance").click();
+  decideButton(panel, "Advance").click();
   assert.equal(sent.length, 2, "the owner can retry after an interrupted decision");
 });
 
@@ -884,10 +912,8 @@ test("finished work offers Accept instead of Advance", async function () {
   var items = ctx.ui.normalizeActionQueue(serverProjection());
   items[0] = Object.assign({}, items[0], { kind: "acceptance" });
   ctx.ui.setActionQueue(items);
-  ctx.store.set({ openCoopActionItemId: items[0].itemId });
-  var view = element("div");
   var sent = [];
-  ctx.ui.renderCoopActionQueue(view, { send: function (m) { sent.push(m); return true; } });
+  var view = renderedPanel(ctx, items[0].itemId, { send: function (m) { sent.push(m); return true; } });
 
   var labels = byClass(view, "coop-action-decide").map(function (b) { return b.textContent; });
   assert.deepEqual(labels, ["Accept as done", "Request changes", "Keep waiting"]);
@@ -901,18 +927,15 @@ test("an accepted item offers Reopen, so acceptance is revocable in the UI", asy
   items[0] = Object.assign({}, items[0], { kind: "acceptance" });
   ctx.ui.setActionQueue(items);
   var id = items[0].itemId;
-  ctx.store.set({ openCoopActionItemId: id });
   var sent = [];
-  var view = element("div");
-  ctx.ui.renderCoopActionQueue(view, { send: function (m) { sent.push(m); return true; } });
+  var view = renderedPanel(ctx, id, { send: function (m) { sent.push(m); return true; } });
   decideButton(view, "Accept as done").click();
   ctx.ui.handleDecisionResult({
     type: "coop_action_decision_result", ok: true, itemId: id,
     requestId: sent[0].requestId, decision: "accept",
   });
 
-  var done = element("div");
-  ctx.ui.renderCoopActionQueue(done, { send: function (m) { sent.push(m); return true; } });
+  var done = renderedPanel(ctx, id, { send: function (m) { sent.push(m); return true; } });
   assert.match(byClass(done, "coop-action-state-done")[0].textContent, /Accepted\. This work is done\./);
   var reopen = byClass(done, "coop-action-decide")[0];
   assert.equal(reopen.textContent, "Reopen");
@@ -920,12 +943,9 @@ test("an accepted item offers Reopen, so acceptance is revocable in the UI", asy
   assert.equal(sent[sent.length - 1].decision, "revoke_acceptance");
 });
 
-
 test("a real acceptance item from the server builder renders Accept, not Advance", async function () {
   // End to end on the client side: the SERVER builder produces the item, the
-  // real normalizer consumes it, and the real panel renders it. The earlier
-  // acceptance test set `kind` by hand, so it could not catch the kind being
-  // dropped in normalizeActionQueue or ignored by the renderer.
+  // real normalizer consumes it, and the real panel renders it.
   var ctx = await harness();
   var items = buildActionQueue([{
     projectRef: { projectId: "webapp-project-id" }, slug: "webapp", title: "Webapp",
@@ -946,11 +966,9 @@ test("a real acceptance item from the server builder renders Accept, not Advance
   }));
   var id = ctx.ui.getActionQueue()[0].itemId;
   assert.equal(id, "webapp-project-id|issue#2517", "canonical issue identity survives");
-  ctx.store.set({ openCoopActionItemId: id });
 
   var sent = [];
-  var view = element("div");
-  ctx.ui.renderCoopActionQueue(view, { send: function (m) { sent.push(m); return true; } });
+  var view = renderedPanel(ctx, id, { send: function (m) { sent.push(m); return true; } });
   assert.deepEqual(
     byClass(view, "coop-action-decide").map(function (b) { return b.textContent; }),
     ["Accept as done", "Request changes", "Keep waiting"]);

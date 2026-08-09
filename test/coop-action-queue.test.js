@@ -500,3 +500,34 @@ test("the projection emits finished work as an acceptance item end to end", func
   // Advance instead of Accept.
   assert.equal(item.taskId, "task-2517");
 });
+
+// --- canonical topic linkage --------------------------------------------------
+//
+// The sidebar index is link-only: it opens the topic a decision lives in. That
+// only works if the SERVER states the durable topic link on the item; the
+// client must never guess it from titles.
+
+test("a task's coopTopicRef is stamped onto its action item", function () {
+  var linked = task2503({ coopTopicRef: { topicId: "topic-mail-icons" } });
+  var item = byIssue(queue.buildActionQueue([webappProject([coordinator(), linked])], {}), "2503");
+  assert.deepEqual(item.topicRef, { topicId: "topic-mail-icons" });
+});
+
+test("a task without a topic link yields a null topicRef, never a guess", function () {
+  var item = byIssue(queue.buildActionQueue([screenshotState()], {}), "2503");
+  assert.equal(item.topicRef, null);
+});
+
+test("dedup prefers the copy that carries the topic link", function () {
+  // The same canonical issue surfaces twice: an older copy with the durable
+  // topic link, and a newer one with a session but no link. Navigation beats
+  // recency -- the owner must land in the topic.
+  var older = task2503({ coopTopicRef: { topicId: "topic-mail-icons" }, updatedAt: 100 });
+  var newer = task2503({ taskId: "task-2503-dup", updatedAt: 900 });
+  var items = queue.buildActionQueue([
+    webappProject([coordinator(), older, newer], [session2503()]),
+  ], {});
+  var item = byIssue(items, "2503");
+  assert.equal(items.filter(function (i) { return i.itemId === item.itemId; }).length, 1);
+  assert.deepEqual(item.topicRef, { topicId: "topic-mail-icons" });
+});

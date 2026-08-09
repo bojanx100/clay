@@ -2162,3 +2162,125 @@ body.wide-view .turn-meta {
 #messages[data-coop-lens="main"] > [data-coop-relevance="internal"] {
   display: none;
 }
+
+/* --- Coop topic decision surface ---------------------------------------------
+   The contextual decision panel for the selected topic, rendered above the
+   conversation. This is the ONLY place consequential owner decisions render:
+   the sidebar index and topic rows are links into it. Compact by design; it
+   shares the conversation column so it works unchanged at 390px. */
+#coop-topic-decision { flex: 0 0 auto; }
+#coop-topic-decision[hidden] { display: none; }
+
+.coop-topic-decision {
+  margin: 10px auto 2px;
+  padding: 10px 12px;
+  max-width: 760px;
+  width: calc(100% - 24px);
+  box-sizing: border-box;
+  border: 1px solid var(--attention-border, var(--border-subtle));
+  border-radius: 10px;
+  background: var(--attention-bg, var(--sidebar-hover));
+}
+
+.coop-topic-decision-heading {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+/* Task-scoped decision panel (worker result + verbs). */
+.coop-action-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px 0 2px;
+}
+.coop-action-detail + .coop-action-detail { border-top: 1px solid var(--border-subtle); }
+.coop-action-detail-meta { color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .03em; overflow-wrap: anywhere; }
+.coop-action-detail-evidence,
+.coop-action-detail-asked { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.coop-action-detail-asked { color: var(--text); }
+.coop-action-detail-links { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.action-item-link { color: var(--text-dimmer); font-size: 12px; overflow-wrap: anywhere; }
+
+.coop-action-note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.coop-action-note:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.coop-action-detail-consequence { margin: 0; color: var(--text-dimmer); font-size: 11px; line-height: 1.4; }
+
+.coop-action-decisions { display: flex; flex-wrap: wrap; gap: 7px; }
+.coop-action-decide {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+.coop-action-decide:hover:not(:disabled) { background: var(--sidebar-hover); }
+.coop-action-decide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.coop-action-decide:disabled { opacity: .5; cursor: default; }
+.coop-action-decide-accept,
+.coop-action-decide-advance { border-color: var(--accent); color: var(--accent); }
+
+.coop-action-detail-state { margin: 0; font-size: 12px; line-height: 1.4; }
+.coop-action-state-pending { color: var(--text-dimmer); }
+.coop-action-state-error { color: var(--danger, #e5534b); }
+.coop-action-state-done { color: var(--success, #3fb950); }
+.coop-action-state-withheld { color: var(--text-dimmer); font-style: italic; }
+
+/* Topic-scoped disposition panel (provenance + verbs). */
+.coop-topic-review-panel { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px; }
+.coop-topic-review-provenance { color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.coop-topic-review-note-history { color: var(--text-dimmer); font-size: 12px; overflow-wrap: anywhere; }
+.coop-topic-review-error { color: var(--warning, #d99824); font-size: 12px; }
+.coop-topic-review-consequence { margin: 0; color: var(--text-dimmer); font-size: 11px; line-height: 1.4; }
+.coop-topic-review-note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.coop-topic-review-note:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.coop-topic-review-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.coop-topic-review-action {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+.coop-topic-review-action:hover:not(:disabled) { background: var(--sidebar-hover); }
+.coop-topic-review-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.coop-topic-review-action:disabled { opacity: .5; cursor: default; }
+.coop-topic-review-accept_done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }

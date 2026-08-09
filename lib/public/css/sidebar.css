@@ -1054,13 +1054,15 @@
   text-transform: uppercase;
 }
 
-.coop-action-item-wrapper { margin: 2px 0; }
-
+/* Link-only rows: title first, then a quiet one-line reason. No verbs, no
+   disclosure -- the row opens the canonical topic and the decision is made
+   there, next to the evidence. */
 .coop-action-item {
   display: flex;
   flex-direction: column;
   gap: 2px;
   width: 100%;
+  margin: 2px 0;
   padding: 6px 7px;
   border: 0;
   border-radius: 6px;
@@ -1074,26 +1076,7 @@
 .coop-action-item:hover,
 .coop-action-item:focus-visible { background: var(--sidebar-hover); }
 .coop-action-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-
-/* Stacked, not side by side: sharing one line let the project chip eat a
-   quarter of the width and truncated the title to "Codex review of the s...",
-   which is the one string that identifies the work. */
-.coop-action-item-head {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  min-width: 0;
-}
-
-.coop-action-item-project {
-  flex: 0 0 auto;
-  color: var(--text-dimmer);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
+.coop-action-item:disabled { cursor: default; opacity: .6; }
 
 .coop-action-item-title {
   display: -webkit-box;
@@ -1106,87 +1089,14 @@
   -webkit-line-clamp: 2;
 }
 
-/* The question wraps rather than ellipsing on one line, but is clamped so one
-   verbose worker cannot push the topic list off the screen. `anywhere` is what
-   stops a long unbroken token (a URL) from overflowing the row horizontally. */
-.coop-action-item-decision {
-  display: -webkit-box;
+.coop-action-item-reason {
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-.coop-action-item-chevron { position: absolute; top: 7px; right: 7px; color: var(--text-dimmer); font-size: 10px; }
-.coop-action-item { position: relative; }
-
-/* --- Decision detail (expanded in place, never a navigation) --- */
-.coop-action-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 2px 0 4px;
-  padding: 7px;
-  border-radius: 6px;
-  background: var(--sidebar-hover);
-}
-
-.coop-action-detail-meta { color: var(--text-dimmer); font-size: 10px; font-weight: 700; letter-spacing: .03em; overflow-wrap: anywhere; }
-.coop-action-detail-evidence,
-.coop-action-detail-asked { margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
-.coop-action-detail-asked { color: var(--text); }
-.coop-action-detail-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-
-.coop-action-detail-open {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-dimmer);
-  cursor: pointer;
-  font: inherit;
   font-size: 10px;
-  text-decoration: underline;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.coop-action-detail-open:hover { color: var(--accent); }
-
-.coop-action-note {
-  width: 100%;
-  padding: 5px 6px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 11px;
-  resize: vertical;
-}
-.coop-action-note:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-
-.coop-action-decisions { display: flex; flex-wrap: wrap; gap: 6px; }
-
-.coop-action-decide {
-  padding: 5px 9px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 650;
-}
-.coop-action-decide:hover:not(:disabled) { background: var(--bg); }
-.coop-action-decide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.coop-action-decide:disabled { opacity: .5; cursor: default; }
-.coop-action-decide-advance { border-color: var(--accent); color: var(--accent); }
-
-.coop-action-detail-state { margin: 0; font-size: 11px; line-height: 1.35; }
-.coop-action-state-pending { color: var(--text-dimmer); }
-.coop-action-state-error { color: var(--danger, #e5534b); }
-.coop-action-state-done { color: var(--success, #3fb950); }
 
 .action-item-links { display: flex; flex-wrap: wrap; gap: 8px; padding: 1px 7px 3px; }
 .action-item-link { overflow-wrap: anywhere; color: var(--text-dimmer); font-size: 10px; text-decoration: none; }
@@ -1258,7 +1168,6 @@
 .coop-topic-activity-working { color: var(--text-dimmer); }
 .coop-topic-activity-needs_input { color: var(--warning, #d99824); }
 .coop-topic-activity-done { color: var(--success, #3fb950); }
-
 
 .coop-topic-wrapper { margin: 3px 0 4px; }
 .coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
@@ -2514,13 +2423,11 @@
 /* Mate DM: user island collapses with sidebar like project mode */
 
 
-
 .footer-version {
   font-size: 11px;
   color: var(--text-dimmer);
   font-weight: 400;
 }
-
 
 .sidebar-menu-item.has-badge { position: relative; }
 .sidebar-menu-item .menu-badge {
@@ -2795,63 +2702,6 @@
   50% { opacity: 0.18; }
   100% { opacity: 0.1; }
 }
-
-/* Per-topic owner review: one small toggle per disposition-decidable row and a
-   compact inline decision panel. Task-linked topics do not render this at all;
-   they are decided in the Action required queue above. The control lives on the
-   quiet meta line beside the state words: display: contents lets the toggle sit
-   inline while the panel wraps to its own full-width line below. */
-.coop-topic-review { display: contents; }
-.coop-topic-review-toggle {
-  flex: 0 0 auto;
-  min-height: 20px;
-  margin-left: auto;
-  padding: 1px 6px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-dimmer);
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-  text-align: left;
-}
-.coop-topic-review-toggle:hover { background: var(--sidebar-hover); color: var(--text); }
-.coop-topic-review-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.coop-topic-review-toggle[aria-expanded="true"] { color: var(--text-secondary); }
-.coop-topic-review-panel { flex: 1 1 100%; padding: 4px 7px 6px; border-left: 1px solid var(--border-subtle); margin: 2px 0 2px 3px; }
-.coop-topic-review-provenance { margin-bottom: 4px; color: var(--text-dimmer); font-size: 10px; line-height: 1.35; }
-.coop-topic-review-note-history { margin-bottom: 4px; color: var(--text-secondary); font-size: 10px; }
-.coop-topic-review-error { margin-bottom: 4px; color: var(--warning, #d99824); font-size: 10px; }
-.coop-topic-review-note {
-  width: 100%;
-  margin-bottom: 4px;
-  padding: 4px 6px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 11px;
-  resize: vertical;
-}
-.coop-topic-review-note:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.coop-topic-review-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-.coop-topic-review-action {
-  min-height: 24px;
-  padding: 2px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-}
-.coop-topic-review-action:hover { background: var(--sidebar-hover); color: var(--text); }
-.coop-topic-review-action:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.coop-topic-review-action:disabled { opacity: .5; cursor: default; }
-.coop-topic-review-accept_done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
 
 /* Compact collapsed Done section: resolved topics stay discoverable without
    crowding the live list. */

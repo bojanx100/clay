@@ -629,19 +629,20 @@ test("no forbidden Coop sidebar affordance reappears", function () {
   assert.doesNotMatch(closeSource, /from '\.\/app-connection\.js'/);
 });
 
-// --- ARIA wiring for the Review and Done disclosures ---
+// --- ARIA wiring for the decision panel and Done disclosure ---
 
-test("the Review and Done disclosures wire aria-controls to stable panels kept in the DOM", function () {
-  // Both disclosures previously set aria-expanded with no aria-controls and
-  // omitted the panel while collapsed, so the attribute pointed at nothing.
+test("the decision panel and Done disclosure keep their accessible wiring", function () {
+  // The review panel moved into the topic decision surface: it renders as a
+  // labelled group, always open, and never as a sidebar disclosure toggle.
   var review = source("sidebar-coop-topic-review.js");
   assert.match(review, /var panelId = prefix \+ "coop-topic-review-panel-" \+ id\.replace/,
-    "review panel ids are stable per topic and unique per surface");
-  assert.match(review, /toggle\.setAttribute\("aria-controls", panelId\)/);
-  assert.match(review, /toggle\.setAttribute\("aria-expanded", open \? "true" : "false"\)/);
-  assert.match(review, /panel\.id = panelId/);
-  assert.match(review, /panel\.hidden = !open/,
-    "the collapsed review panel is hidden, not omitted, so aria-controls resolves");
+    "review panel ids stay stable per topic");
+  assert.match(review, /wrapper\.setAttribute\("role", "group"\)/);
+  assert.match(review, /wrapper\.setAttribute\("aria-label", "Decide topic "/);
+  assert.doesNotMatch(review, /aria-expanded/,
+    "no disclosure semantics remain: the panel is always open in context");
+  assert.doesNotMatch(review, /createTopicReviewControl/,
+    "the sidebar Review toggle is gone");
 
   var topics = source("sidebar-coop-topics.js");
   assert.match(topics, /var panelId = prefix \+ "coop-topic-done-panel"/,
@@ -649,8 +650,7 @@ test("the Review and Done disclosures wire aria-controls to stable panels kept i
   assert.match(topics, /toggle\.setAttribute\("aria-controls", panelId\)/);
   assert.match(topics, /toggle\.setAttribute\("aria-expanded", open \? "true" : "false"\)/);
   assert.match(topics, /panel\.hidden = !open/);
-  // Both toggles are real buttons, so Enter/Space activation is native.
-  assert.match(review, /toggle = document\.createElement\("button"\)/);
+  // The Done toggle is a real button, so Enter/Space activation is native.
   assert.match(topics, /toggle = document\.createElement\("button"\)/);
 });
 
@@ -670,10 +670,11 @@ test("the topic row keeps the title primary and the state on a quiet secondary l
   // The row's accessible name still announces the state even though it moved
   // visually below the title.
   assert.ok(rowBuilder.indexOf("topicAriaLabel(topic, activity)") !== -1);
-  // The meta line follows the omit-empty-wrapper rule and carries the single
-  // visible Review action only when one is actionable.
-  assert.match(topics, /if \(activity \|\| review\) \{/);
-  assert.match(topics, /if \(review\) meta\.appendChild\(review\)/);
+  // The meta line follows the omit-empty-wrapper rule and carries nothing but
+  // the state: no decision verbs and no Review affordance render in the
+  // sidebar. Decisions live in the topic decision surface.
+  assert.match(topics, /if \(activity\) \{\s*var meta = document\.createElement\("div"\);/);
+  assert.doesNotMatch(topics, /createTopicReviewControl/);
   // No loud pill treatment returns: the desktop state text is plain words.
   var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
   var activityRule = css.slice(css.indexOf(".coop-topic-activity {"));

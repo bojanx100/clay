@@ -193,10 +193,12 @@ test("the status dot and aria label only claim what is true", function () {
   // The dot exists ONLY alongside a truthful label. A "neutral" dot with no
   // state left every stateless row rendering a floating dot on a reserved blank
   // status line above the title, which is a claim of nothing occupying space.
-  // The whole meta line follows the same rule: no state and no review action
-  // means no secondary line at all.
-  assert.match(topics, /if \(activity\) \{\s*var marker = document\.createElement\("span"\);/);
-  assert.match(topics, /if \(activity \|\| review\) \{/);
+  // The whole meta line follows the same rule: no state means no secondary
+  // line at all (decisions moved to the topic decision surface, so the meta
+  // line carries nothing but the state).
+  assert.match(topics, /if \(activity\) \{\s*var meta = document\.createElement\("div"\);/);
+  assert.match(topics, /var marker = document\.createElement\("span"\);/);
+  assert.doesNotMatch(topics, /createTopicReviewControl/);
   assert.doesNotMatch(topics, /topic\.workState \? " coop-topic-status-"/);
   // The aria label no longer announces the durable "open" lifecycle status,
   // which was true of every visible topic and told a screen-reader user nothing.
