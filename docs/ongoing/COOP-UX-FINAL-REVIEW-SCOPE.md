@@ -40,6 +40,7 @@ verbatim, rather than being reconstructed from memory and quietly drifting.
   lib/coop-topic-index-migrations.js, lib/coop-topic-management.js,
   lib/coop-topic-projection.js,
   lib/coop-topic-connection.js, lib/coop-topic-live-index.js,
+  lib/coop-now-index.js,
   lib/global-coop-projection.js, lib/project-task-orchestrator.js,
   lib/project-task-orchestrator-completion.js, lib/orchestration-task-graph.js,
   lib/sdk-message-processor.js, lib/users-permissions.js, lib/server.js,
@@ -570,15 +571,51 @@ verbs (role=group/heading ARIA resolving, verbs and rows keyboard
 focusable), 0 overflow, zero console errors, and no real owner decision was
 fired.
 
+TOPIC-ONLY "NOW" INDEX SEGMENT (`0b59c7934d`, owner revision 37 post-gate
+correction): live evidence proved the revision-32 "Immediate action" list
+failed the owner's current-work requirement — it rendered 50
+acceptance/decision-only rows and no working-now items. The sidebar index is
+now a bounded, deterministic, topic-only "Now" projection built server-side
+in `lib/coop-now-index.js` (`buildNowIndex(topics, actionItems)`, emitted as
+`nowIndex` on the global projection): attention topics first (topic-linked
+queue items or `needs_input` with task-attention/awaiting-acceptance
+sources), then genuinely working topics with the exact reason "Working now";
+strict canonical TopicRef dedup with attention precedence; done topics,
+quiet unlinked-historical dispositions, coordinator/task noise, and anything
+without a resolvable canonical topic destination are excluded; oldest-first
+deterministic ordering with TopicRef tiebreak, bounded to 20 rows. The
+client (`coop-action-queue-ui.js`) renders heading "Now" with link-only
+button rows (aria-labels, fail-closed disabled rows without a destination);
+an empty index renders nothing. Old sidebar queue rendering
+(`renderCoopActionQueue`/`dedupeItemsByTopic`/`actionItemReason`) removed;
+the decision transport and the contextual decision surface are unchanged.
+Tests: new `test/coop-now-index.test.js` (16), rewritten queue-ui sidebar
+suite (49), decision-surface 13/13; isolated CLAY_HOME full suite 1821/1821.
+Live QA at 1440x900 and 390x844 against the real daemon: raw WS projection
+carried `nowIndex: []` alongside 50 legacy action items / 32 topics — an
+empty index is the truthful current-work answer because no real task has a
+durable topic link and every open topic is quiet-historical needs_input, so
+the 50-row noise dropped to zero; no stale "Immediate action" section, no
+sidebar decision verbs, 32 quiet topic rows with lifecycle overflow menus
+(aria-haspopup/label) and Done (4) disclosure (aria-controls resolving)
+intact; selecting a topic navigated canonically and rendered the contextual
+decision surface with evidence/consequence copy; isolated fixture through
+the real builder proved attention precedence for a
+simultaneously-working+actionable topic, "Working now" inclusion, and
+historical/done exclusion; zero console errors, no overflow, no owner
+decision or topic lifecycle mutated (6 audit-closed topics and both
+Webapp-inventory topics unchanged).
+
 PIN INSPECTION HERE — the current review target, not the older commits listed
-below (`0b2ce60bf3` is the link-only index + decision surface segment on top
+below (`0b59c7934d` is the topic-only Now index segment on top of
+`0b2ce60bf3`, the link-only index + decision surface segment on top
 of `3f3315bdb8`, the layout segment on top of `db5fc84d24`, the
 review-findings segment on top of `9592e5a9c9`; the earlier note about
 `f4688c9603`/`ace812cdb9` still holds for the Part 1 history).
-`3f3315bdb8`, `db5fc84d24`, `9592e5a9c9` and `cde8fb67dc` are superseded as
-final gates:
+`0b2ce60bf3`, `3f3315bdb8`, `db5fc84d24`, `9592e5a9c9` and `cde8fb67dc` are
+superseded as final gates:
 
-    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 0b2ce60bf3
+    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 0b59c7934d
 
 The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
