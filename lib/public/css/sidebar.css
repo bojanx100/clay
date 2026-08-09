@@ -1284,7 +1284,9 @@
 .coop-topic-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .coop-topic-row.has-state .coop-topic-title { flex: 1 1 100%; }
 
-.coop-topic-activity { max-width: 44%; overflow: hidden; color: var(--text-dimmer); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+/* The state label set is closed and short (Working / Needs input / Done), so
+   the pill never truncates: an ellipsized state is an unreadable state. */
+.coop-topic-activity { flex-shrink: 0; color: var(--text-dimmer); font-size: 10px; white-space: nowrap; }
 .coop-topic-unread { flex: 0 0 auto; padding: 1px 5px; border-radius: 8px; background: rgba(var(--accent-rgb), .14); color: var(--accent); font-size: 9px; }
 
 /* Row plus its one Close control. The control stays hidden until the row is

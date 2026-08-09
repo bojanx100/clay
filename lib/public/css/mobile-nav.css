@@ -898,7 +898,8 @@
   .mobile-coop-topic-status-needs_input { background: var(--warning, #d99824); }
   .mobile-coop-topic-row.attention .mobile-coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }
   .mobile-coop-topic-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mobile-coop-topic-activity { max-width: 42%; overflow: hidden; color: var(--text-dimmer); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  /* Closed short label set (Working / Needs input / Done): never truncate. */
+  .mobile-coop-topic-activity { flex-shrink: 0; color: var(--text-dimmer); font-size: 11px; white-space: nowrap; }
   .mobile-coop-topic-unread { flex: 0 0 auto; padding: 2px 6px; border-radius: 9px; background: rgba(var(--accent-rgb), .14); color: var(--accent); font-size: 10px; }
 
   /* Same two controls as desktop. Touch has no hover, so Close stays visible
