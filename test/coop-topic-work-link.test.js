@@ -93,9 +93,13 @@ test("mixed topics render independent states from one task list", function () {
 
   assert.equal(topicState.coopTopicState(TOPIC, { tasks: s.orchestrationTasks }).state, "working");
   assert.equal(topicState.coopTopicState(OTHER, { tasks: s.orchestrationTasks }).state, "done");
-  // A third topic with nothing linked stays unlabelled and does not inherit
-  // either neighbour's state.
-  assert.equal(topicState.coopTopicState({ topicId: "unrelated" }, { tasks: s.orchestrationTasks }).state, "");
+  // A third topic with nothing linked does not inherit either neighbour's
+  // state. It is no longer blank: an unlinked topic reads as Needs input by
+  // default, because the owner cannot tell resolved from unresolved from an
+  // empty row.
+  var unrelated = topicState.projectedTopicState({ topicId: "unrelated" }, { tasks: s.orchestrationTasks });
+  assert.equal(unrelated.workState, "needs_input");
+  assert.equal(unrelated.stateSource, "unlinked_default");
 });
 
 test("a task created on the canonical Coop session infers its topic from the owner's last routed turn", function () {
@@ -136,7 +140,7 @@ test("the projection seam is actually supplied now", function () {
   // production caller ever passed it, which is why every topic reported the
   // same empty state and rendered the tautological "Active".
   var server = fs.readFileSync(path.join(__dirname, "..", "lib", "server.js"), "utf8");
-  assert.match(server, /computeCoopTopicState: function \(topicRef\)/);
+  assert.match(server, /computeCoopTopicState: function \(topicRef, metadata\)/);
   assert.match(server, /coopTopicState\.projectedTopicState\(topicRef/);
   assert.match(server, /tasks: coopSession\.orchestrationTasks/);
   assert.match(server, /isProcessing: !!coopSession\.isProcessing/);

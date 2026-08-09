@@ -1636,3 +1636,23 @@
     max-height: calc(100vh - var(--safe-bottom) - 36px) !important;
   }
 }
+
+@media (max-width: 900px) {
+  /* Per-topic owner review on the phone sheet: same flow, touch-sized. */
+  .mobile-coop-topic-review { margin: 0 0 3px 12px; }
+  .mobile-coop-topic-review-toggle { display: block; width: 100%; min-height: 38px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-dimmer); cursor: pointer; font: inherit; font-size: 12px; text-align: left; }
+  .mobile-coop-topic-review-toggle:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
+  .mobile-coop-topic-review-panel { padding: 6px 10px 8px; border-left: 1px solid var(--border-subtle); margin: 2px 0 2px 4px; }
+  .mobile-coop-topic-review-provenance { margin-bottom: 6px; color: var(--text-dimmer); font-size: 12px; line-height: 1.4; }
+  .mobile-coop-topic-review-note-history { margin-bottom: 6px; color: var(--text-secondary); font-size: 12px; }
+  .mobile-coop-topic-review-error { margin-bottom: 6px; color: var(--warning, #d99824); font-size: 12px; }
+  .mobile-coop-topic-review-note { width: 100%; margin-bottom: 6px; padding: 8px; border: 1px solid var(--border-subtle); border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 14px; resize: vertical; }
+  .mobile-coop-topic-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mobile-coop-topic-review-action { min-height: 38px; padding: 8px 12px; border: 1px solid var(--border-subtle); border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 13px; }
+  .mobile-coop-topic-review-action:disabled { opacity: .5; }
+  .mobile-coop-topic-review-accept_done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
+
+  /* Compact collapsed Done section on the phone sheet. */
+  .mobile-coop-topic-done-toggle { display: block; width: 100%; min-height: 42px; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-dimmer); cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; text-align: left; }
+  .mobile-coop-topic-done-toggle:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
+}

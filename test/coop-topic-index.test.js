@@ -184,7 +184,7 @@ test("ACL projection revokes project topic metadata while retaining safe shared 
   } finally { h.cleanup(); }
 });
 
-test("closed topics leave the server projection and empty groups disappear", function () {
+test("closed topics stay projectable as Done evidence; merged topics leave", function () {
   var h = harness();
   try {
     var state = h.index.load();
@@ -202,6 +202,19 @@ test("closed topics leave the server projection and empty groups disappear", fun
       turnRefs: [],
       relatedExecutions: [],
     };
+    state.topics["merged-away-topic"] = {
+      topicRef: { topicId: "merged-away-topic" },
+      title: "Merged away fragment",
+      keywords: [],
+      group: { kind: "uncategorised" },
+      source: "automatic",
+      status: "merged",
+      createdAt: 1,
+      updatedAt: 1,
+      eventRefs: [],
+      turnRefs: [],
+      relatedExecutions: [],
+    };
     h.index.save();
 
     var before = h.index.project({ canAccessProject: function () { return true; } });
@@ -211,11 +224,21 @@ test("closed topics leave the server projection and empty groups disappear", fun
 
     assert.equal(h.index.close({ topicId: "closed-project-only-topic" }).ok, true);
     var after = h.index.project({ canAccessProject: function () { return true; } });
-    assert.equal(after.groups.some(function (group) {
-      return group.projectRef && group.projectRef.projectId === CLOSED_PROJECT;
-    }), false, "the group disappears when its last open topic closes");
-    assert.equal(JSON.stringify(after).includes("Close this topic"), false);
-    assert.equal(JSON.stringify(after).includes("closed-project-only-topic"), false);
+    // An explicit close is a confirmed owner resolution -- Done -- and Done
+    // topics must remain discoverable rather than disappearing. The projection
+    // keeps the topic, carrying status "closed" so the client can collapse it
+    // into the compact Done section instead of the live list.
+    var closedTopic = null;
+    after.groups.forEach(function (group) {
+      (group.topics || []).forEach(function (topic) {
+        if (topic.topicRef.topicId === "closed-project-only-topic") closedTopic = topic;
+      });
+    });
+    assert.ok(closedTopic, "the closed topic stays projectable");
+    assert.equal(closedTopic.status, "closed");
+    // Merged topics are gone for good: their membership lives on in the merge
+    // target, so projecting the husk would duplicate the conversation.
+    assert.equal(JSON.stringify(after).includes("merged-away-topic"), false);
   } finally { h.cleanup(); }
 });
 
