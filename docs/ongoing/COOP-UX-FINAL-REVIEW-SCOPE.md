@@ -54,7 +54,7 @@ and no owner question to ask.
 
 ## Review target
 
-HEAD is now `8ac2d90aa8` on `bojan` (was `af93548f6f` when this file was
+HEAD is now `ace812cdb9` on `bojan` (was `af93548f6f` when this file was
 written). Two further admitted fixes landed since and are IN SCOPE:
 
 - `4c526833e8` — portfolio bindings: a delegation that fails before the task
@@ -77,6 +77,20 @@ written). Two further admitted fixes landed since and are IN SCOPE:
   owner message whose text mentions the tick — that assistant output is never
   swept up, that `coopIngress*` presence with an empty value does not count as
   provenance, and that All remains full fidelity.
+
+- `ace812cdb9` — topic lens replay: topic membership is stored as turn SPANS,
+  and `boundedMembershipIndexes` expanded each range wholesale, so a topic chat
+  replayed the tool traffic, thinking, rate-limit and status envelopes and
+  injected prompts sitting between the owner's message and the answer. Main
+  filtered; this path did not. Measured on one real session, raw span expansion
+  admitted 809 internal records (670 tool, 77 rate_limit, 33 message_uuid, 11
+  injected user_messages); after the fix, zero. The rule is now defined once as
+  `isOwnerRelevantRecord` and shared by Main and the topic path via
+  `ownerRelevantIndexes`, because having two definitions is what let them drift.
+  Review especially: that narrowing can only REMOVE and can never introduce an
+  index membership did not admit (so a topic cannot absorb unrelated owner
+  conversation), that All is untouched by this path, and that topic membership
+  correctness — which turns belong — is still a separate concern from relevance.
 
 Verified on the owner's real transcripts: internal control records in Main went
 to zero across all three (51945 / 30209 / 5722 records) while All is unchanged
