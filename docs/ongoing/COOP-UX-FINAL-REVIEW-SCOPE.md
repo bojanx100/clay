@@ -36,13 +36,16 @@ verbatim, rather than being reconstructed from memory and quietly drifting.
 - `ownedPaths` must begin with `read-only:` and cover:
   `lib/coop-action-queue.js, lib/coop-action-decision.js,
   lib/coop-topic-relevance.js, lib/coop-topic-state.js,
+  lib/coop-topic-disposition.js, lib/coop-topic-index.js,
+  lib/coop-topic-projection.js,
   lib/coop-topic-connection.js, lib/coop-topic-live-index.js,
   lib/global-coop-projection.js, lib/project-task-orchestrator.js,
   lib/project-task-orchestrator-completion.js, lib/orchestration-task-graph.js,
   lib/sdk-message-processor.js, lib/users-permissions.js, lib/server.js,
   lib/public/modules/coop-action-queue-ui.js, coop-lens-relevance.js,
   coop-header.js, coop-identity.js, global-coop-projection.js,
-  sidebar-coop-topics.js, sidebar-sessions.js, sidebar-sessions-model.js,
+  sidebar-coop-topics.js, sidebar-coop-topic-model.js,
+  sidebar-coop-topic-review.js, sidebar-sessions.js, sidebar-sessions-model.js,
   sidebar-mobile.js, sidebar-mobile-coordinators.js, sidebar-lead.js,
   app-connection.js, app-messages-sessions.js, app-projects.js,
   lib/public/css/sidebar.css, mobile-nav.css, messages.css, test/,
@@ -428,12 +431,44 @@ desktop 1440x900 and phone 390x844 (34 − 3 merges), all eight seed/owner
 titles untouched, zero duplicate titles, zero blank labels, zero console
 errors. Full suite 1753/1759 with only the six pre-existing baselines.
 
+EVIDENCE-BASED STATE SEGMENT (`9592e5a9c9`, revision 26, disposition schema
+v1): the owner reopened the implementation because most historical topics had
+no durable topic→task evidence and blank rows told them nothing. Every
+projected topic now carries exactly one truthful state — Working, Needs input,
+or Done — never blank and never inferred from openness, with inspectable
+provenance (`stateSource`). A versioned, exactly-once, fail-closed backfill
+(`ensureDispositionBackfill`, same exactly-once contract as the title
+retrofits) wrote durable `needs_input`/`unlinked_historical` owner-disposition
+records for unprovable historical topics: live stamp
+`{schemaVersion:1, linked:0, defaulted:33, kept:0}`, stable across reload and
+a daemon restart. Done requires owner acceptance, an explicit close, or an
+owner accept_done decision; completed worker output alone never reads Done.
+Closed topics stay projectable into a compact collapsed Done section (merged
+husks still never project). Per-topic owner decisions (accept_done /
+request_changes with a required note / keep_waiting / reopen) flow through the
+new owner-only `coop_topic_disposition` WS handler with a stale-state echo
+check; the affordance renders only for disposition-backed topics, so
+task-linked topics keep deciding through the existing Action required queue.
+Review especially: `b912bd3bc8` (the feature), `4e1345aecf` — live QA caught
+`canonicalCoopSessionForState` probing a nonexistent `lead.getSessions()`
+accessor, so every computed state reached the client blank while direct
+index.project tests stayed green; the accessor now reads
+`getSessionManager().sessions` and the seam regression pins that shape — and
+`9592e5a9c9` (the state pill no longer truncates to "NEEDS IN…"). Live
+result: 31 rows on desktop 1440x900 and phone 390x844, 1 Working (live
+foreground) + 30 Needs input, zero blanks, zero duplicate titles, zero
+truncated pills, review panel opens with provenance text and the three verbs
+on both surfaces, zero console errors. The isolated end-to-end owner decision
+(accept → done, stale rejected, non-owner denied, note required) is proven in
+`test/coop-topic-disposition.test.js` against fixtures, never against real
+owner work. Full suite 1768/1774 with only the six pre-existing baselines.
+
 PIN INSPECTION HERE — the current review target, not the older commits listed
-below (`581b3da81a` is the diagnostic-subject v3 segment on top of
-`85c576a63a`; the earlier note about `f4688c9603`/`ace812cdb9` still holds for
+below (`9592e5a9c9` is the evidence-based state segment on top of
+`581b3da81a`; the earlier note about `f4688c9603`/`ace812cdb9` still holds for
 the Part 1 history):
 
-    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 581b3da81a
+    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 9592e5a9c9
 
 The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
