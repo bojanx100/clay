@@ -43,7 +43,8 @@ verbatim, rather than being reconstructed from memory and quietly drifting.
   lib/global-coop-projection.js, lib/project-task-orchestrator.js,
   lib/project-task-orchestrator-completion.js, lib/orchestration-task-graph.js,
   lib/sdk-message-processor.js, lib/users-permissions.js, lib/server.js,
-  lib/public/modules/coop-action-queue-ui.js, coop-lens-relevance.js,
+  lib/public/modules/coop-action-queue-ui.js, coop-action-decision-panel.js,
+  coop-topic-decision-surface.js, coop-lens-relevance.js,
   coop-header.js, coop-identity.js, global-coop-projection.js,
   sidebar-coop-topics.js, sidebar-coop-topic-model.js,
   sidebar-coop-topic-review.js, sidebar-coop-topic-close.js,
@@ -528,13 +529,56 @@ and cross-surface CSS regression tests added; isolated CLAY_HOME full suite
 0 overflow, 31/31 resolving aria-controls, zero console errors, no owner
 data mutated.
 
+LINK-ONLY INDEX + CONTEXTUAL DECISION SEGMENT (`0b2ce60bf3`, owner revision
+32): the owner rejected the sidebar "Action required" cards as noisy — they
+duplicated topic rows and asked Accept/Request changes from titles alone,
+without evidence. The sidebar queue is now a compact link-only "Immediate
+action" index: each row is a button with the topic/work title plus a concise
+truthful reason ("Worker finished — review the result", "Needs your answer",
+"Waiting for your answer", "Blocked — needs you", "Failed — decide what
+happens next"), deduplicated by canonical TopicRef (one row per topic, "+N
+more" suffix), navigating to the canonical topic first (server-stamped
+`topicRef` from the task's durable `coopTopicRef`; `openTopic` falling
+through to the session destination when the topic cannot be resolved), and
+rendering NO decision verbs anywhere in the sidebar. All consequential
+decisions moved to a contextual decision surface
+(`coop-topic-decision-surface.js`) rendered above the selected topic's
+conversation (#coop-topic-decision before #messages): task-scoped panels
+(`coop-action-decision-panel.js`, split from queue-ui) show provenance meta,
+evidence, the exact question, links, a note field and consequence copy
+before the verbs; acceptance items WITHOUT canonical evidence fail closed
+with a withheld message and no verbs; topic-scoped disposition panels
+(always-open `createTopicDecisionPanel`, replacing the sidebar Review
+toggle) carry provenance and consequence copy. Deduplication is inherent:
+`topicReviewVerbs` still refuses task-derived states, so one decision has
+exactly one surface. Transport, ack/requestId correlation, reconnect
+interruption semantics, ACLs, stale-revision protections, closed replay and
+TopicRefs are unchanged; server dedup now prefers the topic-linked copy over
+recency. Sidebar/mobile CSS lost all decision-panel styles; the surface
+styles live in messages.css. Dead `openCoopActionItemId` /
+`openCoopTopicReviewId` repaint guards removed. Tests: queue-ui suite
+rewritten for the link-only contract (49), new
+coop-topic-decision-surface contract suite (13), server topicRef
+stamping/dedup tests, controls/work-link regexes updated; isolated
+CLAY_HOME full suite 1805/1805. Live QA at 1440x900 and 390x844 against the
+real daemon: raw WS projection 50 action items / 31 topics all Needs input /
+0 blanks, 50 link-only rows with truthful reasons and 0 verbs on both
+surfaces, 8 rows correctly disabled (no destination), 31/31 lifecycle
+overflow menus intact, selecting a topic set `?coopTopic=<canonical-id>` and
+rendered the decision card with provenance, note, consequence copy and three
+verbs (role=group/heading ARIA resolving, verbs and rows keyboard
+focusable), 0 overflow, zero console errors, and no real owner decision was
+fired.
+
 PIN INSPECTION HERE — the current review target, not the older commits listed
-below (`3f3315bdb8` is the layout segment on top of `db5fc84d24`, the
+below (`0b2ce60bf3` is the link-only index + decision surface segment on top
+of `3f3315bdb8`, the layout segment on top of `db5fc84d24`, the
 review-findings segment on top of `9592e5a9c9`; the earlier note about
 `f4688c9603`/`ace812cdb9` still holds for the Part 1 history).
-`db5fc84d24`, `9592e5a9c9` and `cde8fb67dc` are superseded as final gates:
+`3f3315bdb8`, `db5fc84d24`, `9592e5a9c9` and `cde8fb67dc` are superseded as
+final gates:
 
-    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 3f3315bdb8
+    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 0b2ce60bf3
 
 The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
