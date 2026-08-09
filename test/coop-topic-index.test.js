@@ -464,6 +464,58 @@ test("the title retrofit fixes an already-minted garbled topic and is idempotent
   } finally { h.cleanup(); }
 });
 
+test("a real legacy-shaped canonical index still projects valid topics after migration and restart", function () {
+  // Owner regression 2026-08-09 ~14:34: the phone sheet showed zero topics.
+  // Production turnRefs are legacy-shaped (startEventIndex points at the
+  // boundary record BEFORE the owner message), so any projection or migration
+  // pass that only accepts canonical offsets suppresses every valid topic at
+  // once. This proves the full pipeline -- reconcile, retrofit, save, fresh
+  // process load -- keeps legacy-anchored topics owner-visible while a
+  // genuinely drifted fragment stays suppressed.
+  var session = canonicalSession();
+  var h = harness();
+  try {
+    h.index.ensureRetro(session, retroOptions());
+    var state = h.index.load();
+    var ids = Object.keys(state.topics);
+    for (var i = 0; i < ids.length; i++) {
+      var refs = state.topics[ids[i]].turnRefs || [];
+      for (var j = 0; j < refs.length; j++) {
+        if (refs[j].startEventIndex > 0) refs[j].startEventIndex -= 1;
+      }
+    }
+    state.topics["auto-bbbbbbbbbbbbbbbbbbbbbbbb"] = {
+      topicRef: { topicId: "auto-bbbbbbbbbbbbbbbbbbbbbbbb" },
+      title: "Drifted fragment", group: { kind: "uncategorised" },
+      source: "automatic", status: "open", createdAt: 1, updatedAt: 1,
+      keywords: [], eventRefs: [], relatedExecutions: [],
+      // Anchored at an assistant record: neither offset 0 nor +1 reaches an
+      // owner message, so this row must never render.
+      turnRefs: [{ sessionStorageId: session.storageId, startEventIndex: 4, endEventIndex: 5 }],
+    };
+    h.index.save();
+
+    h.index.reconcileTopicAnchors(session);
+    h.index.retrofitTopicTitles(session);
+
+    var restarted = topics.createTopicIndex({ file: h.index.file, now: function () { return 900; } });
+    var projection = restarted.project({
+      history: session.history,
+      canAccessProject: function () { return true; },
+    });
+    var titles = [];
+    projection.groups.forEach(function (group) {
+      group.topics.forEach(function (t) { titles.push(t.title); });
+    });
+    assert.ok(titles.length > 0, "legacy-anchored topics must survive migration and restart, not vanish");
+    assert.ok(titles.indexOf("Codex authentication") !== -1);
+    assert.equal(titles.indexOf("Drifted fragment"), -1, "unprovable fragments stay suppressed");
+    // Idempotent: the same migration on the restarted index changes nothing.
+    var again = restarted.retrofitTopicTitles(session);
+    assert.equal(again.changed, false);
+  } finally { h.cleanup(); }
+});
+
 test("retro version upgrades replace stale derived memberships and preserve managed topics", function () {
   var h = harness();
   try {

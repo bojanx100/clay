@@ -313,6 +313,38 @@ full-reclassification blast radius.
   unrelated provider/model-routing failures as every prior segment, 0 new
   failures.
 
+ZERO-TOPICS REGRESSION SEGMENT (follows the RETROFIT SEGMENT above): at ~14:34
+the owner's phone showed the Coop Projects sheet with only Main and All — the
+entire Topics section absent. Root cause was **not** a code defect in any
+committed fix: the production daemon (a long-lived process with in-memory code
+and a `getDefaultTopicIndex()` singleton) had last been started at 13:03,
+mid-way through the anchoring work, running an intermediate tree in which
+`isProjectable` accepted only canonical offset-0 anchors — and every real
+persisted turnRef is legacy-shaped (offset +1), so the stale process suppressed
+all 44 topics at once, exactly the fail-closed behavior that code was designed
+to have before the legacy fallback landed at 13:19. The committed code was
+verified correct against production data: an in-process simulation of the exact
+server path (`project({history})` over the real index + real 55,592-record
+canonical transcript) projects **42 topics across 4 groups** (4 cross_project,
+2 project clay, 1 other project, 35 uncategorised) with the two
+internal-control fragments correctly withheld. Fix: daemon restart onto current
+HEAD (owner-visible before: 0 topics; after: 42). Hardening in this segment:
+
+- **`retrofitTopicTitles` is now wired into the daemon's own ingress path**
+  (`lib/project-user-message.js`, immediately after `reconcileTopicAnchors`,
+  same genuine-owner-traffic-only trigger), so the retrofit dry-run inventory
+  above is applied by the running daemon through its own real session object —
+  the deliberate deferred step from the prior segment, closed the intended way.
+- **Regression test** in `test/coop-topic-index.test.js` ("a real legacy-shaped
+  canonical index still projects valid topics after migration and restart"):
+  rewrites every turnRef of a real retro-extracted index into the legacy
+  boundary-record shape production actually has, runs
+  reconcile + retrofit + save, reloads through a fresh `createTopicIndex()`
+  (simulating the daemon restart), and asserts the projection still renders
+  the valid topics while an injected genuinely-drifted fragment stays
+  suppressed and the migration is a reload-stable no-op on the second run. A
+  valid-data/zero-projected-topics outcome now fails the suite.
+
 Verified on the owner's real transcripts: internal control records in Main went
 to zero across all three (51945 / 30209 / 5722 records) while All is unchanged
 and every owner message is preserved (102 / 41 / 8). Browser QA at 1440x900 and
