@@ -54,7 +54,7 @@ and no owner question to ask.
 
 ## Review target
 
-HEAD is now `ace812cdb9` on `bojan` (was `af93548f6f` when this file was
+HEAD is now `f4688c9603` on `bojan` (was `af93548f6f` when this file was
 written). Two further admitted fixes landed since and are IN SCOPE:
 
 - `4c526833e8` — portfolio bindings: a delegation that fails before the task
@@ -98,10 +98,18 @@ and every owner message is preserved (102 / 41 / 8). Browser QA at 1440x900 and
 390x844: Main showed zero tick markers and zero control envelopes; switching to
 All revealed them again (20/20 blocks visible).
 
-Original target for the seven-fix audit below: Pin inspection so later commits cannot contaminate
-it:
+Live topic browser QA at `ace812cdb9` passed on a selected topic
+(`?coopTopic=codex-authentication`): zero tool blocks, zero control envelopes,
+zero Lead-tick markers, zero internal-marked DOM records, with the canonical
+topic title in the header.
 
-    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout af93548f6f
+PIN INSPECTION HERE — the current review target, not the older commits listed
+below (`f4688c9603` is `ace812cdb9` plus this scope document; no production code
+differs between them):
+
+    git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout f4688c9603
+
+The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
 **Never use `git stash` in this repo** — it has eaten work here before.
 
