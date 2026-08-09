@@ -599,7 +599,7 @@ test("target reports stay routed to their paired project after control navigatio
   }).length, 0);
 });
 
-test("initial pairing routes through the existing Clay project connection", function () {
+test("cross-project pairing and HMR reconnect use the existing Clay connection", function () {
   var pairedProject = harness({
     slug: "webapp",
     sessionStorageId: "webapp-session",
@@ -636,6 +636,36 @@ test("initial pairing routes through the existing Clay project connection", func
       entry.message.command === "live_ui_pair";
   });
   assert.ok(command);
+  currentProject.liveUi.handleLiveUiMessage(currentProject.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: pairing.pairingId,
+    event: "target.prove",
+    payload: { nonce: command.message.args.nonce },
+  });
+  currentProject.liveUi.handleLiveUiMessage(currentProject.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: pairing.pairingId,
+    event: "target.disconnect",
+  });
+  assert.strictEqual(pairedProject.registry.getPair(pairing.pairingId).state,
+    "reconnecting");
+  currentProject.liveUi.handleLiveUiMessage(currentProject.extensionWs, {
+    type: "live_ui_relay",
+    protocolVersion: 1,
+    pairingId: pairing.pairingId,
+    event: "target.reconnect",
+    payload: { targetUrl: "http://localhost:4242/pricing" },
+  });
+  assert.strictEqual(pairedProject.registry.getPair(pairing.pairingId).state,
+    "paired");
+  var snapshot = pairedProject.sent.find(function (entry) {
+    return entry.ws === currentProject.extensionWs &&
+      entry.message.type === "live_ui_relay" &&
+      entry.message.event === "reports.snapshot";
+  });
+  assert.ok(snapshot);
 });
 
 test("cross-project routing rejects a different extension user", function () {
