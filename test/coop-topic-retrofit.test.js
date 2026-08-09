@@ -102,8 +102,8 @@ test("a contraction-mangled title is regenerated coherently", function () {
   var t = automaticTopic("Don Create Project Categorised Them", built.starts);
   var idx = indexWith([t, uncategorisedTopic()]);
   retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
-  assert.notEqual(t.title, "Don Create Project Categorised Them");
-  assert.doesNotMatch(t.title, /\bDon\b/, "must not split the contraction into an orphan fragment again");
+  assert.equal(t.title, "Don't create a project, just categorise them",
+    "the contraction survives verbatim in the owner's own word order");
 });
 
 test("multiple proven turns are combined for a richer, still-coherent title", function () {
@@ -322,4 +322,112 @@ test("the report is a complete before/after inventory across every outcome", fun
   assert.equal(report.entries.length, 4);
   var actions = report.entries.map(function (e) { return e.action; }).sort();
   assert.deepEqual(actions, ["merged_uncategorised", "retitled", "skipped_no_proven_anchor", "skipped_owner_modified"]);
+});
+
+// --- owner-rejected word-salad titles (live evidence 2026-08-09) --------------
+// The owner rejected the v1 retrofit output verbatim: these six titles shipped
+// to the live sidebar. Each fixture pairs the rejected v1 title with the real
+// owner turn it was derived from; v2 must produce a readable, order-preserving
+// excerpt and must revisit v1's machine-retitled topics despite the broken
+// creation fingerprint.
+
+var LIVE_REJECTED = [
+  { v1: "Taken Idle Didnt Take Messages",
+    turn: "none have been taken and you were idle? why were you idle and why didn't you take messages?",
+    expected: "None have been taken and you were idle" },
+  { v1: "Checking Delegated Clay Project Claude",
+    turn: "what do you mean you are checking? you should have delegated that to clay project",
+    expected: "What do you mean you are checking" },
+  { v1: "Create Project Categorised Them Keep",
+    turn: "you don't create project, you categorised them",
+    expected: "You don't create project, you categorised them" },
+  { v1: "Let Know Finished Sidebar Done",
+    turn: "let me know when it's finished",
+    expected: "Let me know when it's finished" },
+  { v1: "Think Work Goals Seeing Reached",
+    turn: "I think we need to work on goals, and seeing if you reached that goal...",
+    expected: "I think we need to work on goals…" },
+  { v1: "See Working Idling Chat Give",
+    turn: "ok again, I don't see you working, I see you idling in chat... give me some feedback, that you are alive",
+    expected: "Again, I don't see you working, I see…" },
+];
+
+test("every owner-rejected live title derives a readable, order-preserving excerpt", function () {
+  var seen = {};
+  LIVE_REJECTED.forEach(function (example) {
+    var title = classification.readableTitle(example.turn);
+    assert.equal(title, example.expected);
+    assert.equal(classification.readableTitle(example.turn), title, "stable: same input, same title");
+    assert.notEqual(title, example.v1, "the rejected bag-of-words title never comes back");
+    var visible = title.replace(/…$/, "");
+    assert.ok(visible.split(/\s+/).length <= 8, "bounded to 8 words");
+    assert.ok(title.length <= 61, "bounded to 60 chars plus ellipsis");
+    // Order preservation: every title word appears in the source in the same
+    // relative order, so no keyword reshuffling can reproduce word salad.
+    var sourceWords = example.turn.toLowerCase().replace(/[^a-z0-9'\u2019\s]/g, " ").split(/\s+/).filter(Boolean);
+    var cursor = 0;
+    visible.toLowerCase().split(/\s+/).filter(Boolean).forEach(function (word) {
+      var at = sourceWords.indexOf(word.replace(/[^a-z0-9'\u2019]/g, ""), cursor);
+      assert.ok(at >= cursor, "'" + word + "' keeps its source position in: " + title);
+      cursor = at + 1;
+    });
+    assert.equal(seen[title], undefined, "the six live examples derive distinct titles");
+    seen[title] = true;
+  });
+});
+
+test("contractions survive verbatim in derived titles", function () {
+  assert.match(classification.readableTitle("why didn't you take messages? none were taken"),
+    /didn't/, "didn't stays didn't");
+  assert.match(classification.readableTitle("let me know when it's finished"), /it's/);
+});
+
+test("v2 revisits a v1 machine-retitled topic even though its fingerprint no longer matches", function () {
+  var built = historyOf(["none have been taken and you were idle? why were you idle and why didn't you take messages?"]);
+  // v1 rewrote the title in place, breaking the creation fingerprint, but its
+  // own audit proves machine provenance.
+  var t = automaticTopic("Placeholder", built.starts);
+  t.title = "Taken Idle Didnt Take Messages";
+  t.titleRetrofitAudit = { schemaVersion: 1, checkedAt: 5, provenCount: 1, action: "retitled" };
+  var idx = indexWith([t, uncategorisedTopic()]);
+
+  var report = retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; }, now: function () { return 77; } });
+
+  assert.equal(report.retitled, 1);
+  assert.equal(t.title, "None have been taken and you were idle");
+  assert.equal(t.titleRetrofitAudit.schemaVersion, retrofit.TITLE_RETROFIT_SCHEMA_VERSION);
+  assert.equal(t.topicRef.topicId, fingerprintTopicId("Placeholder", { kind: "uncategorised" }), "topic ID never changes");
+
+  // Terminal at v2: a second pass leaves the readable title alone.
+  var again = retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
+  assert.equal(again.retitled, 0);
+  assert.equal(t.title, "None have been taken and you were idle");
+});
+
+test("a genuinely owner-renamed title stays protected at v2", function () {
+  var built = historyOf(["none have been taken and you were idle? why were you idle and why didn't you take messages?"]);
+  var t = automaticTopic("Placeholder", built.starts);
+  t.title = "Message pickup reliability"; // owner rename: no retitled audit, fingerprint mismatch
+  var idx = indexWith([t, uncategorisedTopic()]);
+  var report = retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
+  assert.equal(report.skippedOwnerModified, 1);
+  assert.equal(t.title, "Message pickup reliability");
+});
+
+test("two topics deriving the same readable title stay distinct", function () {
+  var built = historyOf(["let me know when it's finished", "let me know when it's finished please and thanks"]);
+  var a = automaticTopic("Let Know Finished Sidebar Done", [built.starts[0]]);
+  a.title = "Let Know Finished Sidebar Done";
+  a.titleRetrofitAudit = { schemaVersion: 1, checkedAt: 5, provenCount: 1, action: "retitled" };
+  var b = automaticTopic("Let Know Finished Please Thanks", [built.starts[1]]);
+  b.title = "Let Know Finished Please Thanks";
+  b.titleRetrofitAudit = { schemaVersion: 1, checkedAt: 5, provenCount: 1, action: "retitled" };
+  var idx = indexWith([a, b, uncategorisedTopic()]);
+
+  retrofit.retrofitTitles(idx, { historyFor: function () { return built.history; } });
+
+  assert.notEqual(a.title, b.title, "identical derivations never collide in the sidebar");
+  var expected = ["Let me know when it's finished", "Let me know when it's finished please and…"];
+  assert.ok(expected.indexOf(a.title) !== -1 || /\(\d+\)$/.test(a.title));
+  assert.ok(expected.indexOf(b.title) !== -1 || /\(\d+\)$/.test(b.title));
 });

@@ -233,7 +233,9 @@ test("building the global projection alone migrates pre-fix garbled titles exact
     assert.doesNotMatch(migrated.title, /\bDon\b/);
     assert.equal(migrated.topicRef.topicId, topicId, "identity preserved");
     assert.equal(migrated.titleRetrofitAudit.action, "retitled");
-    assert.equal(persisted.titleRetrofit.schemaVersion, 1, "the exactly-once stamp is persisted");
+    assert.equal(persisted.titleRetrofit.schemaVersion,
+      require("../lib/coop-topic-retrofit").TITLE_RETROFIT_SCHEMA_VERSION,
+      "the exactly-once stamp is persisted");
     var seed = persisted.topics["navigation-session-restoration"];
     assert.equal(seed.title, "Navigation and session restoration", "seed titles untouched");
     var shown = [];

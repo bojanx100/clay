@@ -98,7 +98,8 @@ test("retro extraction is complete, deterministic, idempotent, and reference-onl
     assert.deepEqual(state.topics[automaticId].turnRefs, [{
       projectId: "system-lead", sessionStorageId: "canonical-topic-home", startEventIndex: 15, endEventIndex: 17,
     }]);
-    assert.equal(state.topics[automaticId].title.includes("quiet unmatched"), false);
+    assert.equal(state.topics[automaticId].title, "A quiet unmatched turn",
+      "the automatic title is the owner's readable phrase, order preserved");
     var indexedTurnStarts = Object.keys(state.topics).reduce(function (starts, id) {
       return starts.concat(state.topics[id].turnRefs.map(function (ref) { return ref.startEventIndex; }));
     }, []).sort(function (a, b) { return a - b; }).filter(function (value, index, values) {
@@ -326,7 +327,7 @@ test("automatic classification reuses durable topics and infers a bounded projec
     assert.equal(first.created, true);
     assert.match(first.topicRef.topicId, /^auto-[a-f0-9]{24}$/);
     assert.deepEqual(first.projectRef, { projectId: CLAY });
-    assert.equal(h.index.resolve(first.topicRef).topic.title, "Renderer Caching Regression Details Workbench");
+    assert.equal(h.index.resolve(first.topicRef).topic.title, "Renderer caching regression details in Workbench Alpha must…");
     assert.deepEqual(h.index.resolve(first.topicRef).topic.keywords, ["renderer", "caching", "regression", "details", "workbench"]);
     assert.equal(fs.readFileSync(h.index.file, "utf8").includes(firstText), false);
 
@@ -365,18 +366,17 @@ test("automatic classification reuses durable topics and infers a bounded projec
 });
 
 test("automatic titles do not garble contractions into orphan fragments", function () {
-  // "don't" used to split into "don" (a spurious surviving word, 3 letters
-  // long) plus "t" (dropped for being too short), leaving stray tokens like
-  // "Don" in the derived title. It must now collapse to a single stopword.
-  var withContraction = classification.automaticTopicId(
-    "Don't create a project, just categorise them", { kind: "uncategorised" });
-  var withoutContraction = classification.automaticTopicId(
-    "Do not create a project, just categorise them", { kind: "uncategorised" });
-  assert.equal(withContraction, withoutContraction,
-    "the contracted and spelled-out phrasing must derive the same coherent title");
+  // "don't" used to split into "don" + a dropped "t", leaving stray tokens
+  // like "Don" in the derived title. Titles are now a verbatim readable
+  // excerpt: the contraction survives intact and word order is preserved.
+  var title = classification.readableTitle("Don't create a project, just categorise them");
+  assert.equal(title, "Don't create a project, just categorise them");
+  assert.equal(classification.automaticTopicId("Don't create a project, just categorise them", { kind: "uncategorised" }),
+    classification.automaticTopicId("Don't create a project, just categorise them", { kind: "uncategorised" }),
+    "the derivation is deterministic");
 });
 
-test("automatic titles filter common function words so short phrasing stays coherent", function () {
+test("automatic titles preserve the owner's word order instead of keyword salad", function () {
   var session = canonicalSession();
   var h = harness();
   try {
@@ -387,9 +387,8 @@ test("automatic titles filter common function words so short phrasing stays cohe
     }, options);
     assert.equal(result.ok, true);
     var title = h.index.resolve(result.topicRef).topic.title;
-    // None of the leftover words are grammatically-empty filler; every word
-    // in the title carries real content.
-    assert.doesNotMatch(title, /\b(What|Should|Mean|Been|None|Were|Was)\b/);
+    // A readable clause in the owner's own order, bounded at 8 words.
+    assert.equal(title, "What do you mean by checking whether it…");
   } finally { h.cleanup(); }
 });
 
