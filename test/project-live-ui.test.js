@@ -21,7 +21,7 @@ function harness(overrides) {
   };
   var session = {
     localId: 7,
-    storageId: "session-storage",
+    storageId: overrides.sessionStorageId || "session-storage",
     cliSessionId: "provider-session",
     title: "Framer workflow",
     hidden: false,
@@ -597,6 +597,45 @@ test("target reports stay routed to their paired project after control navigatio
     return entry.message.type === "live_ui_state" &&
       entry.message.code === "LIVE_UI_PROJECT_MISMATCH";
   }).length, 0);
+});
+
+test("initial pairing routes through the existing Clay project connection", function () {
+  var pairedProject = harness({
+    slug: "webapp",
+    sessionStorageId: "webapp-session",
+  });
+  var currentProject = harness({
+    slug: "lead",
+    registry: pairedProject.registry,
+    sessionStorageId: "lead-session",
+  });
+  currentProject.liveUi.handleLiveUiMessage(currentProject.extensionWs, {
+    type: "live_ui_request_pair",
+    protocolVersion: 1,
+    requestId: "cross-project-pair",
+    projectSlug: "webapp",
+    sessionId: "webapp-session",
+    targetTabId: 43,
+    tabs: [{ id: 43, url: "http://localhost:4242/pricing" }],
+    extensionId: "extension-a",
+    attachWorkspace: true,
+  });
+
+  var pairingState = pairedProject.sent.find(function (entry) {
+    return entry.ws === currentProject.extensionWs &&
+      entry.message.type === "live_ui_state" &&
+      entry.message.state === "pairing";
+  });
+  assert.ok(pairingState);
+  var pairing = pairedProject.registry.getPair(pairingState.message.pairingId);
+  assert.strictEqual(pairing.projectSlug, "webapp");
+  assert.strictEqual(pairing.sessionId, "webapp-session");
+  var command = pairedProject.sent.find(function (entry) {
+    return entry.ws === currentProject.extensionWs &&
+      entry.message.type === "extension_command" &&
+      entry.message.command === "live_ui_pair";
+  });
+  assert.ok(command);
 });
 
 test("cross-project routing rejects a different extension user", function () {
