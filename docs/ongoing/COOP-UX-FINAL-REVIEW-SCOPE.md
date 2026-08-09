@@ -214,6 +214,105 @@ retro-cleanup of already-minted fragments is not.
   Main/All lens behavior) was not touched this segment and remains covered by
   the existing passing tests from the prior segment.
 
+RETROFIT SEGMENT (follows the FOLLOW-UP SEGMENT above): implements the
+retro-cleanup deliberately not attempted above, without the `RETRO_VERSION`
+full-reclassification blast radius.
+
+- **`lib/coop-topic-retrofit.js` (new)** performs a bounded, versioned,
+  idempotent title retrofit over existing automatic+open topics only, using
+  the already-proven anchors from `coop-topic-anchors.js` and the corrected
+  classifier from the prior segment. Never touches `topicRef.topicId` (every
+  existing link — a task's `coopTopicRef`, a deep link — keeps resolving), and
+  is fail-closed at every step: a topic with zero proven anchors is left alone
+  (already unprojectable); a title whose creation fingerprint no longer
+  matches (`isUnmodifiedAutomaticTitle`, new export in
+  `coop-topic-classification.js` — recomputes
+  `sha256(groupKey + "\n" + normalizeText(title))` and compares to the
+  topicId's hash suffix, which is fixed at creation and never recomputed by
+  the running system) is left alone, meaning an owner rename — or any other
+  process that already touched the title — can never be silently overwritten;
+  proven text that is still low-information after the classifier fix is
+  merged into `uncategorised-conversations` (membership moved, `status:
+  "merged"`, `mergedInto` set, mirroring the existing manual `merge()`
+  convention) rather than retitled into another fragment; everything else is
+  retitled from the combined text of its own proven turns only. A per-topic
+  `titleRetrofitAudit` (`schemaVersion`, `checkedAt`, `provenCount`, `action`)
+  makes `retitled`/`merged_uncategorised` **sticky forever** — once fixed, a
+  topic is never re-touched even if it later gains more proven anchors — while
+  an unresolved topic (no proven anchor yet, or an owner-modified title) is
+  re-checked only if its proven-anchor count changes. Canonical session
+  history is read-only throughout (only `history[eventIndex].text` is read, at
+  the anchor-proven index — including the legacy `+1`-offset case, resolved via
+  `topicAnchors.proveAnchor`'s reported offset rather than trusting the raw
+  stored `startEventIndex`, so title text is never sourced from a "done"
+  boundary record instead of the real owner message); nothing is ever written
+  back to the `.jsonl` transcript. Wired into `coop-topic-index.js` as
+  `retrofitTopicTitles(session)`, mirroring `reconcileTopicAnchors`'s existing
+  pattern (resolve the canonical session, load the index, run the retrofit,
+  save only if something changed). Tests:
+  `test/coop-topic-retrofit.test.js` (17 tests: retitling, contraction/fringe
+  fixes, multi-turn combination, legacy-offset text sourcing, topicId
+  preservation, owner-modified-title protection, manual/seed/closed/merged
+  topics never touched, no-proven-anchor topics left alone and recorded,
+  low-information merge without absorbing unrelated conversation, two-run and
+  JSON-round-trip idempotency, history-is-read-only, and a full before/after
+  inventory shape) plus one wiring test added to
+  `test/coop-topic-index.test.js` (fixes an injected pre-fix garbled topic
+  end-to-end through `retrofitTopicTitles`, confirms it survives an index
+  reload from a fresh `createTopicIndex()`, and that a second call — on the
+  live in-memory index or after a fresh load — is a no-op).
+- **Real before/after inventory, produced against live production data,
+  read-only.** A standalone in-process script loaded the real
+  `~/.clay/lead/coop-topic-index.json` and the real canonical session's
+  `.jsonl` transcript (871a194b…, 55,592 records) directly via `fs.readFileSync`
+  — bypassing `createTopicIndex()`'s file-writing API entirely — ran
+  `retrofitTitles` once against an in-memory clone, and never called any
+  save/write path. The production file on disk was confirmed byte-for-byte
+  unchanged (still exactly 44 topics) after the run. Result across the 44
+  live `automatic && open` topics: **20 retitled** (contraction-mangled and
+  stopword-cluttered titles replaced with coherent ones drawn from their own
+  real proven turn text — e.g. `"Don Create Project Categorised Them"` →
+  `"Create Project Categorised Them Keep"`, the `"Don"` fragment gone), **8
+  merged into `uncategorised-conversations`** (genuinely low-information
+  single-turn fragments — `"Where Arre Now"`, `"Does Look Like"`, and similar
+  — membership preserved, no longer their own sidebar row), **8 skipped as
+  owner-modified** (the seven named seed topics plus the catch-all itself,
+  e.g. `"Codex authentication"`, `"Coop conversation architecture"` — their
+  titles do not match their own creation fingerprint, which the retrofit
+  correctly reads as "already deliberately titled," never touched, even
+  though production's seed topics happen to carry `source: "automatic"` in
+  the stored index rather than a distinct seed/manual marker — the
+  fingerprint check protects them independent of that field), and **2
+  skipped as having no proven anchor** (`"Resuming After Restart"`,
+  `"Resuming Interrupted Response"` — the same two internal-control-derived
+  topics the anchoring fix already correctly withholds from the owner;
+  nothing new suppressed them, the retrofit just correctly declines to guess
+  a title for what is already invisible). `20 + 8 + 8 + 2 = 44`, the full
+  set. Re-running the same script against the now-retrofitted in-memory
+  index, and again after a `JSON.parse(JSON.stringify(...))` round-trip
+  (simulating a restart), both reported `retitled: 0, mergedToUncategorised:
+  0` — every one of the 36 still-open automatic topics reported `unchanged`,
+  proving the fix is idempotent and restart-stable against the real data, not
+  just the synthetic test fixtures. **This inventory has not been applied to
+  the live file** — production `~/.clay/lead/coop-topic-index.json` still has
+  its original 44 titles as of this writing; applying it is a deliberate,
+  separate step (calling `retrofitTopicTitles(canonicalSession)` from within
+  the running daemon process, which has the real `session` object with
+  `coopHome`/`storageId` already resolved) that was intentionally not taken
+  in this dry-run-only segment, since doing so from a standalone script
+  would require re-deriving daemon-internal session state outside the
+  daemon's own code path — the same class of risk (acting on a guessed
+  session shape rather than the real one) this whole retrofit is designed to
+  avoid.
+- **Live-daemon visual QA remains not performed, same reason as the prior
+  segment** (spinning up any daemon against copied data triggers the real
+  autonomous Lead-tick loop against live model providers). This segment's
+  verification is the read-only production dry-run above (real index, real
+  history, in-memory only, disk untouched, proven idempotent/restart-stable)
+  plus the full test suite: 1748 tests, 1742 pass, the same 6 pre-existing
+  unrelated provider/model-routing failures as every prior segment, 0 new
+  failures.
+
 Verified on the owner's real transcripts: internal control records in Main went
 to zero across all three (51945 / 30209 / 5722 records) while All is unchanged
 and every owner message is preserved (102 / 41 / 8). Browser QA at 1440x900 and

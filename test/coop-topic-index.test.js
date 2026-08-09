@@ -423,6 +423,47 @@ test("a low-information turn still reuses a recent open topic instead of falling
   } finally { h.cleanup(); }
 });
 
+test("the title retrofit fixes an already-minted garbled topic and is idempotent across restarts", function () {
+  var session = canonicalSession();
+  var h = harness();
+  try {
+    h.index.ensureRetro(session, retroOptions());
+    // Simulate a topic minted by the OLD, buggy classifier: contraction split
+    // into an orphan fragment, with a turnRef anchored to a real owner turn
+    // already present in the canonical history (index 6, "Navigation session
+    // restoration...").
+    var crypto = require("node:crypto");
+    var groupKey = "uncategorised";
+    var garbledTitle = "Don Session Restoration Sidebar";
+    var digest = crypto.createHash("sha256").update(groupKey + "\n" + garbledTitle.toLowerCase()).digest("hex");
+    var topicId = "auto-" + digest.slice(0, 24);
+    var index = h.index.load();
+    index.topics[topicId] = {
+      topicRef: { topicId: topicId }, title: garbledTitle, group: { kind: "uncategorised" },
+      source: "automatic", status: "open", createdAt: 1, updatedAt: 1,
+      keywords: [], eventRefs: [], relatedExecutions: [],
+      turnRefs: [{ sessionStorageId: session.storageId, startEventIndex: 6, endEventIndex: 8 }],
+    };
+
+    var report = h.index.retrofitTopicTitles(session);
+    assert.equal(report.ok, true);
+    assert.equal(report.changed, true);
+    assert.equal(report.report.retitled, 1);
+    var fixed = h.index.load().topics[topicId];
+    assert.notEqual(fixed.title, garbledTitle);
+    assert.doesNotMatch(fixed.title, /\bDon\b/);
+    assert.equal(fixed.topicRef.topicId, topicId, "identity is preserved so existing links keep resolving");
+
+    var again = h.index.retrofitTopicTitles(session);
+    assert.equal(again.changed, false, "a second run against the same in-memory index is a no-op");
+
+    var restarted = topics.createTopicIndex({ file: h.index.file, now: function () { return 500; } });
+    var afterRestart = restarted.retrofitTopicTitles(session);
+    assert.equal(afterRestart.changed, false, "the fix persisted across a fresh load and is never re-applied");
+    assert.equal(restarted.load().topics[topicId].title, fixed.title);
+  } finally { h.cleanup(); }
+});
+
 test("retro version upgrades replace stale derived memberships and preserve managed topics", function () {
   var h = harness();
   try {
