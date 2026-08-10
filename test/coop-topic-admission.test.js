@@ -57,6 +57,21 @@ function automaticTopics(index, canonical) {
   return found;
 }
 
+// Durably minted automatic topics, regardless of whether they have earned an
+// owner-visible row yet. Projection now holds back single-turn automatic topics
+// until the owner shows they are a real thread, so admission ("was this minted at
+// all?") and promotion ("does it claim a row?") are two separate questions and
+// need two separate probes.
+function durableAutomaticTopics(index) {
+  var topicsById = index.load().topics;
+  var ids = Object.keys(topicsById);
+  var found = [];
+  for (var i = 0; i < ids.length; i++) {
+    if (ids[i].indexOf("auto-") === 0) found.push(ids[i]);
+  }
+  return found;
+}
+
 function allProjectedIds(index, canonical) {
   var projection = index.project({ history: canonical.history });
   var found = [];
@@ -74,20 +89,30 @@ test("an owner turn can mint a topic", function () {
     // than seed matching.
     var canonical = session(turn("bakery inventory spreadsheet reconciliation"));
     h.index.ensureRetro(canonical, {});
-    assert.ok(automaticTopics(h.index, canonical).length > 0,
+    assert.ok(durableAutomaticTopics(h.index).length > 0,
       "an owner conversation should be able to create an automatic topic");
+    // One owner turn mints the topic but does not yet earn it a row: a single
+    // passing remark must stay durable and searchable without claiming sidebar
+    // space. Promotion is covered in coop-topic-promotion.test.js.
+    assert.deepEqual(automaticTopics(h.index, canonical), [],
+      "a single-turn automatic topic stays durable but hidden");
   } finally { h.cleanup(); }
 });
 
 test("the same wording from an internal turn creates nothing", function () {
   // The paired negative: identical text, only the durable flags differ, so the
-  // gate is provably keyed on provenance rather than on wording.
+  // gate is provably keyed on provenance rather than on wording. Asserted against
+  // the DURABLE index, not the projection -- projection now also hides quiet
+  // one-turn topics, so a projection-only assertion here would pass even if
+  // admission had leaked a topic it should never have minted.
   var h = harness();
   try {
     var canonical = session(turn("bakery inventory spreadsheet reconciliation", {
       internalOnly: true, synthetic: true, origin: { kind: "task-notification" },
     }));
     h.index.ensureRetro(canonical, {});
+    assert.deepEqual(durableAutomaticTopics(h.index), [],
+      "an internal-only turn must not mint a topic even durably");
     assert.deepEqual(automaticTopics(h.index, canonical), []);
   } finally { h.cleanup(); }
 });

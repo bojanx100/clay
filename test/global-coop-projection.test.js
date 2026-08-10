@@ -201,6 +201,14 @@ test("building the global projection alone migrates pre-fix garbled titles exact
         { type: "user_message", text: "Navigation session restoration and sidebar", from: "owner", fromName: "Admin", clientMessageId: "cm-fixture" },
         { type: "delta_replace", text: "The navigation restoration is complete." },
         { type: "done" },
+        // A second owner turn, so the automatic topic injected below is a thread
+        // the owner came back to rather than a single passing remark. Quiet
+        // one-turn automatic topics are deliberately withheld from the projection
+        // (see coop-topic-promotion.test.js), and this test needs the migrated
+        // title to reach the broadcast payload to prove anything at all.
+        { type: "user_message", text: "Navigation session restoration follow up", from: "owner", fromName: "Admin", clientMessageId: "cm-fixture-2" },
+        { type: "delta_replace", text: "The navigation restoration follow up is complete." },
+        { type: "done" },
       ],
     });
     var lead = project("system-lead", "lead", [home], { isLead: true });
@@ -218,7 +226,10 @@ test("building the global projection alone migrates pre-fix garbled titles exact
       topicRef: { topicId: topicId }, title: garbledTitle, group: { kind: "uncategorised" },
       source: "automatic", status: "open", createdAt: 1, updatedAt: 1,
       keywords: [], eventRefs: [], relatedExecutions: [],
-      turnRefs: [{ sessionStorageId: "canonical-topic-home", startEventIndex: 0, endEventIndex: 2 }],
+      turnRefs: [
+        { sessionStorageId: "canonical-topic-home", startEventIndex: 0, endEventIndex: 2 },
+        { sessionStorageId: "canonical-topic-home", startEventIndex: 3, endEventIndex: 5 },
+      ],
     };
     index.save();
     delete index.load().titleRetrofit;

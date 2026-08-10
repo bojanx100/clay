@@ -310,3 +310,95 @@ test("linked tasks with no recognisable status prove nothing and fall to Needs i
   assert.equal(derived.state, "needs_input");
   assert.equal(derived.stateSource, "task_indeterminate");
 });
+
+// --- portfolio execution bindings as linked work ------------------------------
+//
+// Phase 2 threads an optional coopTopicRef through the durable portfolio
+// execution binding, so a topic whose ONLY link is a binding must not read as
+// unlinked. Binding statuses map onto the task vocabulary rather than growing a
+// parallel precedence table, so both kinds of linked work obey one set of rules.
+
+function binding(status, extra) {
+  return Object.assign({
+    portfolioTaskId: "task-" + status, bindingRevision: 1,
+    status: status, coopTopicRef: TOPIC,
+  }, extra || {});
+}
+
+test("an active binding is execution evidence even with no linked task", function () {
+  var derived = topicState.coopTopicState(TOPIC, { tasks: [], bindings: [binding("active")] });
+  assert.equal(derived.state, "working");
+  assert.equal(derived.stateSource, "task_working");
+  assert.equal(derived.taskCount, 1);
+});
+
+test("a completed binding is awaiting acceptance and never Done on its own", function () {
+  // Bindings carry no ownerAcceptance, so a completed binding is awaiting
+  // acceptance by construction. This is the approved default that completed
+  // linked work never auto-closes or auto-accepts a topic.
+  var derived = topicState.coopTopicState(TOPIC, { tasks: [], bindings: [binding("completed")] });
+  assert.equal(derived.state, "needs_input");
+  assert.equal(derived.awaitingAcceptance, true);
+  assert.equal(derived.stateSource, "task_awaiting_acceptance");
+});
+
+test("an unrouted or unavailable binding puts the owner in the loop", function () {
+  // A delegation that never started needs a decision, so it is owner-blocking
+  // rather than quietly Working.
+  assert.equal(topicState.coopTopicState(TOPIC, {
+    tasks: [], bindings: [binding("unrouted")],
+  }).stateSource, "task_attention");
+  assert.equal(topicState.coopTopicState(TOPIC, {
+    tasks: [], bindings: [binding("unavailable")],
+  }).stateSource, "task_attention");
+});
+
+test("a superseded or deleted binding proves nothing and falls back to the record", function () {
+  var derived = topicState.coopTopicState(TOPIC, { tasks: [], bindings: [binding("superseded")] });
+  assert.equal(derived.state, "needs_input");
+  assert.equal(derived.stateSource, "task_abandoned");
+});
+
+test("a binding for another topic or with no topic ref is never attributed here", function () {
+  // Forward-only threading means most historical bindings carry no ref at all,
+  // and guessing one would credit the wrong lens.
+  var derived = topicState.coopTopicState(TOPIC, {
+    tasks: [],
+    bindings: [
+      binding("active", { coopTopicRef: OTHER }),
+      binding("active", { coopTopicRef: null }),
+      { portfolioTaskId: "task-bare", bindingRevision: 1, status: "active" },
+    ],
+  });
+  assert.equal(derived.taskCount, 0);
+  assert.equal(derived.stateSource, "unlinked_default");
+});
+
+test("a binding with an unrecognised status contributes nothing", function () {
+  var derived = topicState.coopTopicState(TOPIC, {
+    tasks: [], bindings: [binding("some_future_binding_status")],
+  });
+  assert.equal(derived.taskCount, 0);
+  assert.equal(derived.stateSource, "unlinked_default");
+});
+
+test("task and binding evidence are judged together by one precedence rule", function () {
+  // A completed task plus a running binding is still Working: anything moving
+  // outranks completion, whichever kind of linked work it came from.
+  var derived = topicState.coopTopicState(TOPIC, {
+    tasks: [task("completed")], bindings: [binding("active")],
+  });
+  assert.equal(derived.state, "working");
+  assert.equal(derived.taskCount, 2);
+});
+
+test("the projected shape carries the linked-work count for promotion", function () {
+  // The projection uses this count as one of the signals that promotes a quiet
+  // automatic topic, so it has to survive the reduction to a projected shape.
+  var projected = topicState.projectedTopicState(TOPIC, {
+    tasks: [task("running")], bindings: [binding("active")],
+  });
+  assert.equal(projected.taskCount, 2);
+  assert.equal(projected.workState, "working");
+  assert.equal(topicState.projectedTopicState(TOPIC, { tasks: [] }).taskCount, 0);
+});
