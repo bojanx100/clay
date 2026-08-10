@@ -583,6 +583,118 @@ test("retro version upgrades replace stale derived memberships and preserve mana
   } finally { h.cleanup(); }
 });
 
+test("retro version upgrades preserve settled automatic topic membership", function () {
+  // Every live topic is source:'automatic', so the retro reset is the only
+  // thing standing between a settled topic and an empty one. Open automatic
+  // topics are safe to clear because the extraction pass re-derives them from
+  // the canonical history; closed and merged topics are not -- they no longer
+  // accrete, so clearing their refs empties them permanently and drops them
+  // out of Done and out of replay. This pins the status guard.
+  var topicRelevance = require("../lib/coop-topic-relevance");
+  var topicAnchors = require("../lib/coop-topic-anchors");
+  var h = harness();
+  try {
+    var session = canonicalSession();
+    h.index.ensureRetro(session, retroOptions());
+    var state = h.index.load();
+    state.retro = { version: 2, completedEventCount: session.history.length };
+    // Stale membership on an OPEN automatic topic must still be reset.
+    state.topics["codex-authentication"].eventRefs.push({
+      projectId: "system-lead", sessionStorageId: session.storageId, eventIndex: 5,
+    });
+    var closedRefs = [{ projectId: "system-lead", sessionStorageId: session.storageId, eventIndex: 6 }];
+    var closedTurns = [{
+      projectId: "system-lead", sessionStorageId: session.storageId,
+      startEventIndex: 6, endEventIndex: 8,
+    }];
+    state.topics["closed-automatic"] = {
+      topicRef: { topicId: "closed-automatic" }, title: "Closed automatic topic",
+      group: { kind: "uncategorised" }, source: "automatic", status: "closed",
+      createdAt: 1, updatedAt: 2, keywords: [],
+      eventRefs: closedRefs.map(function (ref) { return Object.assign({}, ref); }),
+      turnRefs: closedTurns.map(function (ref) { return Object.assign({}, ref); }),
+      relatedExecutions: [],
+    };
+    var mergedRefs = [{ projectId: "system-lead", sessionStorageId: session.storageId, eventIndex: 9 }];
+    var mergedTurns = [{
+      projectId: "system-lead", sessionStorageId: session.storageId,
+      startEventIndex: 9, endEventIndex: 11,
+    }];
+    state.topics["merged-automatic"] = {
+      topicRef: { topicId: "merged-automatic" }, title: "Merged automatic topic",
+      group: { kind: "uncategorised" }, source: "automatic", status: "merged",
+      mergedInto: { topicId: "codex-authentication" },
+      createdAt: 1, updatedAt: 2, keywords: [],
+      eventRefs: mergedRefs.map(function (ref) { return Object.assign({}, ref); }),
+      turnRefs: mergedTurns.map(function (ref) { return Object.assign({}, ref); }),
+      relatedExecutions: [],
+    };
+    // A closed topic wearing the legacy opaque id and title is still settled
+    // membership: the legacy purge only ever removes OPEN opaque fragments.
+    state.topics["auto-cccccccccccccccccccccccc"] = {
+      topicRef: { topicId: "auto-cccccccccccccccccccccccc" },
+      title: "Automatic conversation cccccccccc", group: { kind: "uncategorised" },
+      source: "automatic", status: "closed", createdAt: 1, updatedAt: 2, keywords: [],
+      eventRefs: [{ projectId: "system-lead", sessionStorageId: session.storageId, eventIndex: 12 }],
+      turnRefs: [{
+        projectId: "system-lead", sessionStorageId: session.storageId,
+        startEventIndex: 12, endEventIndex: 14,
+      }],
+      relatedExecutions: [],
+    };
+    h.index.save();
+
+    var restarted = topics.createTopicIndex({ file: h.index.file, now: function () { return 500; } });
+    var migrated = restarted.ensureRetro(session, retroOptions());
+    assert.equal(migrated.changed, true);
+    assert.equal(restarted.load().retro.version, 3);
+
+    // Open automatic topics keep the existing reset-and-re-derive behavior.
+    var open = restarted.resolve({ topicId: "codex-authentication" }).topic;
+    assert.equal(open.eventRefs.some(function (ref) { return ref.eventIndex === 5; }), false,
+      "open automatic topics must still be reset and re-derived");
+    assert.ok(open.eventRefs.length > 0, "the extraction pass re-derives open automatic membership");
+
+    // Closed membership survives byte-for-byte.
+    var closed = restarted.resolve({ topicId: "closed-automatic" }, true).topic;
+    assert.deepEqual(closed.eventRefs, closedRefs);
+    assert.deepEqual(closed.turnRefs, closedTurns);
+    assert.equal(closed.status, "closed");
+
+    // Merged membership survives too, so the merge target's history is intact.
+    var merged = restarted.resolve({ topicId: "merged-automatic" }, true).topic;
+    assert.deepEqual(merged.eventRefs, mergedRefs);
+    assert.deepEqual(merged.turnRefs, mergedTurns);
+    assert.equal(merged.status, "merged");
+
+    var legacyClosed = restarted.resolve({ topicId: "auto-cccccccccccccccccccccccc" }, true);
+    assert.equal(legacyClosed.ok, true, "the legacy opaque purge must not reach closed topics");
+    assert.equal(legacyClosed.topic.turnRefs.length, 1);
+
+    // Surviving refs are not inert: the closed topic stays projectable and
+    // replayable, so it still renders in Done and opens onto a real transcript.
+    assert.equal(topicRelevance.topicHasRelevantTurn(closed, session.history), true);
+    assert.equal(topicAnchors.isProjectable(closed, session.history), true);
+    assert.equal(topicRelevance.topicHasRelevantTurn(merged, session.history), true);
+    assert.equal(topicAnchors.isProjectable(merged, session.history), true);
+    var projection = restarted.project({
+      history: session.history,
+      canAccessProject: function () { return true; },
+    });
+    var titles = [];
+    projection.groups.forEach(function (group) {
+      group.topics.forEach(function (t) { titles.push(t.title); });
+    });
+    assert.notEqual(titles.indexOf("Closed automatic topic"), -1,
+      "a closed automatic topic must still project into Done after a retro upgrade");
+
+    // Still idempotent: a second pass at the current version changes nothing.
+    var saved = fs.readFileSync(h.index.file, "utf8");
+    assert.equal(restarted.ensureRetro(session, retroOptions()).changed, false);
+    assert.equal(fs.readFileSync(h.index.file, "utf8"), saved);
+  } finally { h.cleanup(); }
+});
+
 test("Coop session-ref resolution refuses a session that became a worker", function () {
   var topicConnection = require("../lib/coop-topic-connection");
 
