@@ -56,6 +56,8 @@ function makeHarness(kind, cleanupProcessing, fetchItems) {
     title: "Fix me",
     url: "https://github.com/owner/repo/pull/10",
     key: "owner/repo#10",
+    // The owner's own assigned work — the only kind automatic pickup considers.
+    assignedToOwner: true,
     head_sha: "abc123",
     ci_failing: true,
     latestFeedbackTs: Date.now(),

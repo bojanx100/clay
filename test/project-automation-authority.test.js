@@ -41,12 +41,17 @@ function completed(overrides) {
   }, overrides || {});
 }
 
+// Ownership defaults to PROVEN here so the stance, claim and external-action
+// tests below keep testing what they are about. Automatic pickup requires work
+// assigned to the owner, and that precondition has its own dedicated tests in
+// the "Ownership" section — every one of which sets this explicitly.
 function decide(overrides) {
   return authority.decideAutomation(Object.assign({
     leadMode: true,
     action: "launch",
     policy: policy(),
     holder: HOLDER,
+    assignedToOwner: true,
     now: NOW,
   }, overrides || {}));
 }
@@ -454,6 +459,93 @@ test("an unscoped recipe leaves unlabeled work ambiguous", function () {
   assert.strictEqual(authority.classifyAutomationItem({ labels: [] }, "issue", null), "ambiguous");
   assert.strictEqual(
     authority.classifyAutomationItem({ labels: [] }, "issue", "something-else"), "ambiguous");
+});
+
+// --- Ownership ---------------------------------------------------------------
+//
+// Automatic pickup requires work the owner has already taken on. This is an
+// eligibility precondition rather than a policy stance, so it is checked before
+// any stance and no stance can satisfy it — which is what stops a project's own
+// `bug: autonomous` grant from reaching work nobody was assigned.
+
+test("unassigned work is denied even where the project grants autonomy", function () {
+  var out = decide({
+    action: "launch", itemClass: "bug", itemKey: "trialview/v2#2539",
+    policy: policy({ autonomy: { bug: "autonomous", default: "propose" } }),
+    claim: liveClaim(), assignedToOwner: false,
+  });
+  assert.strictEqual(out.decision, "deny");
+  assert.strictEqual(out.reason, "not_assigned_to_owner");
+});
+
+// Unproven is not the same as assigned. A missing stamp means the fetch layer
+// could not establish ownership, and that must fail closed.
+test("ownership must be proven, never assumed from a missing or loose value", function () {
+  var probes = [undefined, null, "", 0, "yes", 1, {}];
+  for (var i = 0; i < probes.length; i++) {
+    var out = decide({
+      action: "launch", itemClass: "bug", itemKey: "trialview/v2#1",
+      claim: liveClaim(), assignedToOwner: probes[i],
+    });
+    assert.strictEqual(out.decision, "deny",
+      "probe " + JSON.stringify(probes[i]) + " must not prove ownership");
+    assert.strictEqual(out.reason, "not_assigned_to_owner");
+  }
+});
+
+test("assigned autonomous work is still executable", function () {
+  var out = decide({
+    action: "launch", itemClass: "bug", itemKey: "trialview/v2#1",
+    policy: policy({ autonomy: { bug: "autonomous", default: "propose" } }),
+    claim: liveClaim(), assignedToOwner: true,
+  });
+  assert.strictEqual(out.decision, "execute");
+  assert.strictEqual(out.reason, "policy_autonomous");
+});
+
+// Ownership is checked first, so the audit reason names the real reason the
+// item was refused rather than a downstream one.
+test("ownership is refused before the policy stance is consulted", function () {
+  var denied = decide({
+    action: "launch", itemClass: "bug", itemKey: "trialview/v2#1",
+    claim: null, assignedToOwner: false,
+  });
+  assert.strictEqual(denied.reason, "not_assigned_to_owner",
+    "an unassigned item must not be reported as merely missing a claim");
+});
+
+// PR-review work carries ownership in its class: the source only returns PRs the
+// owner authored or committed to, and the class is owner-gated by derivation.
+test("pr-review work is not blocked by the board assignment rule", function () {
+  var out = decide({
+    action: "launch", itemClass: "pr_review", itemKey: "trialview/v2#2591",
+    claim: liveClaim(), assignedToOwner: false,
+  });
+  assert.notStrictEqual(out.reason, "not_assigned_to_owner");
+});
+
+// Lead mode OFF is the legacy pass-through and is checked before anything else,
+// so the pure authority still short-circuits. The launcher enforces ownership in
+// that mode instead — see the auto-launch suite.
+test("lead mode off remains a pure pass-through regardless of assignment", function () {
+  var out = decide({
+    leadMode: false, action: "launch", itemClass: "bug", assignedToOwner: false,
+  });
+  assert.strictEqual(out.decision, "execute");
+  assert.strictEqual(out.reason, "lead_mode_off_legacy");
+});
+
+test("the audit record carries the ownership proof it decided on", function () {
+  var out = decide({
+    action: "launch", itemClass: "bug", itemKey: "trialview/v2#1",
+    claim: liveClaim(), assignedToOwner: true,
+  });
+  assert.strictEqual(out.audit.assignedToOwner, true);
+  var denied = decide({
+    action: "launch", itemClass: "bug", itemKey: "trialview/v2#2539",
+    claim: liveClaim(), assignedToOwner: false,
+  });
+  assert.strictEqual(denied.audit.assignedToOwner, false);
 });
 
 // --- Audit -------------------------------------------------------------------

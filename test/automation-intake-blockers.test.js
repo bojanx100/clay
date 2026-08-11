@@ -237,7 +237,8 @@ test("a rate-limited vendor does not suppress discovery under Lead mode ON", asy
         };
       },
       fetchItems: function () {
-        return [{ number: 2517, title: "b", url: "u", labels: [{ name: "bug" }] }];
+        return [{ number: 2517, title: "b", url: "u", labels: [{ name: "bug" }],
+          assignees: [{ login: "bojantv" }], assignedToOwner: true }];
       },
     });
 

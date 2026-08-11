@@ -235,6 +235,8 @@ test("issue auto-launch relaunches one legacy completed session without launch s
     number: 2002,
     title: "Bounced issue",
     url: "https://github.com/owner/repo/issues/2002",
+    // The owner's own work: automatic pickup considers nothing else.
+    assignedToOwner: true,
   };
   var legacySession = {
     taskLauncher: {
@@ -318,6 +320,8 @@ test("issue auto-launch does not repeatedly relaunch a completed session after s
     number: 2002,
     title: "Bounced issue",
     url: "https://github.com/owner/repo/issues/2002",
+    // The owner's own work: automatic pickup considers nothing else.
+    assignedToOwner: true,
   };
   var completedSession = {
     taskLauncher: {
@@ -396,6 +400,7 @@ test("issue auto-launch does not relaunch an armed issue while a visible complet
     number: 2097,
     title: "Visible completed issue",
     url: "https://github.com/owner/repo/issues/2097",
+    assignedToOwner: true,
   };
   var visibleCompletedSession = {
     hidden: false,
@@ -633,8 +638,8 @@ test("launchScheduled skips an issue already live under another recipe", async f
     getTaskLauncher: function () { return launcher; },
     fetchItems: function () {
       return [
-        { number: 5, title: "dup", url: "https://github.com/o/r/issues/5" },
-        { number: 6, title: "fresh", url: "https://github.com/o/r/issues/6" },
+        { number: 5, title: "dup", url: "https://github.com/o/r/issues/5", assignedToOwner: true },
+        { number: 6, title: "fresh", url: "https://github.com/o/r/issues/6", assignedToOwner: true },
       ];
     },
   });
@@ -706,7 +711,8 @@ function makeCutoverHarness(recipeFilter) {
       getTaskLauncher: function () { return launcher; },
       automationGate: gate,
       fetchItems: function () {
-        return [{ number: 11, title: "boom", url: "https://github.com/o/r/issues/11", labels: [{ name: "bug" }] }];
+        return [{ number: 11, title: "boom", url: "https://github.com/o/r/issues/11",
+          labels: [{ name: "bug" }], assignees: [{ login: "owner" }], assignedToOwner: true }];
       },
     });
   }
@@ -813,7 +819,9 @@ test("lead mode on: a broken project policy proposes nothing", async function ()
 // The fixture below is the production shape: a bug-scoped recipe returning an
 // UNLABELED issue. It is deliberately not the labeled item the older cutover
 // tests use, because a `bug` label is exactly what hid this defect from them.
-function makeIdleBoardHarness(recipeFilter, item) {
+function makeIdleBoardHarness(recipeFilter, item, options) {
+  var settings = options || {};
+  var leadMode = settings.leadMode !== false;
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-idle-board-"));
   var tasksDir = path.join(cwd, ".clay", "tasks");
   fs.mkdirSync(tasksDir, { recursive: true });
@@ -872,7 +880,7 @@ function makeIdleBoardHarness(recipeFilter, item) {
       getProjectId: function () { return CUTOVER_PROJECT; },
     },
     getTaskLauncher: function () { return launcher; },
-    getLeadMode: function () { return true; },
+    getLeadMode: function () { return leadMode; },
     crossProject: crossProject,
     fetchItems: function () { return [item]; },
   });
@@ -882,11 +890,24 @@ function makeIdleBoardHarness(recipeFilter, item) {
   };
 }
 
-// An unlabeled issue, exactly as `gh issue list` returns it for this board.
+// An unlabeled issue ASSIGNED TO THE OWNER, exactly as project-task-sources
+// stamps it. The stamp is the proof of ownership every eligibility decision
+// downstream reads; an item without it is not the owner's work.
 function unlabeledIssue() {
   return {
     number: 2565, title: "PDF.js instead of Acusoft",
     url: "https://github.com/trialview/v2/issues/2565", labels: [],
+    assignees: [{ login: "bojantv" }], assignedToOwner: true,
+  };
+}
+
+// The same issue with nobody assigned — trialview/v2#2539's shape. This is the
+// item that must never start work of its own accord.
+function unassignedIssue() {
+  return {
+    number: 2539, title: "Download function on Bundle K is not working",
+    url: "https://github.com/trialview/v2/issues/2539", labels: [],
+    assignees: [], assignedToOwner: false,
   };
 }
 
@@ -925,6 +946,66 @@ test("a second tick over the same board work creates no second execution", async
       "the admitted candidate must not be admitted a second time");
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// --- Strict ownership -------------------------------------------------------
+//
+// The eligibility contract: automatic pickup requires work the owner has taken
+// on. An unassigned board item is not that, whatever its class or the project's
+// autonomy. trialview/v2#2539 was unassigned, was proposed bug/auto, and
+// produced PR #2591 — an artifact nobody had asked for.
+test("unassigned board work never launches and never reaches a binding", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, unassignedIssue());
+  try {
+    var result = await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(h.started, [], "unassigned work must never start");
+    assert.deepStrictEqual(h.executions, [],
+      "unassigned work must never be admitted through a binding");
+    assert.strictEqual(result.skipped.length, 1);
+    assert.strictEqual(result.unassignedSkipped, 1, "the skip must be attributable");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// Ownership is proof, not an assumption. An item the fetch layer could not
+// stamp — an unresolvable gh login, a source that carries no assignees — is
+// refused rather than treated as the owner's.
+test("board work with unproven ownership is refused, not assumed", async function () {
+  var unstamped = unlabeledIssue();
+  delete unstamped.assignedToOwner;
+  var h = makeIdleBoardHarness({ type: "bug" }, unstamped);
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(h.started, []);
+    assert.deepStrictEqual(h.executions, [],
+      "an unstamped item must not be admitted");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// Ownership is checked outside the Coop gate, because the gate short-circuits
+// to legacy behavior with Lead mode off — and "must never auto-launch" has to
+// hold in both modes. Under Lead OFF an ASSIGNED item still launches, so this
+// proves the check discriminates rather than simply blocking everything.
+test("lead mode off still refuses unassigned work but launches assigned work", async function () {
+  var blocked = makeIdleBoardHarness({ type: "bug" }, unassignedIssue(), { leadMode: false });
+  try {
+    await blocked.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(blocked.started, [],
+      "legacy mode is not an exemption from ownership");
+  } finally {
+    fs.rmSync(blocked.cwd, { recursive: true, force: true });
+  }
+  var allowed = makeIdleBoardHarness({ type: "bug" }, unlabeledIssue(), { leadMode: false });
+  try {
+    await allowed.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(allowed.started, [2565],
+      "legacy mode must still run the owner's own assigned work");
+  } finally {
+    fs.rmSync(allowed.cwd, { recursive: true, force: true });
   }
 });
 
@@ -1014,7 +1095,7 @@ function makeVendorLaunchHarness(rejectedVendors, weights) {
     sm: { sessions: new Map(), broadcastSessionList: function () {} },
     getTaskLauncher: function () { return launcher; },
     rateLimitCache: { liveEntries: function () { return entries; } },
-    fetchItems: function () { return [{ number: 1, url: "https://github.com/o/r/issues/1" }]; },
+    fetchItems: function () { return [{ number: 1, url: "https://github.com/o/r/issues/1", assignedToOwner: true }]; },
   });
   return { autoLaunch: autoLaunch, cwd: cwd, launched: launched };
 }

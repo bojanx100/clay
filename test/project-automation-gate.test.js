@@ -77,14 +77,25 @@ function makeGate(options) {
   return { gate: gate, dir: dir, candidates: candidates };
 }
 
+// Board fixtures are the owner's OWN assigned work, because that is the only
+// work automatic pickup may consider at all. `assignedToOwner` is the proof
+// project-task-sources stamps on each item; the unassigned case is covered
+// deliberately by the ownership tests rather than leaking into every fixture.
 function bug(key) {
-  return { itemKey: key, item: { labels: [{ name: "bug" }] }, recipeKind: "issue" };
+  return { itemKey: key, item: { labels: [{ name: "bug" }] }, recipeKind: "issue",
+    assignedToOwner: true };
 }
 function feature(key) {
-  return { itemKey: key, item: { labels: [{ name: "feature" }] }, recipeKind: "issue" };
+  return { itemKey: key, item: { labels: [{ name: "feature" }] }, recipeKind: "issue",
+    assignedToOwner: true };
 }
 function unlabeled(key) {
-  return { itemKey: key, item: { labels: [] }, recipeKind: "issue" };
+  return { itemKey: key, item: { labels: [] }, recipeKind: "issue",
+    assignedToOwner: true };
+}
+function unassigned(key) {
+  return { itemKey: key, item: { labels: [{ name: "bug" }] }, recipeKind: "issue",
+    recipeType: "bug", assignedToOwner: false };
 }
 function evidence() {
   return { status: "completed", summary: "fixed", verification: "suite green", escalationRequired: "no" };
@@ -107,7 +118,8 @@ test("a project's own bug autonomy yields a candidate, never a launch", function
 test("no launch decision can ever be execute under lead mode on", function () {
   var h = makeGate({ cwd: workspace([BUG_RECIPE, PR_RECIPE]) });
   var probes = [bug("a#1"), feature("a#2"), unlabeled("a#3"),
-    { itemKey: "a#4", item: { labels: [{ name: "bug" }] }, recipeKind: "pr-reviews" }];
+    { itemKey: "a#4", item: { labels: [{ name: "bug" }] }, recipeKind: "pr-reviews",
+      assignedToOwner: true }];
   for (var i = 0; i < probes.length; i++) {
     assert.notStrictEqual(h.gate.evaluateLaunch(probes[i]).decision, "execute",
       "probe " + i + " must not authorize a local launch");

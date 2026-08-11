@@ -26,12 +26,19 @@ var automationAudit = require("../lib/project-automation-audit");
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 
 // trialview/v2#2517: assigned bug, Backlog, eligible.
+//
+// `assignedToOwner` is the stamp project-task-sources puts on each item once it
+// has matched the issue's assignees against a RESOLVED login. The fixture always
+// described this issue as assigned; it just never modeled the proof, and every
+// eligibility decision downstream now requires it.
 function issue2517() {
   return {
     number: 2517,
     title: "Backlog bug that Coop never surfaced",
     url: "https://github.com/trialview/v2/issues/2517",
     labels: [{ name: "bug" }],
+    assignees: [{ login: "bojantv" }],
+    assignedToOwner: true,
     projectItems: [{ status: { name: "Backlog" } }],
   };
 }
