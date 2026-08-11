@@ -799,6 +799,173 @@ test("lead mode on: a broken project policy proposes nothing", async function ()
   }
 });
 
+// --- The idle-board regression ----------------------------------------------
+//
+// Webapp's board sat idle for days with Lead mode ON: every tick proposed the
+// same work and every candidate landed as `owner_approval`/`awaiting_owner`, so
+// admission deferred it forever and nothing ever launched. The project's own
+// policy DID grant `bug: autonomous` — derived from its `assigned-to-me` recipe
+// declaring `filter.type: "bug"` — but that filter excludes feature/legacy
+// labels rather than requiring a `bug` one, so the issues it returns carry no
+// label at all. Classification read labels only, so it answered "ambiguous" for
+// every one of them and the grant was unreachable by construction.
+//
+// The fixture below is the production shape: a bug-scoped recipe returning an
+// UNLABELED issue. It is deliberately not the labeled item the older cutover
+// tests use, because a `bug` label is exactly what hid this defect from them.
+function makeIdleBoardHarness(recipeFilter, item) {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-idle-board-"));
+  var tasksDir = path.join(cwd, ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  var recipe = {
+    id: "assigned-to-me",
+    source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+    launch: { defaultLimit: 10 },
+    session: {},
+    completion: {},
+    filter: recipeFilter || {},
+  };
+  fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
+  fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+    autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *" },
+  }));
+  var started = [];
+  var launcher = {
+    loadRecipe: function () { return recipe; },
+    findExistingSessionForItem: function () { return null; },
+    findAnyLiveSessionForItem: function () { return null; },
+    findAnyVisibleSessionForItem: function () { return null; },
+    startSessionForItem: function (ws, r, i) { started.push(i.number); return { localId: i.number }; },
+  };
+  // Behaves like the real binding store: the same (portfolioTaskId, revision)
+  // replays instead of creating a second execution.
+  var bound = {};
+  var executions = [];
+  var crossProject = {
+    coopSessionRef: function () {
+      return { projectId: "system-lead", sessionStorageId: "coop-home-live" };
+    },
+    getExecutionBinding: function (taskId, revision) {
+      return bound[taskId + ":" + revision] || null;
+    },
+    createProjectExecution: function (input) {
+      executions.push(input);
+      var key = input.portfolioTaskId + ":" + input.bindingRevision;
+      if (bound[key]) return { ok: false, reason: "active_binding_exists" };
+      bound[key] = {
+        portfolioTaskId: input.portfolioTaskId,
+        bindingRevision: input.bindingRevision,
+        mode: input.mode,
+        idempotencyKey: input.idempotencyKey,
+        targetProject: input.targetProject,
+        status: "active",
+      };
+      return { ok: true, binding: bound[key] };
+    },
+  };
+  var autoLaunch = attachAutoLaunch({
+    cwd: cwd,
+    slug: "webapp",
+    sm: {
+      sessions: new Map(),
+      broadcastSessionList: function () {},
+      getProjectId: function () { return CUTOVER_PROJECT; },
+    },
+    getTaskLauncher: function () { return launcher; },
+    getLeadMode: function () { return true; },
+    crossProject: crossProject,
+    fetchItems: function () { return [item]; },
+  });
+  return {
+    autoLaunch: autoLaunch, started: started, executions: executions,
+    cwd: cwd, crossProject: crossProject,
+  };
+}
+
+// An unlabeled issue, exactly as `gh issue list` returns it for this board.
+function unlabeledIssue() {
+  return {
+    number: 2565, title: "PDF.js instead of Acusoft",
+    url: "https://github.com/trialview/v2/issues/2565", labels: [],
+  };
+}
+
+test("bug-scoped board work auto-launches through the canonical binding", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, unlabeledIssue());
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    // The controller itself still launches nothing — Coop owns that.
+    assert.deepStrictEqual(h.started, [], "a project controller may not launch");
+    // What must change is that the work is ADMITTED rather than parked on the
+    // owner. Before the fix this array was empty and the candidate sat in
+    // awaiting_owner forever, which is precisely the idle board.
+    assert.strictEqual(h.executions.length, 1, "eligible board work must reach a binding");
+    var request = h.executions[0];
+    assert.strictEqual(request.mode, "project_coordinator");
+    assert.strictEqual(request.targetProject.projectId, CUTOVER_PROJECT,
+      "the binding must target this project, never another");
+    assert.strictEqual(request.source.projectId, "system-lead",
+      "the binding must be attributed to the live Coop session");
+    assert.strictEqual(request.bindingRevision, 1);
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// Idempotency is the other half: restoring pickup must not restore duplicate
+// execution. A second tick re-proposes the same item (the controller is
+// stateless and must), and it has to resolve to the SAME binding.
+test("a second tick over the same board work creates no second execution", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, unlabeledIssue());
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(h.started, []);
+    assert.strictEqual(h.executions.length, 1,
+      "the admitted candidate must not be admitted a second time");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// The containment half. A project whose recipe declares no scope has granted no
+// autonomy, so its work must still stop at the owner gate and reach no binding.
+test("unscoped board work stays owner-gated and reaches no binding", async function () {
+  var h = makeIdleBoardHarness({}, unlabeledIssue());
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(h.started, []);
+    assert.deepStrictEqual(h.executions, [],
+      "work no policy made autonomous must never be admitted automatically");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// PR-review work is owner-gated by derivation and must stay that way even when
+// the same project also runs a bug-scoped issue launcher.
+test("pr-review work is not swept up by a project's bug autonomy", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, unlabeledIssue());
+  try {
+    var gate = createAutomationGate({
+      cwd: h.cwd, slug: "webapp", projectRef: { projectId: CUTOVER_PROJECT },
+      policyTtlMs: 0, getLeadMode: function () { return true; },
+      emitCandidate: function () { return { ok: true, created: true, changed: true }; },
+      audit: automationAudit.createAutomationAudit({
+        file: path.join(h.cwd, "pr-audit.jsonl"), slug: "webapp",
+      }),
+    });
+    var decision = gate.evaluateLaunch({
+      itemKey: "trialview/v2#2356", item: { labels: [] },
+      recipeKind: "pr-reviews", recipeType: "bug",
+    });
+    assert.strictEqual(decision.requiresApproval, true,
+      "PR lifecycle work must stay owner-gated regardless of recipe scope");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
 // A hidden (archived) session must not block a relaunch — otherwise archiving a
 // wrongly-launched session would permanently prevent the issue from being taken
 // by the correct recipe.

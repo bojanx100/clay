@@ -409,6 +409,53 @@ test("an unlabeled item is ambiguous capability work, never a bug", function () 
   assert.strictEqual(authority.classifyAutomationItem({}, null), "ambiguous");
 });
 
+// The idle-board regression. project-automation-policy.deriveAutonomy grants
+// `bug: autonomous` on the evidence that a recipe declares `filter.type: "bug"`,
+// but that filter works by EXCLUDING feature/legacy labels rather than requiring
+// a `bug` one — so the launcher legitimately returns unlabeled bug work. While
+// classification read labels alone, every one of those items became "ambiguous"
+// -> owner_approval, and the grant the project's own policy made could never be
+// reached by the recipe that earned it. The board stayed idle indefinitely.
+test("an unlabeled item from a bug-scoped recipe is bug work, not ambiguous", function () {
+  assert.strictEqual(
+    authority.classifyAutomationItem({ labels: [] }, "issue", "bug"), "bug");
+  assert.strictEqual(
+    authority.classifyAutomationItem({}, "issue", "bug"), "bug");
+});
+
+test("a feature-scoped or legacy-scoped recipe classifies its unlabeled work as feature", function () {
+  assert.strictEqual(
+    authority.classifyAutomationItem({ labels: [] }, "issue", "feature"), "feature");
+  assert.strictEqual(
+    authority.classifyAutomationItem({ labels: [] }, "issue", "legacy"), "feature");
+});
+
+// The recipe's scope is a fallback for an item that says nothing about itself.
+// An item that DOES carry a decisive label still decides its own class, and
+// still fails toward the stricter one, so a bug-scoped recipe can never
+// reclassify capability work as an autonomous bug.
+test("an item's own label outranks the scope its recipe declares", function () {
+  assert.strictEqual(
+    authority.classifyAutomationItem({ labels: ["feature"] }, "issue", "bug"), "feature");
+  assert.strictEqual(
+    authority.classifyAutomationItem({ labels: ["legacy"] }, "issue", "bug"), "feature");
+});
+
+// Recipe scope must never reach PR-lifecycle work: source kind is still first.
+test("recipe scope cannot promote pr-review work out of its own class", function () {
+  assert.strictEqual(
+    authority.classifyAutomationItem({ labels: [] }, "pr-reviews", "bug"), "pr_review");
+});
+
+// An unscoped recipe grants nothing, so its work stays owner-gated. This is the
+// half of the fix that keeps it from widening authority for any other project.
+test("an unscoped recipe leaves unlabeled work ambiguous", function () {
+  assert.strictEqual(authority.classifyAutomationItem({ labels: [] }, "issue", ""), "ambiguous");
+  assert.strictEqual(authority.classifyAutomationItem({ labels: [] }, "issue", null), "ambiguous");
+  assert.strictEqual(
+    authority.classifyAutomationItem({ labels: [] }, "issue", "something-else"), "ambiguous");
+});
+
 // --- Audit -------------------------------------------------------------------
 
 test("every decision carries an audit record identifying policy and project", function () {
