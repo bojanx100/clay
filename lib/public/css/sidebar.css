@@ -1145,33 +1145,18 @@
   text-transform: uppercase;
 }
 
-/* The state reads as words first. It was colour-only before, which rendered 41
-   identical dots with nothing to tell them apart. Now the words live on a quiet
-   secondary meta line under the title: the title is the primary row content and
-   the state never competes with it, never truncates (the label set is closed
-   and short), and never repeats as a loud bordered pill down the whole list. */
-.coop-topic-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 0 8px 2px 9px;
-}
-
-.coop-topic-activity {
-  flex: 0 0 auto;
-  font-size: 10px;
-  line-height: 1.5;
-  white-space: nowrap;
-}
-.coop-topic-activity-working { color: var(--text-dimmer); }
-.coop-topic-activity-needs_input { color: var(--warning, #d99824); }
-.coop-topic-activity-done { color: var(--success, #3fb950); }
+/* Status dot is now inline within the row, providing visual feedback without
+   a separate secondary line. The accessible name still includes the state via
+   aria-label, and a tooltip provides the full text on hover. */
 
 .coop-topic-wrapper { margin: 3px 0 4px; }
 .coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
-.coop-topic-row { min-height: 28px; gap: 6px; padding: 6px 8px 3px 9px; font-size: 12px; }
+.coop-topic-row { min-height: 28px; gap: 4px; padding: 6px 8px 3px 9px; font-size: 12px; }
+/* The title is the primary row content: one line, full width, ellipsized. */
+.coop-topic-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Status dot is compact (6x6px) and sits inline after the title. Animates with
+   pulse only when actively working; other states are static. The title attribute
+   provides tooltip accessibility. */
 .coop-topic-status { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--text-dimmer); }
 .coop-topic-status-active,
 .coop-topic-status-running { background: var(--accent); }
@@ -1181,8 +1166,20 @@
 .coop-topic-status-closed,
 .coop-topic-status-archived { background: var(--text-dimmer); }
 .coop-topic-wrapper.attention .coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }
-/* The title is the primary row content: one line, full width, ellipsized. */
-.coop-topic-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Pulse animation for working state: only when actively in progress. */
+.coop-topic-status[data-animating="working"] {
+  animation: coop-topic-status-pulse 1.2s ease-in-out infinite;
+}
+/* Respect prefers-reduced-motion by disabling animation. */
+@media (prefers-reduced-motion: reduce) {
+  .coop-topic-status[data-animating="working"] {
+    animation: none;
+  }
+}
+@keyframes coop-topic-status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.2); }
+}
 
 .coop-topic-unread { flex: 0 0 auto; padding: 1px 5px; border-radius: 8px; background: rgba(var(--accent-rgb), .14); color: var(--accent); font-size: 9px; }
 

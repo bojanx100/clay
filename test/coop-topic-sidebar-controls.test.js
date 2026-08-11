@@ -656,30 +656,36 @@ test("the decision panel and Done disclosure keep their accessible wiring", func
 
 // --- Topic-row layout contract (title primary, quiet meta line, one overflow) ---
 
-test("the topic row keeps the title primary and the state on a quiet secondary line", function () {
+test("the topic row keeps the title primary and shows status as an inline dot", function () {
   var topics = source("sidebar-coop-topics.js");
-  // The title is the only content of the row button besides the unread badge:
-  // no dot, no state pill competing with it on the title line.
+  // The title is the primary content; the status dot is now inline within the
+  // row button for a single compact row. No secondary meta line is created.
   var rowBuilder = topics.slice(topics.indexOf("function createTopicRow("));
   rowBuilder = rowBuilder.slice(0, rowBuilder.indexOf("\nfunction ", 1));
   assert.ok(rowBuilder.indexOf("row.appendChild(title)") !== -1);
-  assert.ok(rowBuilder.indexOf("meta.appendChild(activityEl)") !== -1,
-    "the state text renders on the meta line, not inside the row button");
-  assert.ok(rowBuilder.indexOf("meta.appendChild(marker)") !== -1,
-    "the reinforcing dot lives on the meta line beside its words");
-  // The row's accessible name still announces the state even though it moved
-  // visually below the title.
+  assert.ok(rowBuilder.indexOf("row.appendChild(marker)") !== -1,
+    "the status dot is appended to the row button, not to a secondary meta line");
+  assert.doesNotMatch(rowBuilder, /meta\.appendChild\(activityEl\)|meta\.appendChild\(marker\)/,
+    "no meta line or activity text is rendered");
+  assert.doesNotMatch(rowBuilder, /createTopicReviewControl/);
+  // The row's accessible name still announces the state even though only the
+  // dot is visible.
   assert.ok(rowBuilder.indexOf("topicAriaLabel(topic, activity)") !== -1);
-  // The meta line follows the omit-empty-wrapper rule and carries nothing but
-  // the state: no decision verbs and no Review affordance render in the
-  // sidebar. Decisions live in the topic decision surface.
-  assert.match(topics, /if \(activity\) \{\s*var meta = document\.createElement\("div"\);/);
-  assert.doesNotMatch(topics, /createTopicReviewControl/);
-  // No loud pill treatment returns: the desktop state text is plain words.
+  // The dot has a title attribute for tooltip and animation attribute only for
+  // working state.
+  assert.match(rowBuilder, /marker\.setAttribute\("title", activity\)/);
+  assert.match(rowBuilder, /marker\.setAttribute\("data-animating", "working"\)/);
+  // No status text appears anywhere in the row.
+  assert.doesNotMatch(topics, /\.coop-topic-activity {/);
+  assert.doesNotMatch(topics, /\.coop-topic-meta {/);
+  // Mobile uses the same structure with mobile class names.
+  var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"), "utf8");
+  assert.doesNotMatch(mobile, /\.mobile-coop-topic-activity {/);
+  assert.doesNotMatch(mobile, /\.mobile-coop-topic-meta {/);
+  // Dot animation respects prefers-reduced-motion.
   var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
-  var activityRule = css.slice(css.indexOf(".coop-topic-activity {"));
-  activityRule = activityRule.slice(0, activityRule.indexOf("}"));
-  assert.doesNotMatch(activityRule, /text-transform: uppercase|border:/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(css, /\.coop-topic-status\[data-animating="working"\] \{[\s\S]*animation: none/);
 });
 
 test("Close and Reopen live behind one overflow menu with the confirm gate intact", function () {
@@ -702,13 +708,19 @@ test("Close and Reopen live behind one overflow menu with the confirm gate intac
   assert.doesNotMatch(topics, /createTopicCloseButton/);
 });
 
-test("both surfaces style the meta line and the overflow menu", function () {
+test("both surfaces style the overflow menu; meta line is removed", function () {
   var desktop = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
   var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"), "utf8");
-  ["coop-topic-meta", "coop-topic-menu-toggle", "coop-topic-menu-list", "coop-topic-menu-item"].forEach(function (name) {
+  // The overflow menu still exists and is styled on both surfaces.
+  ["coop-topic-menu-toggle", "coop-topic-menu-list", "coop-topic-menu-item"].forEach(function (name) {
     assert.ok(desktop.indexOf("." + name) !== -1, "desktop styles ." + name);
     assert.ok(mobile.indexOf(".mobile-" + name) !== -1, "mobile styles .mobile-" + name);
   });
+  // The meta line and activity styles are removed (dot is now inline).
+  assert.doesNotMatch(desktop, /\.coop-topic-meta/);
+  assert.doesNotMatch(desktop, /\.coop-topic-activity/);
+  assert.doesNotMatch(mobile, /\.mobile-coop-topic-meta/);
+  assert.doesNotMatch(mobile, /\.mobile-coop-topic-activity/);
   // Touch has no hover: the mobile toggle must not be hover-revealed and must
   // keep a 42px target.
   assert.match(mobile, /\.mobile-coop-topic-menu-toggle \{[^}]*min-height: 42px/);
