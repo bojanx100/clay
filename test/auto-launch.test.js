@@ -835,7 +835,10 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
   };
   fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
   fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
-    autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *" },
+    autoLaunch: {
+      enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *",
+      maxConcurrent: settings.maxConcurrent || 5,
+    },
   }));
   var started = [];
   var launcher = {
@@ -871,22 +874,34 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
       return { ok: true, binding: bound[key] };
     },
   };
-  var autoLaunch = attachAutoLaunch({
-    cwd: cwd,
-    slug: "webapp",
-    sm: {
-      sessions: new Map(),
-      broadcastSessionList: function () {},
-      getProjectId: function () { return CUTOVER_PROJECT; },
-    },
-    getTaskLauncher: function () { return launcher; },
-    getLeadMode: function () { return leadMode; },
-    crossProject: crossProject,
-    fetchItems: function () { return [item]; },
-  });
+  // One or many items — the concurrency tests need a board, not a single issue.
+  var items = Array.isArray(item) ? item : [item];
+  function buildAutoLaunch() {
+    return attachAutoLaunch({
+      cwd: cwd,
+      slug: "webapp",
+      sm: {
+        sessions: new Map(),
+        broadcastSessionList: function () {},
+        getProjectId: function () { return CUTOVER_PROJECT; },
+      },
+      getTaskLauncher: function () { return launcher; },
+      getLeadMode: function () { return leadMode; },
+      crossProject: crossProject,
+      fetchItems: function () { return items; },
+    });
+  }
+  var autoLaunch = buildAutoLaunch();
   return {
     autoLaunch: autoLaunch, started: started, executions: executions,
-    cwd: cwd, crossProject: crossProject,
+    cwd: cwd, crossProject: crossProject, bound: bound, launcher: launcher,
+    // A fresh controller over the SAME durable project state, i.e. a restart.
+    restart: function () { return buildAutoLaunch(); },
+    // Marks an admitted item's binding terminal, the way a finishing worker
+    // does. This is what has to free a slot.
+    finish: function (portfolioTaskId) {
+      bound[portfolioTaskId + ":1"].status = "completed";
+    },
   };
 }
 
@@ -1044,6 +1059,428 @@ test("pr-review work is not swept up by a project's bug autonomy", async functio
       "PR lifecycle work must stay owner-gated regardless of recipe scope");
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// --- The canonical pickup policy --------------------------------------------
+//
+// Webapp automation scans the board continuously and starts eligible issues the
+// owner is already assigned, holding a safe concurrency level and refilling it
+// as workers finish. It does not wait for a Lead tick or a manual steer, it
+// survives restarts without duplicating work, and the owner's explicit word
+// about one item outranks all of it.
+
+var overridesModule = require("../lib/project-automation-overrides");
+
+function assignedIssue(number) {
+  return {
+    number: number, title: "Board item " + number,
+    url: "https://github.com/trialview/v2/issues/" + number, labels: [],
+    assignees: [{ login: "bojantv" }], assignedToOwner: true,
+  };
+}
+
+// 1. An assigned, eligible board change triggers a launch — with no Lead tick,
+//    no manual steer, and nothing driving it but the scan itself.
+test("an assigned eligible board change launches on the scan alone", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, assignedIssue(2565));
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 1,
+      "the scan alone must put the work in flight");
+    assert.strictEqual(h.executions[0].targetProject.projectId, CUTOVER_PROJECT);
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// 3. Concurrency is a LEVEL, not a per-scan quota: it fills to the limit, holds
+//    there while work is in flight, and refills as workers finish.
+test("concurrency holds at the limit and backfills as workers complete", async function () {
+  var board = [assignedIssue(1), assignedIssue(2), assignedIssue(3), assignedIssue(4)];
+  var h = makeIdleBoardHarness({ type: "bug" }, board, { maxConcurrent: 2 });
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 2,
+      "only the limit may be in flight, however much the board offers");
+
+    // A second scan changes nothing while both slots are still occupied.
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 2,
+      "a full system must not accumulate work every tick");
+
+    // A worker finishes. Its slot must be reused, not leaked.
+    h.finish(h.executions[0].portfolioTaskId);
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 3, "a freed slot must backfill");
+
+    h.finish(h.executions[1].portfolioTaskId);
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 4, "and keep backfilling");
+
+    // Every admission is a distinct item: backfill must not re-run finished work.
+    var ids = h.executions.map(function (e) { return e.portfolioTaskId; });
+    assert.strictEqual(new Set(ids).size, 4, "no item may be executed twice");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// 4. A restart resumes scanning and is idempotent: the durable candidate and
+//    binding state mean the same board yields no second execution.
+test("a restart resumes scanning without re-executing admitted work", async function () {
+  var board = [assignedIssue(1), assignedIssue(2)];
+  var h = makeIdleBoardHarness({ type: "bug" }, board, { maxConcurrent: 5 });
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 2);
+
+    var restarted = h.restart();
+    await restarted.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 2,
+      "a restarted controller must replay, never duplicate");
+
+    // And it is still LIVE after the restart: finishing one backfills the next.
+    h.finish(h.executions[0].portfolioTaskId);
+    await restarted.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 2,
+      "nothing left to take, so nothing new is executed");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// The schedule is what makes scanning continuous, and it is re-established at
+// attach time — so a restart resumes scanning without anyone asking it to.
+test("the scan schedule is re-established on attach, not on a steer", function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, assignedIssue(1));
+  try {
+    var registered = [];
+    var reg = {
+      getById: function () { return null; },
+      register: function (record) { registered.push(record); },
+      updateRecord: function () {},
+      nextRunTime: function () { return 0; },
+    };
+    var withRegistry = attachAutoLaunch({
+      cwd: h.cwd, slug: "webapp", loopRegistry: reg,
+      sm: { sessions: new Map(), getProjectId: function () { return CUTOVER_PROJECT; } },
+      getTaskLauncher: function () { return null; },
+      getLeadMode: function () { return true; },
+      fetchItems: function () { return []; },
+    });
+    withRegistry.ensureSchedule();
+    assert.strictEqual(registered.length, 1, "attaching must restore the scan");
+    assert.strictEqual(registered[0].mode, "autolaunch");
+    assert.strictEqual(registered[0].enabled, true);
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// 5. The owner's explicit word wins — in both directions.
+test("an explicit owner exclusion beats assignment and every automatic rule", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, assignedIssue(2565));
+  try {
+    var written = overridesModule.createOverrideStore({ cwd: h.cwd })
+      .set("trialview/v2#2565", "exclude", { by: "bojan", reason: "handling this myself" });
+    assert.strictEqual(written.ok, true);
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(h.started, []);
+    assert.deepStrictEqual(h.executions, [],
+      "an owner exclusion must stop work the rules would otherwise run");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("an explicit owner inclusion runs one unassigned item without widening the rule", async function () {
+  var board = [unassignedIssue(), assignedIssue(2565)];
+  var h = makeIdleBoardHarness({ type: "bug" }, board);
+  try {
+    // Only #2539 is named. #2565 is assigned and eligible on its own.
+    overridesModule.createOverrideStore({ cwd: h.cwd })
+      .set("trialview/v2#2539", "include", { by: "bojan", reason: "one-off continuation" });
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 2, "the named item and the assigned one both run");
+
+    // The rule itself is untouched: a DIFFERENT unassigned item stays idle.
+    var other = makeIdleBoardHarness({ type: "bug" }, unassignedIssue());
+    try {
+      await other.autoLaunch.launchScheduled("assigned-to-me");
+      assert.deepStrictEqual(other.executions, [],
+        "one authorized exception must not make unassigned work eligible in general");
+    } finally {
+      fs.rmSync(other.cwd, { recursive: true, force: true });
+    }
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// An include waives ASSIGNMENT and nothing else. Work the project's own policy
+// sends to the owner still goes to the owner.
+test("an owner inclusion does not waive the approval gate", async function () {
+  // An unscoped recipe grants no autonomy, so this class is owner-gated.
+  var h = makeIdleBoardHarness({}, unassignedIssue());
+  try {
+    overridesModule.createOverrideStore({ cwd: h.cwd })
+      .set("trialview/v2#2539", "include", { by: "bojan" });
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(h.executions, [],
+      "an include is not an approval — the approval gate still holds");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// An unreadable override file must not read as "no exclusions".
+test("an unreadable override file stops the scan rather than ignoring exclusions", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, assignedIssue(2565));
+  try {
+    fs.writeFileSync(path.join(h.cwd, ".clay", "tasks", "automation-overrides.json"), "{ broken");
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(h.executions, [],
+      "instructions we cannot read must not be assumed absent");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// Work already in flight is not picked up again, whatever the board says. The
+// scan is stateless and re-offers the same item every tick, so this is what
+// stops a continuously-scanning launcher from launching continuously.
+test("an item already live under any recipe is not launched again", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, assignedIssue(2565));
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 1);
+    // Now the item is live somewhere. The next scan must leave it alone even
+    // though it is still assigned, still eligible, and still on the board.
+    h.launcher.findAnyLiveSessionForItem = function () { return { localId: 99 }; };
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 1, "in-flight work must not be re-taken");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// PR-backed work: once an issue's fix is open as a PR the board moves it out of
+// a ready status, and the exclusion is applied while FETCHING — so the launch
+// loop never sees it at all. Asserted at the source, where it happens.
+test("PR-backed board work is excluded before the launcher ever sees it", function () {
+  var taskSources = require("../lib/project-task-sources");
+  var recipe = {
+    id: "assigned-to-me",
+    source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+    filter: {
+      type: "bug", assigned: "me",
+      skipProjectStatuses: ["Done", "In Progress", "Dev Complete", "Ready for production"],
+    },
+  };
+  function issue(number, status) {
+    return {
+      number: number, title: "n", labels: [{ name: "bug" }],
+      assignees: [{ login: "bojantv" }],
+      projectItems: [{ status: { name: status } }],
+    };
+  }
+  // The PR-backed states.
+  assert.strictEqual(taskSources.issueMatches(recipe, {}, issue(2539, "Dev Complete"), "bojantv"), false,
+    "an issue whose fix is already a PR must not be re-taken");
+  assert.strictEqual(taskSources.issueMatches(recipe, {}, issue(2540, "Ready for production"), "bojantv"), false);
+  assert.strictEqual(taskSources.issueMatches(recipe, {}, issue(2541, "In Progress"), "bojantv"), false);
+  // And the one that is genuinely available still is.
+  assert.strictEqual(taskSources.issueMatches(recipe, {}, issue(2565, "Backlog"), "bojantv"), true);
+});
+
+// The full standing contract, end to end, through the REAL cross-project router
+// and the REAL portfolio binding store — no fake in the admission path. This is
+// the test that proves the repaired pipeline actually lands a canonical
+// ProjectRef binding on disk rather than merely satisfying a stub.
+test("end to end: a scan lands a real canonical binding, exactly once", async function () {
+  var serverCrossProject = require("../lib/server-cross-project");
+  var projectIdentity = require("../lib/project-identity");
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-"));
+  try {
+    var tasksDir = path.join(cwd, ".clay", "tasks");
+    fs.mkdirSync(tasksDir, { recursive: true });
+    var recipe = {
+      id: "assigned-to-me",
+      source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+      launch: { defaultLimit: 10 }, session: {}, completion: {},
+      filter: { type: "bug", assigned: "me" },
+    };
+    fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
+    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+      autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
+    }));
+
+    var bindingFile = path.join(cwd, "bindings.json");
+    var delivered = [];
+    // The Lead project, holding the live Coop home session the router resolves
+    // admission's source ref from. Nothing here is fabricated by the project.
+    var leadContext = {
+      getProjectId: function () { return projectIdentity.LEAD_PROJECT_ID; },
+      getSessionManager: function () {
+        var sessions = new Map();
+        sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
+        return { sessions: sessions };
+      },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    };
+    var targetContext = {
+      getProjectId: function () { return CUTOVER_PROJECT; },
+      getSessionManager: function () { return { sessions: new Map() }; },
+      // The target reports the coordinator it actually started, as a full
+      // SessionRef. The router commits the binding to THAT ref — a delivery
+      // that cannot name a session never gets a committed binding at all.
+      deliverCrossProjectEnvelope: function (envelope) {
+        delivered.push(envelope);
+        return {
+          ok: true, created: true, localSessionId: 7,
+          sessionRef: { projectId: CUTOVER_PROJECT, sessionStorageId: "coordinator-session" },
+        };
+      },
+    };
+    var router = serverCrossProject.createCrossProjectRouter({
+      bindingFile: bindingFile,
+      getProjectContextById: function (projectId) {
+        if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
+        if (projectId === CUTOVER_PROJECT) return targetContext;
+        return null;
+      },
+    });
+
+    var autoLaunch = attachAutoLaunch({
+      cwd: cwd, slug: "webapp",
+      sm: {
+        sessions: new Map(), broadcastSessionList: function () {},
+        getProjectId: function () { return CUTOVER_PROJECT; },
+      },
+      getTaskLauncher: function () {
+        return {
+          loadRecipe: function () { return recipe; },
+          findExistingSessionForItem: function () { return null; },
+          findAnyLiveSessionForItem: function () { return null; },
+          findAnyVisibleSessionForItem: function () { return null; },
+          startSessionForItem: function () { throw new Error("the controller must not launch"); },
+        };
+      },
+      getLeadMode: function () { return true; },
+      crossProject: router,
+      fetchItems: function () { return [assignedIssue(2565)]; },
+    });
+
+    await autoLaunch.launchScheduled("assigned-to-me");
+
+    // The binding is real, committed, on disk, and targets THIS project.
+    var persisted = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
+    assert.strictEqual(persisted.bindings.length, 1, "the scan must land exactly one binding");
+    var binding = persisted.bindings[0];
+    assert.strictEqual(binding.mode, "project_coordinator");
+    assert.strictEqual(binding.status, "active");
+    assert.strictEqual(binding.targetProject.projectId, CUTOVER_PROJECT);
+    assert.strictEqual(delivered.length, 1, "the target project must actually receive the command");
+
+    // And the coordinator session it bound is the one the target reported.
+    assert.strictEqual(binding.coordinator.sessionStorageId, "coordinator-session");
+
+    // Idempotency against the real store: scanning again replays.
+    await autoLaunch.launchScheduled("assigned-to-me");
+    var again = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
+    assert.strictEqual(again.bindings.length, 1, "a second scan must not create a second binding");
+    assert.strictEqual(delivered.length, 1, "nor deliver the work twice");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+// Continuous scanning only works if a failed attempt leaves the work RETRYABLE.
+// A target that cannot start a coordinator must not strand a reserved binding:
+// a stranded `pending` record blocks every later revision with
+// active_binding_exists while being impossible to terminalize, so the item
+// would be lost for good instead of retried on the next scan.
+test("end to end: a delivery that starts no coordinator strands no binding", async function () {
+  var serverCrossProject = require("../lib/server-cross-project");
+  var projectIdentity = require("../lib/project-identity");
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-fail-"));
+  try {
+    var tasksDir = path.join(cwd, ".clay", "tasks");
+    fs.mkdirSync(tasksDir, { recursive: true });
+    var recipe = {
+      id: "assigned-to-me",
+      source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+      launch: { defaultLimit: 10 }, session: {}, completion: {},
+      filter: { type: "bug", assigned: "me" },
+    };
+    fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
+    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+      autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
+    }));
+    var bindingFile = path.join(cwd, "bindings.json");
+    var leadContext = {
+      getProjectId: function () { return projectIdentity.LEAD_PROJECT_ID; },
+      getSessionManager: function () {
+        var sessions = new Map();
+        sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
+        return { sessions: sessions };
+      },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    };
+    var healthy = false;
+    var targetContext = {
+      getProjectId: function () { return CUTOVER_PROJECT; },
+      getSessionManager: function () { return { sessions: new Map() }; },
+      deliverCrossProjectEnvelope: function () {
+        if (!healthy) return { ok: false, reason: "session_start_failed" };
+        return { ok: true, created: true,
+          sessionRef: { projectId: CUTOVER_PROJECT, sessionStorageId: "coordinator-session" } };
+      },
+    };
+    var router = serverCrossProject.createCrossProjectRouter({
+      bindingFile: bindingFile,
+      getProjectContextById: function (projectId) {
+        if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
+        if (projectId === CUTOVER_PROJECT) return targetContext;
+        return null;
+      },
+    });
+    var autoLaunch = attachAutoLaunch({
+      cwd: cwd, slug: "webapp",
+      sm: { sessions: new Map(), broadcastSessionList: function () {},
+        getProjectId: function () { return CUTOVER_PROJECT; } },
+      getTaskLauncher: function () {
+        return {
+          loadRecipe: function () { return recipe; },
+          findExistingSessionForItem: function () { return null; },
+          findAnyLiveSessionForItem: function () { return null; },
+          findAnyVisibleSessionForItem: function () { return null; },
+          startSessionForItem: function () { throw new Error("the controller must not launch"); },
+        };
+      },
+      getLeadMode: function () { return true; },
+      crossProject: router,
+      fetchItems: function () { return [assignedIssue(2565)]; },
+    });
+
+    await autoLaunch.launchScheduled("assigned-to-me");
+    var afterFailure = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
+    var live = afterFailure.bindings.filter(function (b) {
+      return b.status === "active" || b.status === "pending";
+    });
+    assert.deepStrictEqual(live, [], "a failed delivery must leave no live binding behind");
+
+    // The target recovers. The very next scan must pick the item up — the whole
+    // point of a continuous scan is that it heals without anyone intervening.
+    healthy = true;
+    await autoLaunch.launchScheduled("assigned-to-me");
+    var recovered = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
+    var active = recovered.bindings.filter(function (b) { return b.status === "active"; });
+    assert.strictEqual(active.length, 1, "the next scan must recover the work by itself");
+    assert.strictEqual(active[0].targetProject.projectId, CUTOVER_PROJECT);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
 
