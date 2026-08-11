@@ -190,14 +190,12 @@ test("the generic Active copy is gone from the client", function () {
 test("the status dot and aria label only claim what is true", function () {
   var topics = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topics.js"), "utf8");
-  // The dot exists ONLY alongside a truthful label. A "neutral" dot with no
-  // state left every stateless row rendering a floating dot on a reserved blank
-  // status line above the title, which is a claim of nothing occupying space.
-  // The whole meta line follows the same rule: no state means no secondary
-  // line at all (decisions moved to the topic decision surface, so the meta
-  // line carries nothing but the state).
-  assert.match(topics, /if \(activity\) \{\s*var meta = document\.createElement\("div"\);/);
-  assert.match(topics, /var marker = document\.createElement\("span"\);/);
+  // The dot exists ONLY alongside a truthful label. No dot renders for a topic
+  // without a derived state. The dot is now inline within the row (not on a
+  // separate secondary line) for a single compact row per topic.
+  assert.match(topics, /if \(activity\) \{\s*var marker = document\.createElement\("span"\);/);
+  assert.match(topics, /row\.appendChild\(marker\)/);
+  assert.doesNotMatch(topics, /meta = document\.createElement\("div"\)/);
   assert.doesNotMatch(topics, /createTopicReviewControl/);
   assert.doesNotMatch(topics, /topic\.workState \? " coop-topic-status-"/);
   // The aria label no longer announces the durable "open" lifecycle status,
