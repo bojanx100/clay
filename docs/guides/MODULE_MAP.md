@@ -357,6 +357,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-rate-limit.js` | Rate limit UI, countdown timers, scheduled message bubbles, fast mode indicator |
 | `app-cursors.js` | Remote cursor presence, text selection sharing, cursor toggle UI |
 | `app-rendering.js` | Message rendering, streaming, scroll management, pre-thinking dots, suggestion chips, system messages |
+| `message-reply.js` | Shared quoted-reply composition for assistant and user transcript messages, including attachment-only user messages |
 | `app-projects.js` | Project list, switching (including resolved global SessionRef navigation), add/remove project modals, update available pill, topbar presence |
 | `app-panels.js` | Config chip (model/mode/effort/thinking/beta), usage panel, status panel, context panel, context popover |
 | `workspace-panel.js` | Session workspace panel rendering and controls for links, worktree/branch context, dev server state, and task context |
