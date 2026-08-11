@@ -1163,6 +1163,7 @@
 .coop-topic-status-blocked,
 .coop-topic-status-failed,
 .coop-topic-status-needs_input { background: var(--warning, #d99824); }
+.coop-topic-status-done { background: var(--success, #2e9e5b); }
 .coop-topic-status-closed,
 .coop-topic-status-archived { background: var(--text-dimmer); }
 .coop-topic-wrapper.attention .coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }

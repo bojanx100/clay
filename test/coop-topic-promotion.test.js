@@ -200,6 +200,30 @@ test("linked execution work promotes the topic", function () {
   } finally { h.cleanup(); }
 });
 
+test("hidden related sessions do not promote a quiet topic", function () {
+  var h = harness();
+  try {
+    var quiet = quietTopic(h);
+    var execution = {
+      sessionRef: { projectId: CLAY, sessionStorageId: "hidden-session" },
+    };
+    assert.deepEqual(h.index.linkExecution({ topicId: quiet.id }, execution), { ok: true });
+
+    var hidden = isProjected(h.index, quiet.canonical, quiet.id, {
+      resolveRelatedSession: function () { return null; },
+    });
+    assert.equal(hidden, false,
+      "an archived or hidden related session is not owner-visible promotion evidence");
+
+    var visible = isProjected(h.index, quiet.canonical, quiet.id, {
+      resolveRelatedSession: function () {
+        return { topLevel: true, title: "Visible project session" };
+      },
+    });
+    assert.equal(visible, true, "a visible related session still promotes the topic");
+  } finally { h.cleanup(); }
+});
+
 test("a linked task promotes the topic through the state seam", function () {
   // Tasks link to a topic by coopTopicRef rather than through relatedExecutions,
   // so the promotion filter has to see the computed linked-work count.

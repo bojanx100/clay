@@ -686,6 +686,8 @@ test("the topic row keeps the title primary and shows status as an inline dot", 
   var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /\.coop-topic-status\[data-animating="working"\] \{[\s\S]*animation: none/);
+  assert.match(css, /\.coop-topic-status-done \{ background: var\(--success/);
+  assert.doesNotMatch(rowBuilder, /data-animating", "done"/);
 });
 
 test("Close and Reopen live behind one overflow menu with the confirm gate intact", function () {
