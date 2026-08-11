@@ -1301,6 +1301,7 @@ test("PR-backed board work is excluded before the launcher ever sees it", functi
 test("end to end: a scan lands a real canonical binding, exactly once", async function () {
   var serverCrossProject = require("../lib/server-cross-project");
   var projectIdentity = require("../lib/project-identity");
+  var externalTarget = require("../lib/project-task-orchestrator-external");
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-"));
   try {
     var tasksDir = path.join(cwd, ".clay", "tasks");
@@ -1332,11 +1333,15 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     var targetContext = {
       getProjectId: function () { return CUTOVER_PROJECT; },
       getSessionManager: function () { return { sessions: new Map() }; },
-      // The target reports the coordinator it actually started, as a full
-      // SessionRef. The router commits the binding to THAT ref — a delivery
-      // that cannot name a session never gets a committed binding at all.
+      // Validates with the REAL intake function and refuses exactly as
+      // production does. A stub that accepted anything is how a prose-only
+      // payload passed a green suite and then produced 22 unrouted bindings on
+      // the live board: production builds its brief from NAMED fields and
+      // rejects the command outright when `objective` is empty.
       deliverCrossProjectEnvelope: function (envelope) {
         delivered.push(envelope);
+        var brief = externalTarget.executionBrief(envelope.payload || {});
+        if (!brief.objective) return { ok: false, reason: "invalid_payload" };
         return {
           ok: true, created: true, localSessionId: 7,
           sessionRef: { projectId: CUTOVER_PROJECT, sessionStorageId: "coordinator-session" },
@@ -1479,6 +1484,99 @@ test("end to end: a delivery that starts no coordinator strands no binding", asy
     var active = recovered.bindings.filter(function (b) { return b.status === "active"; });
     assert.strictEqual(active.length, 1, "the next scan must recover the work by itself");
     assert.strictEqual(active[0].targetProject.projectId, CUTOVER_PROJECT);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+// The activation regression, stated as a property: A BROKEN ROUTE MUST NOT
+// FAN OUT. The live run put 22 candidates through a limit of 5 because the cap
+// counted successes rather than attempts, so every one reserved and released a
+// durable `unrouted` binding. A limit that only bounds what works does not
+// bound a failure, which is precisely when bounding matters.
+test("end to end: a broken route makes at most maxConcurrent attempts per scan", async function () {
+  var serverCrossProject = require("../lib/server-cross-project");
+  var projectIdentity = require("../lib/project-identity");
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-fanout-"));
+  try {
+    var tasksDir = path.join(cwd, ".clay", "tasks");
+    fs.mkdirSync(tasksDir, { recursive: true });
+    var recipe = {
+      id: "assigned-to-me",
+      source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+      launch: { defaultLimit: 10 }, session: {}, completion: {},
+      filter: { type: "bug", assigned: "me" },
+    };
+    fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
+    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+      autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
+    }));
+    var bindingFile = path.join(cwd, "bindings.json");
+    var leadContext = {
+      getProjectId: function () { return projectIdentity.LEAD_PROJECT_ID; },
+      getSessionManager: function () {
+        var sessions = new Map();
+        sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
+        return { sessions: sessions };
+      },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    };
+    var attempts = 0;
+    var targetContext = {
+      getProjectId: function () { return CUTOVER_PROJECT; },
+      getSessionManager: function () { return { sessions: new Map() }; },
+      // Every route fails, exactly as the live board did.
+      deliverCrossProjectEnvelope: function () {
+        attempts++;
+        return { ok: false, reason: "invalid_payload" };
+      },
+    };
+    var router = serverCrossProject.createCrossProjectRouter({
+      bindingFile: bindingFile,
+      getProjectContextById: function (projectId) {
+        if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
+        if (projectId === CUTOVER_PROJECT) return targetContext;
+        return null;
+      },
+    });
+    // A 22-item board, the size that actually broke.
+    var board = [];
+    for (var i = 0; i < 22; i++) board.push(assignedIssue(2500 + i));
+    var autoLaunch = attachAutoLaunch({
+      cwd: cwd, slug: "webapp",
+      sm: { sessions: new Map(), broadcastSessionList: function () {},
+        getProjectId: function () { return CUTOVER_PROJECT; } },
+      getTaskLauncher: function () {
+        return {
+          loadRecipe: function () { return recipe; },
+          findExistingSessionForItem: function () { return null; },
+          findAnyLiveSessionForItem: function () { return null; },
+          findAnyVisibleSessionForItem: function () { return null; },
+          startSessionForItem: function () { throw new Error("the controller must not launch"); },
+        };
+      },
+      getLeadMode: function () { return true; },
+      crossProject: router,
+      fetchItems: function () { return board; },
+    });
+
+    await autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(attempts, 5,
+      "a failing route must be attempted at most maxConcurrent times, not once per board item");
+    var persisted = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
+    assert.ok(persisted.bindings.length <= 5,
+      "a broken scan must not strand a durable binding per board item, got " +
+      persisted.bindings.length);
+
+    // And the failure must not have eaten capacity: released reservations hold
+    // no worker, so the next scan gets its full budget again rather than
+    // grinding to a permanent halt.
+    var unrouted = persisted.bindings.filter(function (b) { return b.status === "unrouted"; });
+    assert.strictEqual(unrouted.length, persisted.bindings.length,
+      "every failed route must be released, not left live");
+    await autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(attempts, 10,
+      "the next scan must still have its full budget — unrouted must not consume capacity");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

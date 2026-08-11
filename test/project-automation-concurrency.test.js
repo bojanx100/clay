@@ -249,8 +249,26 @@ test("concurrency: no binding reader at all counts every admitted candidate as i
   assert.strictEqual(l.slots().available, 3);
 });
 
+// `unrouted` is NOT an unknown status and must not be treated as one. It is the
+// binding store's positive record that a reservation was released because no
+// task was ever created, which is why it is kept out of CURRENT_STATUSES there.
+// Counting it as in flight leaked capacity permanently: the live activation
+// produced 22 unrouted bindings from one broken scan, and every one of them
+// would have held a slot forever against a limit of 5.
+test("concurrency: an unrouted binding frees its slot — no worker ever started", function () {
+  var l = limiter({
+    candidates: candidateStore([admittedCandidate("a", "task-a")]),
+    getBinding: bindingReader({ "task-a": "unrouted" }),
+    getLimit: function () { return 1; },
+  });
+  assert.strictEqual(l.inFlight().count, 0,
+    "a released reservation holds no worker and so holds no slot");
+  assert.strictEqual(l.slots().available, 1,
+    "a routing failure must cost a retry, never capacity");
+});
+
 test("concurrency: an unknown binding status counts as in flight", function () {
-  var unknown = ["unavailable", "unrouted", "", "weird-new-status"];
+  var unknown = ["unavailable", "", "weird-new-status"];
   for (var i = 0; i < unknown.length; i++) {
     var l = limiter({
       candidates: candidateStore([admittedCandidate("a", "task-a")]),
