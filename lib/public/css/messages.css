@@ -2284,3 +2284,58 @@ body.wide-view .turn-meta {
 .coop-topic-review-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .coop-topic-review-action:disabled { opacity: .5; cursor: default; }
 .coop-topic-review-accept_done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
+
+/* --- Reply-anchor chip -------------------------------------------------------
+   Names the topic-lens message a bubble is a reply to, so it no longer reads
+   as unrelated general-chat tail content. Compact and muted -- the bubble
+   text is the point, not this label. Same transcript markup renders at 390px
+   as on desktop, so no mobile-only override is needed here. */
+.coop-reply-anchor {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-bottom: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--sidebar-hover);
+  color: var(--text-dimmer);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+  opacity: .85;
+}
+
+.coop-reply-anchor i,
+.coop-reply-anchor svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.coop-reply-anchor-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coop-reply-anchor[role="button"] {
+  cursor: pointer;
+}
+
+.coop-reply-anchor[role="button"]:hover {
+  background: rgba(var(--overlay-rgb), 0.1);
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+.coop-reply-anchor[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Naming the topic inside its own lens would be redundant noise, but that is
+   decided when the chip is built (coop-reply-anchor.js), NOT by a lens-scoped
+   `display: none` here. Exactly one lens rule in this file may hide anything,
+   and it is the Main internal-relevance rule above; a second one would erode
+   the guarantee that All is full fidelity. */

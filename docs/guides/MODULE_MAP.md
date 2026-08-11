@@ -62,6 +62,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `coop-topic-live-index.js` | Completed canonical turn indexing | Incremental many-to-many membership updates and projection refresh after live completion |
 | `coop-topic-migration.js` | Topic classifier-version migration | Idempotent cleanup of obsolete opaque topics and replay reset of derived memberships while preserving managed topic state |
 | `coop-topic-projection.js` | ACL-safe client shaping of durable topics | Bounded topic text, summary-only membership, and related-work reduced to links to top-level canonical project sessions (never workers, task refs, or attempts) |
+| `coop-topic-reply-anchor.js` | Topic-aware reply threading | The logical parent of a message sent from a topic lens: the latest owner turn start inside that topic, fingerprinted and fail-closed (never the canonical tail, never another topic's events). Also owns the shared topic-membership index derivation the lens replay reads, and send-time forward-only membership binding |
 | `project-loop.js` | `loop_start`, `loop_stop`, `ralph_wizard_complete`, `ralph_wizard_cancel`, `ralph_cancel_crafting`, `ralph_preview_files`, `loop_registry_*`, `schedule_create`, `hub_schedules_list`, `delete_loop_group` | Loop/Ralph engine, loop registry, scheduling |
 | `project-loop-state.js` | (called from project-loop.js) | Persisted loop-state recovery, orphan-loop discovery, and reconnect payload decisions |
 | `project-loop-files.js` | (called from project-loop.js and project-loop-handlers.js) | Loop file readiness/title extraction, start preparation, settings persistence, and PROMPT/JUDGE watcher lifecycle |
@@ -369,6 +370,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-header.js` | Session rename, session info popover, progressive history loading |
 | `global-coop-projection.js` | Permanent Coop UI state, automatic topic-lens navigation, two-phase fail-closed URL selection, dense facts, and exact canonical SessionRef handoffs without transcript copies |
 | `app-messages-coop-topics.js` | Canonical live-message filtering and topic projection refresh after completed turns |
+| `coop-reply-anchor.js` | Renders the "Reply in &lt;topic&gt;" chip on a message sent from a topic lens, on both the live echo and history replay. Re-applies the server's fail-closed gates (version, same-topic) before trusting a persisted anchor, suppresses itself inside the topic's own lens, and only becomes clickable when the anchored event is actually on screen |
 | `coop-conversation-state.js` | Owner-facing persistent Coop work activity beside the composer (Working on X / Reviewing / Waiting / Idle - waiting for you plus background-task count). Renders voice `Listening` separately from `store.voiceListening`, so input state and work state coexist |
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
