@@ -221,6 +221,7 @@ test("plain rate-limit rejection marks the vendor unhealthy immediately instead 
   assert.deepStrictEqual(session.providerFailoverPending, {
     vendor: "claude",
     reason: "rate-limit-rejected",
+    isLimitFailure: true,
     resetsAt: session.rateLimitLastResetsAt,
   });
   providerHealth._reset();
@@ -244,6 +245,7 @@ test("Claude monthly spend-limit tool result cancels the stale resume and reques
   assert.deepStrictEqual(session.providerFailoverPending, {
     vendor: "claude",
     reason: "usage-credits-exhausted",
+    isLimitFailure: true,
     resetsAt: session.rateLimitLastResetsAt,
   });
   assert.strictEqual(providerHealth.getHealth("claude").state, "unhealthy");
@@ -273,6 +275,7 @@ test("Claude model-switch spend-limit text is treated as provider exhaustion", f
   assert.deepStrictEqual(session.providerFailoverPending, {
     vendor: "claude",
     reason: "usage-credits-exhausted",
+    isLimitFailure: true,
     resetsAt: session.rateLimitLastResetsAt,
   });
   assert.strictEqual(session.history.some(function (item) {
@@ -299,6 +302,7 @@ test("Claude monthly spend-limit failover is queued at the terminal turn boundar
   assert.deepStrictEqual(spies.failoverQueued, {
     vendor: "claude",
     reason: "usage-credits-exhausted",
+    isLimitFailure: true,
     resetsAt: null,
   });
   assert.strictEqual(session.providerFailoverPending, null);
@@ -327,6 +331,7 @@ test("plain rate-limit rejection failover is queued at the terminal turn boundar
   assert.deepStrictEqual(spies.failoverQueued, {
     vendor: "claude",
     reason: "rate-limit-rejected",
+    isLimitFailure: true,
     resetsAt: session.rateLimitLastResetsAt,
   });
   assert.strictEqual(spies.scheduled, 0);

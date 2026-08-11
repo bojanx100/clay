@@ -541,3 +541,94 @@ test("reattachment recovers a crash between switch and continuation persistence"
   assert.strictEqual(session.history.filter(function (entry) { return entry.type === "vendor_switched"; }).length, 1);
   providerHealth._reset();
 });
+
+// --- Stale rate-limit reset must not park a connectivity failure -----------
+//
+// Observed 2026-08-11 (session 019fd26a): Codex's internal reconnect ladder
+// gave up with "stream disconnected before completion: error sending request
+// for url (https://chatgpt.com/backend-api/codex/responses)". With no fallback
+// available, failover fell through to scheduleAfterProviderReset, which read
+// session.rateLimitLastResetsAt — a stale reset left over from an unrelated
+// earlier limit — and parked the session for ~11 hours behind
+// "↻ Continuing on codex after reset". A network blip is not a rate limit.
+
+test("a connectivity failure never reuses a stale rate-limit reset to park the session", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("codex", "provider-error:stream disconnected", { immediate: true });
+  var sm = makeSm(["codex"]);
+  var continued = [];
+  var scheduled = [];
+  var failover = makeFailover(sm, continued, { scheduled: scheduled });
+  var session = makeSession();
+  session.vendor = "codex";
+  session.providerRouteId = "codex-openai";
+  session.model = "gpt-5.5";
+  // Left behind by an unrelated limit hit hours ago.
+  session.rateLimitLastResetsAt = Date.now() + 11 * 3600000;
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "codex",
+    reason: "provider-error:stream disconnected before completion: error sending request for url",
+    isLimitFailure: false,
+  });
+
+  assert.strictEqual(handled, false, "a connectivity failure must not report itself as handled");
+  assert.strictEqual(scheduled.length, 0, "no reset-based continuation may be scheduled");
+  assert.ok(sm.recorded.some(function (item) {
+    return item.type === "info" && String(item.text || "").indexOf("connection failure") !== -1;
+  }), "the user is told this was a connection failure, not a limit");
+  assert.ok(!sm.recorded.some(function (item) {
+    return String(item.text || "").indexOf("after reset") !== -1;
+  }), "no 'after reset' label may appear for a connectivity failure");
+  providerHealth._reset();
+});
+
+test("queueFailover does not re-inject a stale reset that recordProviderFailure deliberately cleared", async function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("codex", "provider-error:stream disconnected", { immediate: true });
+  var sm = makeSm(["codex"]);
+  var scheduled = [];
+  var failover = makeFailover(sm, [], { scheduled: scheduled });
+  var session = makeSession();
+  session.vendor = "codex";
+  session.providerRouteId = "codex-openai";
+  session.model = "gpt-5.5";
+  session.rateLimitLastResetsAt = Date.now() + 11 * 3600000;
+
+  var queued = failover.queueFailover(session, {
+    vendor: "codex",
+    reason: "provider-error:stream disconnected before completion",
+    isLimitFailure: false,
+    resetsAt: null,
+  });
+  await new Promise(function (resolve) { setTimeout(resolve, 20); });
+
+  assert.strictEqual(queued, true);
+  assert.strictEqual(scheduled.length, 0,
+    "the queue hop must not resurrect the stale reset into a scheduled continuation");
+  assert.ok(sm.recorded.some(function (item) {
+    return item.type === "info" && String(item.text || "").indexOf("connection failure") !== -1;
+  }), "the session surfaces a retryable connection failure instead of an 11-hour park");
+  providerHealth._reset();
+});
+
+test("a genuine limit failure still schedules against the known reset", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude"]);
+  var scheduled = [];
+  var failover = makeFailover(sm, [], { scheduled: scheduled });
+  var session = makeSession();
+  var resetsAt = Date.now() + 3600000;
+  session.rateLimitLastResetsAt = resetsAt;
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+  });
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(scheduled.length, 1);
+  assert.strictEqual(scheduled[0].resetsAt, resetsAt, "limit failures still recover the session reset");
+  providerHealth._reset();
+});

@@ -224,3 +224,54 @@ test("readCodexHistorySync shows user text, not the injected composition", funct
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+// --- Transient stream-error classification ---------------------------------
+//
+// Observed 2026-08-11 (session 019fd26a): the Codex CLI ran its own reconnect
+// ladder ("Reconnecting... 5/5"), gave up, and emitted a connectivity error
+// that isTransientStreamError did not recognise. Clay recorded it as a strong
+// provider failure instead of retrying once, which is what sent the session
+// down the rate-limit scheduling path.
+
+test("the Codex give-up error after its reconnect ladder classifies as transient", function () {
+  var recovery = bridgeRecovery.attachBridgeRecovery({ opts: {} });
+  var codexGiveUp = "stream disconnected before completion: error sending request for url "
+    + "(https://chatgpt.com/backend-api/codex/responses)";
+
+  assert.strictEqual(recovery.isTransientStreamError(codexGiveUp), true,
+    "a network drop must be retryable, not a provider outage");
+  assert.strictEqual(recovery.isTransientStreamError("connection closed before message completed"), true);
+});
+
+test("previously recognised transient stream errors still classify", function () {
+  var recovery = bridgeRecovery.attachBridgeRecovery({ opts: {} });
+  var known = [
+    "socket connection was closed unexpectedly",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "ECONNREFUSED",
+    "fetch failed",
+    "network error",
+    "Premature close",
+    "terminated",
+    "socket hang up",
+  ];
+  known.forEach(function (text) {
+    assert.strictEqual(recovery.isTransientStreamError(text), true, text + " must stay transient");
+  });
+});
+
+test("real provider failures are not misread as transient connectivity", function () {
+  var recovery = bridgeRecovery.attachBridgeRecovery({ opts: {} });
+  var terminal = [
+    "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage",
+    "Prompt is too long",
+    "invalid api key",
+    "",
+    null,
+  ];
+  terminal.forEach(function (text) {
+    assert.strictEqual(recovery.isTransientStreamError(text), false,
+      String(text) + " must not be retried as a blip");
+  });
+});

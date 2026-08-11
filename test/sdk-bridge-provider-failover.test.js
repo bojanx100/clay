@@ -239,3 +239,141 @@ test("adapter shutdown never auto-retries a direct portfolio leaf", async functi
   assert.equal(recorded.some(function (event) { return event.type === "done" && event.code === 1; }), true);
   assert.equal(session.streamEndedAutoRetryQueued, undefined);
 });
+
+// --- Adapter-delivered connectivity drops must retry, not fail over --------
+//
+// Regression for the 2026-08-11 Codex park (session 019fd26a). The Codex CLI
+// ran its own reconnect ladder, gave up, and delivered the failure as an
+// ADAPTER ERROR EVENT rather than a thrown error. That branch never consulted
+// isTransientStreamError, so a network blip was recorded as a strong provider
+// failure and pushed into the rate-limit scheduling path.
+
+function errorQueryHandle(text) {
+  return {
+    close: function () {},
+    [Symbol.asyncIterator]: async function* () {
+      yield { yokeType: "error", text: text };
+    },
+  };
+}
+
+function makeTransientStreamHarness(session) {
+  var recovery = attachBridgeRecovery({
+    opts: {
+      scheduleMessage: function (targetSession, kind, at, prompt, label, opts) {
+        session._scheduled.push({ kind: kind, at: at, prompt: prompt, label: label, options: opts });
+      },
+    },
+  });
+  return attachBridgeStream({
+    adapter: { vendor: "codex" },
+    sm: {
+      broadcastSessionList: function () {},
+      saveSessionFile: function () {},
+      sendAndRecord: function () {},
+    },
+    send: function () {},
+    sendAndRecord: function (targetSession, obj) { session._sent.push(obj); },
+    sendToSession: function () {},
+    processSDKMessage: function () {},
+    onProcessingChanged: function () {},
+    onTurnDone: function () {},
+    opts: {
+      getAutoContinueSetting: function () { return true; },
+      scheduleMessage: function (targetSession, kind, at, prompt, label, opts) {
+        session._scheduled.push({ kind: kind, at: at, prompt: prompt, label: label, options: opts });
+      },
+      failoverAndContinue: function (targetSession, failure) {
+        session._failovers.push(failure);
+        return true;
+      },
+      queueProviderFailover: function (targetSession, failure) {
+        session._failovers.push(failure);
+        return true;
+      },
+    },
+    getVendorDisplayName: function () { return "Codex"; },
+    isAuthErrorMessage: function () { return false; },
+    getFreshAuthState: function () { return {}; },
+    logAuthDecision: function () {},
+    getLoginCommand: function () { return "codex login"; },
+    notifyAuthRequired: function () {},
+    findConflictingClaude: function () { return []; },
+    isTransientStreamError: recovery.isTransientStreamError,
+    autoResumeAllowed: recovery.autoResumeAllowed,
+    scheduleInterruptResume: recovery.scheduleInterruptResume,
+    sendModelInfoForVendor: function () {},
+    rateLimitResumeLabel: "↻ Continuing after rate limit",
+    debugEvents: false,
+  });
+}
+
+function makeStreamSession(errorText) {
+  return {
+    localId: 42,
+    vendor: "codex",
+    queryInstance: errorQueryHandle(errorText),
+    abortController: null,
+    messageQueue: null,
+    isProcessing: true,
+    providerFailoverPending: null,
+    pendingPermissions: {},
+    pendingAskUser: {},
+    pendingElicitations: {},
+    _sent: [],
+    _scheduled: [],
+    _failovers: [],
+  };
+}
+
+test("a Codex adapter connectivity error retries once instead of queueing a failover", async function () {
+  var providerHealth = require("../lib/provider-health");
+  providerHealth._reset();
+  var codexGiveUp = "stream disconnected before completion: error sending request for url "
+    + "(https://chatgpt.com/backend-api/codex/responses)";
+  var session = makeStreamSession(codexGiveUp);
+  var stream = makeTransientStreamHarness(session);
+
+  await stream.processQueryStream(session);
+
+  assert.strictEqual(session._failovers.length, 0, "a blip must not queue a provider failover");
+  assert.strictEqual(session.providerFailoverPending, null);
+  assert.strictEqual(providerHealth.getHealth("codex").state, "healthy",
+    "a self-clearing connectivity drop must not degrade provider health");
+  assert.strictEqual(session._scheduled.length, 1, "exactly one resume is scheduled");
+  assert.ok(session._scheduled[0].at <= Date.now(), "the resume runs now, not after a reset window");
+  assert.ok(session._sent.some(function (item) {
+    return item.type === "info" && String(item.text || "").indexOf("Retrying") !== -1;
+  }), "the user sees a retry, not a raw provider error");
+  providerHealth._reset();
+});
+
+test("a Codex adapter connectivity error becomes a real failure once the retry budget is spent", async function () {
+  var providerHealth = require("../lib/provider-health");
+  providerHealth._reset();
+  var codexGiveUp = "stream disconnected before completion: error sending request for url (https://chatgpt.com)";
+  var session = makeStreamSession(codexGiveUp);
+  session._transientRetryUsed = true; // the one-shot retry already ran
+  // A stale reset from an unrelated limit hours ago — the field that used to
+  // get resurrected and park the session.
+  session.rateLimitLastResetsAt = Date.now() + 11 * 3600000;
+  var stream = makeTransientStreamHarness(session);
+
+  // Provider health needs a failure streak before it declares an outage, so
+  // drive the failing turn until the vendor is actually unhealthy.
+  for (var i = 0; i < 3; i++) {
+    session.queryInstance = errorQueryHandle(codexGiveUp);
+    session.isProcessing = true;
+    await stream.processQueryStream(session);
+  }
+
+  assert.strictEqual(session._scheduled.length, 0, "no retry once the one-shot budget is spent");
+  assert.strictEqual(providerHealth.getHealth("codex").state, "unhealthy",
+    "escalation still reaches a real provider failure");
+  assert.strictEqual(session._failovers.length, 1, "the failover path takes over exactly once");
+  assert.strictEqual(session._failovers[0].isLimitFailure, false,
+    "a connectivity failure is never treated as a limit with a reset time");
+  assert.strictEqual(session._failovers[0].resetsAt, null,
+    "the stale rate-limit reset must not ride along into the failover");
+  providerHealth._reset();
+});
