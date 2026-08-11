@@ -735,18 +735,18 @@
   }
 
   .mobile-session-item.mobile-coordinator-parent {
-    background: rgba(var(--accent-rgb, 88, 87, 252), 0.08);
+    background: transparent;
     color: var(--text);
     font-weight: 700;
     box-shadow: inset 3px 0 0 var(--accent);
   }
 
   .mobile-session-item.mobile-coordinator-parent:active {
-    background: rgba(var(--accent-rgb, 88, 87, 252), 0.12);
+    background: rgba(var(--overlay-rgb), 0.06);
   }
 
   .mobile-session-item.mobile-coordinator-parent.active {
-    background: rgba(var(--accent-rgb, 88, 87, 252), 0.16);
+    background: rgba(var(--overlay-rgb), 0.06);
   }
 
   .mobile-coordinator-workers {

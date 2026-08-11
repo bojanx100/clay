@@ -1335,18 +1335,18 @@
 }
 
 .session-item.session-coordinator-parent {
-  background: rgba(var(--accent-rgb, 88, 87, 252), 0.08);
+  background: transparent;
   color: var(--text);
   font-weight: 700;
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .session-item.session-coordinator-parent:hover {
-  background: rgba(var(--accent-rgb, 88, 87, 252), 0.12);
+  background: var(--sidebar-hover);
 }
 
 .session-item.session-coordinator-parent.active {
-  background: rgba(var(--accent-rgb, 88, 87, 252), 0.16);
+  background: var(--sidebar-active);
 }
 
 .session-coordinator-workers {

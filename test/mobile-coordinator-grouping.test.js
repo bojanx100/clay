@@ -135,10 +135,14 @@ test("coordinator groups collapse worker overflow behind shared controls", funct
   assert.match(css, /\.mobile-coordinator-workers\s*\{/);
   assert.match(css, /\.mobile-session-item\.mobile-coordinator-worker\s*\{/);
   assert.match(css, /\.mobile-session-item\.mobile-coordinator-parent\s*\{/);
+  assert.match(css, /\.mobile-session-item\.mobile-coordinator-parent\s*\{[^}]*background: transparent;/);
+  assert.match(css, /\.mobile-session-item\.mobile-coordinator-parent\.active\s*\{[^}]*background: rgba\(var\(--overlay-rgb\), 0\.06\);/);
   assert.match(css, /\.mobile-coordinator-workers-toggle/);
   assert.match(css, /\.mobile-session-lead-glyph\s*\{/);
   assert.doesNotMatch(css, /\.mobile-session-role-badge/);
   assert.match(desktopCss, /\.session-item\.session-coordinator-parent\s*\{/);
+  assert.match(desktopCss, /\.session-item\.session-coordinator-parent\s*\{[^}]*background: transparent;/);
+  assert.match(desktopCss, /\.session-item\.session-coordinator-parent\.active\s*\{[^}]*background: var\(--sidebar-active\);/);
   assert.match(desktopCss, /\.session-coordinator-workers-toggle/);
   assert.match(desktopCss, /\.session-lead-glyph\s*\{/);
   assert.doesNotMatch(desktopCss, /\.session-role-badge/);
