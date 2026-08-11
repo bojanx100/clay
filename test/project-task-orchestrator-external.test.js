@@ -4,6 +4,8 @@ var assert = require("node:assert");
 var externalOrchestration = require("../lib/project-task-orchestrator-external");
 var createExternalTaskCoordinator = externalOrchestration.createExternalTaskCoordinator;
 var attachPortfolioExecutionTarget = externalOrchestration.attachPortfolioExecutionTarget;
+var terminalStatusForTurn =
+  require("../lib/project-task-orchestrator-direct-leaf-status").terminalStatusForTurn;
 
 test("external task context becomes a durable task owned by the coordinator", function () {
   var coordinator = {
@@ -196,4 +198,15 @@ test("completed Coop direct leaves deliver their result before terminal archival
   assert.equal(session.hidden, true);
   assert.ok(timeline.indexOf("save:completed") < timeline.indexOf("deliver:completed"));
   assert.ok(timeline.indexOf("deliver:completed") < timeline.indexOf("hide"));
+});
+
+test("direct leaves never strand a completed worker report in graph-only reviewing status", function () {
+  var result = [
+    "WORKER_STATUS: completed",
+    "SUMMARY: The direct leaf finished the bounded change.",
+    "VERIFICATION: npm test passed, 42/42",
+    "ESCALATION_REQUIRED: yes",
+  ].join("\n");
+
+  assert.equal(terminalStatusForTurn({}, { type: "done", code: 0 }, result), "needs_input");
 });

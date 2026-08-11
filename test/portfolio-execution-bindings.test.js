@@ -136,6 +136,52 @@ test("typed project-coordinator completion preserves its canonical ref and close
   }).duplicate, true);
 });
 
+test("stranded project-coordinator bindings reconcile from durable completed session evidence", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-reconcile-project-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 250; } });
+  store.reserve(request(1, "project_coordinator"));
+  store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "project-coordinator",
+  });
+  assert.equal(store.markDeleted("portfolio-task", 1, "session_deleted").ok, true);
+
+  var session = {
+    orchestrationProjectCompletion: {
+      status: "completed",
+      completionRevision: 1,
+      summary: "Integrated outcome.",
+      verification: "project suite passed",
+      integrationVerification: "yes",
+      escalationRequired: "no",
+      completedAt: 1234,
+    },
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-task",
+        bindingRevision: 1,
+        idempotencyKey: "command-1",
+        mode: "project_coordinator",
+        status: "completed",
+      },
+    },
+  };
+  var saves = 0;
+
+  var reconciled = store.reconcileStrandedCompletions({
+    sessionForBinding: function () { return session; },
+    saveSession: function () { saves++; },
+  });
+
+  assert.equal(reconciled.ok, true);
+  assert.equal(reconciled.reconciled.length, 1);
+  assert.equal(reconciled.reconciled[0].status, "completed");
+  assert.equal(reconciled.reconciled[0].completedAt, 1234);
+  assert.equal(saves, 1);
+  assert.equal(store.get("portfolio-task", 1).status, "completed");
+});
+
 test("version-one binding files migrate without changing canonical references", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-migration-"));
   var file = path.join(dir, "bindings.json");

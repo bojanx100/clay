@@ -435,6 +435,7 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.equal(projectCoordinator.orchestrationPolicy.portfolioExecution.status, "running");
   assert.equal(router.getExecutionBinding("portfolio-slice-7").mode, "project_coordinator");
   assert.equal(lead.sessions.size, 1);
+  projectCoordinator.isProcessing = false;
   var steer = lead.api.steerProjectCoordinatorFromTool({
     coordinatorSessionId: coop.storageId,
     targetProject: { projectId: targetProjectId },
@@ -556,6 +557,133 @@ test("project-coordinator completion closes its source binding through typed del
   assert.equal(router.getExecutionBinding("portfolio-project-closure", 1).status, "completed");
 });
 
+test("steering an idle project coordinator starts a new turn even with a stale query instance", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-steer-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-idle-steer",
+    bindingRevision: 1,
+    idempotencyKey: "idle-steer-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+    title: "Idle target coordinator",
+    objective: "Coordinate the target work.",
+    acceptanceCriteria: "Wake on typed steering.",
+    ownedPaths: "lib/idle.js",
+  });
+  var projectCoordinator = Array.from(target.sessions.values())[0];
+  projectCoordinator.isProcessing = false;
+  projectCoordinator.queryInstance = {};
+  var startsBefore = target.starts.length;
+  var pushesBefore = target.pushes.length;
+
+  var steer = lead.api.steerProjectCoordinatorFromTool({
+    coordinatorSessionId: coop.storageId,
+    targetProject: { projectId: targetProjectId },
+    targetCoordinator: { projectId: targetProjectId, sessionStorageId: projectCoordinator.storageId },
+    portfolioTaskId: "portfolio-idle-steer",
+    bindingRevision: 1,
+    idempotencyKey: "idle-steer-message",
+    message: "Re-run the idle coordinator on the restart path.",
+  });
+
+  assert.equal(steer.isError, undefined);
+  assert.equal(target.starts.length, startsBefore + 1);
+  assert.equal(target.starts.at(-1).session, projectCoordinator);
+  assert.equal(target.pushes.length, pushesBefore);
+});
+
+test("restored completed project coordinators redeliver binding closure for active source bindings", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-restore-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  assert.equal(router.bindingStore.reserve({
+    source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    portfolioTaskId: "portfolio-restored-project",
+    bindingRevision: 1,
+    idempotencyKey: "restored-project-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+  }).ok, true);
+  assert.equal(router.bindingStore.commit("portfolio-restored-project", 1, {
+    projectId: targetProjectId,
+    sessionStorageId: "restored-project-coordinator",
+  }).ok, true);
+
+  var restored = {
+    localId: 7,
+    storageId: "restored-project-coordinator",
+    title: "Restored project coordinator",
+    history: [],
+    isProcessing: false,
+    coordinationMode: true,
+    orchestrationTasks: [],
+    orchestrationEvents: [],
+    coopControlledBy: { coopSessionStorageId: coop.storageId, since: 1 },
+    orchestrationProjectCompletion: {
+      status: "completed",
+      completionRevision: 1,
+      summary: "Restored project outcome.",
+      verification: "target suite passed",
+      integrationVerification: "yes",
+      escalationRequired: "no",
+      completedAt: 25,
+    },
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-restored-project",
+        bindingRevision: 1,
+        idempotencyKey: "restored-project-r1",
+        mode: "project_coordinator",
+        status: "completed",
+        completedAt: 25,
+        source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+        projectCompletionResultEventId: "project-coordinator-restored",
+        projectCompletionDeliveryEventId: "project-terminal-v1-project-coordinator-restored",
+      },
+    },
+  };
+  var target = testContext(new Map([[restored.localId, restored]]), {
+    projectId: targetProjectId,
+    crossProject: router,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+
+  assert.equal(router.getExecutionBinding("portfolio-restored-project", 1).status, "active");
+  target.api.handleCoordinatorTurnDone(restored);
+  assert.equal(router.getExecutionBinding("portfolio-restored-project", 1).status, "completed");
+});
+
 test("direct-leaf completion closes its source binding and suppresses late delivery replay", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-direct-leaf-closure-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
@@ -620,6 +748,58 @@ test("direct-leaf completion closes its source binding and suppresses late deliv
   assert.equal(lateProgress.ok, true);
   assert.equal(lateProgress.suppressed, true);
   assert.equal(lead.starts.length, 1, "old progress cannot reopen the owner-facing lane");
+});
+
+test("owner tools can resolve and request input for descendant coordinator task graphs", function () {
+  var ctx = testContext();
+  var root = coordinator(ctx);
+  root.coopHome = true;
+  var descendant = {
+    localId: 2,
+    storageId: "descendant-coordinator",
+    title: "Descendant coordinator",
+    history: [],
+    isProcessing: false,
+    coordinationMode: true,
+    coopControlledBy: { coopSessionStorageId: root.storageId, since: 1 },
+    orchestrationTasks: [{
+      taskId: "descendant-resolve",
+      title: "Resolve descendant task",
+      status: "needs_input",
+      updatedAt: 1,
+    }, {
+      taskId: "descendant-question",
+      title: "Question descendant task",
+      status: "needs_input",
+      updatedAt: 2,
+    }],
+    orchestrationEvents: [],
+  };
+  ctx.sessions.set(descendant.localId, descendant);
+
+  var input = ctx.api.requestInputFromTool({
+    coordinatorSessionId: root.storageId,
+    taskIds: ["descendant-question"],
+    question: "Ship the descendant change now?",
+    reason: "A product decision is still required.",
+  });
+  assert.equal(input.isError, undefined);
+  assert.equal(descendant.orchestrationTasks[1].status, "waiting_user");
+  assert.equal(descendant.orchestrationTasks[1].userQuestion,
+    "Ship the descendant change now?");
+  assert.equal(root.orchestrationTasks.length, 0);
+
+  var resolved = ctx.api.resolveFromTool({
+    coordinatorSessionId: root.storageId,
+    taskId: "descendant-resolve",
+    summary: "The descendant coordinator verified the change.",
+    verification: "node --test test/descendant.test.js passed",
+    escalationRequired: "no",
+  });
+  assert.equal(resolved.isError, undefined);
+  assert.equal(descendant.orchestrationTasks[0].status, "completed");
+  assert.equal(descendant.orchestrationTasks[0].resolvedByCoordinator, true);
+  assert.equal(root.orchestrationTasks.length, 0);
 });
 
 test("terminal direct leaves reconcile old active bindings through typed completion without replay", function () {
