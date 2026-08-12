@@ -338,6 +338,42 @@ test("topic index links retain exact top-level and descendant SessionRefs", func
   }]);
 });
 
+test("project-coordinator needs-input execution outranks retained active tasks", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-needs-input-"));
+  var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
+  var coordinator = {
+    storageId: "needs-input-coordinator",
+    title: "Coordinator awaiting verification",
+    coordinationMode: true,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+    orchestrationPolicy: { portfolioExecution: execution(
+      "needs-input-project", "project_coordinator", "needs_input", {
+        reason: "verification_route_unavailable",
+      }
+    ) },
+    orchestrationTasks: [{
+      taskId: "retained-active-task",
+      status: "running",
+      updatedAt: 190,
+    }],
+  };
+  ledger.reconcile({
+    bindings: [binding("needs-input-project", CLAY_ID, coordinator.storageId,
+      "project_coordinator", "active")],
+    projects: [project(CLAY_ID, [coordinator])],
+  });
+
+  var projected = ledger.get({
+    projectId: CLAY_ID,
+    sessionStorageId: coordinator.storageId,
+  });
+  assert.equal(projected.portfolioBinding.status, "active");
+  assert.equal(projected.lifecycleState, "needs_input");
+  assert.equal(projected.workState, "needs_input");
+  assert.equal(projected.hidden, false);
+  assert.equal(projected.terminalOutcome, null);
+});
+
 test("a compacted continuation inherits the exact source binding and topic", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-compaction-"));
   var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
