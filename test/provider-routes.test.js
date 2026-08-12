@@ -39,7 +39,25 @@ test("a persisted cold-start Codex seed is not treated as a verified catalog", f
       models: ["gpt-5.6-sol"],
       source: "last-known-good",
     }, "a value-only live catalog must remain verified across a cold start");
-    assert.deepStrictEqual(routes.verifiedCatalogForRoute(route, {
+    var richLiveModels = fallbackCodexModels();
+    for (var mi = 0; mi < richLiveModels.length; mi++) {
+      richLiveModels[mi] = Object.assign({}, richLiveModels[mi], {
+        id: richLiveModels[mi].value,
+        model: richLiveModels[mi].value,
+        hidden: false,
+        isDefault: mi === 0,
+      });
+    }
+    fs.writeFileSync(cachePath, JSON.stringify({
+      version: 2,
+      vendors: { codex: { models: richLiveModels, savedAt: new Date().toISOString() } },
+    }));
+    assert.strictEqual(routes.verifiedCatalogForRoute(route).models.length, richLiveModels.length,
+      "a legacy rich live catalog remains verified even when its IDs match the fallback set");
+    modelCatalogCache.rememberModels("codex", fallbackCodexModels());
+    assert.strictEqual(routes.verifiedCatalogForRoute(route).models.length, fallbackCodexModels().length,
+      "explicit live-discovery provenance supersedes fallback-set equality");
+    var unwarmed = routes.verifiedCatalogForRoute(route, {
       providerRoutes: [{
         id: "codex-openai",
         provider: "openai",
@@ -48,10 +66,10 @@ test("a persisted cold-start Codex seed is not treated as a verified catalog", f
         catalogSource: "last-known-good",
       }],
       modelsByVendor: {},
-    }), {
-      models: ["gpt-5.6-sol"],
-      source: "last-known-good",
-    }, "an unwarmed runtime list must not shadow the verified cold-start catalog");
+    });
+    assert.strictEqual(unwarmed.models.length, fallbackCodexModels().length,
+      "an unwarmed runtime list must not shadow the verified cold-start catalog");
+    assert.strictEqual(unwarmed.source, "last-known-good");
     var live = routes.verifiedCatalogForRoute(route, {
       verifiedModelsByRoute: {
         "codex-openai": { models: fallbackCodexModels(), source: "live" },

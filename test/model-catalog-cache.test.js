@@ -30,6 +30,7 @@ test("rememberModels + cachedModels round-trip; other vendors stay null", functi
   var models = [{ value: "claude-opus-5" }, { value: "claude-fable-5" }];
   assert.strictEqual(cache.rememberModels("claude", models), true);
   assert.deepStrictEqual(cache.cachedModels("claude"), models);
+  assert.strictEqual(cache.cachedCatalog("claude").provenance, "live-discovery");
   assert.strictEqual(cache.cachedModels("codex"), null);
   reset();
 });
