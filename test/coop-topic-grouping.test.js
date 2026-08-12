@@ -1022,3 +1022,121 @@ test("a real session title from the ledger does protect a same-named topic", fun
   assert.equal(ids.indexOf("auto-555555555555555555555555"), -1,
     "a genuine session with that name is exactly what should protect it");
 });
+
+// --- production-shaped closure: evidence must survive the HANDLER --------------
+//
+// Round-4 review: the confirm-time re-check was real in the domain function and
+// dead in production. confirmTopicClosures passed only `now`, so confirmation
+// evaluated against EMPTY evidence and closed everything. The earlier tests
+// missed it by calling applyClosureProposal directly with evidence injected --
+// proving the predicate worked, not that production reached it.
+//
+// These drive propose AND confirm through the real handler.
+
+function handlerHarness(evidence) {
+  var h = realClosureHarness();
+  var live = evidence || {};
+  h.ctx.coopSessionEvidence = function () { return live.sessionEvidence || []; };
+  h.ctx.coopLinkedTasks = function () { return live.tasks || []; };
+  h.ctx.crossProject = { getExecutionBindings: function () { return live.bindings || []; } };
+  h.ctx.coopOwnerRequests = { list: function () { return live.requests || []; } };
+  h.live = live;
+  return h;
+}
+
+function proposeThenConfirm(h) {
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[h.sent.length - 1];
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+  return { proposal: proposal, result: h.sent[h.sent.length - 1] };
+}
+
+test("an unanswered request arriving after the proposal blocks it in production", function () {
+  var h = handlerHarness();
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+  var target = proposal.candidates[0].topicId;
+
+  // The owner asks something new while reading the list.
+  h.live.requests = [{ topicRef: { topicId: target }, response: { state: "unanswered" } }];
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+
+  assert.equal(h.index.load().topics[target].status, "open",
+    "confirmation must re-read evidence, not sweep on a stale list");
+});
+
+test("a task that became live after the proposal blocks it in production", function () {
+  var h = handlerHarness();
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+  var target = proposal.candidates[0].topicId;
+
+  h.live.tasks = [{ taskId: "t", status: "failed", coopTopicRef: { topicId: target } }];
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+  assert.equal(h.index.load().topics[target].status, "open");
+});
+
+test("a binding that became active after the proposal blocks it in production", function () {
+  var h = handlerHarness();
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+  var target = proposal.candidates[0].topicId;
+
+  h.live.bindings = [{ portfolioTaskId: "p", status: "active",
+    coopTopicRef: { topicId: target } }];
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+  assert.equal(h.index.load().topics[target].status, "open");
+});
+
+test("a session appearing after the proposal blocks it in production", function () {
+  var h = handlerHarness();
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+  var target = proposal.candidates[0].topicId;
+
+  h.live.sessionEvidence = [{ coopTopicRefs: [{ topicId: target }],
+    sessionPresent: true, hidden: false }];
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+  assert.equal(h.index.load().topics[target].status, "open");
+});
+
+test("a genuinely finished topic still closes through the handler", function () {
+  var h = handlerHarness();
+  var run = proposeThenConfirm(h);
+  assert.ok(run.proposal.candidates.length > 0);
+  assert.equal(run.result.closed, run.proposal.candidates.length,
+    "nothing changed, so the sweep proceeds");
+});
+
+// --- typed SessionRef matching ------------------------------------------------
+
+test("a hidden session in another project cannot make a live ref look dead", function () {
+  // dismissedSession compared only sessionStorageId, so a hidden session in
+  // project B with the same storage id as a LIVE reference in project A made
+  // A's topic selectable.
+  var SHARED = "3046a4dc-2b49-47a8-80dc-1511fb809aba";
+  var A = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var B = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+  var index = ownerFixture();
+  index.topics["auto-eeee1111eeee1111eeee1111"] = topicWith("auto-eeee1111eeee1111eeee1111", {
+    relatedExecutions: [{ sessionRef: { projectId: A, sessionStorageId: SHARED } }],
+  });
+  var ids = selectIds(index, {
+    sessionEvidence: [
+      { sessionRef: { projectId: B, sessionStorageId: SHARED }, sessionPresent: true, hidden: true },
+      { sessionRef: { projectId: A, sessionStorageId: SHARED }, sessionPresent: true, hidden: false },
+    ],
+  });
+  assert.equal(ids.indexOf("auto-eeee1111eeee1111eeee1111"), -1,
+    "the live reference in project A must still protect its topic");
+});

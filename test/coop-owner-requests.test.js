@@ -431,3 +431,18 @@ test("a failed write does not silently evict a record from memory only", functio
   var reloaded = ownerRequests.attachCoopOwnerRequests({ file: file });
   assert.equal(reloaded.list().length, ledger.list().length);
 });
+
+test("a newly created record has the same shape as one loaded from disk", function () {
+  // Review finding: a fresh response omitted supersededAt/supersededBy while
+  // normalizeResponse adds them on load, so ledger.list() changed shape across
+  // a restart -- a strict retry-convergence check could never hold.
+  var file = tempFile();
+  var ledger = makeLedger({ file: file });
+  ledger.record(ingress(182));
+
+  var inMemory = ledger.list();
+  var afterReload = ownerRequests.attachCoopOwnerRequests({ file: file }).list();
+  assert.deepEqual(Object.keys(inMemory[0].response).sort(),
+    Object.keys(afterReload[0].response).sort());
+  assert.deepEqual(inMemory, afterReload, "memory and reload must agree exactly");
+});

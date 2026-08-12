@@ -875,3 +875,37 @@ test("a coordinator lost to a rival between precheck and claim does not commit",
   assert.ok(binding, "the binding record survives for diagnosis");
   assert.notEqual(binding.status, "active", "the losing binding must not stay active");
 });
+
+test("a replay after a failed claim re-claims instead of reusing the loser", function () {
+  // Review finding: matchingCommittedBinding ignored status and attention, so
+  // after a rival claim (or a cleanup that could not persist) an identical
+  // retry returned ok:true, made no second claim, and reused the losing
+  // coordinator -- two coordinators for one line of work, via the retry path.
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-replay-"));
+  var ledger = ledgerIn(dir);
+  var created = [];
+  var harness = cardinalityRouter(dir, ledger, created);
+  var topicId = "auto-a7daa4cc660639337d144d93";
+
+  var claims = 0;
+  ledger.canonicalCoordinator = function () { return null; };
+  ledger.claimCoordinator = function () {
+    claims += 1;
+    return { ok: false, reason: "coordinator_exists",
+      coordinator: { projectId: harness.projectId, sessionStorageId: "rival-session" } };
+  };
+
+  var first = staffTopic(harness, "portfolio-replay-loser", topicId);
+  assert.equal(first.ok, false);
+  assert.equal(claims, 1);
+
+  var retry = staffTopic(harness, "portfolio-replay-loser", topicId);
+  assert.equal(retry.ok, false, "a retry must not report success on an unclaimed binding");
+  assert.equal(claims, 2, "the retry must actually re-attempt the claim");
+
+  var binding = harness.router.getExecutionBindings().filter(function (b) {
+    return b.portfolioTaskId === "portfolio-replay-loser";
+  })[0];
+  assert.notEqual(binding && binding.status, "active",
+    "no apparently-active losing binding may remain");
+});
