@@ -200,6 +200,78 @@ test("completed Coop direct leaves deliver their result before terminal archival
   assert.ok(timeline.indexOf("deliver:completed") < timeline.indexOf("hide"));
 });
 
+test("needs-input Coop direct leaves deliver terminal attention without hiding evidence", function () {
+  var timeline = [];
+  var session = {
+    localId: 8,
+    storageId: "needs-input-direct-leaf",
+    history: [],
+    isProcessing: false,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-needs-input-leaf",
+        bindingRevision: 1,
+        idempotencyKey: "needs-input-leaf-1",
+        mode: "direct_leaf",
+        status: "running",
+        source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+      },
+    },
+  };
+  var sessions = new Map([[session.localId, session]]);
+  var metadata = session.orchestrationPolicy.portfolioExecution;
+  var sm = {
+    sessions: sessions,
+    getProjectId: function () { return null; },
+    subscribeSession: function (id, callback) {
+      session._subscriber = callback;
+      return function () { timeline.push("unsubscribe"); };
+    },
+    saveSessionFile: function () { timeline.push("save:" + metadata.status); },
+    broadcastSessionList: function () {},
+    hideSession: function (id) {
+      timeline.push("hide");
+      sessions.get(id).hidden = true;
+    },
+  };
+  attachPortfolioExecutionTarget({
+    slug: "webapp",
+    sm: sm,
+    sdk: {},
+    onProcessingChanged: function () {},
+    crossProject: {
+      getExecutionBinding: function () {
+        return { worker: { projectId: "system-target", sessionStorageId: "needs-input-direct-leaf" } };
+      },
+      createEnvelope: function (input) {
+        timeline.push("envelope");
+        return input;
+      },
+      deliverEnvelope: function (envelope) {
+        timeline.push("deliver:" + metadata.status);
+        assert.equal(envelope.payload.type, "portfolio_execution_completed");
+        assert.equal(envelope.payload.terminalStatus, "needs_input");
+        assert.equal(metadata.status, "needs_input");
+        assert.equal(session.hidden, undefined);
+        return { ok: true, delivered: true, acknowledged: true };
+      },
+    },
+  });
+
+  session.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: needs_input\nSUMMARY: Owner decision required.\n" +
+      "ESCALATION_REQUIRED: yes",
+  });
+  session._subscriber({ type: "done" });
+
+  assert.equal(metadata.status, "needs_input");
+  assert.equal(session.hidden, undefined);
+  assert.ok(timeline.indexOf("save:needs_input") < timeline.indexOf("deliver:needs_input"));
+  assert.equal(timeline.indexOf("hide"), -1);
+});
+
 test("direct leaves never strand a completed worker report in graph-only reviewing status", function () {
   var result = [
     "WORKER_STATUS: completed",

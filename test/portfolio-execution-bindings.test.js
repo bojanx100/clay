@@ -108,6 +108,49 @@ test("typed direct-leaf completion is idempotent and removes closed work from cu
   assert.equal(restarted.reserve(request(2)).ok, true);
 });
 
+test("stranded direct leaves reconcile every terminal worker outcome", function () {
+  var outcomes = [
+    { workerStatus: "completed", bindingStatus: "completed" },
+    { workerStatus: "failed", bindingStatus: "failed" },
+    // A direct leaf that reached an owner decision is terminal for its slot,
+    // so its binding must no longer be treated as active work.
+    { workerStatus: "needs_input", bindingStatus: "failed" },
+  ];
+
+  for (var i = 0; i < outcomes.length; i++) {
+    var outcome = outcomes[i];
+    var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-reconcile-leaf-"));
+    var store = createBindings({ file: path.join(dir, "bindings.json"), now: function () { return 250; } });
+    store.reserve(request(1));
+    store.commit("portfolio-task", 1, {
+      projectId: PROJECT_ID,
+      sessionStorageId: "terminal-direct-leaf-" + outcome.workerStatus,
+    });
+    var session = {
+      orchestrationPolicy: {
+        portfolioExecution: {
+          portfolioTaskId: "portfolio-task",
+          bindingRevision: 1,
+          idempotencyKey: "command-1",
+          mode: "direct_leaf",
+          status: outcome.workerStatus,
+        },
+      },
+    };
+
+    var reconciled = store.reconcileStrandedCompletions({
+      sessionForBinding: function () { return session; },
+      saveSession: function () {},
+    });
+
+    assert.equal(reconciled.ok, true);
+    assert.equal(reconciled.reconciled.length, 1, outcome.workerStatus);
+    assert.equal(reconciled.reconciled[0].status, outcome.bindingStatus);
+    assert.deepEqual(store.listCurrent(), []);
+    assert.equal(session.orchestrationPolicy.portfolioExecution.status, outcome.workerStatus);
+  }
+});
+
 test("typed project-coordinator completion preserves its canonical ref and closes current work", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-coordinator-completion-"));
   var file = path.join(dir, "bindings.json");

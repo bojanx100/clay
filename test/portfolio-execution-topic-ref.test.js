@@ -197,6 +197,12 @@ function completionPayload(extra) {
 test("completion payloads accept a valid ref, tolerate none, and reject a malformed one", function () {
   assert.equal(delivery.validationReason(envelope(completionPayload())), "");
   assert.equal(delivery.validationReason(envelope(completionPayload({
+    terminalStatus: "needs_input",
+  }))), "");
+  assert.equal(delivery.validationReason(envelope(completionPayload({
+    executionMode: "project_coordinator", terminalStatus: "needs_input",
+  }))), "invalid_payload");
+  assert.equal(delivery.validationReason(envelope(completionPayload({
     coopTopicRef: { topicId: "topic-a" },
   }))), "");
   // Explicit null is "no attribution", not a malformed ref.
@@ -359,6 +365,20 @@ test("server topic consumption follows visible project-session lifecycle over st
   var hidden = server.coopTopicLinkedBindings([binding], { topicId: "topic-a" }, { status: "open" },
     function () { return { hidden: true }; });
   assert.deepEqual(hidden, [], "hidden sessions cannot keep a topic Working");
+
+  var hiddenDirectLeaf = server.coopTopicLinkedBindings([{
+    mode: "direct_leaf", status: "active", coopTopicRef: { topicId: "topic-a" },
+  }], { topicId: "topic-a" }, { status: "open" }, function () {
+    return {
+      hidden: true,
+      orchestrationPolicy: { portfolioExecution: { status: "needs_input" } },
+    };
+  });
+  assert.deepEqual(hiddenDirectLeaf, [],
+    "a hidden terminal direct leaf cannot keep its Coop topic Working");
+  assert.equal(topicState.coopTopicState({ topicId: "topic-a" }, {
+    bindings: hiddenDirectLeaf,
+  }).state, "needs_input");
 
   var attention = server.coopTopicLinkedBindings([binding], { topicId: "topic-a" }, { status: "open" },
     function () {

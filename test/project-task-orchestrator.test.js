@@ -412,6 +412,8 @@ test("Coop creates one direct leaf in the target project and promotes it without
   leaf._subscriber({ type: "done" });
   assert.equal(leaf.orchestrationPolicy.portfolioExecution.status, "needs_input");
   assert.equal(leaf.orchestrationPolicy.portfolioExecution.reason, "scope_expansion");
+  assert.equal(router.getExecutionBinding("portfolio-slice-7", 1).status, "failed");
+  assert.deepEqual(router.bindingStore.listCurrent(), []);
   assert.equal(lead.starts.length, 1);
   assert.equal(lead.starts[0].session, coop);
   assert.match(coop.pendingCoordinatorUpdates[0].text, /Clay direct-leaf update/);
