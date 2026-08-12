@@ -313,3 +313,18 @@ test("topic titles survive an unwarmed canonical session", async function () {
   assert.equal(harness.sent[0].topics[0].title, "Owner topic execution flow");
   assert.equal(harness.sent[0].unanswered[0].topicTitle, "Owner topic execution flow");
 });
+
+test("the session ledger resolves through the cross-project router", function () {
+  // Regression: ctx.coopSessionLedger is a key nothing in the daemon sets, so
+  // the coordinator and worker levels were permanently empty and every count
+  // read zero for the wrong reason.
+  var harness = socketCtx("lead", fakeLedger());
+  delete harness.ctx.coopSessionLedger;
+  harness.ctx.crossProject = { sessionLedger: { list: function () { return [session(COORD)]; } } };
+  connection.handleOwnerRequestOverview(harness.ctx, {}, { type: "coop_owner_requests_request" });
+
+  var coordinator = harness.sent[0].topics[0].projects[0].coordinator;
+  assert.equal(coordinator.present, true);
+  assert.equal(coordinator.live, true);
+  assert.equal(harness.sent[0].counts.working, 1);
+});
