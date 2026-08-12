@@ -39,6 +39,19 @@ test("a persisted cold-start Codex seed is not treated as a verified catalog", f
       models: ["gpt-5.6-sol"],
       source: "last-known-good",
     }, "a value-only live catalog must remain verified across a cold start");
+    assert.deepStrictEqual(routes.verifiedCatalogForRoute(route, {
+      providerRoutes: [{
+        id: "codex-openai",
+        provider: "openai",
+        modelFamily: "gpt",
+        catalogVerified: true,
+        catalogSource: "last-known-good",
+      }],
+      modelsByVendor: {},
+    }), {
+      models: ["gpt-5.6-sol"],
+      source: "last-known-good",
+    }, "an unwarmed runtime list must not shadow the verified cold-start catalog");
     var live = routes.verifiedCatalogForRoute(route, {
       verifiedModelsByRoute: {
         "codex-openai": { models: fallbackCodexModels(), source: "live" },
