@@ -70,11 +70,11 @@ test("a turn that errored out did not answer the owner", function () {
 test("a turn cut short by the owner's next message did not answer the owner", function () {
   var ledger = tempLedger();
   recordIngress(ledger);
-  var session = coopSession([{ type: "user_message" }, { type: "done", code: 0 }]);
+  var session = coopSession([{ type: "user_message" }, { type: "delta" }, { type: "done", code: 0 }]);
   session.coopPriorityInterruptRequested = true;
 
-  assert.equal(conversationControl.markIngressAnswered(session, ledger), false);
-  assert.equal(ledger.get(INGRESS).response.state, "unanswered");
+  conversationControl.markIngressAnswered(session, ledger);
+  assert.notEqual(ledger.get(INGRESS).response.state, "answered");
 });
 
 test("a turn still in flight has not answered anyone", function () {
@@ -109,7 +109,7 @@ test("a non-Coop session never touches the owner-request ledger", function () {
 test("the answer hook is idempotent across repeated turn-done fanout", function () {
   var ledger = tempLedger();
   recordIngress(ledger);
-  var session = coopSession([{ type: "user_message" }, { type: "done", code: 0 }]);
+  var session = coopSession([{ type: "user_message" }, { type: "result" }, { type: "done", code: 0 }]);
 
   assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
   var first = ledger.get(INGRESS).response.answeredAt;
@@ -119,9 +119,10 @@ test("the answer hook is idempotent across repeated turn-done fanout", function 
 });
 
 test("answeringEvent reads the turn terminator, not the newest event", function () {
+  // A bare done with no assistant output before it answered nobody.
   assert.deepEqual(conversationControl.answeringEvent({
-    history: [{ type: "done", code: 0 }, { type: "user_message" }],
-  }), { eventIndex: 0, answered: true });
+    history: [{ type: "delta" }, { type: "done", code: 0 }, { type: "user_message" }],
+  }), { eventIndex: 1, answered: true });
   assert.equal(conversationControl.answeringEvent({ history: [{ type: "delta" }] }), null);
 });
 
@@ -239,4 +240,93 @@ test("an injected ledger is the one that is written", function () {
   assert.deepEqual(record.topicRef, TOPIC);
   assert.equal(record.requestRef.eventIndex, 0);
   assert.equal(record.classification.kind, "existing_topic");
+});
+
+// --- the interrupt flag must be consumed, not left sticky --------------------
+//
+// Regression, found by review: coopPriorityInterruptRequested is set in
+// enqueueCoopIngress and reset nowhere in the daemon, unlike its siblings
+// taskStopRequested/steerInterruptRequested which sdk-bridge-stream clears.
+// Guarding on it without consuming it meant ONE routine interrupt -- the owner
+// typing a follow-up while Coop was mid-reply -- silently stopped every later
+// turn on that session from ever being marked answered.
+
+test("an interrupted request is superseded, not left dangling forever", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([{ type: "user_message" }, { type: "delta" }, { type: "done", code: 0 }]);
+  session.coopPriorityInterruptRequested = true;
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
+  var record = ledger.get(INGRESS);
+  assert.equal(record.response.state, "superseded", "the owner withdrew it; nobody answered it");
+  assert.equal(record.response.answeredAt, null);
+  assert.equal(record.response.supersededBy, "owner_interrupt");
+  // Terminal, so it stops pinning the owner queue and the Lead tick.
+  assert.equal(ledger.unanswered().length, 0);
+  assert.equal(ledger.hasUnansweredOwnerRequests(), false);
+});
+
+test("the interrupt flag is consumed so the NEXT turn can still be answered", function () {
+  var ledger = tempLedger();
+  var second = "coop:" + COOP_SESSION + ":183";
+  recordIngress(ledger);
+  var session = coopSession([{ type: "user_message" }, { type: "delta" }, { type: "done", code: 0 }]);
+  session.coopPriorityInterruptRequested = true;
+  conversationControl.markIngressAnswered(session, ledger);
+  assert.equal(session.coopPriorityInterruptRequested, false, "the flag must not stay set");
+
+  // The follow-up turn completes normally and MUST be recorded as answered.
+  ledger.record({ ingressId: second, ingressSequence: 183,
+    sessionRef: { projectId: "system-lead", sessionStorageId: COOP_SESSION } });
+  session.coopConversationIngress.activeIngressId = second;
+  session.history = [{ type: "user_message" }, { type: "result" }, { type: "done", code: 0 }];
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
+  assert.equal(ledger.get(second).response.state, "answered");
+});
+
+// --- a done(0) is not an answer on its own -----------------------------------
+
+test("a stream-drop retry does not answer the owner", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  // sdk-bridge-stream emits info + done(0) and then RESUMES the same turn.
+  var session = coopSession([{ type: "user_message" }, { type: "info" }, { type: "done", code: 0 }]);
+  session.streamEndedAutoRetryQueued = true;
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), false);
+  assert.equal(ledger.get(INGRESS).response.state, "unanswered");
+  assert.equal(ledger.unanswered().length, 1);
+});
+
+test("a turn that produced no assistant output did not answer anyone", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([{ type: "user_message" }, { type: "info" }, { type: "done", code: 0 }]);
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), false);
+  assert.deepEqual(conversationControl.answeringEvent(session), { eventIndex: 2, answered: false });
+});
+
+test("output from an earlier turn is not this turn's answer", function () {
+  // Turn 1 replied; turn 2 produced nothing before its own done.
+  var history = [
+    { type: "user_message" }, { type: "result" }, { type: "done", code: 0 },
+    { type: "user_message" }, { type: "info" }, { type: "done", code: 0 },
+  ];
+  assert.deepEqual(conversationControl.answeringEvent({ history: history }),
+    { eventIndex: 5, answered: false });
+});
+
+test("a superseded request is never counted as answered", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  ledger.supersede(INGRESS, "owner_interrupt");
+  var record = ledger.get(INGRESS);
+
+  assert.equal(record.response.state, "superseded");
+  assert.notEqual(record.response.state, "answered");
+  // And a later real answer cannot overwrite the withdrawal.
+  assert.equal(ledger.markAnswered(INGRESS, { eventIndex: 5 }).response.state, "superseded");
 });
