@@ -299,3 +299,61 @@ test("closing an unknown topic is refused rather than settling everything", func
   assert.equal(ledger.reconcileTopicClosure(null).ok, false);
   assert.equal(ledger.get(id).state, "working");
 });
+
+// --- topic aliasing -----------------------------------------------------------
+//
+// Merging a topic seals it and points it at its canonical target. The ledger
+// has to follow: a request filed under the alias is still the owner asking
+// about the canonical topic, and leaving it behind means forTopic() and the
+// owner overview silently under-report the work.
+
+test("requests and claims follow a merged topic to its canonical target", function () {
+  var ledger = makeLedger();
+  var canonical = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  var aliased = open(ledger, 190, OTHER_TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: aliased });
+
+  var result = ledger.retopic(OTHER_TOPIC, TOPIC);
+  assert.equal(result.ok, true);
+  assert.equal(result.requests, 1);
+
+  assert.deepEqual(ledger.forTopic(TOPIC).map(function (r) { return r.ingressSequence; }), [182, 190]);
+  assert.deepEqual(ledger.forTopic(OTHER_TOPIC), []);
+  assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A);
+  assert.equal(ledger.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), null);
+  assert.equal(ledger.get(aliased).topicRef.topicId, TOPIC.topicId);
+});
+
+test("aliasing never changes whether the owner was answered", function () {
+  var ledger = makeLedger();
+  var id = open(ledger, 190, OTHER_TOPIC, [{ projectId: CLAY }]);
+  ledger.retopic(OTHER_TOPIC, TOPIC);
+  assert.equal(ledger.get(id).response.state, "unanswered");
+  assert.equal(ledger.unanswered().length, 1);
+});
+
+test("aliasing is idempotent and refuses a self-merge", function () {
+  var ledger = makeLedger();
+  open(ledger, 190, OTHER_TOPIC, [{ projectId: CLAY }]);
+  assert.equal(ledger.retopic(OTHER_TOPIC, TOPIC).requests, 1);
+  assert.equal(ledger.retopic(OTHER_TOPIC, TOPIC).requests, 0, "nothing left to move");
+  assert.equal(ledger.retopic(TOPIC, TOPIC).ok, false);
+  assert.equal(ledger.retopic(null, TOPIC).ok, false);
+});
+
+test("aliasing collapses rival coordinators onto the canonical claim", function () {
+  var ledger = makeLedger();
+  var a = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  var b = open(ledger, 190, OTHER_TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: a });
+  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_B, ingressId: b });
+
+  ledger.retopic(OTHER_TOPIC, TOPIC);
+  // The canonical topic already had a coordinator; the alias's rival cannot
+  // displace it, and must not survive as a second claim on the same pair.
+  assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A);
+  assert.equal(ledger.coordinatorsForTopic(TOPIC).filter(function (ref) {
+    return ref.sessionStorageId === COORD_B.sessionStorageId;
+  }).length, 0, "the rival claim is dropped, not silently kept");
+});
