@@ -1,0 +1,507 @@
+var test = require("node:test");
+var assert = require("node:assert/strict");
+var os = require("node:os");
+var fs = require("node:fs");
+var path = require("node:path");
+
+var classification = require("../lib/coop-topic-classification");
+var consolidation = require("../lib/coop-topic-consolidation");
+var closure = require("../lib/coop-topic-closure");
+var topics = require("../lib/coop-topic-index");
+
+// Owner complaints this file pins, verbatim from the transcript:
+//   "ok SO WHY DO I HAVE |THIS MUCH TOPICS?!??"           (ingress 148)
+//   "Topics are not good enough, it's not grouped..."      (ingress 149)
+//   "we can't have 7 topics for one session"               (ingress 150)
+//   "topics don't look good at all"                        (ingress 166)
+//   "close all open topic except ones that have matching
+//    session in one of the projects"                       (ingress 134)
+//
+// The defect: classifyIngress minted a brand-new automatic topic whenever a
+// turn scored fewer than two keyword overlaps against every existing topic.
+// Ordinary follow-ups ("topics don't look good at all") share exactly one word
+// with the conversation they belong to, so each one bought its own sidebar row.
+
+var SEEDS = topics.SEEDS;
+
+function makeTopic(id, title, group, source, now, keywords) {
+  return {
+    topicRef: { topicId: id }, title: title, group: group, source: source,
+    keywords: Array.isArray(keywords) ? keywords.slice(0, 8) : [],
+    status: "open", createdAt: now, updatedAt: now, eventRefs: [], turnRefs: [], relatedExecutions: [],
+  };
+}
+
+function matchesSeed(text, seed) {
+  var value = String(text || "").toLowerCase();
+  if (!value || seed.catchAll) return false;
+  for (var i = 0; i < seed.words.length; i++) if (value.indexOf(seed.words[i]) !== -1) return true;
+  return false;
+}
+
+// The same option seam coop-topic-index.js builds in classifier(), so these
+// unit tests exercise the real production wiring rather than a lookalike.
+function options(recentTopic, projects) {
+  return {
+    seeds: SEEDS, matchesSeed: matchesSeed, normalizeGroup: topics.normalizeGroup,
+    makeTopic: makeTopic, now: function () { return 1000; }, topicRef: topics.topicRef,
+    canAccessProject: function () { return true; }, projects: projects || [],
+    recentTopic: recentTopic || null,
+  };
+}
+
+function turnRefs(count, start) {
+  var refs = [];
+  for (var i = 0; i < count; i++) {
+    refs.push({ projectId: "system-lead", sessionStorageId: "canonical-home", startEventIndex: (start || 0) + i * 3, endEventIndex: (start || 0) + i * 3 + 2 });
+  }
+  return refs;
+}
+
+// A realistic slice of the live owner index: one genuine conversation about
+// topic grouping plus the single-turn fragments the old rule split off it.
+function ownerFixture() {
+  var index = { schemaVersion: 1, canonicalSessionStorageId: "canonical-home", topics: {}, retro: { version: 3, completedEventCount: 100 } };
+  index.topics["uncategorised-conversations"] = makeTopic("uncategorised-conversations", "Uncategorised conversations", { kind: "uncategorised" }, "automatic", 1, []);
+  index.topics["auto-a7daa4cc660639337d144d93"] = makeTopic(
+    "auto-a7daa4cc660639337d144d93", "Maybe topics should match session names once created…",
+    { kind: "uncategorised" }, "automatic", 1, ["maybe", "topics", "match", "session", "names"]);
+  index.topics["auto-a7daa4cc660639337d144d93"].turnRefs = turnRefs(6, 0);
+  return index;
+}
+
+// ---------------------------------------------------------------------------
+// Deliverable 1: minting a new automatic topic is now genuinely exceptional.
+// ---------------------------------------------------------------------------
+
+test("a follow-up turn about an existing conversation reuses that topic instead of minting", function () {
+  var index = ownerFixture();
+  var before = Object.keys(index.topics).length;
+  // Owner ingress 166. Shares exactly ONE keyword ("topics") with the
+  // conversation it belongs to, so the old >=2 rule minted a fresh row.
+  var result = classification.classifyIngress(index, "Topics don't look good at all", null, options());
+  assert.equal(result.ok, true);
+  assert.equal(result.created, false, "an ordinary follow-up must not mint a topic");
+  assert.equal(result.topic.topicRef.topicId, "auto-a7daa4cc660639337d144d93");
+  assert.equal(Object.keys(index.topics).length, before, "no new row was added to the index");
+});
+
+test("a one-word overlap folds into the established conversation, not the smallest id", function () {
+  var index = ownerFixture();
+  // Two rival single-overlap hosts. The established conversation (more turn
+  // spans) must win, and the tie-break must not be lexical id order or a
+  // timestamp.
+  index.topics["auto-000000000000000000000000"] = makeTopic(
+    "auto-000000000000000000000000", "Sidebar topics row spacing", { kind: "uncategorised" },
+    "automatic", 1, ["sidebar", "topics", "row", "spacing"]);
+  index.topics["auto-000000000000000000000000"].turnRefs = turnRefs(1, 90);
+  index.topics["auto-000000000000000000000000"].updatedAt = 9999999;
+  var result = classification.classifyIngress(index, "Topics don't look good at all", null, options());
+  assert.equal(result.topic.topicRef.topicId, "auto-a7daa4cc660639337d144d93",
+    "the six-turn conversation outranks a one-turn fragment with a newer updatedAt");
+});
+
+test("a genuinely new subject still mints its own topic", function () {
+  var index = ownerFixture();
+  var before = Object.keys(index.topics).length;
+  var result = classification.classifyIngress(index, "The provider catalog refuses to fall back when copilot quota is exhausted", null, options());
+  assert.equal(result.ok, true);
+  assert.equal(result.created, true, "a subject that overlaps nothing existing is still a new topic");
+  assert.match(result.topic.topicRef.topicId, /^auto-[a-f0-9]{24}$/);
+  assert.equal(Object.keys(index.topics).length, before + 1);
+});
+
+test("a bare identifier is never a topic of its own", function () {
+  var index = ownerFixture();
+  var before = Object.keys(index.topics).length;
+  // Live index row auto-e2375348589c4419c3e2e8b5 was titled with a raw session
+  // uuid: five "content" tokens, zero words. A throwaway fragment pinned in the
+  // sidebar forever, exactly the regression the module header warns about.
+  var result = classification.classifyIngress(index, "019ff342-2aff-7be2-8295-f1a0a0565e3c", null, options(index.topics["auto-a7daa4cc660639337d144d93"]));
+  assert.equal(result.ok, true);
+  assert.equal(result.created, false);
+  assert.equal(Object.keys(index.topics).length, before, "an identifier mints nothing");
+});
+
+test("a vague remark with nothing recent lands in the catch-all rather than a new row", function () {
+  var index = ownerFixture();
+  var before = Object.keys(index.topics).length;
+  var result = classification.classifyIngress(index, "Now what about the stuff you never answered", null, options());
+  assert.equal(result.ok, true);
+  assert.equal(result.created, false);
+  assert.equal(Object.keys(index.topics).length, before);
+});
+
+test("a shared filler word is not evidence two turns are the same conversation", function () {
+  var index = ownerFixture();
+  // Measured on the live index: "Now what about the stuff you never answered"
+  // was folding into "Theres's a bunch of coop sessions now" purely because both
+  // contain "now". Reuse must key on subject words, never on shared phrasing.
+  index.topics["auto-666666666666666666666666"] = makeTopic("auto-666666666666666666666666",
+    "Theres's a bunch of coop sessions now…", { kind: "uncategorised" }, "automatic", 1,
+    ["theress", "bunch", "coop", "sessions", "now"]);
+  index.topics["auto-666666666666666666666666"].turnRefs = turnRefs(3, 80);
+  var result = classification.classifyIngress(index, "Now what about the stuff you never answered", null, options());
+  assert.notEqual(result.topic.topicRef.topicId, "auto-666666666666666666666666",
+    "\"now\" is shared phrasing, not a shared subject");
+  assert.equal(result.topic.topicRef.topicId, "uncategorised-conversations");
+  assert.equal(result.created, false);
+});
+
+test("the retro pass does not group fragments on filler words either", function () {
+  var index = ownerFixture();
+  var host = index.topics["auto-a7daa4cc660639337d144d93"];
+  host.keywords = ["theress", "bunch", "coop", "sessions", "now"];
+  var fragment = authenticAuto(index, "Now what about the stuff you never answered", ["now", "stuff", "never", "answered"]);
+  fragment.turnRefs = turnRefs(1, 80);
+  var report = consolidation.consolidateTopics(index, { now: function () { return 2000; } });
+  assert.equal(report.merged, 0);
+  assert.equal(report.keptNoHost, 1, "a filler-word overlap is not a host match");
+  assert.equal(index.topics[fragment.topicRef.topicId].status, "open");
+});
+
+test("classification stays deterministic: same input, same topic id", function () {
+  // Acceptance criterion 3. Neither insertion order, nor updatedAt, nor a
+  // clock may change which topic a turn lands in.
+  var forward = ownerFixture();
+  forward.topics["auto-111111111111111111111111"] = makeTopic("auto-111111111111111111111111", "Session recovery after reconnect", { kind: "uncategorised" }, "automatic", 1, ["session", "recovery", "reconnect"]);
+  forward.topics["auto-111111111111111111111111"].turnRefs = turnRefs(2, 60);
+
+  var reversed = { schemaVersion: 1, canonicalSessionStorageId: "canonical-home", topics: {}, retro: forward.retro };
+  var ids = Object.keys(forward.topics).reverse();
+  for (var i = 0; i < ids.length; i++) {
+    reversed.topics[ids[i]] = JSON.parse(JSON.stringify(forward.topics[ids[i]]));
+    // Wall-clock skew in the opposite direction to the insertion order.
+    reversed.topics[ids[i]].updatedAt = 5000 - i;
+  }
+
+  var text = "Topics and session names should line up";
+  var a = classification.classifyIngress(forward, text, null, options());
+  var b = classification.classifyIngress(reversed, text, null, options());
+  assert.equal(a.topic.topicRef.topicId, b.topic.topicRef.topicId,
+    "iteration order and updatedAt must not decide the landing topic");
+  var again = classification.classifyIngress(forward, text, null, options());
+  assert.equal(again.topic.topicRef.topicId, a.topic.topicRef.topicId);
+});
+
+test("sealed topics still never gain a turn under the relaxed reuse rule", function () {
+  var index = ownerFixture();
+  index.topics["auto-a7daa4cc660639337d144d93"].status = "closed";
+  var before = Object.keys(index.topics).length;
+  var result = classification.classifyIngress(index, "Topics don't look good at all", null, options());
+  assert.equal(result.ok, true);
+  assert.equal(result.topic.topicRef.topicId, "uncategorised-conversations",
+    "a closed conversation is not a reuse candidate; the catch-all takes the turn");
+  assert.equal(Object.keys(index.topics).length, before);
+});
+
+test("the relaxed reuse rule never crosses a project boundary on weak evidence", function () {
+  var index = ownerFixture();
+  var CLAY = topics.CLAY_PROJECT_ID;
+  index.topics["auto-222222222222222222222222"] = makeTopic("auto-222222222222222222222222",
+    "Renderer caching in Workbench Alpha", { kind: "project", projectRef: { projectId: CLAY } },
+    "automatic", 1, ["renderer", "caching", "workbench"]);
+  index.topics["auto-222222222222222222222222"].turnRefs = turnRefs(4, 30);
+  var projects = [
+    { projectId: CLAY, slug: "alpha", title: "Workbench Alpha" },
+    { projectId: "6332aafc-31e7-5cb1-ba96-c8d90e78260e", slug: "beta", title: "Beta Platform" },
+  ];
+  // Two projects named at once infers cross_project. A single shared keyword
+  // ("workbench") must not drag the turn into the Clay-scoped lens.
+  var result = classification.classifyIngress(index, "Workbench Alpha and Beta Platform boundary review", null, options(null, projects));
+  assert.equal(result.created, true);
+  assert.equal(result.topic.group.kind, "cross_project");
+});
+
+// ---------------------------------------------------------------------------
+// Deliverable 2: the retro consolidation pass.
+// ---------------------------------------------------------------------------
+
+// Every id here must be recomputed so isUnmodifiedAutomaticTitle agrees the
+// title is still exactly what auto-creation derived.
+function authenticAuto(index, title, keywords, group) {
+  var id = classification.automaticTopicId(title, group || { kind: "uncategorised" });
+  var topic = makeTopic(id, classification.derivedMetadata(title).title, group || { kind: "uncategorised" }, "automatic", 1, keywords);
+  index.topics[id] = topic;
+  return topic;
+}
+
+function consolidationFixture() {
+  var index = ownerFixture();
+  // Single-turn automatic fragments split off the same conversation.
+  index.topics["auto-1f681760afd2b639fca4a7bb"] = makeTopic("auto-1f681760afd2b639fca4a7bb",
+    "And now you closed topics, and somehow webapp…", { kind: "uncategorised" }, "automatic", 1,
+    ["now", "closed", "topics", "somehow", "webapp"]);
+  index.topics["auto-1f681760afd2b639fca4a7bb"].turnRefs = turnRefs(1, 40);
+  index.topics["auto-d57a2f02a744eaa96d9507e8"] = makeTopic("auto-d57a2f02a744eaa96d9507e8",
+    "Topics don't look good at all", { kind: "uncategorised" }, "automatic", 1, ["topics", "look", "good"]);
+  index.topics["auto-d57a2f02a744eaa96d9507e8"].turnRefs = turnRefs(1, 43);
+  // Unrelated single-turn fragment: shares nothing, so it keeps its row.
+  var unrelated = authenticAuto(index, "Codex quota exhausted overnight", ["codex", "quota", "exhausted", "overnight"]);
+  unrelated.turnRefs = turnRefs(1, 46);
+  index.unrelatedFragmentId = unrelated.topicRef.topicId;
+  return index;
+}
+
+test("the consolidation pass merges single-turn fragments into the conversation they belong to", function () {
+  var index = consolidationFixture();
+  var openBefore = consolidation.openTopicCount(index);
+  var report = consolidation.consolidateTopics(index, { now: function () { return 2000; } });
+  var openAfter = consolidation.openTopicCount(index);
+
+  assert.equal(report.merged, 2, "both fragments folded into the six-turn conversation");
+  assert.equal(index.topics["auto-1f681760afd2b639fca4a7bb"].status, "merged");
+  assert.deepEqual(index.topics["auto-1f681760afd2b639fca4a7bb"].mergedInto, { topicId: "auto-a7daa4cc660639337d144d93" });
+  assert.equal(index.topics["auto-d57a2f02a744eaa96d9507e8"].status, "merged");
+  assert.equal(index.topics[index.unrelatedFragmentId].status, "open", "an unrelated fragment keeps its own row");
+  assert.equal(openAfter, openBefore - 2);
+  // Membership is preserved, never dropped: the host now owns the turn spans.
+  assert.equal(index.topics["auto-a7daa4cc660639337d144d93"].turnRefs.length, 8);
+});
+
+test("the consolidation pass never touches manual, split, seeded, renamed, closed or merged topics", function () {
+  var index = ownerFixture();
+  var CLAY = topics.CLAY_PROJECT_ID;
+
+  index.topics["manual-thread"] = makeTopic("manual-thread", "Topics manual thread", { kind: "uncategorised" }, "manual", 1, ["topics", "manual"]);
+  index.topics["manual-thread"].turnRefs = turnRefs(1, 10);
+  index.topics["split-thread"] = makeTopic("split-thread", "Topics split thread", { kind: "uncategorised" }, "split", 1, ["topics", "split"]);
+  index.topics["split-thread"].turnRefs = turnRefs(1, 13);
+  // A seed shares source "automatic" but keeps a readable, stable id.
+  index.topics["clay-sidebar-hierarchy"] = makeTopic("clay-sidebar-hierarchy", "Clay sidebar hierarchy", { kind: "project", projectRef: { projectId: CLAY } }, "automatic", 1, ["sidebar", "topics"]);
+  index.topics["clay-sidebar-hierarchy"].turnRefs = turnRefs(1, 16);
+  // Owner-renamed: an authentic auto id whose title has since drifted.
+  var renamed = authenticAuto(index, "Topics grouping needs rework everywhere", ["topics", "grouping", "rework"]);
+  renamed.title = "Owner's own name for this thread";
+  renamed.turnRefs = turnRefs(1, 19);
+  var closed = authenticAuto(index, "Topics closed conversation thread", ["topics", "closed", "conversation"]);
+  closed.status = "closed";
+  closed.turnRefs = turnRefs(1, 22);
+  var merged = authenticAuto(index, "Topics merged conversation thread", ["topics", "merged", "conversation"]);
+  merged.status = "merged";
+  merged.mergedInto = { topicId: "auto-a7daa4cc660639337d144d93" };
+  merged.turnRefs = turnRefs(1, 25);
+  // Owner routed a message at this exact lens, and this one carries work.
+  var routed = authenticAuto(index, "Topics routing evidence thread", ["topics", "routing", "evidence"]);
+  routed.explicitlyRouted = true;
+  routed.turnRefs = turnRefs(1, 28);
+  var linked = authenticAuto(index, "Topics linked execution thread", ["topics", "linked", "execution"]);
+  linked.relatedExecutions = [{ projectRef: { projectId: CLAY } }];
+  linked.turnRefs = turnRefs(1, 31);
+  var ruled = authenticAuto(index, "Topics owner disposition thread", ["topics", "disposition", "ruled"]);
+  ruled.ownerDisposition = { status: "needs_input" };
+  ruled.turnRefs = turnRefs(1, 34);
+
+  var report = consolidation.consolidateTopics(index, { now: function () { return 2000; } });
+
+  assert.equal(report.merged, 0, "nothing in this fixture is eligible");
+  assert.equal(index.topics["manual-thread"].status, "open");
+  assert.equal(index.topics["split-thread"].status, "open");
+  assert.equal(index.topics["clay-sidebar-hierarchy"].status, "open");
+  assert.equal(index.topics[renamed.topicRef.topicId].status, "open");
+  assert.equal(index.topics[renamed.topicRef.topicId].title, "Owner's own name for this thread");
+  assert.equal(index.topics[closed.topicRef.topicId].status, "closed", "a closed topic is never reopened or re-merged");
+  assert.equal(index.topics[merged.topicRef.topicId].status, "merged");
+  assert.equal(index.topics[routed.topicRef.topicId].status, "open");
+  assert.equal(index.topics[linked.topicRef.topicId].status, "open");
+  assert.equal(index.topics[ruled.topicRef.topicId].status, "open");
+});
+
+test("a fragment is never merged into another fragment, so consolidation cannot chain", function () {
+  var index = ownerFixture();
+  delete index.topics["auto-a7daa4cc660639337d144d93"];
+  var a = authenticAuto(index, "Topics sidebar fragment one here", ["topics", "sidebar", "fragment"]);
+  a.turnRefs = turnRefs(1, 40);
+  var b = authenticAuto(index, "Topics sidebar fragment two here", ["topics", "sidebar", "fragment"]);
+  b.turnRefs = turnRefs(1, 43);
+  var report = consolidation.consolidateTopics(index, { now: function () { return 2000; } });
+  assert.equal(report.merged, 0, "with no established host, both fragments stay put");
+  assert.equal(index.topics[a.topicRef.topicId].status, "open");
+  assert.equal(index.topics[b.topicRef.topicId].status, "open");
+});
+
+test("the consolidation pass is idempotent in memory and across a restart", function () {
+  var index = consolidationFixture();
+  var first = consolidation.consolidateTopics(index, { now: function () { return 2000; } });
+  assert.equal(first.merged, 2);
+  var second = consolidation.consolidateTopics(index, { now: function () { return 3000; } });
+  assert.equal(second.merged, 0, "a second in-memory pass changes nothing");
+  // Simulated restart: serialise and reload exactly as the index file does.
+  var reloaded = JSON.parse(JSON.stringify(index));
+  var third = consolidation.consolidateTopics(reloaded, { now: function () { return 4000; } });
+  assert.equal(third.merged, 0, "the result persisted, so a restart never re-runs the merge");
+  assert.equal(reloaded.topics["auto-a7daa4cc660639337d144d93"].turnRefs.length, 8,
+    "membership is not duplicated on the second pass");
+});
+
+test("the exactly-once migration stamps the index so a restart does not re-run it", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "coop-consolidate-"));
+  var file = path.join(dir, "coop-topic-index.json");
+  try {
+    var seeded = consolidationFixture();
+    seeded.canonicalSessionStorageId = "canonical-home";
+    fs.writeFileSync(file, JSON.stringify(seeded, null, 2));
+    var session = {
+      coopHome: true, storageId: "canonical-home",
+      history: [{ type: "user_message", text: "topics should group", from: "a66ce4a1", fromName: "Admin" }, { type: "done" }],
+    };
+    var index = topics.createTopicIndex({ file: file, now: function () { return 2000; } });
+    var run = index.ensureTopicConsolidation(session);
+    assert.equal(run.ok, true);
+    assert.equal(run.changed, true);
+    assert.equal(run.report.merged, 2);
+    assert.equal(index.load().topicConsolidation.schemaVersion, consolidation.CONSOLIDATION_SCHEMA_VERSION);
+
+    var again = index.ensureTopicConsolidation(session);
+    assert.equal(again.alreadyComplete, true);
+    assert.equal(again.changed, false);
+
+    var restarted = topics.createTopicIndex({ file: file, now: function () { return 5000; } });
+    var afterRestart = restarted.ensureTopicConsolidation(session);
+    assert.equal(afterRestart.alreadyComplete, true, "the stamp survived the restart");
+    assert.equal(afterRestart.changed, false);
+    assert.equal(restarted.load().topics["auto-a7daa4cc660639337d144d93"].turnRefs.length, 8);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("the consolidation migration is reachable from the projection path, not just callable", function () {
+  // The two sibling migrations run from lib/global-coop-projection.js because
+  // that is the one daemon path proven to execute with the real cached canonical
+  // session. A migration nothing calls fixes nothing, so this pins the wiring.
+  var source = fs.readFileSync(path.join(__dirname, "..", "lib", "global-coop-projection.js"), "utf8");
+  assert.match(source, /index\.ensureTopicConsolidation\(session\)/);
+  // Ordered after the title retrofit (settled titles) and before the disposition
+  // backfill (so a folded fragment never gets its own needs-input row).
+  assert.ok(source.indexOf("ensureTitleRetrofit(session)") < source.indexOf("ensureTopicConsolidation(session)"));
+  assert.ok(source.indexOf("ensureTopicConsolidation(session)") < source.indexOf("ensureDispositionBackfill(session)"));
+});
+
+test("the migration fails closed without stamping when the canonical history is unavailable", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "coop-consolidate-empty-"));
+  var file = path.join(dir, "coop-topic-index.json");
+  try {
+    var seeded = consolidationFixture();
+    seeded.canonicalSessionStorageId = "canonical-home";
+    fs.writeFileSync(file, JSON.stringify(seeded, null, 2));
+    var index = topics.createTopicIndex({ file: file, now: function () { return 2000; } });
+    var run = index.ensureTopicConsolidation({ coopHome: true, storageId: "canonical-home", history: [] });
+    assert.equal(run.ok, false);
+    assert.equal(run.code, "canonical_history_unavailable");
+    assert.equal(index.load().topicConsolidation, undefined, "the once-only stamp was not burned");
+    assert.equal(index.load().topics["auto-d57a2f02a744eaa96d9507e8"].status, "open");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("consolidation measurably cuts the owner-visible topic count on a realistic fixture", function () {
+  var index = consolidationFixture();
+  // Add the rest of the live single-turn fragments that share the subject.
+  authenticAuto(index, "Analyse all topics and close what needs closing", ["analyse", "topics", "close", "needs", "closing"]).turnRefs = turnRefs(1, 50);
+  authenticAuto(index, "Session topics sidebar still shows too many", ["session", "topics", "sidebar", "shows"]).turnRefs = turnRefs(1, 53);
+  var before = consolidation.openTopicCount(index);
+  consolidation.consolidateTopics(index, { now: function () { return 2000; } });
+  var after = consolidation.openTopicCount(index);
+  assert.equal(before, 7);
+  assert.equal(after, 3, "seven open rows become three: the conversation, the catch-all, one unrelated subject");
+});
+
+// ---------------------------------------------------------------------------
+// Deliverable 3: ingress 134, as an owner-confirmable action.
+// ---------------------------------------------------------------------------
+
+function closureFixture() {
+  var index = ownerFixture();
+  var CLAY = topics.CLAY_PROJECT_ID;
+  index.topics["auto-444444444444444444444444"] = makeTopic("auto-444444444444444444444444",
+    "Provider fallback rework", { kind: "uncategorised" }, "automatic", 1, ["provider", "fallback"]);
+  index.topics["auto-444444444444444444444444"].turnRefs = turnRefs(2, 70);
+  index.topics["auto-444444444444444444444444"].relatedExecutions = [{ projectRef: { projectId: CLAY } }];
+  index.topics["auto-555555555555555555555555"] = makeTopic("auto-555555555555555555555555",
+    "Sidebar hierarchy rebuild", { kind: "uncategorised" }, "automatic", 1, ["sidebar", "hierarchy"]);
+  index.topics["auto-555555555555555555555555"].turnRefs = turnRefs(2, 76);
+  return index;
+}
+
+test("closure selection keeps topics with a matching session or linked execution", function () {
+  var index = closureFixture();
+  var proposal = closure.selectClosureCandidates(index, {
+    sessions: [{ name: "Sidebar hierarchy rebuild" }],
+  });
+  var ids = proposal.map(function (entry) { return entry.topicId; });
+  assert.equal(ids.indexOf("auto-444444444444444444444444"), -1, "a linked execution keeps a topic open");
+  assert.equal(ids.indexOf("auto-555555555555555555555555"), -1, "a matching session name keeps a topic open");
+  assert.equal(ids.indexOf("uncategorised-conversations"), -1, "the catch-all is never a closure candidate");
+  assert.deepEqual(ids, ["auto-a7daa4cc660639337d144d93"]);
+  assert.equal(proposal[0].reason, "no_matching_session_or_execution");
+});
+
+test("proposing closures closes nothing until the owner confirms", function () {
+  var index = closureFixture();
+  var proposed = closure.proposeClosures(index, { sessions: [], now: function () { return 2000; } });
+  assert.equal(proposed.ok, true);
+  assert.equal(proposed.candidates.length, 2, "the catch-all and the execution-linked topic are never candidates");
+  assert.match(proposed.proposalId, /^close-[a-f0-9]{16}$/);
+  var stillOpen = Object.keys(index.topics).filter(function (id) { return index.topics[id].status === "open"; });
+  assert.equal(stillOpen.length, 4, "a proposal is a question, not a bulk close");
+
+  var declined = closure.applyClosureProposal(index, { proposalId: proposed.proposalId, confirmed: false }, { now: function () { return 3000; } });
+  assert.equal(declined.ok, true);
+  assert.equal(declined.closed, 0);
+  assert.equal(Object.keys(index.topics).filter(function (id) { return index.topics[id].status === "open"; }).length, 4);
+});
+
+test("a confirmed proposal closes exactly the topics the owner saw", function () {
+  var index = closureFixture();
+  var proposed = closure.proposeClosures(index, { sessions: [{ name: "Sidebar hierarchy rebuild" }], now: function () { return 2000; } });
+  assert.deepEqual(proposed.candidates.map(function (c) { return c.topicId; }), ["auto-a7daa4cc660639337d144d93"]);
+  var applied = closure.applyClosureProposal(index, { proposalId: proposed.proposalId, confirmed: true }, { now: function () { return 3000; } });
+  assert.equal(applied.ok, true);
+  assert.equal(applied.closed, 1);
+  assert.equal(index.topics["auto-a7daa4cc660639337d144d93"].status, "closed");
+  assert.equal(index.topics["auto-555555555555555555555555"].status, "open");
+  // Replaying the same confirmation is a no-op, not a second sweep.
+  var replay = closure.applyClosureProposal(index, { proposalId: proposed.proposalId, confirmed: true }, { now: function () { return 4000; } });
+  assert.equal(replay.ok, true);
+  assert.equal(replay.closed, 0);
+  assert.equal(replay.duplicate, true);
+});
+
+test("a stale or unknown proposal id is refused rather than closing the current set", function () {
+  var index = closureFixture();
+  closure.proposeClosures(index, { sessions: [], now: function () { return 2000; } });
+  var result = closure.applyClosureProposal(index, { proposalId: "close-deadbeefdeadbeef", confirmed: true }, { now: function () { return 3000; } });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "closure_proposal_stale");
+  assert.equal(Object.keys(index.topics).filter(function (id) { return index.topics[id].status === "open"; }).length, 4);
+});
+
+test("the proposal id is deterministic for the same candidate set", function () {
+  var a = closure.proposeClosures(closureFixture(), { sessions: [], now: function () { return 2000; } });
+  var b = closure.proposeClosures(closureFixture(), { sessions: [], now: function () { return 9999 } });
+  assert.equal(a.proposalId, b.proposalId, "no clock or randomness feeds the proposal identity");
+});
+
+test("closure proposal and confirmation are reachable through the index and survive a restart", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "coop-closure-"));
+  var file = path.join(dir, "coop-topic-index.json");
+  try {
+    var seeded = closureFixture();
+    seeded.canonicalSessionStorageId = "canonical-home";
+    fs.writeFileSync(file, JSON.stringify(seeded, null, 2));
+    var session = {
+      coopHome: true, storageId: "canonical-home",
+      history: [{ type: "user_message", text: "close the stale topics", from: "a66ce4a1", fromName: "Admin" }, { type: "done" }],
+    };
+    var index = topics.createTopicIndex({ file: file, now: function () { return 2000; } });
+    var proposed = index.proposeTopicClosures(session, { sessions: [] });
+    assert.equal(proposed.ok, true);
+    assert.equal(proposed.candidates.length, 2);
+
+    // The owner confirms after a daemon restart: the proposal is durable.
+    var restarted = topics.createTopicIndex({ file: file, now: function () { return 5000; } });
+    var applied = restarted.confirmTopicClosures({ proposalId: proposed.proposalId, confirmed: true });
+    assert.equal(applied.ok, true);
+    assert.equal(applied.closed, 2);
+    var reloaded = topics.createTopicIndex({ file: file, now: function () { return 6000; } });
+    assert.equal(reloaded.load().topics["auto-a7daa4cc660639337d144d93"].status, "closed");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
