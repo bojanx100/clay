@@ -245,6 +245,8 @@ function socketCtx(slug, ledger) {
       slug: slug,
       coopOwnerRequests: ledger,
       coopSessionLedger: { list: function () { return [session(COORD)]; } },
+      // The per-viewer scope every read on this socket resolves through.
+      getGlobalCoopProjection: function () { return { projects: [{ projectRef: { projectId: CLAY } }] }; },
       sendTo: function (ws, payload) { sent.push(payload); },
     },
     sent: sent,
@@ -327,4 +329,73 @@ test("the session ledger resolves through the cross-project router", function ()
   assert.equal(coordinator.present, true);
   assert.equal(coordinator.live, true);
   assert.equal(harness.sent[0].counts.working, 1);
+});
+
+// --- per-user scoping ---------------------------------------------------------
+//
+// The overview is slug-gated: it only answers a socket looking at the Coop
+// project. That proves WHICH PROJECT the socket is on, not WHO is looking. Every
+// other read here projects through the viewer's visible projects; without the
+// same filter a non-owner viewer of Coop receives topic titles, project ids and
+// coordinator/worker session refs for projects they cannot access.
+
+test("a viewer only sees projects they can access", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [request(182, { projectRefs: [{ projectId: CLAY }, { projectId: WEBAPP }] })],
+    coordinators: [
+      { topicId: TOPIC, projectId: CLAY, coordinator: COORD },
+      { topicId: TOPIC, projectId: WEBAPP, coordinator: WEBAPP_COORD },
+    ],
+    sessions: [session(COORD), session(WEBAPP_COORD)],
+    visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
+  });
+
+  var projects = result.topics[0].projects;
+  assert.deepEqual(projects.map(function (p) { return p.projectRef.projectId; }), [CLAY]);
+  assert.equal(JSON.stringify(result).indexOf(WEBAPP), -1, "no trace of an unreachable project");
+  assert.equal(JSON.stringify(result).indexOf(WEBAPP_COORD.sessionStorageId), -1);
+});
+
+test("a topic left with no reachable project is dropped entirely", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [request(182, { projectRefs: [{ projectId: WEBAPP }] })],
+    coordinators: [{ topicId: TOPIC, projectId: WEBAPP, coordinator: WEBAPP_COORD }],
+    sessions: [session(WEBAPP_COORD)],
+    visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
+  });
+  assert.deepEqual(result.topics, []);
+});
+
+test("omitting visibleProjects keeps the unrestricted single-user view", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [request(182, { projectRefs: [{ projectId: CLAY }, { projectId: WEBAPP }] })],
+    coordinators: [], sessions: [], topics: {},
+  });
+  assert.equal(result.topics[0].projects.length, 2);
+});
+
+test("an unanswered request is never hidden by project scoping", function () {
+  // The owner asked; that fact is not a project secret, and burying it is the
+  // exact failure this surface exists to prevent.
+  var result = query.buildOwnerRequestOverview({
+    requests: [request(182, { projectRefs: [{ projectId: WEBAPP }] })],
+    coordinators: [], sessions: [],
+    visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
+  });
+  assert.equal(result.counts.unanswered, 1);
+  assert.equal(result.unanswered[0].ingressSequence, 182);
+});
+
+test("a socket with no resolvable viewer scope is shown no projects", function () {
+  // Fail closed, exactly like every other read on this socket: a deployment
+  // that cannot establish who is looking must not hand over the tree.
+  var harness = socketCtx("lead", fakeLedger());
+  delete harness.ctx.getGlobalCoopProjection;
+  connection.handleOwnerRequestOverview(harness.ctx, {}, { type: "coop_owner_requests_request" });
+
+  assert.equal(harness.sent[0].ok, true);
+  assert.deepEqual(harness.sent[0].topics, []);
+  // The owner's own outstanding requests are still reported: that they asked
+  // is not a project secret.
+  assert.equal(harness.sent[0].counts.unanswered, 1);
 });

@@ -692,3 +692,92 @@ test("migration failure leaves durable attention and never falls back to Lead", 
   assert.equal(lead.task.status, "queued", "failure does not stop the old queued record");
   assert.equal(lead.project.getSessionManager().sessions.size, 2);
 });
+
+// --- one canonical coordinator per (TopicRef, ProjectRef) ---------------------
+//
+// The binding store already guarantees one active binding per portfolio TASK.
+// That is the wrong unit for the owner: they ask about a TOPIC, and a follow-up
+// under a NEW portfolio task id could previously staff a second coordinator in
+// the same project for the same topic. The owner-request ledger owns that
+// cardinality; this is the staffing path enforcing it.
+
+function cardinalityRouter(dir, ownerRequests, created) {
+  var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    ownerRequests: ownerRequests,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () {
+      created.push("coordinator-" + (created.length + 1));
+      return { ok: true, created: true,
+        sessionRef: { projectId: projectId, sessionStorageId: created[created.length - 1] } };
+    },
+  });
+  return { router: router, projectId: projectId };
+}
+
+function staffTopic(harness, taskId, topicId) {
+  return harness.router.createProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    portfolioTaskId: taskId, bindingRevision: 1, idempotencyKey: taskId + "-r1",
+    mode: "project_coordinator", targetProject: { projectId: harness.projectId },
+    coopTopicRef: topicId ? { topicId: topicId } : undefined,
+    objective: "Do the bounded work.",
+  });
+}
+
+function ledgerIn(dir) {
+  return require("../lib/coop-owner-requests")
+    .attachCoopOwnerRequests({ file: path.join(dir, "owner-requests.json") });
+}
+
+test("a second coordinator for the same topic and project is refused at the staffing path", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card-"));
+  var created = [];
+  var harness = cardinalityRouter(dir, ledgerIn(dir), created);
+
+  var first = staffTopic(harness, "portfolio-topic-first", "auto-a7daa4cc660639337d144d93");
+  assert.equal(first.ok, true, "the first coordinator for a topic is allowed");
+
+  // A DIFFERENT portfolio task, same topic, same project: the binding store has
+  // no objection, and that is exactly the hole this closes.
+  var second = staffTopic(harness, "portfolio-topic-second", "auto-a7daa4cc660639337d144d93");
+  assert.equal(second.ok, false);
+  assert.equal(second.reason, "coordinator_exists");
+  assert.equal(second.coordinator.sessionStorageId, created[0],
+    "the refusal names the canonical coordinator so the caller reuses it");
+  assert.equal(created.length, 1, "no rival coordinator session was created");
+});
+
+test("staffing a different topic in the same project is still allowed", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card2-"));
+  var created = [];
+  var harness = cardinalityRouter(dir, ledgerIn(dir), created);
+
+  assert.equal(staffTopic(harness, "portfolio-a", "auto-aaaaaaaaaaaaaaaaaaaaaaaa").ok, true);
+  assert.equal(staffTopic(harness, "portfolio-b", "auto-bbbbbbbbbbbbbbbbbbbbbbbb").ok, true);
+  assert.equal(created.length, 2, "cardinality is per topic AND project, not per project");
+});
+
+test("execution carrying no TopicRef is unaffected by topic cardinality", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card3-"));
+  var created = [];
+  var harness = cardinalityRouter(dir, ledgerIn(dir), created);
+
+  assert.equal(staffTopic(harness, "portfolio-no-topic-a", null).ok, true);
+  assert.equal(staffTopic(harness, "portfolio-no-topic-b", null).ok, true);
+  assert.equal(created.length, 2);
+});
+
+test("without an injected ledger the staffing path behaves exactly as before", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card4-"));
+  var created = [];
+  var harness = cardinalityRouter(dir, null, created);
+
+  assert.equal(staffTopic(harness, "portfolio-x", "auto-a7daa4cc660639337d144d93").ok, true);
+  assert.equal(staffTopic(harness, "portfolio-y", "auto-a7daa4cc660639337d144d93").ok, true);
+  assert.equal(created.length, 2);
+});
