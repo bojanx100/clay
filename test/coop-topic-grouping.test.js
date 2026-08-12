@@ -781,3 +781,39 @@ test("the handler resolves real session titles, not a project count", function (
   assert.equal(ids.indexOf("auto-444444444444444444444444"), -1,
     "a topic with a present linked session must not be offered for closure");
 });
+
+test("a topic still holding an unanswered owner request is never a candidate", function () {
+  // Found by live verification, not by review: 4 of 9 real closure candidates
+  // held 9 unanswered owner requests between them. An unanswered request is the
+  // strongest possible evidence a topic is unfinished -- closing over it buries
+  // a question the owner never got answered, which is the precise failure this
+  // whole feature exists to prevent.
+  var index = ownerFixture();
+  index.topics["auto-dddddddddddddddddddddddd"] = topicWith("auto-dddddddddddddddddddddddd");
+  var ids = selectIds(index, {
+    outstandingTopicIds: { "auto-dddddddddddddddddddddddd": true },
+  });
+  assert.equal(ids.indexOf("auto-dddddddddddddddddddddddd"), -1);
+});
+
+test("a topic whose owner requests are all answered may still be closed", function () {
+  var index = ownerFixture();
+  index.topics["auto-eeeeeeeeeeeeeeeeeeeeeeee"] = topicWith("auto-eeeeeeeeeeeeeeeeeeeeeeee");
+  var ids = selectIds(index, { outstandingTopicIds: {} });
+  assert.notEqual(ids.indexOf("auto-eeeeeeeeeeeeeeeeeeeeeeee"), -1,
+    "an answered, untracked topic is exactly what the sweep is for");
+});
+
+test("the handler derives outstanding topics from the owner-request ledger", function () {
+  var h = realClosureHarness();
+  h.ctx.coopOwnerRequests = {
+    list: function () {
+      return [{ topicRef: { topicId: "auto-444444444444444444444444" },
+        response: { state: "unanswered" } }];
+    },
+  };
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var ids = h.sent[0].candidates.map(function (c) { return c.topicId; });
+  assert.equal(ids.indexOf("auto-444444444444444444444444"), -1,
+    "the ledger the owner is shown must also protect what it reports as owed");
+});
