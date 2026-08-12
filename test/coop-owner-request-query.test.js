@@ -222,7 +222,8 @@ test("an empty ledger projects an empty, well-formed overview", function () {
   var result = overview({});
   assert.deepEqual(result.unanswered, []);
   assert.deepEqual(result.topics, []);
-  assert.deepEqual(result.counts, { unanswered: 0, topics: 0, working: 0, needsInput: 0, attention: 0 });
+  assert.deepEqual(result.counts,
+    { unanswered: 0, superseded: 0, topics: 0, working: 0, needsInput: 0, attention: 0 });
 });
 
 test("internal index scaffolding never leaks into the projection", function () {
@@ -398,4 +399,52 @@ test("a socket with no resolvable viewer scope is shown no projects", function (
   // The owner's own outstanding requests are still reported: that they asked
   // is not a project secret.
   assert.equal(harness.sent[0].counts.unanswered, 1);
+});
+
+// --- superseded is not unanswered ---------------------------------------------
+//
+// Regression caught on live data: the projection derived "answered" as
+// response.state === "answered", so the third response state -- superseded,
+// meaning the owner withdrew the question by replacing or stopping it -- fell
+// into the unanswered bucket. The owner would have been shown 16 requests they
+// themselves retracted as still outstanding, on the one surface whose whole job
+// is to be trusted about what is outstanding.
+
+test("a superseded request is not reported as unanswered", function () {
+  var result = overview({
+    requests: [
+      request(180, { response: { state: "superseded", answeredAt: null, responseRef: null,
+        supersededAt: 5, supersededBy: "owner_interrupt" } }),
+      request(182),
+    ],
+  });
+
+  assert.deepEqual(result.unanswered.map(function (r) { return r.ingressSequence; }), [182]);
+  assert.equal(result.counts.unanswered, 1);
+  assert.equal(result.topics[0].unansweredCount, 1);
+});
+
+test("the projection reports the response state so the owner can tell them apart", function () {
+  var result = overview({
+    requests: [request(180, { response: { state: "superseded", answeredAt: null, responseRef: null,
+      supersededAt: 5, supersededBy: "owner_interrupt" } })],
+  });
+  var topic = result.topics[0];
+  assert.equal(topic.unansweredCount, 0);
+  // Withdrawn is a real outcome, not an absence: it must be visible somewhere.
+  assert.equal(result.counts.superseded, 1);
+});
+
+test("answered, superseded and unanswered are counted as three distinct things", function () {
+  var result = overview({
+    requests: [
+      request(180, { response: { state: "answered", answeredAt: 1, responseRef: null } }),
+      request(181, { response: { state: "superseded", answeredAt: null, responseRef: null,
+        supersededAt: 2, supersededBy: "owner_interrupt" } }),
+      request(182),
+    ],
+  });
+  assert.equal(result.counts.unanswered, 1);
+  assert.equal(result.counts.superseded, 1);
+  assert.equal(result.topics[0].requestCount, 3);
 });
