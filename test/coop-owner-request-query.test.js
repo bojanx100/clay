@@ -296,3 +296,20 @@ test("a broken ledger reports unavailable rather than throwing at the socket", f
   assert.equal(harness.sent[0].ok, false);
   assert.equal(harness.sent[0].code, "overview_unavailable");
 });
+
+test("topic titles survive an unwarmed canonical session", async function () {
+  // topicIndexForContext resolves through the canonical Coop session and
+  // returns null before that session exists. The overview must still name its
+  // topics rather than rendering every row as "Untitled topic".
+  var harness = socketCtx("lead", fakeLedger());
+  harness.ctx.coopTopicIndex = {
+    load: function () {
+      return { topics: { "auto-a7daa4cc660639337d144d93": { title: "Owner topic execution flow", status: "open" } } };
+    },
+  };
+  connection.handleOwnerRequestOverview(harness.ctx, {}, { type: "coop_owner_requests_request" });
+
+  assert.equal(harness.sent[0].ok, true);
+  assert.equal(harness.sent[0].topics[0].title, "Owner topic execution flow");
+  assert.equal(harness.sent[0].unanswered[0].topicTitle, "Owner topic execution flow");
+});
