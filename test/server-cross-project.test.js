@@ -844,3 +844,34 @@ test("a refused staffing leaves no coordinator claim behind", function () {
     return b.portfolioTaskId === "portfolio-rival";
   }).length, 0, "a refused staffing leaves no binding either");
 });
+
+test("a coordinator lost to a rival between precheck and claim does not commit", function () {
+  // The cardinality precheck runs before delivery, so a rival can take the pair
+  // in between. Treating only persistence_failed as fatal left the loser's
+  // binding active and reported ok:true -- two coordinators for one line of work.
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-race-"));
+  var ledger = ledgerIn(dir);
+  var created = [];
+  var harness = cardinalityRouter(dir, ledger, created);
+  var topicId = "auto-a7daa4cc660639337d144d93";
+
+  var realClaim = ledger.claimCoordinator;
+  var prechecked = false;
+  ledger.canonicalCoordinator = function () { prechecked = true; return null; };
+  ledger.claimCoordinator = function (input) {
+    // By the time the real claim runs, a rival owns the pair.
+    if (prechecked) return { ok: false, reason: "coordinator_exists",
+      coordinator: { projectId: harness.projectId, sessionStorageId: "rival-session" } };
+    return realClaim(input);
+  };
+
+  var result = staffTopic(harness, "portfolio-raced", topicId);
+  assert.equal(result.ok, false, "an execution must not commit on a lost claim");
+  assert.equal(result.reason, "coordinator_exists");
+
+  var binding = harness.router.getExecutionBindings().filter(function (b) {
+    return b.portfolioTaskId === "portfolio-raced";
+  })[0];
+  assert.ok(binding, "the binding record survives for diagnosis");
+  assert.notEqual(binding.status, "active", "the losing binding must not stay active");
+});

@@ -365,11 +365,13 @@ test("aliasing collapses rival coordinators onto the canonical claim", function 
 // about durable facts, so reporting a fact that never reached disk is worse
 // than failing.
 
-function brokenDiskLedger(failAfter) {
-  var writes = 0;
+// Explicit disk failure. Counting writes was brittle: collapsing a nested
+// write into its parent silently moved where the injected failure landed.
+function brokenDiskLedger() {
   var realFs = require("fs");
+  var broken = false;
   var dir = realFs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-disk-"));
-  return ownerRequests.attachCoopOwnerRequests({
+  var ledger = ownerRequests.attachCoopOwnerRequests({
     file: path.join(dir, "r.json"),
     fs: {
       readFileSync: realFs.readFileSync,
@@ -377,17 +379,21 @@ function brokenDiskLedger(failAfter) {
       renameSync: realFs.renameSync,
       mkdirSync: realFs.mkdirSync,
       writeFileSync: function (target, data, options) {
-        writes += 1;
-        if (writes > failAfter) throw new Error("ENOSPC");
+        if (broken) throw new Error("ENOSPC");
         return realFs.writeFileSync(target, data, options);
       },
     },
   });
+  ledger._breakDisk = function () { broken = true; };
+  ledger._healDisk = function () { broken = false; };
+  ledger._file = path.join(dir, "r.json");
+  return ledger;
 }
 
 test("a coordinator claim that cannot be persisted fails closed", function () {
-  var ledger = brokenDiskLedger(2);
+  var ledger = brokenDiskLedger();
   var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger._breakDisk();
 
   var claim = ledger.claimCoordinator({
     topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: id,
@@ -415,9 +421,10 @@ test("a failed claim leaves the pair claimable, so a retry still works", functio
 });
 
 test("a topic merge moves requests and claims atomically, or not at all", function () {
-  var ledger = brokenDiskLedger(4);
+  var ledger = brokenDiskLedger();
   var first = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
   ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: first });
+  ledger._breakDisk();
 
   var merged = ledger.retopic(TOPIC, OTHER_TOPIC);
   assert.equal(merged.ok, false);
@@ -480,13 +487,99 @@ test("merging into a topic that already owns the pair keeps exactly one coordina
 });
 
 test("a closure whose write fails does not report topics settled", function () {
-  var ledger = brokenDiskLedger(3);
+  var ledger = brokenDiskLedger();
   var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
   ledger.setState(id, "working");
+  ledger._breakDisk();
 
   var closed = ledger.reconcileTopicClosure(TOPIC);
   assert.equal(closed.ok, false);
   assert.equal(closed.reason, "persistence_failed");
   assert.deepEqual(closed.settled, []);
   assert.equal(ledger.get(id).state, "working", "the in-memory state was rolled back");
+});
+
+// --- the exact break cases the re-review reproduced ---------------------------
+
+test("a failed claim leaves nothing durable, not even through the request link", function () {
+  // The nested linkExecution used to persist the whole state -- including the
+  // just-pushed claim -- before the outer persist ran. Failing only the outer
+  // write therefore returned persistence_failed while disk, and the topic-facing
+  // links, still carried the coordinator.
+  var ledger = brokenDiskLedger();
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger._breakDisk();
+
+  var claim = ledger.claimCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: id,
+  });
+  assert.equal(claim.ok, false);
+  assert.equal(ledger.listCoordinators().length, 0);
+  assert.deepEqual(ledger.get(id).links.coordinators, [], "the request link must not leak the claim");
+  assert.deepEqual(ledger.coordinatorsForTopic(TOPIC), []);
+
+  // And nothing reached disk: a reload sees no claim at all.
+  var reloaded = ownerRequests.attachCoopOwnerRequests({ file: ledger._file });
+  assert.equal(reloaded.canonicalCoordinator(TOPIC, { projectId: CLAY }), null);
+  assert.deepEqual(reloaded.coordinatorsForTopic(TOPIC), []);
+});
+
+test("after a failed claim a retry on healthy disk succeeds and is durable", function () {
+  var ledger = brokenDiskLedger();
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger._breakDisk();
+  assert.equal(ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: id }).ok, false);
+
+  ledger._healDisk();
+  var retry = ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: id });
+  assert.equal(retry.ok, true);
+  assert.equal(retry.created, true, "the failed attempt left the pair genuinely unclaimed");
+
+  var reloaded = ownerRequests.attachCoopOwnerRequests({ file: ledger._file });
+  assert.deepEqual(reloaded.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A);
+  assert.deepEqual(reloaded.get(id).links.coordinators, [COORD_A]);
+});
+
+test("a late requestRef write that fails is reported, not masked", function () {
+  var ledger = brokenDiskLedger();
+  var id = "coop:" + COOP_SESSION + ":182";
+  ledger.record({ ingressId: id, ingressSequence: 182,
+    sessionRef: { projectId: "system-lead", sessionStorageId: COOP_SESSION } });
+  ledger._breakDisk();
+
+  // record() used to mask this with `touch(...) || clone(existing)`, returning a
+  // truthy record while the canonical event reference reached neither memory
+  // nor disk -- and that reference is the whole content of the record.
+  var late = ledger.record({ ingressId: id, ingressSequence: 182,
+    sessionRef: { projectId: "system-lead", sessionStorageId: COOP_SESSION },
+    requestRef: { projectId: "system-lead", sessionStorageId: COOP_SESSION, eventIndex: 7 } });
+  assert.equal(late, null);
+  assert.equal(ledger.get(id).requestRef, null);
+});
+
+test("merging repoints only the source topic's links, never an unrelated topic's", function () {
+  // repointCoordinatorLinks rewrote the losing coordinator across EVERY request,
+  // so merging A into B silently rewrote an unrelated topic's request from A to
+  // B while that topic's canonical claim stayed A -- leaving it with two.
+  var ledger = makeLedger();
+  var sourceId = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  var targetId = open(ledger, 183, OTHER_TOPIC, [{ projectId: CLAY }]);
+  var THIRD = { topicId: "auto-cccccccccccccccccccccccc" };
+  var unrelatedId = open(ledger, 184, THIRD, [{ projectId: CLAY }]);
+
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: sourceId });
+  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_B, ingressId: targetId });
+  // The unrelated topic legitimately uses coordinator A too.
+  ledger.linkExecution(unrelatedId, { coordinator: COORD_A });
+
+  assert.equal(ledger.retopic(TOPIC, OTHER_TOPIC).ok, true);
+
+  // The merged request follows the surviving coordinator.
+  assert.deepEqual(ledger.get(sourceId).links.coordinators, [COORD_B]);
+  // The unrelated topic is untouched, and still has exactly one coordinator.
+  assert.deepEqual(ledger.get(unrelatedId).links.coordinators, [COORD_A],
+    "an unrelated topic's link must not be rewritten by someone else's merge");
+  assert.deepEqual(ledger.coordinatorsForTopic(THIRD), [COORD_A]);
 });

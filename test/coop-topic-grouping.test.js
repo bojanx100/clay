@@ -686,3 +686,98 @@ test("a merge whose ledger move cannot be persisted is reported as failed", func
   assert.equal(h.sent[0].code, "owner_request_retopic_failed",
     "a half-moved owner record must surface, not be reported as a clean merge");
 });
+
+// --- closure must never sweep evidence the owner still needs -------------------
+//
+// Re-review P1: the field mismatch was fixed but the SELECTION predicate only
+// looked at status, title match and relatedExecutions. A topic the owner is
+// still blocked on -- ownerDisposition needs_input, or a live/failed task, or a
+// binding, or an owner-direct session -- was selected and closed. Closing is
+// destructive to the owner's own view, so the selector must fail SAFE: anything
+// it cannot prove is finished stays open.
+
+function topicWith(id, extra) {
+  return Object.assign(makeTopic(id, "Provider fallback rework",
+    { kind: "uncategorised" }, "automatic", 1, ["provider"]), extra || {});
+}
+
+function selectIds(index, options) {
+  return closure.selectClosureCandidates(index, options || {}).map(function (c) { return c.topicId; });
+}
+
+test("a topic the owner must still decide on is never a closure candidate", function () {
+  var index = ownerFixture();
+  index.topics["auto-666666666666666666666666"] = topicWith("auto-666666666666666666666666", {
+    ownerDisposition: { status: "needs_input", source: "backfill", at: 1 },
+  });
+  assert.equal(selectIds(index).indexOf("auto-666666666666666666666666"), -1,
+    "needs_input is the owner being blocked; closing it hides their own decision");
+});
+
+test("an owner disposition of done does not by itself protect a topic", function () {
+  var index = ownerFixture();
+  index.topics["auto-777777777777777777777777"] = topicWith("auto-777777777777777777777777", {
+    ownerDisposition: { status: "done", source: "owner", at: 1 },
+  });
+  assert.notEqual(selectIds(index).indexOf("auto-777777777777777777777777"), -1,
+    "a resolved topic with nothing tracking it is exactly what this sweep is for");
+});
+
+test("a topic backed by live, failed or blocked work is never a candidate", function () {
+  ["running", "queued", "failed", "blocked", "needs_input", "waiting_user"].forEach(function (status) {
+    var index = ownerFixture();
+    index.topics["auto-888888888888888888888888"] = topicWith("auto-888888888888888888888888");
+    var ids = selectIds(index, {
+      tasks: [{ taskId: "t1", status: status, coopTopicRef: { topicId: "auto-888888888888888888888888" } }],
+    });
+    assert.equal(ids.indexOf("auto-888888888888888888888888"), -1,
+      status + " work must protect its topic from the sweep");
+  });
+});
+
+test("a topic backed by a non-terminal binding is never a candidate", function () {
+  var index = ownerFixture();
+  index.topics["auto-999999999999999999999999"] = topicWith("auto-999999999999999999999999");
+  var ids = selectIds(index, {
+    bindings: [{ portfolioTaskId: "p1", status: "active",
+      coopTopicRef: { topicId: "auto-999999999999999999999999" } }],
+  });
+  assert.equal(ids.indexOf("auto-999999999999999999999999"), -1);
+});
+
+test("a topic whose session is present in the ledger is never a candidate", function () {
+  var index = ownerFixture();
+  index.topics["auto-aaaaaaaaaaaaaaaaaaaaaaaa"] = topicWith("auto-aaaaaaaaaaaaaaaaaaaaaaaa");
+  var ids = selectIds(index, {
+    sessionEvidence: [{ coopTopicRefs: [{ topicId: "auto-aaaaaaaaaaaaaaaaaaaaaaaa" }],
+      sessionPresent: true, hidden: false }],
+  });
+  assert.equal(ids.indexOf("auto-aaaaaaaaaaaaaaaaaaaaaaaa"), -1);
+});
+
+test("a hidden or absent session does not protect a topic", function () {
+  var index = ownerFixture();
+  index.topics["auto-bbbbbbbbbbbbbbbbbbbbbbbb"] = topicWith("auto-bbbbbbbbbbbbbbbbbbbbbbbb");
+  var ids = selectIds(index, {
+    sessionEvidence: [{ coopTopicRefs: [{ topicId: "auto-bbbbbbbbbbbbbbbbbbbbbbbb" }],
+      sessionPresent: false, hidden: true }],
+  });
+  assert.notEqual(ids.indexOf("auto-bbbbbbbbbbbbbbbbbbbbbbbb"), -1,
+    "a dismissed or missing session is not something still tracking the topic");
+});
+
+test("the handler resolves real session titles, not a project count", function () {
+  // Regression: the handler passed getProjectList() as `sessions`, but a project
+  // status carries a numeric session count, never session titles -- so a real
+  // matching session never protected its topic.
+  var h = realClosureHarness();
+  h.ctx.getProjectList = function () { return [{ projectId: "p", sessions: 3 }]; };
+  h.ctx.coopSessionEvidence = function () {
+    return [{ coopTopicRefs: [{ topicId: "auto-444444444444444444444444" }],
+      sessionPresent: true, hidden: false }];
+  };
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var ids = h.sent[0].candidates.map(function (c) { return c.topicId; });
+  assert.equal(ids.indexOf("auto-444444444444444444444444"), -1,
+    "a topic with a present linked session must not be offered for closure");
+});
