@@ -1,6 +1,7 @@
 # Coop UX final review scope — PENDING, gate OPEN
 
-Status: **NOT READY.** The implementation at `af93548f6f` is complete and
+Status: **NOT READY.** The implementation at `0b59c7934d` (the exact pinned
+target; `af93548f6f` named here previously is superseded) is complete and
 verified by the coordinator, but the mandatory independent review gate has
 **never been satisfied**. Two review tasks were dismissed for worker-spawn
 failure, not for any review outcome:
@@ -616,6 +617,42 @@ review-findings segment on top of `9592e5a9c9`; the earlier note about
 superseded as final gates:
 
     git clone --shared . /tmp/coop-review && git -C /tmp/coop-review checkout 0b59c7934d
+
+BRANCH DRIFT SINCE THE PIN (recorded 2026-08-12, no repin). `bojan` has
+advanced 36 commits past `0b59c7934d`, and some touch files inside the
+`ownedPaths` list above — `lib/coop-topic-index.js`,
+`coop-topic-management.js`, `coop-topic-projection.js`, `coop-topic-state.js`,
+`coop-topic-connection.js`, `lib/server.js`, `lib/sdk-message-processor.js`,
+`lib/orchestration-task-graph.js`, `lib/project-task-orchestrator*.js`,
+`lib/public/modules/sidebar-coop-topics.js`, `sidebar.css`, `messages.css`,
+`mobile-nav.css`, `test/`. Those commits belong to separate admitted
+workstreams (topic sealing, TopicRef threading, provider routing, coordinator
+bindings), NOT to this UX segment. The pin is deliberately NOT moved to HEAD:
+repinning would silently expand this review from one UX segment to 36
+unrelated commits. Review the pinned commit as the exact target; treat the
+drift list as context only.
+
+Re-verified at HEAD on 2026-08-12 (read-only, nothing mutated):
+
+- In-scope suites still green at HEAD: `coop-now-index`,
+  `coop-action-queue-ui`, `coop-topic-decision-surface`,
+  `global-coop-projection`, `coop-topic-sidebar-controls` — 110/110.
+- Isolated full suite at the pinned commit `0b59c7934d`: 1821/1821.
+- Isolated full suite at HEAD `118d8df77c` (clean `--shared` clone, deps
+  linked): 2075/2076. The single failure is
+  `test/project-task-orchestrator.test.js:1895` "startup contains unavailable
+  worker routing without crashing the daemon" (`2 !== 1`, "no unroutable
+  worker session is created"). It passes 55/55 when that file runs alone, so
+  it is order/concurrency dependent, and it is green at the pin. It is a
+  regression in the orchestrator/binding workstream landed after this pin —
+  outside this review scope, left unpatched here because that workstream is
+  concurrently active. Worth knowing: it is the guard that makes an unhealthy
+  provider route fail closed into `needs_input` instead of spawning an
+  unroutable worker, i.e. the same machinery that is currently blocking this
+  review gate.
+- Owned task graph reconciled from the session ledger: 34 distinct tasks, 23
+  `completed`, 11 `dismissed`, zero active or needing attention. No stranded
+  `pending`/`unrouted` binding record remains.
 
 The seven-fix audit in Part 1 concerns the earlier commits in this history:
 
