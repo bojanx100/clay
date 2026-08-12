@@ -8,6 +8,10 @@ process.env.CLAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-"));
 
 var config = require("../lib/config");
 var { createCrossProjectRouter } = require("../lib/server-cross-project");
+var attachCompletionGate =
+  require("../lib/project-task-orchestrator-completion").attachCompletionGate;
+var attachSessionCompaction =
+  require("../lib/project-session-compaction").attachSessionCompaction;
 
 function readDeadLetters() {
   var file = config.recoveryLogPath();
@@ -265,6 +269,199 @@ test("project registration reconciles a hidden completed coordinator's active bi
   router.reconcileStrandedCompletions();
   assert.equal(router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision).status,
     "completed");
+});
+
+test("a compacted project coordinator completes its original canonical binding", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-compacted-completion-"));
+  var source = {
+    localId: 1,
+    storageId: "original-project-coordinator",
+    title: "Portfolio coordinator",
+    vendor: "codex",
+    coordinationMode: true,
+    orchestrationGraphId: "compacted-project-graph",
+    orchestrationTasks: [],
+    orchestrationEvents: [],
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 10 },
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "portfolio-compacted-completion",
+      bindingRevision: 1,
+      idempotencyKey: "portfolio-compacted-completion-r1",
+      mode: "project_coordinator",
+      status: "running",
+      source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+    } },
+    history: [{ type: "user_message", text: "Finish the portfolio project." }],
+  };
+  var ownerDirect = {
+    localId: 2,
+    storageId: "owner-direct-session",
+    title: "Owner direct session",
+    history: [],
+  };
+  var sessions = new Map([[source.localId, source], [ownerDirect.localId, ownerDirect]]);
+  var nextLocalId = 3;
+  var manager = {
+    sessions: sessions,
+    getProjectId: function () { return projectId; },
+    createSessionRaw: function (options) {
+      var session = Object.assign({ localId: nextLocalId++, history: [] }, options);
+      sessions.set(session.localId, session);
+      return session;
+    },
+    sendAndRecord: function (session, event) { session.history.push(event); },
+    saveSessionFile: function () {},
+    switchSession: function () {},
+    broadcastSessionList: function () {},
+    hideSession: function (localId) { sessions.get(localId).hidden = true; },
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    getProjectContextById: function (candidateProjectId) {
+      return candidateProjectId === projectId ? {
+        getSessionManager: function () { return manager; },
+      } : null;
+    },
+  });
+  var request = Object.assign({}, source.orchestrationPolicy.portfolioExecution, {
+    targetProject: { projectId: projectId },
+  });
+  assert.equal(router.bindingStore.reserve(request).ok, true);
+  assert.equal(router.bindingStore.commit(request.portfolioTaskId, request.bindingRevision, {
+    projectId: projectId,
+    sessionStorageId: source.storageId,
+  }).ok, true);
+
+  var compaction = attachSessionCompaction({
+    cwd: process.cwd(),
+    sm: manager,
+    sdk: { startQuery: function () {} },
+    sendToSession: function () {},
+  });
+  var continuation = compaction.compactAndContinue(source, { reason: "manual" });
+  continuation.history.push({
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Integrated through the continuation.\n" +
+      "VERIFICATION: focused completion suite passed\nINTEGRATION_VERIFIED: yes\n" +
+      "ESCALATION_REQUIRED: no",
+  });
+
+  var emitted = null;
+  var delivered = null;
+  var gate = attachCompletionGate({
+    sm: manager,
+    flushCoordinatorUpdates: function () { return false; },
+    queueCoordinatorUpdate: function () {},
+    sendState: function () {},
+    crossProject: {
+      createEnvelope: router.createEnvelope,
+      deliverEnvelope: function (envelope) {
+        emitted = envelope;
+        delivered = router.completeProjectCoordinatorExecution(envelope);
+        return delivered;
+      },
+    },
+  });
+  gate.handleTurnDone(continuation);
+
+  assert.ok(emitted);
+  assert.deepEqual(emitted.source, {
+    projectId: projectId,
+    sessionStorageId: continuation.storageId,
+  });
+  assert.deepEqual(router.getExecutionBinding(request.portfolioTaskId,
+    request.bindingRevision).coordinator, {
+    projectId: projectId,
+    sessionStorageId: source.storageId,
+  });
+  assert.equal(delivered && delivered.ok, true,
+    "the compacted continuation must be accepted as the bound coordinator lineage");
+  var completed = router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision);
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.completionEventId, emitted.eventId);
+  assert.equal(completed.resultEventId, emitted.payload.resultEventId);
+  assert.equal(source.hidden, true);
+  assert.equal(continuation.hidden, true);
+  assert.equal(ownerDirect.hidden, undefined);
+});
+
+test("project registration repairs a completed compacted coordinator binding after restart", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-compacted-reconcile-"));
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var request = {
+    source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+    portfolioTaskId: "portfolio-compacted-restart",
+    bindingRevision: 1,
+    idempotencyKey: "portfolio-compacted-restart-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+  };
+  assert.equal(router.bindingStore.reserve(request).ok, true);
+  assert.equal(router.bindingStore.commit(request.portfolioTaskId, request.bindingRevision, {
+    projectId: projectId,
+    sessionStorageId: "restart-original-coordinator",
+  }).ok, true);
+
+  var original = {
+    localId: 1,
+    storageId: "restart-original-coordinator",
+    compactedIntoLocalId: 2,
+    hidden: true,
+  };
+  var continuation = {
+    localId: 2,
+    storageId: "restart-continuation-coordinator",
+    compactedFromStorageId: original.storageId,
+    hidden: true,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 10 },
+    orchestrationProjectCompletion: {
+      status: "completed",
+      completedAt: 123,
+      summary: "Integrated after compaction.",
+      verification: "restart reconciliation passed",
+      integrationVerification: "yes",
+      escalationRequired: "no",
+    },
+    orchestrationPolicy: { portfolioExecution: Object.assign({}, request, {
+      status: "completed",
+      completedAt: 123,
+    }) },
+  };
+  var ownerDirect = {
+    localId: 3,
+    storageId: "restart-owner-direct",
+    orchestrationProjectCompletion: continuation.orchestrationProjectCompletion,
+    orchestrationPolicy: { portfolioExecution: Object.assign({}, request, {
+      status: "completed",
+      completedAt: 123,
+    }) },
+  };
+  var manager = {
+    sessions: new Map([[1, original], [2, continuation], [3, ownerDirect]]),
+    saveSessionFile: function () {},
+  };
+
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    getSessionManager: function () { return manager; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+
+  var completed = router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision);
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.completedAt, 123);
+  assert.match(completed.completionEventId, /^project-terminal-v1-/);
+  assert.match(completed.resultEventId, /^project-coordinator-/);
+  assert.equal(original.hidden, true);
+  assert.equal(continuation.hidden, true);
+  assert.equal(ownerDirect.hidden, undefined,
+    "an unlinked owner-direct session with copied metadata is not part of the binding lineage");
 });
 
 test("project execution ACL and target capability fail closed", function () {
