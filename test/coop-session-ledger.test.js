@@ -111,6 +111,17 @@ test("the Coop session ledger reconciles bindings and live session truth idempot
       updatedAt: 640,
     }],
   };
+  var compactedCoordinator = {
+    storageId: "compacted-coordinator",
+    title: "Compacted coordinator",
+    coordinationMode: true,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 141 },
+    orchestrationPolicy: { portfolioExecution: execution(
+      "compacted-project", "project_coordinator", "running", {
+        bindingRevision: 3, idempotencyKey: "compacted-project-r3", updatedAt: 660,
+      }
+    ) },
+  };
   var childWorker = {
     storageId: "child-worker",
     title: "Visible child worker",
@@ -178,7 +189,7 @@ test("the Coop session ledger reconciles bindings and live session truth idempot
   var input = {
     bindings: bindings,
     projects: [
-      project(CLAY_ID, [hiddenCoordinator, activeCoordinator, childWorker,
+      project(CLAY_ID, [hiddenCoordinator, activeCoordinator, compactedCoordinator, childWorker,
         ownerDirect, ownerDirectChild]),
       project(WEBAPP_ID, [needsInputLeaf, completedLeaf]),
     ],
@@ -203,7 +214,7 @@ test("the Coop session ledger reconciles bindings and live session truth idempot
     includeMissing: true,
     topLevelOnly: false,
   });
-  assert.equal(all.length, 8);
+  assert.equal(all.length, 9);
 
   var hidden = ledger.get({ projectId: CLAY_ID, sessionStorageId: "hidden-coordinator" });
   assert.equal(hidden.lifecycleState, "completed");
@@ -235,6 +246,14 @@ test("the Coop session ledger reconciles bindings and live session truth idempot
   assert.equal(worker.parentPortfolioBinding.mode, "project_coordinator");
   assert.deepEqual(worker.parentPortfolioBinding.coopTopicRef, { topicId: "topic-active" });
 
+  var compacted = ledger.get({
+    projectId: CLAY_ID, sessionStorageId: "compacted-coordinator",
+  });
+  assert.equal(compacted.portfolioBinding.portfolioTaskId, "compacted-project");
+  assert.equal(compacted.portfolioBinding.bindingRevision, 3);
+  assert.equal(compacted.portfolioBinding.status, "running",
+    "a compacted continuation retains its transferred typed portfolio execution");
+
   var missing = ledger.get({ projectId: CLAY_ID, sessionStorageId: "missing-historical-session" });
   assert.equal(missing.sessionPresent, false);
   assert.equal(missing.lifecycleState, "completed");
@@ -259,6 +278,7 @@ test("the Coop session ledger reconciles bindings and live session truth idempot
     return entry.projectRef.projectId + ":" + entry.sessionStorageId + ":" + entry.lifecycleState;
   }), [
     CLAY_ID + ":active-coordinator:running",
+    CLAY_ID + ":compacted-coordinator:running",
     CLAY_ID + ":owner-direct:idle",
     WEBAPP_ID + ":completed-visible-leaf:completed",
     WEBAPP_ID + ":needs-input-leaf:needs_input",
