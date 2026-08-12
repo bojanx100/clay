@@ -29,6 +29,8 @@ function makeHarness(sessionOverrides, switcherOverrides) {
   var sm = {
     getActiveSession: function () { return session; },
     sendAndRecord: function (s, obj) { recorded.push(obj); },
+    availableVendors: ["claude", "codex"],
+    installedVendors: [],
   };
   var codexRoute = { id: "codex-openai", vendor: "codex", label: "Codex via OpenAI", enabled: true };
   sm.providerRoutes = [codexRoute];
@@ -52,7 +54,7 @@ function makeHarness(sessionOverrides, switcherOverrides) {
     },
   };
   var gate = attachProviderSwitchRequest({ sm: sm, switcher: switcher, scheduledMessages: scheduledMessages });
-  return { gate: gate, session: session, recorded: recorded, switches: switches, continues: continues };
+  return { gate: gate, session: session, sm: sm, recorded: recorded, switches: switches, continues: continues };
 }
 
 function pendingDialog(session) {
@@ -229,4 +231,28 @@ test("a coordinator-authorized switch validates an exact static route against li
 
   assert.strictEqual(result.ok, true);
   assert.strictEqual(h.switches.length, 1);
+});
+
+test("a coordinator-authorized switch rejects a static route without a created adapter", function () {
+  var h = makeHarness(null, {
+    resolveSwitchTargetRoute: function () {
+      return { id: "codex-openai", vendor: "codex", label: "Codex via OpenAI" };
+    },
+  });
+  h.sm.availableVendors = ["claude"];
+  h.sm.providerRoutes = [];
+  var result = h.gate.switchControlledSession({
+    session: h.session,
+    target: "codex-openai",
+    model: "gpt-5.5",
+    reason: "quota exhausted",
+    idempotencyKey: "switch-missing-adapter",
+    sourceSessionStorageId: "coop-home",
+    portfolioTaskId: "portfolio-task",
+    bindingRevision: 1,
+  });
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, "route-unavailable");
+  assert.strictEqual(h.switches.length, 0);
 });
