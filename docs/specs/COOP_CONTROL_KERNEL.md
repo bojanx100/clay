@@ -163,6 +163,97 @@ returns only typed mismatch codes, record identities, counts, and
 expected/actual digests. Corrupt metadata can never produce `match: true`, and
 comparison never returns copied payloads.
 
+### Compatibility with the adjacent owner ledger
+
+The reference-only ledger bounds some fields by length alone, so the projection
+has to accept every value that ledger accepts without either aborting or
+admitting prose. Aborting is the worse failure: one degraded row must not remove
+every other row from the comparison.
+
+- `ingressSequence` `0` is the ledger's canonical "unknown sequence" sentinel.
+  It projects and compares as `0`; only negative or non-integer values are
+  rejected.
+- `response.supersededBy` carries a bounded control code (`owner_interrupt`, or
+  a caller reason the ledger caps at 40 characters), never an ingress id. Values
+  that are single bounded codes survive byte-for-byte, because they are the only
+  evidence distinguishing one superseded request from another; a caller reason
+  that is not a bounded code takes the same stand-in as the fields below.
+- `outcome.status` (40 characters) and `classification.source` (64) are
+  length-bounded but not identifier-bounded by the ledger. When either is not a
+  bounded code it projects as a `noncode.`-prefixed stand-in over the rejected
+  value: deterministic, stable across runs, distinct for distinct values, and
+  revealing nothing readable. Direct writable validation stays strict — a
+  non-code `outcome.status` or `classification.source` written straight into the
+  store is still rejected with `COOP_CONTROL_STORE_INVALID_RECORD`.
+
+The stand-in spends the field's entire remaining budget on digest rather than a
+fixed short prefix, so it is as collision-resistant as the bound allows: the
+8-character prefix leaves 32 hex characters (128 bits) at a 40-character bound
+and 56 (224 bits) at 64. A genuinely empty value still projects as `""`, so
+"absent" stays distinguishable from "not representable".
+
+`attention` is the one code-shaped field that needs no stand-in: it is closed
+over a fixed reason vocabulary by `coop-work-activity.normalizeAttentionCode`,
+which maps anything unrecognised to `attention_required` before the projection
+sees it. Its `CODE_RE` guard is therefore defense-in-depth, not a live path.
+
+Stored shadow rows are untrusted once the store is open, because a row can be
+corrupted underneath a live process. Comparison therefore never re-normalizes
+stored rows into the shadow digest, and a row whose JSON still parses but whose
+typed schema or canonical form fails is reported as a `shadow_record_invalid`
+mismatch rather than thrown. Evidence repeats only values that pass their own
+typed bound — record type, record key, counts, and SHA-256 digests — so a
+corrupt field name, validator message, or payload can never travel back to the
+caller. Activation still fails closed on the same corruption: reopening the
+store raises `COOP_CONTROL_STORE_LOGICAL_CORRUPTION`.
+
+Metadata counts are checked twice, because they fail for different reasons.
+`shadow_record_count_mismatch` means the recorded count disagrees with the
+expected source count, so the import is stale. `shadow_stored_count_divergence`
+means the recorded count disagrees with its own stored rows, so rows were added
+or dropped underneath the import.
+
+The complete mismatch vocabulary comparison can return:
+
+| Code | Meaning |
+| --- | --- |
+| `missing_shadow_record` | The source projects a record the store does not hold. |
+| `unexpected_shadow_record` | The store holds a record the source does not project. |
+| `record_digest_mismatch` | Both sides hold the identity, with different content. |
+| `shadow_record_invalid` | A stored row parses but fails its typed schema or canonical form. |
+| `shadow_import_missing` | Shadow rows are being compared with no import metadata. |
+| `shadow_record_count_mismatch` | Metadata count disagrees with the expected source count. |
+| `shadow_stored_count_divergence` | Metadata count disagrees with its own stored rows. |
+| `projection_digest_mismatch` | Metadata digest disagrees with the stored rows' digest. |
+
+Every entry carries the same bounded shape: `code`, `recordType`, `recordKey`,
+`expectedDigest`, `actualDigest`, plus `expectedCount`/`actualCount` on the two
+count codes. Any field that fails its own bound is reported as `""` or `null`
+rather than echoed.
+
+### Strict-input boundaries that stay fail-closed
+
+Compatibility does not mean accepting everything the ledger accepts. Two
+ledger-accepted values are intentionally rejected rather than degraded, because
+the projection would have to invent meaning it cannot substantiate:
+
+- negative `receivedAt`/`updatedAt`: the ledger's `finite()` accepts any finite
+  number, while the typed schema requires `>= 0`. There is no honest projection
+  of a negative timestamp — unlike `ingressSequence`, there is no sentinel the
+  ledger reserves for "unknown" — so it fails closed with
+  `COOP_CONTROL_STORE_INVALID_RECORD`.
+- prose `topicRef.topicId`: `coop-topic-ref.normalizeTopicRefInput` accepts any
+  non-empty trimmed string, while the typed schema requires a bounded
+  identifier. A stand-in is deliberately *not* used here: topic content is
+  explicitly out of ControlStore scope, so a digest of a prose topic id would
+  smuggle a topic-content shadow past the privacy boundary the rest of this
+  slice enforces. Relaxing it is a routing decision on the separately owned
+  topic-flow surface, not a local change.
+
+The distinction is whether the adjacent ledger's value carries meaning the
+projection can represent. A bounded code does, and a reserved sentinel does; an
+out-of-range timestamp and an unbounded topic identifier do not.
+
 Transaction callback capabilities are active only during the synchronous
 callback phase. Captured methods fail with
 `COOP_CONTROL_STORE_TRANSACTION_CLOSED` after return, throw, rollback, or a
@@ -184,4 +275,12 @@ The focused tests cover:
 - idempotent file-backed shadow import;
 - concurrent import single-winner behavior;
 - bounded typed mismatch evidence for corrupt counts and digests;
-- rejection of topic-index imports.
+- rejection of topic-index imports;
+- corrupt stored payloads and identities comparing as bounded mismatches while
+  activation still fails closed;
+- idempotent import and comparison of `ingressSequence` `0`;
+- byte-exact survival of bounded `supersededBy` control values;
+- deterministic, prose-free projection of a non-code `outcome.status` and
+  `classification.source` — including full-width stand-ins and preserved empty
+  values — alongside strict rejection of the same values on a direct write;
+- metadata counts compared against both the source count and the stored rows.

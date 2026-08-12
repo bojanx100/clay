@@ -149,10 +149,12 @@ availableTest("comparison reports deterministic mismatch evidence without copyin
     assert.deepEqual(comparison.mismatches.map(function (entry) { return entry.code; }), [
       "record_digest_mismatch",
       "missing_shadow_record",
+      "shadow_record_count_mismatch",
     ]);
     assert.deepEqual(comparison.mismatches.map(function (entry) { return entry.recordKey; }), [
       "coop:" + SESSION_A + ":1",
       "coop:" + SESSION_A + ":2",
+      "",
     ]);
     assert.ok(comparison.sourceDigest);
     assert.ok(comparison.shadowDigest);
@@ -254,6 +256,7 @@ availableTest("comparison reports corrupt shadow metadata with typed mismatches"
     assert.equal(comparison.match, false);
     assert.deepEqual(comparison.mismatches.map(function (entry) { return entry.code; }), [
       "shadow_record_count_mismatch",
+      "shadow_stored_count_divergence",
       "projection_digest_mismatch",
     ]);
     store.close();
