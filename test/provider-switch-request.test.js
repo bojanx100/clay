@@ -31,6 +31,7 @@ function makeHarness(sessionOverrides, switcherOverrides) {
     sendAndRecord: function (s, obj) { recorded.push(obj); },
   };
   var codexRoute = { id: "codex-openai", vendor: "codex", label: "Codex via OpenAI", enabled: true };
+  sm.providerRoutes = [codexRoute];
   var switcher = Object.assign({
     resolveSwitchTargetRoute: function (target) {
       return target === "codex" || target === "codex-openai" ? codexRoute : null;
@@ -207,4 +208,25 @@ test("a coordinator-authorized switch refuses to mutate a processing session", f
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.reason, "processing");
   assert.strictEqual(h.switches.length, 0);
+});
+
+test("a coordinator-authorized switch validates an exact static route against live readiness", function () {
+  var h = makeHarness(null, {
+    resolveSwitchTargetRoute: function () {
+      return { id: "codex-openai", vendor: "codex", label: "Codex via OpenAI" };
+    },
+  });
+  var result = h.gate.switchControlledSession({
+    session: h.session,
+    target: "codex-openai",
+    model: "gpt-5.5",
+    reason: "quota exhausted",
+    idempotencyKey: "switch-static-route",
+    sourceSessionStorageId: "coop-home",
+    portfolioTaskId: "portfolio-task",
+    bindingRevision: 1,
+  });
+
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(h.switches.length, 1);
 });
