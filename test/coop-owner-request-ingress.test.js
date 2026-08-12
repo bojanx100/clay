@@ -191,3 +191,52 @@ test("a refused route records attention and never reaches the ledger", function 
   assert.equal(recorded.attention, "project_target_unavailable");
   assert.equal(msg.coopClassification, undefined);
 });
+
+// --- the ledger is never resolved implicitly ---------------------------------
+//
+// Regression: the ingress seam used to fall back to the process-wide default
+// ledger when none was injected. That put the owner's real
+// ~/.clay/lead/coop-owner-requests.json on the hot path of anything that drove
+// the ingress pipeline -- and a test doing exactly that wrote a fixture record
+// into it. No injection now means no durable write, anywhere.
+
+var coopIngressModule = require("../lib/project-user-message-coop");
+
+test("the ingress seam records nothing when no ledger is injected", function () {
+  var saved = [];
+  var seam = coopIngressModule.attachCoopForegroundIngress({
+    sm: { saveSessionFile: function (session) { saved.push(session); } },
+  });
+  var session = coopSession([{ type: "user_message", coopIngressId: INGRESS }]);
+  var metadata = { coopIngress: { ingressId: INGRESS, sequence: 182, kind: "text", key: "k" } };
+
+  // Must not throw, and must still do its original job of stamping the item.
+  seam.recordPrepared(session, metadata, { coopTopicRef: { topicId: "t" } }, "prepared");
+  assert.equal(session.history[0].coopIngressPreparedText, "prepared");
+  assert.equal(saved.length, 1);
+  assert.equal(seam.recordUnroutable(session,
+    { coop: true, ingressId: INGRESS, sequence: 182, kind: "text" }, "project_target_unavailable"), null);
+});
+
+test("the answer hook records nothing when no ledger is injected", function () {
+  var session = coopSession([{ type: "user_message" }, { type: "done", code: 0 }]);
+  assert.equal(conversationControl.markIngressAnswered(session, null), false);
+});
+
+test("an injected ledger is the one that is written", function () {
+  var ledger = tempLedger();
+  var seam = coopIngressModule.attachCoopForegroundIngress({
+    coopOwnerRequests: ledger,
+    sm: { saveSessionFile: function () {} },
+  });
+  var session = coopSession([{ type: "user_message", coopIngressId: INGRESS }]);
+  seam.recordPrepared(session,
+    { coopIngress: { ingressId: INGRESS, sequence: 182, kind: "text", key: "k" } },
+    { coopTopicRef: TOPIC, coopClassification: "existing_topic" }, "prepared");
+
+  var record = ledger.get(INGRESS);
+  assert.equal(record.response.state, "unanswered");
+  assert.deepEqual(record.topicRef, TOPIC);
+  assert.equal(record.requestRef.eventIndex, 0);
+  assert.equal(record.classification.kind, "existing_topic");
+});
