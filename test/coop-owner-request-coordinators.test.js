@@ -583,3 +583,105 @@ test("merging repoints only the source topic's links, never an unrelated topic's
     "an unrelated topic's link must not be rewritten by someone else's merge");
   assert.deepEqual(ledger.coordinatorsForTopic(THIRD), [COORD_A]);
 });
+
+// --- rehydration: replacing a coordinator on the same binding ------------------
+//
+// Ingress 194 asks for deterministic rehydration -- swapping a stale or wedged
+// coordinator for a fresh session on the SAME canonical binding. That collides
+// with the cardinality rule shipped for this release: the claim is keyed on the
+// coordinator's sessionStorageId, so a replacement session reads as a RIVAL and
+// is refused, and with the new strict verdict handling its execution is now
+// marked unavailable. The rule would block the recovery it is meant to protect.
+
+test("a replacement coordinator on the same pair is refused as a rival today", function () {
+  var ledger = makeLedger();
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: id });
+
+  // The coordinator is wedged; a fresh session takes over the same work.
+  var replacement = ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_B, ingressId: id });
+  assert.equal(replacement.ok, false);
+  assert.equal(replacement.reason, "coordinator_exists");
+});
+
+test("transferring a claim to a replacement keeps exactly one coordinator", function () {
+  var file = tempFile();
+  var ledger = makeLedger(file);
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: id });
+
+  var moved = ledger.transferCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY },
+    from: COORD_A, to: COORD_B, reason: "rehydrated",
+  });
+
+  assert.equal(moved.ok, true);
+  assert.deepEqual(moved.coordinator, COORD_B);
+  assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_B);
+  assert.equal(ledger.coordinatorsForTopic(TOPIC).length, 1, "still exactly one");
+  // The owner request follows the live coordinator, not the retired one.
+  assert.deepEqual(ledger.get(id).links.coordinators, [COORD_B]);
+  // And it survives a restart.
+  assert.deepEqual(makeLedger(file).canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_B);
+});
+
+test("a transfer never invents a claim that was not there", function () {
+  var ledger = makeLedger();
+  open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  var moved = ledger.transferCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, from: COORD_A, to: COORD_B,
+  });
+  assert.equal(moved.ok, false);
+  assert.equal(moved.reason, "no_claim");
+  assert.equal(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), null);
+});
+
+test("a transfer from the wrong predecessor is refused", function () {
+  var ledger = makeLedger();
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: id });
+
+  // A valid same-project replacement, so this isolates the predecessor check
+  // rather than tripping the project guard first.
+  var moved = ledger.transferCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, from: COORD_B,
+    to: { projectId: CLAY, sessionStorageId: "a42d4cc5-fae7-4f98-8da8-3efabf3a7f2d" },
+  });
+  assert.equal(moved.ok, false);
+  assert.equal(moved.reason, "predecessor_mismatch");
+  assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A,
+    "a mismatched transfer must not disturb the incumbent");
+});
+
+test("a transfer that cannot be persisted fails closed", function () {
+  var ledger = brokenDiskLedger();
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: id });
+  ledger._breakDisk();
+
+  var moved = ledger.transferCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, from: COORD_A, to: COORD_B,
+  });
+  assert.equal(moved.ok, false);
+  assert.equal(moved.reason, "persistence_failed");
+  assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A,
+    "the incumbent is intact, so a retry is safe");
+  assert.deepEqual(ledger.get(id).links.coordinators, [COORD_A]);
+});
+
+test("a transfer to a coordinator in another project is refused", function () {
+  var ledger = makeLedger();
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: id });
+  var moved = ledger.transferCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, from: COORD_A, to: COORD_WEBAPP,
+  });
+  assert.equal(moved.ok, false);
+  assert.equal(moved.reason, "project_mismatch");
+});
