@@ -507,3 +507,52 @@ test("GitHub Copilot prompt errors include ACP code and data", async function() 
     handle.close();
   }
 });
+
+test("GitHub Copilot surfaces the ACP monthly quota sentinel as an execution error", async function() {
+  var quotaText = "Error: You have exceeded your monthly quota (Request ID: ABCD:1234:EF56)";
+  var fakeConnection = {
+    initialize: function() {
+      return Promise.resolve({ agentCapabilities: {} });
+    },
+    newSession: function() {
+      return Promise.resolve({ sessionId: "copilot-quota-session", configOptions: [] });
+    },
+    prompt: async function() {
+      await fakeConnection.client.sessionUpdate({
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: "quota-message",
+          content: { type: "text", text: quotaText },
+        },
+      });
+      return { usage: { inputTokens: 1, outputTokens: 0 }, stopReason: "end_turn" };
+    },
+    closeSession: function() {
+      return Promise.resolve({});
+    },
+    cancel: function() {
+      return Promise.resolve({});
+    },
+  };
+  var handle = createHandle(fakeConnection);
+
+  try {
+    var eventsOut = await readUntil(handle, function(event) {
+      return event.yokeType === "result";
+    });
+    var result = eventsByType(eventsOut, "result")[0];
+
+    assert.strictEqual(joinedText(eventsOut), "");
+    assert.strictEqual(eventsByType(eventsOut, "text_start").length, 0);
+    assert.strictEqual(result.subtype, "error_during_execution");
+    assert.deepStrictEqual(result.errors, [quotaText]);
+  } finally {
+    handle.close();
+  }
+});
+
+test("GitHub Copilot does not classify ordinary quota discussion as a provider error", function() {
+  assert.strictEqual(copilotHelpers.isCopilotQuotaError(
+    "I can help explain why the message 'You have exceeded your monthly quota' appears."
+  ), false);
+});

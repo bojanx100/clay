@@ -166,3 +166,45 @@ test("requesting the current provider is a no-op error", function () {
   assert.ok(result.isError);
   assert.ok(result.content[0].text.indexOf("already on") !== -1);
 });
+
+test("a coordinator-authorized switch runs immediately with durable attribution", function () {
+  var h = makeHarness();
+  var result = h.gate.switchControlledSession({
+    session: h.session,
+    target: "codex-openai",
+    model: "gpt-5.5",
+    reason: "GitHub Copilot quota exhausted",
+    idempotencyKey: "portfolio-task-r1-switch-openai",
+    sourceSessionStorageId: "coop-home",
+    portfolioTaskId: "portfolio-task",
+    bindingRevision: 1,
+  });
+
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(h.switches.length, 1);
+  assert.strictEqual(h.switches[0].trigger, "coordinator-request");
+  assert.strictEqual(h.switches[0].initiatedBy.source, "coop-coordinator");
+  assert.strictEqual(h.switches[0].targetRouteId, "codex-openai");
+  assert.strictEqual(h.switches[0].targetModel, "gpt-5.5");
+  assert.strictEqual(h.switches[0].idempotencyKey, "portfolio-task-r1-switch-openai");
+  assert.match(h.switches[0].routingRationale, /portfolio-task revision 1/);
+  assert.strictEqual(h.continues.length, 1);
+});
+
+test("a coordinator-authorized switch refuses to mutate a processing session", function () {
+  var h = makeHarness({ isProcessing: true });
+  var result = h.gate.switchControlledSession({
+    session: h.session,
+    target: "codex-openai",
+    model: "gpt-5.5",
+    reason: "quota exhausted",
+    idempotencyKey: "switch-processing",
+    sourceSessionStorageId: "coop-home",
+    portfolioTaskId: "portfolio-task",
+    bindingRevision: 1,
+  });
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, "processing");
+  assert.strictEqual(h.switches.length, 0);
+});

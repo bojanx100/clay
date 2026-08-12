@@ -120,6 +120,40 @@ test("credit exhaustion switches to an available healthy provider and continues"
   providerHealth._reset();
 });
 
+test("GitHub Copilot quota exhaustion fails a verified GPT session over to OpenAI", function () {
+  providerHealth._reset();
+  var sm = makeSm(["github-copilot", "codex"]);
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+  session.vendor = "github-copilot";
+  session.providerRouteId = "codex-github-copilot";
+  session.model = "gpt-5.5";
+  session.requestedModel = "gpt-5.5";
+  session.verifiedModel = "gpt-5.5";
+  providerHealth.recordFailure("github-copilot", "provider-quota-exhausted", {
+    providerRouteId: "codex-github-copilot",
+    model: "gpt-5.5",
+    immediate: true,
+  });
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "github-copilot",
+    providerRouteId: "codex-github-copilot",
+    model: "gpt-5.5",
+    reason: "provider-quota-exhausted",
+    isLimitFailure: true,
+    resetsAt: null,
+  });
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(session.vendor, "codex");
+  assert.strictEqual(session.providerRouteId, "codex-openai");
+  assert.strictEqual(session.model, "gpt-5.5");
+  assert.strictEqual(continued.length, 1);
+  providerHealth._reset();
+});
+
 test("fallback selection preserves the model family through Copilot when possible", function () {
   copilotEntitlements._test.setSnapshot(["claude-opus-4.8", "gpt-5.5"]);
   providerHealth._reset();

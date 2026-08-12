@@ -5,7 +5,7 @@ var processorModule = require("../lib/sdk-message-processor");
 var providerHealth = require("../lib/provider-health");
 require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
-function makeProcessor(spies, autoContinue) {
+function makeProcessor(spies, autoContinue, adapter) {
   var sm = {
     modelsByVendor: {},
     availableModels: [],
@@ -25,7 +25,7 @@ function makeProcessor(spies, autoContinue) {
     pushModule: null,
     getNotificationsModule: function () { return null; },
     getSDK: function () { return null; },
-    adapter: { vendor: "claude" },
+    adapter: adapter || { vendor: "claude" },
     cwd: process.cwd(),
     onProcessingChanged: function () {},
     onTurnDone: function () {},
@@ -50,10 +50,10 @@ function makeProcessor(spies, autoContinue) {
   });
 }
 
-function makeSession(isProcessing) {
+function makeSession(isProcessing, vendor) {
   return {
     localId: 1,
-    vendor: "claude",
+    vendor: vendor || "claude",
     history: [],
     blocks: {},
     sentToolResults: {},
@@ -310,6 +310,46 @@ test("Claude monthly spend-limit failover is queued at the terminal turn boundar
   assert.ok(session.history.some(function (item) {
     return item.type === "done" && item.code === 1;
   }));
+  providerHealth._reset();
+});
+
+test("GitHub Copilot monthly quota execution error requests exact-route provider failover", function () {
+  providerHealth._reset();
+  var spies = { scheduled: 0, cancelled: 0, continued: 0, failoverQueued: null };
+  var processor = makeProcessor(spies, true, { vendor: "github-copilot" });
+  var session = makeSession(true, "github-copilot");
+  session.providerRouteId = "codex-github-copilot";
+  session.model = "gpt-5.6-luna";
+
+  processor.processSDKMessage(session, {
+    yokeType: "result",
+    cost: 0,
+    usage: null,
+    modelUsage: null,
+    sessionId: "copilot-session-1",
+    subtype: "error_during_execution",
+    errors: ["Error: You have exceeded your monthly quota (Request ID: ABCD:1234:EF56)"],
+  });
+
+  assert.deepStrictEqual(spies.failoverQueued, {
+    vendor: "github-copilot",
+    reason: "provider-quota-exhausted",
+    isLimitFailure: true,
+    resetsAt: null,
+    providerRouteId: "codex-github-copilot",
+    model: "gpt-5.6-luna",
+  });
+  assert.strictEqual(session.isProcessing, true, "the failover owns terminal cleanup");
+  assert.strictEqual(providerHealth.getHealth("github-copilot", {
+    providerRouteId: "codex-github-copilot",
+    model: "gpt-5.6-luna",
+  }).state, "unhealthy");
+  assert.ok(session.history.some(function(item) {
+    return item.type === "info" && String(item.text || "").indexOf("GitHub Copilot quota is exhausted") !== -1;
+  }));
+  assert.strictEqual(session.history.some(function(item) {
+    return item.type === "error" && String(item.text || "").indexOf("monthly quota") !== -1;
+  }), false);
   providerHealth._reset();
 });
 
