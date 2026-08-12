@@ -99,6 +99,29 @@ test("same vendor+route is a no-op and records nothing", function () {
   assert.strictEqual(session.vendor, "claude");
 });
 
+test("same vendor+route can reconcile to a different verified model", function () {
+  var sm = makeSm({ modelsByVendor: { claude: ["claude-opus-4.8"], codex: ["gpt-5.5", "gpt-5.6-luna"] } });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+    model: "gpt-5.5",
+  });
+  var result = switcher.executeProviderSwitch({
+    session: session,
+    targetVendor: "codex",
+    targetRouteId: "codex-openai",
+    targetModel: "gpt-5.6-luna",
+  });
+
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(session.vendor, "codex");
+  assert.strictEqual(session.providerRouteId, "codex-openai");
+  assert.strictEqual(session.model, "gpt-5.6-luna");
+  assert.strictEqual(lastEntryOfType(session, "vendor_switched").fromVendor, "codex");
+  assert.strictEqual(lastEntryOfType(session, "vendor_switched").targetModel, "gpt-5.6-luna");
+});
+
 test("refuses while processing unless allowWhileProcessing is set", function () {
   var sm = makeSm();
   var switcher = makeSwitcher(sm);
