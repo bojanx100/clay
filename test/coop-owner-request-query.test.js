@@ -540,7 +540,11 @@ function fakeIndex(overrides) {
       return { ok: true, proposalId: "p1", candidates: [{ topicId: "auto-a", title: "A", reason: "no_matching_session", turnCount: 1 }] };
     },
     confirmTopicClosures: function (decision) {
-      return { ok: true, proposalId: decision.proposalId, closed: decision.confirm ? ["auto-a"] : [], declined: !decision.confirm };
+      // `confirmed` is the real contract field applyClosureProposal reads. This
+      // stub previously read `confirm`, matching the WS layer's own bug, so both
+      // sides of the mismatch agreed and the test could not see it.
+      return { ok: true, proposalId: decision.proposalId,
+        closed: decision.confirmed ? ["auto-a"] : [], declined: !decision.confirmed };
     },
   }, overrides || {});
 }

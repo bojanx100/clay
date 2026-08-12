@@ -357,3 +357,136 @@ test("aliasing collapses rival coordinators onto the canonical claim", function 
     return ref.sessionStorageId === COORD_B.sessionStorageId;
   }).length, 0, "the rival claim is dropped, not silently kept");
 });
+
+// --- P2 blockers from the independent Codex review ----------------------------
+//
+// Both are the same shape: a mutation applied in memory, a discarded persist()
+// result, and a cheerful ok:true. The ledger's whole value is being trusted
+// about durable facts, so reporting a fact that never reached disk is worse
+// than failing.
+
+function brokenDiskLedger(failAfter) {
+  var writes = 0;
+  var realFs = require("fs");
+  var dir = realFs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-disk-"));
+  return ownerRequests.attachCoopOwnerRequests({
+    file: path.join(dir, "r.json"),
+    fs: {
+      readFileSync: realFs.readFileSync,
+      existsSync: realFs.existsSync,
+      renameSync: realFs.renameSync,
+      mkdirSync: realFs.mkdirSync,
+      writeFileSync: function (target, data, options) {
+        writes += 1;
+        if (writes > failAfter) throw new Error("ENOSPC");
+        return realFs.writeFileSync(target, data, options);
+      },
+    },
+  });
+}
+
+test("a coordinator claim that cannot be persisted fails closed", function () {
+  var ledger = brokenDiskLedger(2);
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+
+  var claim = ledger.claimCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: id,
+  });
+
+  assert.equal(claim.ok, false, "a claim that never reached disk is not a claim");
+  assert.equal(claim.reason, "persistence_failed");
+  // And nothing leaked in memory: a restart would have silently un-owned the
+  // pair, letting a different task claim it and produce two coordinators.
+  assert.equal(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), null);
+  assert.equal(ledger.listCoordinators().length, 0);
+  assert.equal(ledger.coordinatorsForTopic(TOPIC).length, 0);
+});
+
+test("a failed claim leaves the pair claimable, so a retry still works", function () {
+  var file = tempFile();
+  var ledger = makeLedger(file);
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  var retry = ledger.claimCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: id,
+  });
+  assert.equal(retry.ok, true, "a healthy retry claims normally");
+  assert.equal(retry.created, true);
+  assert.deepEqual(makeLedger(file).canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A);
+});
+
+test("a topic merge moves requests and claims atomically, or not at all", function () {
+  var ledger = brokenDiskLedger(4);
+  var first = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: first });
+
+  var merged = ledger.retopic(TOPIC, OTHER_TOPIC);
+  assert.equal(merged.ok, false);
+  assert.equal(merged.reason, "persistence_failed");
+  // Neither half moved: requests still on the source topic, claim still under it.
+  assert.deepEqual(ledger.get(first).topicRef, TOPIC);
+  assert.equal(ledger.forTopic(OTHER_TOPIC).length, 0);
+  assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A);
+  assert.equal(ledger.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), null);
+});
+
+test("a successful merge carries response state, links and cardinality across", function () {
+  var file = tempFile();
+  var ledger = makeLedger(file);
+  var answered = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  var outstandingId = open(ledger, 183, TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: answered });
+  ledger.linkExecution(answered, { task: { projectId: CLAY,
+    coordinatorSessionStorageId: COORD_A.sessionStorageId, taskId: "task-1" } });
+  ledger.markAnswered(answered, { eventIndex: 9 });
+
+  var merged = ledger.retopic(TOPIC, OTHER_TOPIC);
+  assert.equal(merged.ok, true);
+  assert.equal(merged.requests, 2);
+
+  // Response state survives: answered stays answered, outstanding stays owed.
+  assert.equal(ledger.get(answered).response.state, "answered");
+  assert.equal(ledger.get(outstandingId).response.state, "unanswered");
+  assert.equal(ledger.unanswered().length, 1);
+  // Links survive.
+  assert.equal(ledger.get(answered).links.tasks.length, 1);
+  assert.equal(ledger.get(answered).links.coordinators.length, 1);
+  // Cardinality moved with the topic: one coordinator, under the target.
+  assert.deepEqual(ledger.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), COORD_A);
+  assert.equal(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), null);
+  assert.equal(ledger.coordinatorsForTopic(OTHER_TOPIC).length, 1);
+
+  // And it survives a restart, still idempotent.
+  var reloaded = makeLedger(file);
+  assert.deepEqual(reloaded.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), COORD_A);
+  assert.equal(reloaded.forTopic(OTHER_TOPIC).length, 2);
+  var again = reloaded.retopic(TOPIC, OTHER_TOPIC);
+  assert.equal(again.requests, 0, "re-merging an already-merged topic moves nothing");
+  assert.equal(reloaded.coordinatorsForTopic(OTHER_TOPIC).length, 1);
+});
+
+test("merging into a topic that already owns the pair keeps exactly one coordinator", function () {
+  var ledger = makeLedger();
+  var source = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  var target = open(ledger, 183, OTHER_TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: source });
+  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_B, ingressId: target });
+
+  assert.equal(ledger.retopic(TOPIC, OTHER_TOPIC).ok, true);
+  // One coordinator per (topic, project) is the rule; the incumbent wins.
+  assert.equal(ledger.coordinatorsForTopic(OTHER_TOPIC).length, 1);
+  assert.deepEqual(ledger.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), COORD_B);
+  // The moved request is re-pointed at the surviving coordinator, not the loser.
+  assert.deepEqual(ledger.get(source).links.coordinators, [COORD_B]);
+});
+
+test("a closure whose write fails does not report topics settled", function () {
+  var ledger = brokenDiskLedger(3);
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger.setState(id, "working");
+
+  var closed = ledger.reconcileTopicClosure(TOPIC);
+  assert.equal(closed.ok, false);
+  assert.equal(closed.reason, "persistence_failed");
+  assert.deepEqual(closed.settled, []);
+  assert.equal(ledger.get(id).state, "working", "the in-memory state was rolled back");
+});

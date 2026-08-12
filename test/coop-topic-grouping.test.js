@@ -505,3 +505,184 @@ test("closure proposal and confirmation are reachable through the index and surv
     assert.equal(reloaded.load().topics["auto-a7daa4cc660639337d144d93"].status, "closed");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// --- the closure handler against the REAL domain logic ------------------------
+//
+// Regression, found by independent review: the WS layer sent { confirm: true }
+// while applyClosureProposal reads `confirmed`. Every confirmation therefore
+// took the declined branch and closed nothing, while still replying ok:true --
+// the owner was told their sweep was processed and it silently never happened.
+//
+// The existing handler test could not see this: its fake index read the WS
+// layer's own (wrong) field name, so both sides of the mismatch agreed with
+// each other. This test drives the real propose/confirm pair instead.
+
+var connection = require("../lib/coop-topic-connection");
+
+function realClosureHarness() {
+  // A real on-disk index seeded from the closure fixture, driven through the
+  // real handler -- no stub anywhere, which is the whole point.
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-closure-ws-"));
+  var file = path.join(dir, "index.json");
+  fs.writeFileSync(file, JSON.stringify(closureFixture()));
+  var index = topics.createTopicIndex({ file: file });
+  var session = { coopHome: true, storageId: "canonical-home", history: [] };
+  var sent = [];
+  return {
+    index: index,
+    sent: sent,
+    ctx: {
+      slug: "lead",
+      coopTopicIndex: index,
+      isCoopTopicOwner: function () { return true; },
+      getProjectList: function () { return []; },
+      getGlobalCoopProjection: function () { return { projects: [] }; },
+      sm: { sessions: { forEach: function (fn) { fn(session); } }, saveSessionFile: function () {} },
+      sendTo: function (ws, payload) { sent.push(payload); },
+    },
+  };
+}
+
+test("confirming a proposal through the WS handler actually closes the topics", function () {
+  var h = realClosureHarness();
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+  assert.equal(proposal.ok, true);
+  assert.ok(proposal.candidates.length > 0, "the fixture must offer something to close");
+  var closable = proposal.candidates.length;
+
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+  var result = h.sent[1];
+  assert.equal(result.ok, true);
+  assert.equal(result.confirmed, true, "the owner's confirmation must reach the domain layer");
+  assert.equal(result.closed, closable, "confirming closes the proposed set");
+  assert.equal(result.declined, undefined);
+
+  // And the durable index really reflects it.
+  var state = h.index.load();
+  var stillOpen = proposal.candidates.filter(function (c) {
+    return state.topics[c.topicId] && state.topics[c.topicId].status === "open";
+  });
+  assert.equal(stillOpen.length, 0, "confirmed topics are closed on disk, not just reported");
+});
+
+test("declining a proposal through the WS handler closes nothing", function () {
+  var h = realClosureHarness();
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: false,
+  });
+  var result = h.sent[1];
+  assert.equal(result.closed, 0);
+  assert.equal(result.confirmed, false);
+
+  var state = h.index.load();
+  var stillOpen = proposal.candidates.filter(function (c) {
+    return state.topics[c.topicId] && state.topics[c.topicId].status === "open";
+  });
+  assert.equal(stillOpen.length, proposal.candidates.length, "declining leaves every topic open");
+});
+
+// --- a merge must carry the owner-request ledger with it -----------------------
+//
+// P2 from the independent review: coop-topic-management invoked index.merge()
+// only, and ledger.retopic() had no production caller at all. Topic membership
+// moved while the owner's requests and the coordinator claims stayed under a
+// topic id that no longer existed -- so outstanding work vanished from the
+// surface and one-coordinator-per-pair was enforced against a dead key.
+
+var ownerRequestsModule = require("../lib/coop-owner-requests");
+var management = require("../lib/coop-topic-management");
+
+function mergeHarness(ledgerOverrides) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-merge-ws-"));
+  var file = path.join(dir, "index.json");
+  fs.writeFileSync(file, JSON.stringify(ownerFixture()));
+  var index = topics.createTopicIndex({ file: file });
+  var ledger = ledgerOverrides || ownerRequestsModule.attachCoopOwnerRequests({
+    file: path.join(dir, "requests.json"),
+  });
+  var sent = [];
+  return {
+    index: index, ledger: ledger, sent: sent,
+    ctx: {
+      slug: "lead",
+      coopTopicIndex: index,
+      coopOwnerRequests: ledger,
+      isCoopTopicOwner: function () { return true; },
+      getProjectList: function () { return []; },
+      getGlobalCoopProjection: function () { return { projects: [] }; },
+      sm: { sessions: { forEach: function (fn) {
+        fn({ coopHome: true, storageId: "canonical-home", history: [] });
+      } }, saveSessionFile: function () {} },
+      sendTo: function (ws, payload) { sent.push(payload); },
+    },
+    deps: {
+      isCoopClient: function (c) { return c.slug === "lead"; },
+      globalProjectionProvider: function (c) { return c.getGlobalCoopProjection; },
+      topicIndexForContext: function (c) { return c.coopTopicIndex; },
+      visibleProjects: function () { return { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true }; },
+    },
+  };
+}
+
+var SOURCE = { topicId: "auto-444444444444444444444444" };
+var CANON = { topicId: "auto-a7daa4cc660639337d144d93" };
+var CLAY_ID = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+var A_COORD = { projectId: CLAY_ID, sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba" };
+
+function seedRequest(ledger, sequence, topicRef) {
+  var id = "coop:871a194b-8879-40f7-a1fe-656e48e722af:" + sequence;
+  ledger.record({ ingressId: id, ingressSequence: sequence,
+    sessionRef: { projectId: "system-lead", sessionStorageId: "871a194b-8879-40f7-a1fe-656e48e722af" } });
+  ledger.classify(id, { kind: "existing_topic", topicRef: topicRef, projectRefs: [{ projectId: CLAY_ID }] });
+  return id;
+}
+
+test("merging a topic moves its owner requests and coordinator claim to the target", function () {
+  var h = mergeHarness();
+  h.index.load().topics[SOURCE.topicId] = makeTopic(SOURCE.topicId, "Provider fallback rework",
+    { kind: "uncategorised" }, "automatic", 1, ["provider", "fallback"]);
+  h.index.save();
+  var id = seedRequest(h.ledger, 200, SOURCE);
+  h.ledger.claimCoordinator({ topicRef: SOURCE, projectRef: { projectId: CLAY_ID },
+    coordinator: A_COORD, ingressId: id });
+
+  var handled = management.handleManagement(h.ctx, {}, {
+    type: "coop_topic_merge", targetTopicRef: CANON, sourceTopicRefs: [SOURCE],
+  }, h.deps);
+
+  assert.equal(handled, true);
+  assert.equal(h.sent[0].ok, true, "the merge itself succeeds");
+  // The owner's record followed the topic.
+  assert.deepEqual(h.ledger.get(id).topicRef, CANON);
+  assert.equal(h.ledger.forTopic(CANON).length, 1);
+  assert.equal(h.ledger.forTopic(SOURCE).length, 0);
+  // And so did cardinality.
+  assert.deepEqual(h.ledger.canonicalCoordinator(CANON, { projectId: CLAY_ID }), A_COORD);
+  assert.equal(h.ledger.canonicalCoordinator(SOURCE, { projectId: CLAY_ID }), null);
+  // The owner is still owed the request; a merge is not an answer.
+  assert.equal(h.ledger.get(id).response.state, "unanswered");
+});
+
+test("a merge whose ledger move cannot be persisted is reported as failed", function () {
+  var stubbed = {
+    retopic: function () { return { ok: false, reason: "persistence_failed" }; },
+  };
+  var h = mergeHarness(stubbed);
+  h.index.load().topics[SOURCE.topicId] = makeTopic(SOURCE.topicId, "Provider fallback rework",
+    { kind: "uncategorised" }, "automatic", 1, ["provider"]);
+  h.index.save();
+
+  management.handleManagement(h.ctx, {}, {
+    type: "coop_topic_merge", targetTopicRef: CANON, sourceTopicRefs: [SOURCE],
+  }, h.deps);
+
+  assert.equal(h.sent[0].ok, false);
+  assert.equal(h.sent[0].code, "owner_request_retopic_failed",
+    "a half-moved owner record must surface, not be reported as a clean merge");
+});
