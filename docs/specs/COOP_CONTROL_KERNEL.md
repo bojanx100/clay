@@ -13,8 +13,12 @@ slices:
 
 - owner-request references and lifecycle codes;
 - canonical coordinator claims;
-- approvals, execution bindings, tasks, checkpoints, handoffs, and learnings;
 - privacy-safe shadow digests and mismatch evidence used during migration.
+
+Slice 1 has writable typed schemas only for `owner_request` and
+`coordinator_claim`. Approvals, execution bindings, tasks, checkpoints,
+handoffs, and learnings are reserved record-type names, but writes fail closed
+until their own reviewed schemas land in later slices.
 
 The following stay outside this database:
 
@@ -24,16 +28,22 @@ The following stay outside this database:
 - free-form model reasoning;
 - ephemeral runtime context.
 
-`topicRef` may appear inside a control record because it is an identity
-reference. A topic record, title, membership list, or copied topic body may
-not. The write API rejects unsupported record types and payload keys that name
-topics, projections, transcripts, prompts, reasoning, message history, or
-runtime context. The Slice 1 shadow adapter rejects a topic-index source
-explicitly.
+`topicRef: { topicId }` may appear inside an owner request because it is a pure
+identity reference. A topic record, title, membership list, or copied topic
+body may not. Each writable type has an exact nested field allowlist, reference
+shape, enum vocabulary, identity/key relationship, and set normalization rule.
+Unknown fields fail closed. Privacy aliases for topics, projections,
+transcripts, prompts, reasoning, messages, history, and runtime context are
+rejected even when punctuation or casing changes. The Slice 1 shadow adapter
+rejects a topic-index source explicitly.
 
 ## Files and compatibility surface
 
 - `lib/coop-control-store-migrations.js` owns the ordered schema.
+- `lib/coop-control-store-validation.js` owns the two Slice 1 typed record
+  schemas and privacy boundary.
+- `lib/coop-control-shadow-validation.js` owns untrusted shadow-envelope
+  validation and activation-time logical audits.
 - `lib/coop-control-store.js` owns activation, integrity checks, WAL setup,
   transactions, authoritative control-record slots, and shadow evidence rows.
 - `lib/coop-control-shadow.js` owns reference-store projection, canonical JSON,
@@ -86,16 +96,26 @@ On activation the store:
 
 1. opens the exact configured database path without replacing it;
 2. runs `PRAGMA integrity_check` before any schema migration;
-3. creates a consistent `VACUUM INTO` backup before migrating an existing
+3. rejects nonempty version-zero databases and validates the exact supported
+   schema objects, column declarations, affinities, `NOT NULL` flags, primary
+   keys, checks, indexes, foreign keys, and `STRICT` declarations;
+4. audits migration metadata and every existing typed control row before any
+   migration can modify the database;
+5. creates a consistent `VACUUM INTO` backup before migrating an existing
    database;
-4. applies ordered, individually atomic migrations and records their exact
+6. applies ordered, individually atomic migrations and records their exact
    version/name sequence;
-5. rechecks integrity and requires `journal_mode=wal`;
-6. uses `BEGIN IMMEDIATE` transactions and rolls back the complete transaction
+7. reruns integrity, `foreign_key_check`, and logical audits across control
+   rows, shadow rows, canonical JSON, row digests, import counts, projection
+   digests, timestamps, and parent/child consistency;
+8. requires `journal_mode=wal`;
+9. uses `BEGIN IMMEDIATE` transactions and rolls back the complete transaction
    on callback, injected pre-commit, or SQLite commit failure.
 
 Unreadable, corrupt, too-new, or structurally inconsistent databases fail
 closed. They are never renamed, truncated, deleted, or interpreted as empty.
+Activation performs all fail-closed validation before returning a handle, and
+schema/logical rejection does not rewrite the original database.
 
 ## Schema
 
@@ -129,10 +149,24 @@ and SHA-256 digest regardless of source enumeration order. Duplicate identical
 records collapse; duplicate identities with different content fail with
 `COOP_CONTROL_SHADOW_CONFLICT`.
 
+Prebuilt/direct projections are not trusted canonical input. They pass through
+the same per-type normalization, exact record wrapper checks, set sorting,
+identity/key validation, conflict detection, and privacy boundary as projected
+reference-store rows. Shadow replacement separately validates its exact
+digest/record envelope before touching SQLite.
+
 Re-importing an identical projection is a true no-op: shadow rows and the
-original `importedAt` remain unchanged. Comparison returns only typed mismatch
-codes, record identities, and expected/actual digests. It never returns copied
-payloads.
+original `importedAt` remain unchanged. Equality comparison and replacement run
+inside one `BEGIN IMMEDIATE` transaction, so concurrent identical imports have
+one `changed: true` winner and preserve that first timestamp. Comparison
+returns only typed mismatch codes, record identities, counts, and
+expected/actual digests. Corrupt metadata can never produce `match: true`, and
+comparison never returns copied payloads.
+
+Transaction callback capabilities are active only during the synchronous
+callback phase. Captured methods fail with
+`COOP_CONTROL_STORE_TRANSACTION_CLOSED` after return, throw, rollback, or a
+rejected async callback; async transaction callbacks are unsupported.
 
 ## Slice 1 verification
 
@@ -143,8 +177,11 @@ The focused tests cover:
 - WAL mode and ordered migrations;
 - backup contents before migration;
 - fail-closed corrupt-state handling;
+- exact schema and stored logical-state rejection without mutation;
 - rollback under injected commit failure;
 - canonical digest stability across shuffled equivalent input;
+- direct-projection normalization, conflict, key, and privacy rejection;
 - idempotent file-backed shadow import;
-- bounded mismatch evidence;
+- concurrent import single-winner behavior;
+- bounded typed mismatch evidence for corrupt counts and digests;
 - rejection of topic-index imports.

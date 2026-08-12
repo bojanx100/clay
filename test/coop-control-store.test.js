@@ -5,6 +5,18 @@ var os = require("os");
 var path = require("path");
 var controlStore = require("../lib/coop-control-store");
 
+var PROJECT_A = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+
+function coordinatorClaim(topicId, sequence) {
+  return {
+    topicId: topicId,
+    projectId: PROJECT_A,
+    coordinator: { projectId: PROJECT_A, sessionStorageId: "session-" + sequence },
+    claimedAt: sequence,
+    ingressIds: [],
+  };
+}
+
 function harness() {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-control-store-"));
   return {
@@ -82,7 +94,8 @@ availableTest("an existing database is backed up before an ordered migration", f
     db.prepare("INSERT INTO coop_control_records " +
       "(record_type, record_key, revision, canonical_json, created_at, updated_at) " +
       "VALUES (?, ?, ?, ?, ?, ?)")
-      .run("owner_request", "coop:test:1", 1, "{\"state\":\"open\"}", 900, 900);
+      .run("coordinator_claim", "topic-a:" + PROJECT_A, 1,
+        controlStore.canonicalStringify(coordinatorClaim("topic-a", 1)), 900, 900);
     db.exec("PRAGMA user_version = 1");
     db.close();
 
@@ -132,15 +145,14 @@ availableTest("an injected commit failure rolls back every record in the transac
     failCommit = true;
     assert.throws(function () {
       store.transaction(function (tx) {
-        tx.putControlRecord("owner_request", "coop:test:1", { state: "open" });
-        tx.putControlRecord("coordinator_claim", "topic-a:project-a", {
-          topicId: "topic-a",
-          projectId: "project-a",
-        });
+        tx.putControlRecord("coordinator_claim", "topic-a:" + PROJECT_A,
+          coordinatorClaim("topic-a", 1));
+        tx.putControlRecord("coordinator_claim", "topic-b:" + PROJECT_A,
+          coordinatorClaim("topic-b", 2));
       });
     }, /injected commit failure/);
-    assert.equal(store.getControlRecord("owner_request", "coop:test:1"), null);
-    assert.equal(store.getControlRecord("coordinator_claim", "topic-a:project-a"), null);
+    assert.equal(store.getControlRecord("coordinator_claim", "topic-a:" + PROJECT_A), null);
+    assert.equal(store.getControlRecord("coordinator_claim", "topic-b:" + PROJECT_A), null);
     store.close();
 
     var reopened = controlStore.openControlStore({ dbPath: h.dbPath });
@@ -166,7 +178,7 @@ availableTest("out-of-scope records and payloads are rejected at the store bound
         transcript: "must remain outside",
       });
     }, function (error) {
-      return error && error.code === "COOP_CONTROL_STORE_OUT_OF_SCOPE";
+      return error && error.code === "COOP_CONTROL_STORE_INVALID_RECORD";
     });
     assert.deepEqual(store.listControlRecords(), []);
     store.close();

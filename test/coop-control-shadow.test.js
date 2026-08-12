@@ -197,3 +197,67 @@ test("topic indexes are rejected as out of scope instead of entering the control
     return error && error.code === "COOP_CONTROL_SHADOW_SOURCE_OUT_OF_SCOPE";
   });
 });
+
+test("direct projections are normalized, sorted, conflict-checked, and privacy-safe", function () {
+  var source = state([request(1, "unanswered")], [
+    claim("topic-a", PROJECT_A, SESSION_A, ["coop:" + SESSION_A + ":2", "coop:" + SESSION_A + ":1"]),
+  ]);
+  var projection = shadow.canonicalProjection([source]);
+  var reversed = JSON.parse(JSON.stringify(projection));
+  reversed.reverse();
+  for (var i = 0; i < reversed.length; i++) {
+    if (reversed[i].recordType === "coordinator_claim") reversed[i].value.ingressIds.reverse();
+    if (reversed[i].recordType === "owner_request") {
+      reversed[i].value.projectRefs.reverse();
+      reversed[i].value.links.coordinators.reverse();
+      reversed[i].value.links.tasks.reverse();
+    }
+  }
+  assert.equal(shadow.projectionDigest(projection), shadow.projectionDigest(reversed));
+
+  var conflicting = JSON.parse(JSON.stringify(projection));
+  var duplicate = JSON.parse(JSON.stringify(conflicting[0]));
+  duplicate.value.claimedAt += 1;
+  conflicting.push(duplicate);
+  assert.throws(function () {
+    shadow.canonicalProjection(conflicting);
+  }, function (error) { return error && error.code === "COOP_CONTROL_SHADOW_CONFLICT"; });
+
+  var privateProjection = JSON.parse(JSON.stringify(projection));
+  privateProjection[0].value.messageBody = "private";
+  assert.throws(function () {
+    shadow.canonicalProjection(privateProjection);
+  }, function (error) { return error && error.code === "COOP_CONTROL_STORE_OUT_OF_SCOPE"; });
+
+  var wrongKey = JSON.parse(JSON.stringify(projection));
+  for (var j = 0; j < wrongKey.length; j++) {
+    if (wrongKey[j].recordType === "owner_request") {
+      wrongKey[j].recordKey = "coop:" + SESSION_A + ":999";
+    }
+  }
+  assert.throws(function () {
+    shadow.canonicalProjection(wrongKey);
+  }, function (error) { return error && error.code === "COOP_CONTROL_STORE_INVALID_RECORD"; });
+});
+
+availableTest("comparison reports corrupt shadow metadata with typed mismatches", function () {
+  var h = harness();
+  try {
+    var source = state([request(1, "unanswered")], []);
+    var store = controlStore.openControlStore({ dbPath: h.dbPath });
+    shadow.importShadow(store, [source]);
+    var db = new (require("node:sqlite").DatabaseSync)(h.dbPath);
+    db.prepare("UPDATE coop_control_shadow_imports SET record_count = ?, projection_digest = ?")
+      .run(99, "0".repeat(64));
+    db.close();
+    var comparison = shadow.compareShadow(store, [source]);
+    assert.equal(comparison.match, false);
+    assert.deepEqual(comparison.mismatches.map(function (entry) { return entry.code; }), [
+      "shadow_record_count_mismatch",
+      "projection_digest_mismatch",
+    ]);
+    store.close();
+  } finally {
+    h.cleanup();
+  }
+});
