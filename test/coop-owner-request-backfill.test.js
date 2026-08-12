@@ -41,7 +41,7 @@ function run(history) {
 }
 
 test("a turn with assistant output before its terminator answered the owner", function () {
-  var out = run([ingress(1), { type: "delta" }, { type: "result" }, { type: "done", code: 0 }]);
+  var out = run([ingress(1), { type: "delta" }, { type: "done", code: 0 }]);
   assert.equal(out.result.counts.answered, 1);
   assert.equal(out.result.counts.unanswered, 0);
   assert.equal(out.ledger.unanswered().length, 0);
@@ -73,7 +73,7 @@ test("an errored turn did not answer the owner", function () {
 
 test("a turn the owner replaced before it finished is superseded, not unanswered", function () {
   var out = run([ingress(1), { type: "delta" },
-    ingress(2), { type: "result" }, { type: "done", code: 0 }]);
+    ingress(2), { type: "delta" }, { type: "done", code: 0 }]);
 
   assert.equal(out.result.counts.superseded, 1);
   assert.equal(out.result.counts.answered, 1);
@@ -91,7 +91,7 @@ test("the backfill is idempotent and never re-answers", function () {
   var ledger = ledgerFor();
   var history = [ingress(1), { type: "thinking_stop" },
     { type: "info", text: "Conversation interrupted" }, { type: "done", code: 0 },
-    ingress(2), { type: "result" }, { type: "done", code: 0 }];
+    ingress(2), { type: "delta" }, { type: "done", code: 0 }];
   var session = { storageId: COOP, coopHome: true, history: history };
 
   var first = backfill.backfillOwnerRequests(ledger, session, {});
@@ -102,7 +102,7 @@ test("the backfill is idempotent and never re-answers", function () {
 });
 
 test("backfilled requests carry the canonical event reference, not the text", function () {
-  var out = run([ingress(1), { type: "result" }, { type: "done", code: 0 }]);
+  var out = run([ingress(1), { type: "delta" }, { type: "done", code: 0 }]);
   var record = out.ledger.get("coop:" + COOP + ":1");
 
   assert.deepEqual(record.requestRef,
@@ -113,7 +113,7 @@ test("backfilled requests carry the canonical event reference, not the text", fu
 });
 
 test("a backfilled classification never invents execution intent", function () {
-  var out = run([ingress(1), { type: "result" }, { type: "done", code: 0 }]);
+  var out = run([ingress(1), { type: "delta" }, { type: "done", code: 0 }]);
   var record = out.ledger.get("coop:" + COOP + ":1");
   // It landed on a topic -- a fact. Whether that topic was new at the time is
   // not recoverable, so it reads as a reuse rather than a fresh workstream.

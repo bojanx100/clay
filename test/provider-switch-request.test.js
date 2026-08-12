@@ -212,6 +212,64 @@ test("a coordinator-authorized switch refuses to mutate a processing session", f
   assert.strictEqual(h.switches.length, 0);
 });
 
+test("a coordinator-authorized switch clears terminal empty-turn processing state", function () {
+  var h = makeHarness({
+    isProcessing: true,
+    _queryStartTs: 100,
+    history: [
+      { type: "user_message", text: "Continue after restart", _ts: 100 },
+      {
+        type: "result",
+        cost: 0,
+        usage: { input_tokens: 0, output_tokens: 0 },
+        _ts: 200,
+      },
+      { type: "error", text: "Claude returned an empty response", _ts: 200 },
+      { type: "done", code: 0, _ts: 200 },
+    ],
+  });
+  var result = h.gate.switchControlledSession({
+    session: h.session,
+    target: "codex-openai",
+    model: "gpt-5.5",
+    reason: "the previous provider returned an empty terminal turn",
+    idempotencyKey: "switch-after-empty-turn",
+    sourceSessionStorageId: "coop-home",
+    portfolioTaskId: "portfolio-task",
+    bindingRevision: 1,
+  });
+
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(h.session.isProcessing, false);
+  assert.strictEqual(h.switches.length, 1);
+});
+
+test("a coordinator-authorized switch preserves a genuinely active follow-on turn", function () {
+  var h = makeHarness({
+    isProcessing: true,
+    _queryStartTs: 201,
+    history: [
+      { type: "done", code: 0, _ts: 200 },
+      { type: "user_message", text: "Queued delivery now running", _ts: 201 },
+    ],
+  });
+  var result = h.gate.switchControlledSession({
+    session: h.session,
+    target: "codex-openai",
+    model: "gpt-5.5",
+    reason: "try to switch during the follow-on",
+    idempotencyKey: "switch-during-follow-on",
+    sourceSessionStorageId: "coop-home",
+    portfolioTaskId: "portfolio-task",
+    bindingRevision: 1,
+  });
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, "processing");
+  assert.strictEqual(h.session.isProcessing, true);
+  assert.strictEqual(h.switches.length, 0);
+});
+
 test("a coordinator-authorized switch validates an exact static route against live readiness", function () {
   var h = makeHarness(null, {
     resolveSwitchTargetRoute: function () {
