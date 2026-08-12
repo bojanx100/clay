@@ -337,3 +337,39 @@ test("topic index links retain exact top-level and descendant SessionRefs", func
     sessionRef: { projectId: CLAY_ID, sessionStorageId: "worker" },
   }]);
 });
+
+test("a compacted continuation inherits the exact source binding and topic", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-compaction-"));
+  var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
+  var source = {
+    storageId: "source-session",
+    title: "Portfolio coordinator",
+    hidden: true,
+    compactedIntoLocalId: 2,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+  };
+  var continuation = {
+    storageId: "continuation-session",
+    title: "Portfolio coordinator (compacted)",
+    compactedFromStorageId: "source-session",
+    coordinationMode: true,
+    isProcessing: true,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+    orchestrationPolicy: { portfolioExecution: { status: "running", updatedAt: 300 } },
+  };
+  ledger.reconcile({
+    bindings: [binding("portfolio-task", CLAY_ID, "source-session",
+      "project_coordinator", "active", "topic-compacted")],
+    projects: [project(CLAY_ID, [source, continuation])],
+  });
+
+  var visible = ledger.list({ projectRefs: [{ projectId: CLAY_ID }] });
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].sessionStorageId, "continuation-session");
+  assert.equal(visible[0].portfolioBinding.portfolioTaskId, "portfolio-task");
+  assert.deepEqual(visible[0].coopTopicRef, { topicId: "topic-compacted" });
+  assert.equal(visible[0].lifecycleState, "running");
+  assert.deepEqual(ledger.topicEvidence({ topicId: "topic-compacted" }).map(function (entry) {
+    return entry.sessionStorageId;
+  }), ["continuation-session"]);
+});
