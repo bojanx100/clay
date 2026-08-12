@@ -388,3 +388,46 @@ test("a failed write leaves the prior value intact, not half-applied", function 
   assert.equal(ledger.get(id).state, "open", "the state change was rolled back");
   assert.deepEqual(ledger.get(id).topicRef, TOPIC, "the earlier committed value survives");
 });
+
+// Review finding: persist() calls prune() BEFORE writing, so a failed write
+// left the prune applied in memory while disk still held the evicted record.
+// Rollback only restored the immediate mutation, never the prune.
+test("a failed write does not silently evict a record from memory only", function () {
+  var realFs = require("fs");
+  var broken = false;
+  var dir = realFs.mkdtempSync(path.join(os.tmpdir(), "clay-prune-"));
+  var file = path.join(dir, "r.json");
+  var ledger = ownerRequests.attachCoopOwnerRequests({
+    file: file,
+    fs: {
+      readFileSync: realFs.readFileSync, existsSync: realFs.existsSync,
+      renameSync: realFs.renameSync, mkdirSync: realFs.mkdirSync,
+      writeFileSync: function (t, d, o) {
+        if (broken) throw new Error("ENOSPC");
+        return realFs.writeFileSync(t, d, o);
+      },
+    },
+  });
+
+  // Fill past the cap with settled records so the next insert triggers a prune.
+  var cap = ownerRequests.MAX_RECORDS || 2000;
+  for (var i = 1; i <= cap; i++) {
+    var id = "coop:" + COOP_SESSION + ":" + i;
+    ledger.record({ ingressId: id, ingressSequence: i,
+      sessionRef: { projectId: LEAD_PROJECT, sessionStorageId: COOP_SESSION } });
+    ledger.markAnswered(id, { eventIndex: i });
+  }
+  var before = ledger.list().length;
+
+  broken = true;
+  var overflow = ledger.record({ ingressId: "coop:" + COOP_SESSION + ":" + (cap + 1),
+    ingressSequence: cap + 1,
+    sessionRef: { projectId: LEAD_PROJECT, sessionStorageId: COOP_SESSION } });
+
+  assert.equal(overflow, null, "the failed insert is reported as failed");
+  assert.equal(ledger.list().length, before,
+    "a failed write must not evict an older record from memory only");
+  // And memory agrees with disk.
+  var reloaded = ownerRequests.attachCoopOwnerRequests({ file: file });
+  assert.equal(reloaded.list().length, ledger.list().length);
+});

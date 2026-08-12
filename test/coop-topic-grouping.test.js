@@ -817,3 +817,208 @@ test("the handler derives outstanding topics from the owner-request ledger", fun
   assert.equal(ids.indexOf("auto-444444444444444444444444"), -1,
     "the ledger the owner is shown must also protect what it reports as owed");
 });
+
+// --- confirmation must re-check evidence, not just status ---------------------
+//
+// Review finding: applyClosureProposal only rechecked topic.status === "open".
+// Evidence arriving BETWEEN propose and confirm -- the owner asking something
+// new, a task failing, a coordinator starting -- was invisible, so a two-touch
+// flow closed a topic that had become blocked since the owner saw the list.
+
+function setOf(id) { var m = {}; m[id] = true; return m; }
+
+test("evidence arriving after the proposal blocks the confirmation", function () {
+  var index = closureFixture();
+  var proposal = closure.proposeClosures(index, { now: function () { return 1; } });
+  var target = proposal.candidates[0].topicId;
+
+  // The owner asks something new on that topic before confirming.
+  var applied = closure.applyClosureProposal(index,
+    { proposalId: proposal.proposalId, confirmed: true },
+    { now: function () { return 2; }, outstandingTopicIds: setOf(target) });
+
+  assert.equal(index.topics[target].status, "open",
+    "a topic that became blocked after the proposal must not close");
+  assert.ok(applied.blocked && applied.blocked.length >= 1,
+    "the owner is told which topics were skipped and why");
+});
+
+test("confirmation still closes candidates that remain genuinely finished", function () {
+  var index = closureFixture();
+  var proposal = closure.proposeClosures(index, { now: function () { return 1; } });
+  var applied = closure.applyClosureProposal(index,
+    { proposalId: proposal.proposalId, confirmed: true }, { now: function () { return 2; } });
+
+  assert.equal(applied.closed, proposal.candidates.length);
+  assert.equal(applied.blocked ? applied.blocked.length : 0, 0);
+});
+
+test("a task that became blocked after the proposal stops its topic closing", function () {
+  var index = closureFixture();
+  var proposal = closure.proposeClosures(index, { now: function () { return 1; } });
+  var target = proposal.candidates[0].topicId;
+
+  closure.applyClosureProposal(index,
+    { proposalId: proposal.proposalId, confirmed: true },
+    { now: function () { return 2; },
+      tasks: [{ taskId: "t", status: "failed", coopTopicRef: { topicId: target } }] });
+
+  assert.equal(index.topics[target].status, "open");
+});
+
+// --- historical references must not protect forever ---------------------------
+
+test("a relatedExecution pointing at a hidden session does not protect a topic", function () {
+  var index = ownerFixture();
+  index.topics["auto-111111111111111111111111"] = topicWith("auto-111111111111111111111111", {
+    relatedExecutions: [{ sessionRef: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba" } }],
+  });
+  var ids = selectIds(index, {
+    sessionEvidence: [{ sessionRef: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba" },
+      coopTopicRefs: [{ topicId: "auto-111111111111111111111111" }],
+      sessionPresent: true, hidden: true }],
+  });
+  assert.notEqual(ids.indexOf("auto-111111111111111111111111"), -1,
+    "a dismissed session is history, not something still tracking the topic");
+});
+
+test("a relatedExecution whose session is genuinely live still protects", function () {
+  var index = ownerFixture();
+  index.topics["auto-222222222222222222222222"] = topicWith("auto-222222222222222222222222", {
+    relatedExecutions: [{ sessionRef: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba" } }],
+  });
+  var ids = selectIds(index, {
+    sessionEvidence: [{ sessionRef: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba" },
+      coopTopicRefs: [{ topicId: "auto-222222222222222222222222" }],
+      sessionPresent: true, hidden: false }],
+  });
+  assert.equal(ids.indexOf("auto-222222222222222222222222"), -1);
+});
+
+test("with no session evidence at all a linked execution still protects", function () {
+  // Fail safe: absent evidence is not proof of absence.
+  var index = ownerFixture();
+  index.topics["auto-333333333333333333333333"] = topicWith("auto-333333333333333333333333", {
+    relatedExecutions: [{ projectRef: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" } }],
+  });
+  assert.equal(selectIds(index, {}).indexOf("auto-333333333333333333333333"), -1);
+});
+
+// --- historical references must not protect forever ---------------------------
+
+test("a relatedExecution pointing at a hidden or missing session does not protect", function () {
+  // hasLinkedExecution ran BEFORE the hidden/terminal evidence checks, so one
+  // historical reference excluded a topic permanently -- the sweep could never
+  // close it however finished it was.
+  var index = ownerFixture();
+  var CLAY_P = topics.CLAY_PROJECT_ID;
+  index.topics["auto-111111111111111111111111"] = topicWith("auto-111111111111111111111111", {
+    relatedExecutions: [{ sessionRef: { projectId: CLAY_P,
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba" } }],
+  });
+  var ids = selectIds(index, {
+    sessionEvidence: [{ sessionRef: { projectId: CLAY_P,
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba" },
+      sessionPresent: false, hidden: true,
+      coopTopicRefs: [{ topicId: "auto-111111111111111111111111" }] }],
+  });
+  assert.notEqual(ids.indexOf("auto-111111111111111111111111"), -1,
+    "a dismissed session is not live work, however it is referenced");
+});
+
+test("a relatedExecution whose session is present still protects", function () {
+  var index = ownerFixture();
+  var CLAY_P = topics.CLAY_PROJECT_ID;
+  index.topics["auto-222222222222222222222222"] = topicWith("auto-222222222222222222222222", {
+    relatedExecutions: [{ sessionRef: { projectId: CLAY_P,
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba" } }],
+  });
+  var ids = selectIds(index, {
+    sessionEvidence: [{ sessionRef: { projectId: CLAY_P,
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba" },
+      sessionPresent: true, hidden: false,
+      coopTopicRefs: [{ topicId: "auto-222222222222222222222222" }] }],
+  });
+  assert.equal(ids.indexOf("auto-222222222222222222222222"), -1);
+});
+
+test("a relatedExecution with no resolvable evidence still protects, failing safe", function () {
+  var index = ownerFixture();
+  index.topics["auto-333333333333333333333333"] = topicWith("auto-333333333333333333333333", {
+    relatedExecutions: [{ projectRef: { projectId: topics.CLAY_PROJECT_ID } }],
+  });
+  // Nothing known about it either way -> keep it. Unprovable is not finished.
+  assert.equal(selectIds(index, {}).indexOf("auto-333333333333333333333333"), -1);
+});
+
+test("merging into a closed target is refused before the ledger moves", function () {
+  var h = mergeHarness();
+  var state = h.index.load();
+  state.topics[SOURCE.topicId] = makeTopic(SOURCE.topicId, "Provider fallback rework",
+    { kind: "uncategorised" }, "automatic", 1, ["provider"]);
+  state.topics[CANON.topicId].status = "closed";
+  h.index.save();
+  var id = seedRequest(h.ledger, 210, SOURCE);
+
+  management.handleManagement(h.ctx, {}, {
+    type: "coop_topic_merge", targetTopicRef: CANON, sourceTopicRefs: [SOURCE],
+  }, h.deps);
+
+  assert.equal(h.sent[0].ok, false);
+  assert.equal(h.sent[0].code, "topic_closed");
+  // The ledger never moved, so the request is not stranded on a closed topic.
+  assert.deepEqual(h.ledger.get(id).topicRef, SOURCE);
+  assert.equal(h.index.load().topics[SOURCE.topicId].status, "open");
+});
+
+test("a throwing topic merge returns a visible failure instead of escaping", function () {
+  var h = mergeHarness();
+  var state = h.index.load();
+  state.topics[SOURCE.topicId] = makeTopic(SOURCE.topicId, "Provider fallback rework",
+    { kind: "uncategorised" }, "automatic", 1, ["provider"]);
+  h.index.save();
+  h.index.merge = function () { throw new Error("index exploded"); };
+
+  management.handleManagement(h.ctx, {}, {
+    type: "coop_topic_merge", targetTopicRef: CANON, sourceTopicRefs: [SOURCE],
+  }, h.deps);
+
+  assert.equal(h.sent.length, 1, "the owner always gets a result");
+  assert.equal(h.sent[0].ok, false);
+  assert.equal(h.sent[0].code, "topic_merge_failed");
+});
+
+test("a project title with no sessions does not protect a same-named topic", function () {
+  // Review finding: the handler passed getProjectList() as `sessions`, and
+  // sessionNames() reads a `title` field -- which a PROJECT status has. So a
+  // topic named after a project was treated as matching a live session even
+  // when that project had zero sessions, permanently excluding it.
+  var h = realClosureHarness();
+  h.ctx.getProjectList = function () {
+    return [{ projectId: "p", title: "Provider fallback rework", sessions: 0 }];
+  };
+  h.ctx.coopSessionEvidence = function () { return []; };
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+
+  var ids = h.sent[0].candidates.map(function (c) { return c.topicId; });
+  assert.notEqual(ids.indexOf("auto-444444444444444444444444"), -1,
+    "a project name is not a session; it must not shield the topic");
+});
+
+test("a real session title from the ledger does protect a same-named topic", function () {
+  var h = realClosureHarness();
+  h.ctx.getProjectList = function () { return []; };
+  h.ctx.coopSessionEvidence = function () {
+    return [{ title: "Provider fallback rework", sessionPresent: true, hidden: false,
+      coopTopicRefs: [] }];
+  };
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+
+  var ids = h.sent[0].candidates.map(function (c) { return c.topicId; });
+  assert.equal(ids.indexOf("auto-444444444444444444444444"), -1,
+    "a genuine session with that name is exactly what should protect it");
+});
