@@ -71,7 +71,7 @@ function gateHarness(tasks, options) {
   };
 }
 
-test("orchestration MCP exposes dismissal, user-decision, steering, and provider switching operations", function () {
+test("orchestration MCP exposes lifecycle, provider, and authoritative Coop session query operations", function () {
   var noop = function () {};
   var names = orchestrationMcp.getToolDefs(
     noop, noop, noop, noop, noop, noop, noop, noop, noop
@@ -81,6 +81,25 @@ test("orchestration MCP exposes dismissal, user-decision, steering, and provider
   assert.ok(names.indexOf("request_task_input") !== -1);
   assert.ok(names.indexOf("steer_project_coordinator") !== -1);
   assert.ok(names.indexOf("switch_session_provider") !== -1);
+  assert.ok(names.indexOf("list_coop_sessions") !== -1);
+});
+
+test("list_coop_sessions requires exact project references and exposes no hidden-session switch", function () {
+  var noop = function () {};
+  var definition = orchestrationMcp.getToolDefs(
+    noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop
+  ).find(function (candidate) { return candidate.name === "list_coop_sessions"; });
+
+  assert.ok(definition);
+  assert.ok(definition.inputSchema.coordinatorSessionId);
+  assert.ok(definition.inputSchema.projectRefs);
+  assert.equal(Object.hasOwn(definition.inputSchema, "includeHidden"), false);
+  if (typeof definition.inputSchema.projectRefs.safeParse === "function") {
+    assert.equal(definition.inputSchema.projectRefs.safeParse([]).success, false);
+    assert.equal(definition.inputSchema.projectRefs.safeParse([
+      { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    ]).success, true);
+  }
 });
 
 test("delegate_task exposes the typed cross-project execution binding", function () {

@@ -50,6 +50,64 @@ test("deliver routes an update into the target project context", function () {
   assert.strictEqual(delivered[0].text, "[Clay worker update] hello");
 });
 
+test("an explicit binding file keeps its reconciled session ledger in the same isolated store", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-ledger-path-"));
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    getProjectContext: function () { return null; },
+  });
+
+  assert.strictEqual(router.sessionLedger.file, path.join(dir, "coop-session-ledger.json"));
+});
+
+test("session queries preserve the last authoritative topic links across lifecycle reconciliation", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-ledger-links-"));
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var session = {
+    storageId: "owner-direct-linked-session",
+    title: "Owner direct linked session",
+    createdAt: 10,
+    lastActivity: 20,
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    getProjectContext: function () { return null; },
+  });
+  var unregister = router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    getSessionManager: function () { return { sessions: new Map([[1, session]]) }; },
+  });
+
+  var first = router.queryCoopSessions({
+    projectRefs: [{ projectId: projectId }],
+    topicLinks: [{
+      topicRef: { topicId: "topic-owner-direct" },
+      sessionRef: { projectId: projectId, sessionStorageId: session.storageId },
+    }],
+  });
+  assert.strictEqual(first.sessions.length, 1);
+  assert.strictEqual(first.sessions[0].coopCreated, false);
+
+  router.reconcileSessionLedger();
+  var afterLifecycleEvent = router.queryCoopSessions({
+    projectRefs: [{ projectId: projectId }],
+  });
+  assert.strictEqual(afterLifecycleEvent.sessions.length, 1);
+  assert.deepStrictEqual(afterLifecycleEvent.sessions[0].coopTopicRef, {
+    topicId: "topic-owner-direct",
+  });
+
+  unregister();
+  var afterRemoval = router.queryCoopSessions({
+    projectRefs: [{ projectId: projectId }],
+  });
+  assert.strictEqual(afterRemoval.sessions.length, 0);
+  assert.strictEqual(router.sessionLedger.get({
+    projectId: projectId,
+    sessionStorageId: session.storageId,
+  }).sessionPresent, false);
+});
+
 test("unknown project slug dead-letters instead of throwing", function () {
   var before = readDeadLetters().length;
   var router = createCrossProjectRouter({
