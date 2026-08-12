@@ -1,10 +1,17 @@
-# Coop UX final review scope — PENDING, gate OPEN
+# Coop UX final review scope — SATISFIED, gate CLOSED
 
-Status: **NOT READY.** The implementation at `0b59c7934d` (the exact pinned
-target; `af93548f6f` named here previously is superseded) is complete and
-verified by the coordinator, but the mandatory independent review gate has
-**never been satisfied**. Two review tasks were dismissed for worker-spawn
-failure, not for any review outcome:
+Status: **READY.** Independent Codex review revision 3 completed with verdict
+**READY and no P1/P2 findings** against the exact pinned target `0b59c7934d`
+plus the doc correction `b4942fe677`. The reviewer traced canonical TopicRef
+navigation and the shared phone/desktop renderer, found no unsafe session
+fallback and no in-scope drift at `origin/bojan`, and reran the Now/topic
+suites (110/110) and mobile suites (27/27). The review was strictly read-only:
+no code, runtime, or topic state was changed by it, and it produced no child
+records. The mandatory independent review gate is therefore satisfied and this
+scope is closed; nothing below requires re-delegation.
+
+History of the two earlier attempts is kept for the record. Both were dismissed
+for worker-spawn failure, not for any review outcome:
 
 | Task | What happened |
 |---|---|
@@ -12,16 +19,16 @@ failure, not for any review outcome:
 | `task-56e74209-4267-4172-9029-aeb40962b166` | `delegate_task` returned `in session undefined`; a single liveness probe failed with `worker session not found`. |
 
 **Neither produced any review content, findings, or verdict.** Nothing was lost,
-and no reviewer opinion has been discarded. The strong Codex route was
-unavailable/at capacity. Do not retry the same route immediately and do not
-create duplicate tasks; wait for a genuinely healthy strong Codex candidate,
-then create **one** fresh visible read-only review task using the scope below,
-unchanged. No provider CLI.
+and no reviewer opinion was discarded. The strong Codex route was
+unavailable/at capacity at the time. Revision 3 later ran on a healthy route
+and returned the READY verdict recorded above, so no further review task is to
+be created from this file.
 
 ## Why this file exists
 
-So the exact scope survives the dead task identities and can be re-delegated
+So the exact scope survived the dead task identities and could be re-delegated
 verbatim, rather than being reconstructed from memory and quietly drifting.
+That is what happened: revision 3 reviewed this scope unchanged.
 
 ---
 
