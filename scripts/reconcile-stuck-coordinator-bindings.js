@@ -148,7 +148,13 @@ function run() {
 
   for (var i = 0; i < bindingState.bindings.length; i++) {
     var record = bindingState.bindings[i];
-    if (record.mode !== "project_coordinator" || record.status !== "active") continue;
+    if (record.mode !== "project_coordinator") continue;
+    // Active bindings, plus ones this script already terminalized: their
+    // ledger projection still has to be re-assertable while a pre-fix daemon
+    // keeps rebuilding it. Genuinely terminal bindings written by the gate
+    // (completed, failed, superseded, cancelled) are never touched.
+    if (record.status !== "active" && !(record.status === "deleted" &&
+        record.statusReason === "coordinator_session_dismissed_by_owner")) continue;
     var ref = record.coordinator;
     if (!ref || !ref.sessionStorageId || !files[ref.sessionStorageId]) continue;
     var session = readSession(files[ref.sessionStorageId]);
@@ -168,33 +174,44 @@ function run() {
         "no ledger entry"),
     };
 
+    var touched = false;
     if (meta.hidden) {
-      if (record.status === "deleted") continue;
-      record.status = "deleted";
-      record.statusReason = "coordinator_session_dismissed_by_owner";
-      record.updatedAt = now;
-      bindingsChanged = true;
+      if (record.status !== "deleted") {
+        record.status = "deleted";
+        record.statusReason = "coordinator_session_dismissed_by_owner";
+        record.updatedAt = now;
+        bindingsChanged = true;
+        touched = true;
+      }
+      // Re-asserted every run, not only when the binding itself moved: a
+      // daemon still holding pre-fix code rebuilds the ledger from its own
+      // stale projection, so the correction has to be reappliable on its own.
       if (entry && projectLedger(entry, "dismissed", "idle", {
         status: "deleted", statusReason: record.statusReason,
-      })) ledgerChanged = true;
+      })) { ledgerChanged = true; touched = true; }
+      if (!touched) continue;
       change.after = "deleted / dismissed / idle";
       change.reason = record.statusReason;
       changes.push(change);
       continue;
     }
 
-    if (record.attentionAt || !graphFullyTerminal(meta)) continue;
-    var unreported = unreportedReason(session);
-    if (!unreported) continue;
-    var reason = unreported.reason + (unreported.missing.length ?
-      ":" + unreported.missing.join(",") : "");
-    record.attentionAt = now;
-    record.statusReason = reason.slice(0, 240);
-    record.updatedAt = now;
-    bindingsChanged = true;
+    if (record.status !== "active") continue;
+    if (!record.attentionAt) {
+      if (!graphFullyTerminal(meta)) continue;
+      var unreported = unreportedReason(session);
+      if (!unreported) continue;
+      record.attentionAt = now;
+      record.statusReason = (unreported.reason + (unreported.missing.length ?
+        ":" + unreported.missing.join(",") : "")).slice(0, 240);
+      record.updatedAt = now;
+      bindingsChanged = true;
+      touched = true;
+    }
     if (entry && projectLedger(entry, "needs_input", "needs_input", {
       statusReason: record.statusReason,
-    })) ledgerChanged = true;
+    })) { ledgerChanged = true; touched = true; }
+    if (!touched) continue;
     change.after = "active (attention) / needs_input / needs_input";
     change.reason = record.statusReason;
     changes.push(change);
