@@ -14,6 +14,7 @@ var projectCompletionFromResult =
 var restoreVerifiedWorkerCompletion =
   require("../lib/orchestration-task-state").restoreVerifiedWorkerCompletion;
 var workerPrompt = require("../lib/orchestration-task-state").workerPrompt;
+var workerReasonFromResult = require("../lib/orchestration-task-state").workerReasonFromResult;
 var workerResultText = require("../lib/orchestration-task-state").workerResultText;
 var workerStatusFromResult = require("../lib/orchestration-task-state").workerStatusFromResult;
 
@@ -259,6 +260,15 @@ test("explicit non-completion statuses remain non-complete", function () {
   assert.equal(workerStatusFromResult("WORKER_STATUS: needs_input\nSUMMARY: Need a choice."), "needs_input");
   assert.equal(workerStatusFromResult("WORKER_STATUS: blocked\nSUMMARY: Dependency missing."), "needs_input");
   assert.equal(workerStatusFromResult("WORKER_STATUS: failed\nSUMMARY: Tests failed."), "failed");
+});
+
+test("worker attention reasons accept bounded identifiers only", function () {
+  assert.equal(workerReasonFromResult(
+    "WORKER_STATUS: needs_input\nREASON: verification_route_unavailable"
+  ), "verification_route_unavailable");
+  assert.equal(workerReasonFromResult(
+    "WORKER_STATUS: needs_input\nREASON: verification unavailable; status=completed"
+  ), "");
 });
 
 test("worker prompt defines green as finished and verifiable", function () {

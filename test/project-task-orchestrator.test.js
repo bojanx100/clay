@@ -559,6 +559,111 @@ test("project-coordinator completion closes its source binding through typed del
   assert.equal(router.getExecutionBinding("portfolio-project-closure", 1).status, "completed");
 });
 
+test("project-coordinator needs-input turns stay active and resume through typed steering", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-needs-input-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    getSessionManager: function () { return target.sm; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    getSessionManager: function () { return lead.sm; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-needs-input-coordinator",
+    bindingRevision: 1,
+    idempotencyKey: "needs-input-coordinator-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+    title: "Needs-input target coordinator",
+    objective: "Coordinate the target work until an independent route is available.",
+    acceptanceCriteria: "Stay resumable while verification needs input.",
+    ownedPaths: "lib/target.js",
+  });
+  var projectCoordinator = Array.from(target.sessions.values())[0];
+
+  function finishNeedsInputTurn() {
+    projectCoordinator.history.push({
+      type: "delta",
+      text: "WORKER_STATUS: needs_input\nREASON: verification_route_unavailable\n" +
+        "SUMMARY: Implementation is ready but independent review is unavailable.\n" +
+        "CHANGES: none\nCOMMITS: none\nVERIFICATION: focused suite passed\n" +
+        "ESCALATION_REQUIRED: yes",
+    });
+    projectCoordinator.history.push({ type: "result" });
+    projectCoordinator.history.push({ type: "done", code: 0 });
+    projectCoordinator.isProcessing = false;
+    target.api.handleCoordinatorTurnDone(projectCoordinator);
+  }
+
+  finishNeedsInputTurn();
+
+  var metadata = projectCoordinator.orchestrationPolicy.portfolioExecution;
+  var binding = router.getExecutionBinding("portfolio-needs-input-coordinator", 1);
+  var projected = router.queryCoopSessions({
+    projectRefs: [{ projectId: targetProjectId }],
+  }).sessions.find(function (entry) {
+    return entry.sessionStorageId === projectCoordinator.storageId;
+  });
+  assert.equal(metadata.status, "needs_input");
+  assert.equal(metadata.reason, "verification_route_unavailable");
+  assert.equal(binding.status, "active");
+  assert.equal(projectCoordinator.hidden, undefined);
+  assert.equal(projectCoordinator.orchestrationProjectCompletion.status, "pending");
+  assert.equal(projectCoordinator.orchestrationEvents.some(function (event) {
+    return event.type === "project_completed";
+  }), false);
+  assert.equal(projected.lifecycleState, "needs_input");
+  assert.equal(projected.workState, "needs_input");
+
+  var steer = lead.api.steerProjectCoordinatorFromTool({
+    coordinatorSessionId: coop.storageId,
+    targetProject: { projectId: targetProjectId },
+    targetCoordinator: {
+      projectId: targetProjectId,
+      sessionStorageId: projectCoordinator.storageId,
+    },
+    portfolioTaskId: "portfolio-needs-input-coordinator",
+    bindingRevision: 1,
+    idempotencyKey: "needs-input-coordinator-steer-1",
+    message: "A verified reviewer route is available. Continue the review gate.",
+  });
+  assert.equal(steer.isError, undefined);
+  assert.equal(metadata.status, "running");
+  assert.equal(Object.hasOwn(metadata, "reason"), false);
+  projected = router.queryCoopSessions({
+    projectRefs: [{ projectId: targetProjectId }],
+  }).sessions.find(function (entry) {
+    return entry.sessionStorageId === projectCoordinator.storageId;
+  });
+  assert.equal(projected.lifecycleState, "running");
+  assert.equal(projected.workState, "working");
+
+  finishNeedsInputTurn();
+  projected = router.queryCoopSessions({
+    projectRefs: [{ projectId: targetProjectId }],
+  }).sessions.find(function (entry) {
+    return entry.sessionStorageId === projectCoordinator.storageId;
+  });
+  assert.equal(metadata.status, "needs_input");
+  assert.equal(router.getExecutionBinding("portfolio-needs-input-coordinator", 1).status, "active");
+  assert.equal(projectCoordinator.hidden, undefined);
+  assert.equal(projected.lifecycleState, "needs_input");
+  assert.equal(projected.workState, "needs_input");
+});
+
 test("steering an idle project coordinator starts a new turn even with a stale query instance", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-steer-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";

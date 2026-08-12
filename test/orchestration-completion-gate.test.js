@@ -434,6 +434,38 @@ test("restart finalizes a persisted Coop completion and hides its descendants", 
   assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "completed");
 });
 
+test("restart repairs a persisted project-coordinator needs-input declaration", function () {
+  var h = gateHarness([]);
+  h.session.coopControlledBy = { coopSessionStorageId: "coop-home", since: 1 };
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-restart-needs-input",
+      bindingRevision: 1,
+      idempotencyKey: "restart-needs-input-r1",
+      mode: "project_coordinator",
+      status: "running",
+    },
+  };
+  h.session.history = [{ type: "user_message", text: "Report the verification gate." }, {
+    type: "delta",
+    text: "WORKER_STATUS: needs_input\nREASON: verification_route_unavailable\n" +
+      "SUMMARY: The independent review route is unavailable.\n" +
+      "ESCALATION_REQUIRED: yes",
+  }, { type: "result" }, { type: "done", code: 0 }];
+
+  h.gate.restore(h.session);
+
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "needs_input");
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.reason,
+    "verification_route_unavailable");
+  assert.equal(h.session.hidden, undefined);
+  assert.equal(taskGraph.projectCompletionState(h.session).status, "pending");
+  assert.equal(h.session.orchestrationEvents.some(function (event) {
+    return event.type === "project_completed";
+  }), false);
+  assert.ok(h.saves() > 0);
+});
+
 test("new or retried work revokes project completion before another attempt", function () {
   var session = {
     orchestrationGraphId: "project-revoke",
