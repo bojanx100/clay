@@ -660,6 +660,7 @@ test("launchScheduled skips an issue already live under another recipe", async f
 
 var automationAudit = require("../lib/project-automation-audit");
 var { createAutomationGate } = require("../lib/project-automation-gate");
+var { createCandidateStore } = require("../lib/project-automation-candidates");
 
 var CUTOVER_PROJECT = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
 
@@ -1229,6 +1230,57 @@ test("an owner inclusion does not waive the approval gate", async function () {
     await h.autoLaunch.launchScheduled("assigned-to-me");
     assert.deepStrictEqual(h.executions, [],
       "an include is not an approval — the approval gate still holds");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("owner-approved work is revalidated by the current scan before binding", async function () {
+  var item = assignedIssue(2565);
+  var board = [item];
+  // An unscoped recipe deliberately requires owner approval.
+  var h = makeIdleBoardHarness({}, board);
+  var store = createCandidateStore({ cwd: h.cwd });
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    var key = "launch:trialview/v2#2565";
+    assert.strictEqual(store.get({ projectId: CUTOVER_PROJECT }, key).status,
+      "awaiting_owner");
+
+    var approved = store.decideOwner({ projectId: CUTOVER_PROJECT }, key,
+      { approved: true, by: "bojan" });
+    assert.strictEqual(approved.ok, true);
+    assert.strictEqual(approved.candidate.status, "owner_approved");
+    assert.strictEqual(approved.candidate.eligibilityPass, null);
+
+    // Source-level recipe, feature/bug, board/status, PR/branch and collision
+    // gates all suppress an item by omitting it from this exact fetch result.
+    board.length = 0;
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 0,
+      "an earlier owner approval cannot bypass a current source/gate miss");
+
+    // Session dedup and ownership are downstream of fetch but upstream of the
+    // candidate handoff. They must likewise leave the old approval powerless.
+    board.push(item);
+    h.launcher.findAnyLiveSessionForItem = function () { return { localId: 99 }; };
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 0,
+      "an owner-approved item already in flight must not bind again");
+
+    h.launcher.findAnyLiveSessionForItem = function () { return null; };
+    item.assignedToOwner = false;
+    item.assignees = [];
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 0,
+      "an owner-approved item that is no longer assigned must not bind");
+
+    // Once a later scan sees it pass every current gate, the approval remains
+    // meaningful and the same candidate may bind exactly once.
+    item.assignedToOwner = true;
+    item.assignees = [{ login: "bojantv" }];
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 1);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }

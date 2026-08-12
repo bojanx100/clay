@@ -14,6 +14,7 @@ var automationAudit = require("../lib/project-automation-audit");
 var leadBacklog = require("../lib/lead-backlog");
 
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+var TEST_PASS = "current-test-scan";
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "clay-blockers-"));
@@ -28,8 +29,17 @@ function candidate(overrides) {
     projectRef: { projectId: WEBAPP },
     policyDigest: "digest-1",
     recipeId: "assigned-to-me",
+    eligibilityPass: TEST_PASS,
     intent: { recipeId: "assigned-to-me", number: 2517 },
   }, overrides || {});
+}
+
+function withTestPass(admission) {
+  var admitPending = admission.admitPending;
+  admission.admitPending = function (options) {
+    return admitPending(Object.assign({ eligibilityPass: TEST_PASS }, options || {}));
+  };
+  return admission;
 }
 
 function fakeRouter() {
@@ -59,20 +69,20 @@ function admissionFor(dir, router) {
   var store = createCandidateStore({ cwd: dir });
   return {
     store: store,
-    admission: createCandidateAdmission({
+    admission: withTestPass(createCandidateAdmission({
       candidates: store,
       crossProject: router,
       getLeadMode: function () { return true; },
       resolveCoopSource: function () { return router.coopSessionRef(); },
       audit: automationAudit.createAutomationAudit({
         file: path.join(dir, "audit.jsonl"), slug: "webapp" }),
-    }),
+    })),
   };
 }
 
 // --- 1. Owner approval must not be a dead end ---------------------------------
 
-test("owner approval is not a dead end: awaiting_owner survives, then admits once", function () {
+test("owner approval waits for a fresh eligible scan, then admits once", function () {
   var dir = tempDir();
   var router = fakeRouter();
   try {
@@ -89,8 +99,17 @@ test("owner approval is not a dead end: awaiting_owner survives, then admits onc
     assert.strictEqual(decided.ok, true);
     assert.strictEqual(decided.candidate.status, "owner_approved");
     assert.strictEqual(decided.candidate.attention, undefined, "the decision resolves attention");
+    assert.strictEqual(decided.candidate.eligibilityPass, null,
+      "approval cannot reuse the scan that originally requested it");
 
-    // And it admits exactly once.
+    // Approval alone cannot bind stale work. A later current scan must re-see
+    // the item and refresh the exact-pass evidence first.
+    var stale = h.admission.admitPending();
+    assert.strictEqual(stale.admitted, 0);
+    assert.strictEqual(stale.revalidationDeferred, 1);
+    assert.strictEqual(router.calls.length, 0);
+
+    h.store.upsert(candidate());
     var result = h.admission.admitPending();
     assert.strictEqual(result.admitted, 1);
     assert.strictEqual(router.calls.length, 1);

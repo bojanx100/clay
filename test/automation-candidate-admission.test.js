@@ -18,6 +18,7 @@ var automationAudit = require("../lib/project-automation-audit");
 
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 var OTHER = "11111111-2222-4333-8444-555555555555";
+var TEST_PASS = "current-test-scan";
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "clay-admit-"));
@@ -32,8 +33,17 @@ function candidate(overrides) {
     projectRef: { projectId: WEBAPP },
     policyDigest: "digest-1",
     recipeId: "assigned-to-me",
+    eligibilityPass: TEST_PASS,
     intent: { recipeId: "assigned-to-me", number: 2517, url: "u", title: "t", autoKind: "issue" },
   }, overrides || {});
+}
+
+function withTestPass(admission) {
+  var admitPending = admission.admitPending;
+  admission.admitPending = function (options) {
+    return admitPending(Object.assign({ eligibilityPass: TEST_PASS }, options || {}));
+  };
+  return admission;
 }
 
 // A cross-project router that records calls and behaves like the real binding
@@ -81,7 +91,7 @@ function harness(options) {
   var dir = opts.dir || tempDir();
   var store = createCandidateStore({ cwd: dir });
   var cross = opts.crossProject || fakeCrossProject(opts.behavior);
-  var admission = createCandidateAdmission({
+  var admission = withTestPass(createCandidateAdmission({
     candidates: opts.candidates || store,
     crossProject: opts.crossProject === null ? null : cross,
     getLeadMode: function () { return opts.leadMode !== false; },
@@ -93,7 +103,7 @@ function harness(options) {
       function () { return cross.coopSessionRef(); },
     // Late-bound so a test can swap the reader after construction.
     getBinding: function (a, b) { return cross.getBinding(a, b); },
-  });
+  }));
   return { dir: dir, store: store, cross: cross, admission: admission };
 }
 
@@ -123,6 +133,32 @@ test("#2517: a pending auto candidate becomes one typed binding and is marked ad
     assert.strictEqual(stored.status, "admitted");
     assert.strictEqual(stored.binding.portfolioTaskId, call.portfolioTaskId);
     assert.strictEqual(h.store.list({ status: "pending" }).length, 0);
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("admission requires the exact current scan pass", function () {
+  var h = harness();
+  try {
+    h.store.upsert(candidate());
+    var stale = h.admission.admitPending({ eligibilityPass: "different-scan" });
+    assert.strictEqual(stale.admitted, 0);
+    assert.strictEqual(stale.deferred, 1);
+    assert.strictEqual(stale.revalidationDeferred, 1);
+    assert.strictEqual(h.cross.calls.length, 0,
+      "durable evidence from another pass must never create a binding");
+
+    var raw = createCandidateAdmission({
+      candidates: h.store,
+      crossProject: h.cross,
+      getLeadMode: function () { return true; },
+      resolveCoopSource: function () { return h.cross.coopSessionRef(); },
+    });
+    var missing = raw.admitPending();
+    assert.strictEqual(missing.ok, false);
+    assert.strictEqual(missing.reason, "admission_pass_required");
+    assert.strictEqual(h.cross.calls.length, 0);
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
   }
@@ -474,12 +510,12 @@ test("#2517: an unverifiable existing binding fails closed", function () {
       coopSessionRef: h.cross.coopSessionRef,
       createProjectExecution: function () { return { ok: false, reason: "active_binding_exists" }; },
     };
-    h.admission = createCandidateAdmission({
+    h.admission = withTestPass(createCandidateAdmission({
       candidates: h.store,
       crossProject: readerless,
       getLeadMode: function () { return true; },
       resolveCoopSource: function () { return readerless.coopSessionRef(); },
-    });
+    }));
     h.store.upsert(candidate());
     assert.strictEqual(h.admission.admitPending().attention[0].reason, "binding_unverifiable");
   } finally {
@@ -793,12 +829,12 @@ test("#2517: admission verifies replays against the real router surface", functi
 
     var store = createCandidateStore({ cwd: dir });
     // No getBinding injected: admission must find the reader itself.
-    var admission = createCandidateAdmission({
+    var admission = withTestPass(createCandidateAdmission({
       candidates: store,
       crossProject: router,
       getLeadMode: function () { return true; },
       resolveCoopSource: function () { return router.coopSessionRef(); },
-    });
+    }));
     store.upsert(candidate());
 
     var first = admission.admitPending();
@@ -827,12 +863,12 @@ test("#2517: a router with no binding reader makes replays unverifiable, not ass
       },
       createProjectExecution: function () { return { ok: false, reason: "active_binding_exists" }; },
     };
-    var admission = createCandidateAdmission({
+    var admission = withTestPass(createCandidateAdmission({
       candidates: h.store,
       crossProject: readerless,
       getLeadMode: function () { return true; },
       resolveCoopSource: function () { return readerless.coopSessionRef(); },
-    });
+    }));
     h.store.upsert(candidate());
     assert.strictEqual(admission.admitPending().attention[0].reason, "binding_unverifiable");
   } finally {
