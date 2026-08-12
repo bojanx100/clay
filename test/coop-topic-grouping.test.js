@@ -999,13 +999,13 @@ test("a project title with no sessions does not protect a same-named topic", fun
   // when that project had zero sessions, permanently excluding it.
   var h = realClosureHarness();
   h.ctx.getProjectList = function () {
-    return [{ projectId: "p", title: "Provider fallback rework", sessions: 0 }];
+    return [{ projectId: "p", title: "Sidebar hierarchy rebuild", sessions: 0 }];
   };
   h.ctx.coopSessionEvidence = function () { return []; };
   connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
 
   var ids = h.sent[0].candidates.map(function (c) { return c.topicId; });
-  assert.notEqual(ids.indexOf("auto-444444444444444444444444"), -1,
+  assert.notEqual(ids.indexOf("auto-555555555555555555555555"), -1,
     "a project name is not a session; it must not shield the topic");
 });
 
@@ -1013,12 +1013,12 @@ test("a real session title from the ledger does protect a same-named topic", fun
   var h = realClosureHarness();
   h.ctx.getProjectList = function () { return []; };
   h.ctx.coopSessionEvidence = function () {
-    return [{ title: "Provider fallback rework", sessionPresent: true, hidden: false,
+    return [{ title: "Sidebar hierarchy rebuild", sessionPresent: true, hidden: false,
       coopTopicRefs: [] }];
   };
   connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
 
   var ids = h.sent[0].candidates.map(function (c) { return c.topicId; });
-  assert.equal(ids.indexOf("auto-444444444444444444444444"), -1,
+  assert.equal(ids.indexOf("auto-555555555555555555555555"), -1,
     "a genuine session with that name is exactly what should protect it");
 });
