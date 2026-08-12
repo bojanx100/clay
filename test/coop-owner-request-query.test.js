@@ -375,16 +375,17 @@ test("omitting visibleProjects keeps the unrestricted single-user view", functio
   assert.equal(result.topics[0].projects.length, 2);
 });
 
-test("an unanswered request is never hidden by project scoping", function () {
-  // The owner asked; that fact is not a project secret, and burying it is the
-  // exact failure this surface exists to prevent.
+test("a scoped viewer does not see an unanswered request from another project", function () {
+  // Superseded an earlier decision to never scope this list. An unanswered
+  // entry carries a topic title derived from the owner's own words, so an
+  // unscoped payload leaked the owner's conversation to any Coop viewer. The
+  // owner is protected instead by being given no scope at all (see the handler).
   var result = query.buildOwnerRequestOverview({
     requests: [request(182, { projectRefs: [{ projectId: WEBAPP }] })],
     coordinators: [], sessions: [],
     visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
   });
-  assert.equal(result.counts.unanswered, 1);
-  assert.equal(result.unanswered[0].ingressSequence, 182);
+  assert.equal(result.counts.unanswered, 0);
 });
 
 test("a socket with no resolvable viewer scope is shown no projects", function () {
@@ -488,8 +489,6 @@ test("the owner sees every one of their own outstanding requests", function () {
       request(183, { projectRefs: [{ projectId: WEBAPP }] }),
       request(184, { projectRefs: [] }),
     ],
-    visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
-    ownerView: true,
   });
   assert.equal(result.counts.unanswered, 3, "scoping must never hide the owner's own backlog from them");
 });
@@ -611,4 +610,56 @@ test("the closure handler ignores unrelated messages", function () {
   var h = closureCtx("lead", fakeIndex(), true);
   assert.equal(connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_select" }), false);
   assert.equal(h.sent.length, 0);
+});
+
+// --- review finding 4: scope the unanswered payload too -----------------------
+//
+// The unanswered list is the top-level payload and was returned unfiltered, so
+// a non-owner viewer of Coop received the owner's outstanding questions and
+// their topic titles regardless of project reach. The owner themselves must
+// still see everything, so the handler passes no scope for an owner socket.
+
+test("a scoped viewer only sees unanswered requests for projects they can reach", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [
+      request(180, { projectRefs: [{ projectId: CLAY }] }),
+      request(181, { projectRefs: [{ projectId: WEBAPP }] }),
+    ],
+    visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
+  });
+
+  assert.deepEqual(result.unanswered.map(function (r) { return r.ingressSequence; }), [180]);
+  assert.equal(result.counts.unanswered, 1);
+});
+
+test("a scoped viewer does not see the owner's unrouted conversation", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [request(180, { projectRefs: [], expectsExecution: false,
+      classification: { kind: "conversational", source: "ingress_route", at: 1 } })],
+    visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
+  });
+  assert.equal(result.counts.unanswered, 0);
+});
+
+test("an unscoped owner view still sees every unanswered request", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [
+      request(180, { projectRefs: [{ projectId: CLAY }] }),
+      request(181, { projectRefs: [{ projectId: WEBAPP }] }),
+      request(182, { projectRefs: [] }),
+    ],
+  });
+  assert.equal(result.counts.unanswered, 3);
+});
+
+test("the owner socket is given the unscoped view", function () {
+  var harness = socketCtx("lead", fakeLedger());
+  harness.ctx.isCoopTopicOwner = function () { return true; };
+  // A projection that reaches nothing must not blind the owner to their own
+  // outstanding requests.
+  harness.ctx.getGlobalCoopProjection = function () { return { projects: [] }; };
+  connection.handleOwnerRequestOverview(harness.ctx, {}, { type: "coop_owner_requests_request" });
+
+  assert.equal(harness.sent[0].counts.unanswered, 1);
+  assert.equal(harness.sent[0].topics.length, 1, "the owner sees their own tree unscoped");
 });
