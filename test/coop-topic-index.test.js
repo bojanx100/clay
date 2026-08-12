@@ -339,9 +339,11 @@ test("automatic classification reuses durable topics and infers a bounded projec
     var seed = h.index.classifyCanonicalIngress(session, {
       text: "Navigation session restoration needs another pass",
     }, options);
+    // `classification` names the routing decision for the owner-request
+    // ledger: reusing a durable topic is existing_topic, never new_topic.
     assert.deepEqual(seed, {
       ok: true, topicRef: { topicId: "navigation-session-restoration" },
-      projectRef: { projectId: CLAY }, created: false,
+      projectRef: { projectId: CLAY }, created: false, classification: "existing_topic",
     });
 
     var before = Object.keys(h.index.load().topics).length;
@@ -359,7 +361,10 @@ test("automatic classification reuses durable topics and infers a bounded projec
     }, options);
     assert.deepEqual(related.topicRef, first.topicRef);
     assert.equal(related.created, false);
-    assert.deepEqual(h.index.classifyCanonicalIngress(session, { text: firstText }, options), Object.assign({}, first, { created: false }));
+    // Re-sending the same text reuses the topic it already minted, so it is a
+    // reuse both by `created` and by the routing decision the ledger records.
+    assert.deepEqual(h.index.classifyCanonicalIngress(session, { text: firstText }, options),
+      Object.assign({}, first, { created: false, classification: "existing_topic" }));
     assert.equal(Object.keys(h.index.load().topics).length, before + 1, "related and duplicate ingress do not create a topic per turn");
 
     session.history.push({ type: "user_message", text: firstText, coopTopicRef: first.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" }, { type: "done" });
