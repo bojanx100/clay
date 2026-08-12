@@ -342,3 +342,49 @@ test("mutations against an unknown ingress id are no-ops, never silent inserts",
   assert.equal(ledger.applyOutcome("coop:missing:1", { status: "completed" }), null);
   assert.equal(ledger.list().length, 0);
 });
+
+// --- review finding: a failed write must not report success -------------------
+
+function failingLedger(failAfter) {
+  var writes = 0;
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-requests-fail-"));
+  var realFs = require("fs");
+  return ownerRequests.attachCoopOwnerRequests({
+    file: path.join(dir, "r.json"),
+    fs: {
+      readFileSync: realFs.readFileSync,
+      existsSync: realFs.existsSync,
+      renameSync: realFs.renameSync,
+      mkdirSync: realFs.mkdirSync,
+      writeFileSync: function (target, data, options) {
+        writes += 1;
+        if (writes > failAfter) throw new Error("ENOSPC");
+        return realFs.writeFileSync(target, data, options);
+      },
+    },
+  });
+}
+
+test("a mutation whose write fails reports failure instead of a clean record", function () {
+  var ledger = failingLedger(1);
+  var id = "coop:" + COOP_SESSION + ":182";
+  assert.ok(ledger.record(ingress(182)), "the first write succeeds");
+
+  // Disk is now failing. markAnswered must NOT hand back a record claiming
+  // answered when that fact never reached disk.
+  assert.equal(ledger.markAnswered(id, { eventIndex: 5 }), null);
+  // And in-memory state must not diverge from disk either.
+  assert.equal(ledger.get(id).response.state, "unanswered");
+  assert.equal(ledger.unanswered().length, 1);
+});
+
+test("a failed write leaves the prior value intact, not half-applied", function () {
+  var ledger = failingLedger(2);
+  var id = "coop:" + COOP_SESSION + ":182";
+  ledger.record(ingress(182));
+  assert.ok(ledger.classify(id, { kind: "new_topic", topicRef: TOPIC }));
+
+  assert.equal(ledger.setState(id, "working"), null);
+  assert.equal(ledger.get(id).state, "open", "the state change was rolled back");
+  assert.deepEqual(ledger.get(id).topicRef, TOPIC, "the earlier committed value survives");
+});

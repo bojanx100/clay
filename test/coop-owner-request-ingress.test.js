@@ -46,7 +46,7 @@ function recordIngress(ledger) {
 test("a completed turn answers the owner", function () {
   var ledger = tempLedger();
   recordIngress(ledger);
-  var session = coopSession([{ type: "user_message" }, { type: "result" }, { type: "done", code: 0 }]);
+  var session = coopSession([{ type: "user_message" }, { type: "delta" }, { type: "done", code: 0 }]);
 
   assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
   assert.equal(ledger.get(INGRESS).response.state, "answered");
@@ -109,7 +109,7 @@ test("a non-Coop session never touches the owner-request ledger", function () {
 test("the answer hook is idempotent across repeated turn-done fanout", function () {
   var ledger = tempLedger();
   recordIngress(ledger);
-  var session = coopSession([{ type: "user_message" }, { type: "result" }, { type: "done", code: 0 }]);
+  var session = coopSession([{ type: "user_message" }, { type: "delta" }, { type: "done", code: 0 }]);
 
   assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
   var first = ledger.get(INGRESS).response.answeredAt;
@@ -280,7 +280,7 @@ test("the interrupt flag is consumed so the NEXT turn can still be answered", fu
   ledger.record({ ingressId: second, ingressSequence: 183,
     sessionRef: { projectId: "system-lead", sessionStorageId: COOP_SESSION } });
   session.coopConversationIngress.activeIngressId = second;
-  session.history = [{ type: "user_message" }, { type: "result" }, { type: "done", code: 0 }];
+  session.history = [{ type: "user_message" }, { type: "delta" }, { type: "done", code: 0 }];
 
   assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
   assert.equal(ledger.get(second).response.state, "answered");
@@ -329,4 +329,52 @@ test("a superseded request is never counted as answered", function () {
   assert.notEqual(record.response.state, "answered");
   // And a later real answer cannot overwrite the withdrawal.
   assert.equal(ledger.markAnswered(INGRESS, { eventIndex: 5 }).response.state, "superseded");
+});
+
+// --- review findings: a done(0) still is not proof of a reply ------------------
+
+// `result` is bookkeeping: it carries cost and usage and is emitted on turns
+// that produced no owner-visible text at all. Treating it as assistant output
+// meant a turn could be marked answered having said nothing.
+test("a result bookkeeping event alone does not answer the owner", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([{ type: "user_message" }, { type: "result" }, { type: "done", code: 0 }]);
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), false);
+  assert.equal(ledger.get(INGRESS).response.state, "unanswered");
+});
+
+test("genuine assistant text answers the owner", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([{ type: "user_message" }, { type: "delta" },
+    { type: "result" }, { type: "done", code: 0 }]);
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
+  assert.equal(ledger.get(INGRESS).response.state, "answered");
+});
+
+// scheduleInterruptResume clears streamEndedAutoRetryQueued BEFORE the per-turn
+// hook runs, so that flag can never be the guard. The queued auto-resume itself
+// is the durable signal that this turn is being continued, not finished.
+test("a queued auto-resume is not an answer even after the retry flag is cleared", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([{ type: "user_message" }, { type: "delta" },
+    { type: "info" }, { type: "done", code: 0 }]);
+  session.streamEndedAutoRetryQueued = false;
+  session.scheduledMessage = { autoAction: true, text: "continue" };
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), false);
+  assert.equal(ledger.get(INGRESS).response.state, "unanswered");
+});
+
+test("an owner-scheduled message is not mistaken for an auto-resume", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([{ type: "user_message" }, { type: "delta" }, { type: "done", code: 0 }]);
+  session.scheduledMessage = { autoAction: false, text: "remind me" };
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
 });

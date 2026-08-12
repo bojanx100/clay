@@ -396,9 +396,10 @@ test("a socket with no resolvable viewer scope is shown no projects", function (
 
   assert.equal(harness.sent[0].ok, true);
   assert.deepEqual(harness.sent[0].topics, []);
-  // The owner's own outstanding requests are still reported: that they asked
-  // is not a project secret.
-  assert.equal(harness.sent[0].counts.unanswered, 1);
+  // Fail closed all the way: a socket that can establish neither who is
+  // looking nor which projects they may reach gets the owner's backlog too.
+  // An unanswered request carries a topic title made of the owner's own words.
+  assert.equal(harness.sent[0].counts.unanswered, 0);
 });
 
 // --- superseded is not unanswered ---------------------------------------------
@@ -447,4 +448,65 @@ test("answered, superseded and unanswered are counted as three distinct things",
   assert.equal(result.counts.unanswered, 1);
   assert.equal(result.counts.superseded, 1);
   assert.equal(result.topics[0].requestCount, 3);
+});
+
+// --- review finding: scope the unanswered payload too -------------------------
+//
+// The tree was scoped per viewer but the top-level unanswered list was not, so
+// a non-owner viewer of the Coop project still received the owner's outstanding
+// requests -- including topic titles derived from the owner's own words and the
+// ProjectRefs they belong to. The owner must still see all of their own.
+
+test("a non-owner viewer only sees unanswered requests for projects they can reach", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [
+      request(182, { projectRefs: [{ projectId: CLAY }] }),
+      request(183, { projectRefs: [{ projectId: WEBAPP }] }),
+    ],
+    visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
+    ownerView: false,
+  });
+
+  assert.deepEqual(result.unanswered.map(function (r) { return r.ingressSequence; }), [182]);
+  assert.equal(result.counts.unanswered, 1);
+  assert.equal(JSON.stringify(result).indexOf(WEBAPP), -1);
+});
+
+test("a conversational request with no project is owner-only", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [request(180, { projectRefs: [], expectsExecution: false })],
+    visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
+    ownerView: false,
+  });
+  assert.deepEqual(result.unanswered, [], "a non-owner has no business reading the owner's chat");
+});
+
+test("the owner sees every one of their own outstanding requests", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [
+      request(182, { projectRefs: [{ projectId: CLAY }] }),
+      request(183, { projectRefs: [{ projectId: WEBAPP }] }),
+      request(184, { projectRefs: [] }),
+    ],
+    visibleProjects: { "5332aafc-31e7-5cb1-ba96-c8d90e78260e": true },
+    ownerView: true,
+  });
+  assert.equal(result.counts.unanswered, 3, "scoping must never hide the owner's own backlog from them");
+});
+
+test("single-user (no scoping) is unrestricted regardless of ownerView", function () {
+  var result = query.buildOwnerRequestOverview({
+    requests: [request(182, { projectRefs: [{ projectId: WEBAPP }] })],
+    ownerView: false,
+  });
+  assert.equal(result.counts.unanswered, 1);
+});
+
+test("the canonical owner socket receives the full backlog", function () {
+  var harness = socketCtx("lead", fakeLedger());
+  harness.ctx.isCoopTopicOwner = function () { return true; };
+  connection.handleOwnerRequestOverview(harness.ctx, {}, { type: "coop_owner_requests_request" });
+
+  assert.equal(harness.sent[0].ok, true);
+  assert.equal(harness.sent[0].counts.unanswered, 1);
 });
