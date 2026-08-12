@@ -7,7 +7,7 @@ var topicState = require("../lib/coop-topic-state");
 // record are the only inputs; a projected topic is NEVER blank -- an unproven
 // historical topic is Needs input with stateSource "unlinked_default", because
 // the owner has to decide what it is. Working still requires live execution
-// evidence and Done still requires durable owner acceptance evidence.
+// evidence; Done requires completed Coop execution or owner-resolution evidence.
 
 var TOPIC = { topicId: "coop-conversation-architecture" };
 var OTHER = { topicId: "queued-message-recovery" };
@@ -332,14 +332,27 @@ test("an active binding is execution evidence even with no linked task", functio
   assert.equal(derived.taskCount, 1);
 });
 
-test("a completed binding is awaiting acceptance and never Done on its own", function () {
-  // Bindings carry no ownerAcceptance, so a completed binding is awaiting
-  // acceptance by construction. This is the approved default that completed
-  // linked work never auto-closes or auto-accepts a topic.
+test("a completed Coop execution binding maps its topic to Done", function () {
+  // The session and its linked Coop topic share the same terminal indicator:
+  // once the durable execution binding is completed, both are green/Done.
+  // Closing remains a separate owner action and is tested at the management
+  // boundary, so this derivation still does not mutate the topic lifecycle.
   var derived = topicState.coopTopicState(TOPIC, { tasks: [], bindings: [binding("completed")] });
+  assert.equal(derived.state, "done");
+  assert.equal(derived.awaitingAcceptance, undefined);
+  assert.equal(derived.stateSource, "execution_completed");
+});
+
+test("a hidden execution binding cannot keep a topic Working", function () {
+  // The durable binding may lag behind a user or lifecycle archive. A hidden
+  // project session is no longer live work and must not leave its topic open
+  // with a blue Working indicator.
+  var derived = topicState.coopTopicState(TOPIC, {
+    tasks: [], bindings: [binding("active", { hidden: true })],
+  });
   assert.equal(derived.state, "needs_input");
-  assert.equal(derived.awaitingAcceptance, true);
-  assert.equal(derived.stateSource, "task_awaiting_acceptance");
+  assert.equal(derived.taskCount, 0);
+  assert.equal(derived.stateSource, "unlinked_default");
 });
 
 test("an unrouted or unavailable binding puts the owner in the loop", function () {

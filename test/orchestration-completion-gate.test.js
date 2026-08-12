@@ -4,6 +4,8 @@ var taskGraph = require("../lib/orchestration-task-graph");
 var orchestrationMcp = require("../lib/orchestration-mcp-server");
 var attachCompletionGate =
   require("../lib/project-task-orchestrator-completion").attachCompletionGate;
+var archiveCompletedCoopSession =
+  require("../lib/project-task-orchestrator-completion").archiveCompletedCoopSession;
 
 function task(taskId, status, extra) {
   return Object.assign({
@@ -357,6 +359,31 @@ test("owner-created coordinator remains visible after verified project completio
 
   assert.equal(h.session.hidden, undefined);
   assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "completed");
+});
+
+test("shared completion archive never hides an owner-created direct session", function () {
+  var sessions = new Map();
+  var controlled = {
+    localId: 1,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationPolicy: { portfolioExecution: { mode: "direct_leaf", status: "completed" } },
+  };
+  var ownerCreated = {
+    localId: 2,
+    orchestrationPolicy: { portfolioExecution: { mode: "direct_leaf", status: "completed" } },
+  };
+  sessions.set(controlled.localId, controlled);
+  sessions.set(ownerCreated.localId, ownerCreated);
+  var manager = {
+    sessions: sessions,
+    saveSessionFile: function () {},
+    hideSession: function (localId) { sessions.get(localId).hidden = true; },
+  };
+
+  assert.equal(archiveCompletedCoopSession(manager, controlled), true);
+  assert.equal(controlled.hidden, true);
+  assert.equal(archiveCompletedCoopSession(manager, ownerCreated), false);
+  assert.equal(ownerCreated.hidden, undefined);
 });
 
 test("restart finalizes a persisted Coop completion and hides its descendants", function () {

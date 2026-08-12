@@ -152,6 +152,63 @@ test("typed delivery resolves a dynamically registered project by ProjectRef", f
   assert.deepEqual(delivered, ["resolver-project-ref"]);
 });
 
+test("project registration reconciles a hidden completed coordinator's active binding", function () {
+  var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-completion-reconcile-"));
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var request = {
+    source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+    portfolioTaskId: "portfolio-hidden-completed",
+    bindingRevision: 1,
+    idempotencyKey: "hidden-completed-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+  };
+  assert.equal(router.bindingStore.reserve(request).ok, true);
+  assert.equal(router.bindingStore.commit(request.portfolioTaskId, request.bindingRevision, {
+    projectId: projectId,
+    sessionStorageId: "hidden-completed-coordinator",
+  }).ok, true);
+
+  var coordinator = {
+    localId: 1,
+    storageId: "hidden-completed-coordinator",
+    hidden: true,
+    orchestrationProjectCompletion: {
+      status: "completed", completedAt: 123,
+      summary: "Integrated result.", verification: "focused suite passed",
+      integrationVerification: "yes", escalationRequired: "no",
+    },
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: request.portfolioTaskId,
+      bindingRevision: request.bindingRevision,
+      idempotencyKey: request.idempotencyKey,
+      mode: "project_coordinator", status: "completed",
+    } },
+  };
+  var manager = {
+    sessions: new Map([[coordinator.localId, coordinator]]),
+    saveSessionFile: function () {},
+  };
+
+  var registeredProjectId = null;
+  router.registerProjectResolver({
+    getProjectId: function () { return registeredProjectId; },
+    getSessionManager: function () { return manager; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+
+  assert.equal(router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision).status,
+    "active", "a resolver without its durable project id cannot claim a session");
+  registeredProjectId = projectId;
+  router.reconcileStrandedCompletions();
+  assert.equal(router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision).status,
+    "completed");
+});
+
 test("project execution ACL and target capability fail closed", function () {
   var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-acl-"));

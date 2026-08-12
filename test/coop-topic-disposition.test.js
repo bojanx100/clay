@@ -504,6 +504,27 @@ test("a successful decision fans the projection out to every owner viewer", func
   } finally { h.cleanup(); }
 });
 
+test("closing a completed topic requests archival of its linked Coop session", function () {
+  var h = harness();
+  try {
+    seedLegacyIndex(h, { "historical-a": legacyTopic("historical-a") });
+    var session = legacySession();
+    h.index.ensureDispositionBackfill(session);
+    var harnessed = connectionHarness(h, session);
+    var archived = [];
+    harnessed.ctx.archiveCompletedCoopTopicSessions = function (topicRef) {
+      archived.push(topicRef);
+    };
+
+    topicConnection.handleCoopMessage(harnessed.ctx, { isOwner: true }, {
+      type: "coop_topic_close", topicRef: { topicId: "historical-a" },
+    });
+
+    assert.equal(h.index.resolve({ topicId: "historical-a" }, true).topic.status, "closed");
+    assert.deepEqual(archived, [{ topicId: "historical-a" }]);
+  } finally { h.cleanup(); }
+});
+
 test("all-abandoned linked work is not evidence and leaves the owner an action", function () {
   // Mirrors the reviewer's dead-end finding: dismissed/cancelled tasks were
   // counted like completed work awaiting acceptance, but the action queue

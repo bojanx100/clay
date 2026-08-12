@@ -16,6 +16,7 @@ var bindingsModule = require("../lib/portfolio-execution-bindings");
 var createBindings = bindingsModule.createPortfolioExecutionBindings;
 var delivery = require("../lib/cross-project-delivery");
 var server = require("../lib/server");
+var topicState = require("../lib/coop-topic-state");
 
 var PROJECT_ID = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
 var SCHEMA = "clay.portfolio_execution_bindings";
@@ -85,8 +86,9 @@ test("completion never writes a topic status or an acceptance", function () {
   assert.equal(record.coopTopicStatus, undefined);
   assert.equal(/"(closed|accepted|resolved)"/.test(JSON.stringify(record.coopTopicRef)), false);
 
-  // Worker-terminal is not owner acceptance: the completed binding is awaiting
-  // acceptance, which is exactly why the ref must survive.
+  // Worker-terminal is not an owner decision: the binding persists only the
+  // execution result and its reference. Topic projection derives its green
+  // completed indicator separately from this durable evidence.
   assert.deepEqual(completed.coopTopicRef, { topicId: "topic-alpha" });
 });
 
@@ -348,4 +350,37 @@ test("server-side topic-state consumption fails closed on missing and merged ref
   assert.deepEqual(server.coopTopicLinkedBindings(all, { topicId: "  " }, open), []);
   assert.deepEqual(server.coopTopicLinkedBindings(all, { topicId: "topic-a" }, null), []);
   assert.deepEqual(server.coopTopicLinkedBindings(null, { topicId: "topic-a" }, open), []);
+});
+
+test("server topic consumption follows visible project-session lifecycle over stale bindings", function () {
+  var binding = {
+    mode: "project_coordinator", status: "active", coopTopicRef: { topicId: "topic-a" },
+  };
+  var hidden = server.coopTopicLinkedBindings([binding], { topicId: "topic-a" }, { status: "open" },
+    function () { return { hidden: true }; });
+  assert.deepEqual(hidden, [], "hidden sessions cannot keep a topic Working");
+
+  var attention = server.coopTopicLinkedBindings([binding], { topicId: "topic-a" }, { status: "open" },
+    function () {
+      return {
+        orchestrationPolicy: { portfolioExecution: { status: "running" } },
+        orchestrationTasks: [{ status: "needs_input" }],
+      };
+    });
+  assert.equal(attention[0].status, "needs_input");
+  assert.equal(topicState.coopTopicState({ topicId: "topic-a" }, {
+    bindings: attention,
+  }).state, "needs_input");
+
+  var completed = server.coopTopicLinkedBindings([binding], { topicId: "topic-a" }, { status: "open" },
+    function () {
+      return {
+        orchestrationPolicy: { portfolioExecution: { status: "completed" } },
+        orchestrationProjectCompletion: { status: "completed" },
+      };
+    });
+  assert.equal(completed[0].status, "completed");
+  assert.equal(topicState.coopTopicState({ topicId: "topic-a" }, {
+    bindings: completed,
+  }).state, "done");
 });
