@@ -37,6 +37,17 @@ above in every staffing/spend-class exchange before applying the gates below.
 
 ## 1. Gather state
 
+- **Unanswered owner requests** (FIRST, before anything else):
+  ```bash
+  node -e 'var l=require("./lib/coop-owner-requests").getDefaultOwnerRequests();console.log(JSON.stringify(l.unanswered().map(function(r){return {ingressId:r.ingressId,seq:r.ingressSequence,receivedAt:r.receivedAt,topicRef:r.topicRef,requestRef:r.requestRef,state:r.state,expectsExecution:r.expectsExecution};}),null,1))'
+  ```
+  The durable record of what the owner asked and whether they were ever
+  answered (`~/.clay/lead/coop-owner-requests.json`). A worker starting is
+  NOT an answer and never has been; only a completed owner-facing turn that
+  produced a reply counts. Read the actual request through its `requestRef`
+  (a canonical event reference into the Coop transcript) - the ledger is
+  reference-only and deliberately stores no message text.
+
 - **Loose items** (boss directives, carry-over): `~/.clay/lead/items.json`
   — array of `{title, body, labels, state}` items. Missing file = empty.
 - **Ledger**: `lib/lead-ledger` — `inFlight()`, `failureCount(id)` per
@@ -78,10 +89,29 @@ above in every staffing/spend-class exchange before applying the gates below.
 ## 2. Decide
 
 Run `lib/lead-loop.leadTick` with the gathered state (capacity 1 unless
-the boss raised it; inject `routeFn` from `lib/lead-routing`, real clock).
+the boss raised it; inject `routeFn` from `lib/lead-routing`, real clock,
+and pass the unanswered owner requests as `unansweredRequests`).
 The decisions array is your work order for this tick.
 
+`leadTick` returns a single `answer_owner` decision and NOTHING else when the
+owner is still waiting. That is deliberate: an owner who asked something and
+got no reply outranks every standup and every backlog item, and it preempts
+even at capacity because answering consumes no worker slot. Requests already
+blocked ON the owner (`needs_input`, `attention`) are excluded from that
+preemption - they are not yours to answer, and letting them preempt would
+stall the backlog behind something only the boss can clear.
+
 ## 3. Execute decisions
+
+- **answer_owner** — answer the boss, oldest request first, in this session.
+  Read each request through its `requestRef` before replying so you answer
+  what was actually asked. Do NOT staff a worker to "handle" it and call that
+  an answer: routing is not a reply, and treating it as one is exactly how 53
+  owner requests went unanswered for up to six days (audit 2026-08-12). If a
+  request genuinely needs implementation, say so plainly AND answer it, then
+  staff the work; the answer and the staffing are two separate obligations.
+  Marking answered is automatic - it happens when this turn completes with a
+  real reply - so never write to the ledger by hand.
 
 - **staff, needsApproval: false** — apply judgment to pick the MINIMAL
   `ownedPaths` for the item; compose the brief with
