@@ -72,10 +72,11 @@ availableTest("an activated ControlStore uses WAL and applies migrations in orde
     assert.equal(store.enabled, true);
     assert.equal(store.journalMode, "wal");
     assert.equal(store.schemaVersion, controlStore.LATEST_SCHEMA_VERSION);
-    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2]);
+    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3]);
     assert.deepEqual(store.listMigrations().map(function (row) { return row.name; }), [
       "control-record-foundation",
       "shadow-comparison-foundation",
+      "execution-control-foundation",
     ]);
     store.close();
   } finally {
@@ -102,7 +103,7 @@ availableTest("an existing database is backed up before an ordered migration", f
     var store = controlStore.openControlStore({ dbPath: h.dbPath, now: function () { return 1000; } });
     assert.ok(store.migration.backupPath);
     assert.equal(fs.existsSync(store.migration.backupPath), true);
-    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2]);
+    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3]);
 
     var backup = new sqlite.DatabaseSync(store.migration.backupPath, { readOnly: true });
     assert.equal(backup.prepare("PRAGMA user_version").get().user_version, 1);

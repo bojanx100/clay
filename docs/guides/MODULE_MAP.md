@@ -144,6 +144,12 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-coop-channels.js` | Private durable project-scoped Coop channel identity, metadata validation, ACL checks, scoped prompt context, and channel handoff handling |
 | `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable and legacy SessionRefs, schema migration, terminal completion closure, supersession/tombstones, and project-coordinator completion projection |
 | `portfolio-execution-binding-completion.js` | Atomic idempotent direct-leaf completion and acknowledgement state for durable execution bindings |
+| `coop-control-store.js` + `coop-control-store-migrations.js` | Default-off SQLite WAL control kernel, ordered migrations/backups, exact schema validation, restricted transactions, and compatibility exports |
+| `coop-control-executions.js` + `coop-control-execution-store.js` | Slice 2 stable executions, physical incarnations, monotonic epochs, sole role leases, ordered start barrier, and process-memory capability verification |
+| `coop-control-execution-schema.js` + `coop-control-execution-audit.js` | Exact Slice 2 SQLite table definitions and fail-closed logical startup audit |
+| `coop-control-execution-completion.js` | Shared captured-capability terminalization for direct leaves and project coordinators |
+| `coop-control-fence.js` + `coop-control-execution-target.js` | New Coop portfolio execution integration and provider callback/tool/progress/completion fencing; strict pass-through when disabled |
+| `coop-control-runtime.js` | Process-local owner for the optional execution controller and startup recovery barrier |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
 | `project-vendor-models.js` | Vendor model-list message handling, lazy adapter initialization, and model-info responses |
@@ -221,10 +227,16 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-models.js` | SDK bridge model list normalization, exact-model capability probe kickoff, provider-route matching, and model_info fanout |
 | `sdk-bridge-permissions.js` | SDK bridge tool whitelist, permission request, AskUserQuestion denial contract, and permission notification text helpers |
 | `sdk-bridge-processes.js` | SDK bridge Linux-user project prep, conflicting Claude process detection, and process verification helpers |
-| `sdk-bridge-query-start.js` | SDK bridge query startup, vendor lazy-init, query option assembly, and initial message dispatch |
+| `sdk-bridge-query-start.js` | SDK bridge query-start coordinator and provider-start fence boundary |
+| `sdk-bridge-query-vendor.js` + `sdk-bridge-query-options.js` | Vendor readiness/auth resolution and provider-specific query option assembly |
+| `sdk-bridge-query-launch.js` | Fenced provider construction, durable start acknowledgement, and initial message dispatch |
+| `sdk-bridge-query-start-failure.js` | Shared fail-closed cleanup when provider construction or initial message dispatch fails |
 | `sdk-bridge-recovery.js` | SDK bridge transient stream error detection and bounded auto-resume scheduling helpers; direct portfolio leaves never auto-resume after adapter shutdown |
 | `sdk-bridge-rewind.js` | SDK bridge adapter-agnostic rewind preview, rewind execute, conversation rollback, and fork helpers |
-| `sdk-bridge-stream.js` | SDK bridge query stream lifecycle, watchdog recovery, terminal turn cleanup, and auto-continue scheduling |
+| `sdk-bridge-stream.js` | Fenced provider-stream coordinator |
+| `sdk-bridge-stream-events.js` + `sdk-bridge-stream-error.js` | Normal provider-event consumption and thrown stream-error recovery |
+| `sdk-bridge-stream-watchdog.js` + `sdk-bridge-stream-policy.js` | Captured-turn watchdog state and pure timeout/error classifiers |
+| `sdk-bridge-stream-finalize.js` + `sdk-bridge-stream-notify.js` | Terminal turn cleanup, continuation scheduling, and needs-attention notifications |
 | `sdk-provider-failover-signals.js` | Provider failure recording and unhealthy-session failover markers |
 | `sdk-bridge-warmup.js` | SDK bridge adapter warmup, slash-command skill merge, installed-vendor detection, and initial model_info fanout |
 | `sdk-skill-discovery.js` | Skill directory scanning, shell segment splitting, SDK/filesystem skill merging |

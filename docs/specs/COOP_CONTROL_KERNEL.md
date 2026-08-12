@@ -1,10 +1,12 @@
 # Coop control kernel
 
-Status: **Slice 1 foundation implemented, default off.**
+Status: **Slices 1 and 2 implemented, default off.**
 
-This slice introduces a narrow SQLite WAL `ControlStore` and a deterministic
-shadow importer/comparator. It does not wire the store into the live Coop
-owner flow and does not change which existing store is authoritative.
+Slice 1 introduces a narrow SQLite WAL `ControlStore` and a deterministic
+shadow importer/comparator. Slice 2 adds durable logical executions,
+incarnations, epochs, role leases, structured authority, a start barrier, and
+capability fencing for new Coop-controlled portfolio execution. Existing
+owner/topic stores and ordinary sessions remain authoritative and unchanged.
 
 ## Boundary
 
@@ -14,6 +16,8 @@ slices:
 - owner-request references and lifecycle codes;
 - canonical coordinator claims;
 - privacy-safe shadow digests and mismatch evidence used during migration.
+- logical execution identities, physical incarnations, monotonic epochs,
+  current role leases, start state, and reference-only authority.
 
 Slice 1 has writable typed schemas only for `owner_request` and
 `coordinator_claim`. Approvals, execution bindings, tasks, checkpoints,
@@ -48,6 +52,15 @@ rejects a topic-index source explicitly.
   transactions, authoritative control-record slots, and shadow evidence rows.
 - `lib/coop-control-shadow.js` owns reference-store projection, canonical JSON,
   SHA-256 digests, import, and comparison.
+- `lib/coop-control-execution-schema.js` owns the Slice 2 table definitions.
+- `lib/coop-control-execution-audit.js` owns execution-state startup audits.
+- `lib/coop-control-execution-store.js` is the restricted SQLite operation API.
+- `lib/coop-control-executions.js` owns identities, capabilities, transitions,
+  and the Slice 2 kill switch.
+- `lib/coop-control-execution-completion.js` owns the shared durable terminal
+  transition for direct leaves and project coordinators.
+- `lib/coop-control-fence.js` and `lib/coop-control-execution-target.js` enforce
+  capabilities at the portfolio/provider boundary.
 
 The primary exports for later wiring are:
 
@@ -78,6 +91,18 @@ adapter: it does not create a directory or database, does not enumerate shadow
 sources, and does not invoke transaction callbacks. Since no live module is
 wired in Slice 1, ordinary Coop behaviour remains unchanged while the flag is
 off.
+
+Slice 2 requires both flags:
+
+```text
+CLAY_COOP_CONTROL_STORE=1
+CLAY_COOP_CONTROL_EXECUTIONS=1
+```
+
+`options.enabled === false` is the programmatic Slice 2 kill switch. With the
+second flag absent, the portfolio target and SDK/provider bridge take their
+pre-existing paths and no SQLite file is opened. Activation is evaluated at
+daemon startup; changing either environment variable requires a restart.
 
 `openControlStore()` intentionally bypasses the flag. It is the explicit API
 for tests and for a future wiring point that has already evaluated authority
@@ -132,9 +157,77 @@ Migration 2 creates:
 - `coop_control_shadow_records` — canonical, per-record digests used to produce
   bounded mismatch evidence.
 
+Migration 3 creates:
+
+- `coop_control_authorities` — reference-only source, binding revision, target,
+  role, and fixed action mask;
+- `coop_control_executions` — stable logical identity and monotonic epoch;
+- `coop_control_incarnations` — physical attempt, bound `SessionRef`, capability
+  verifier, and start-barrier state;
+- `coop_control_role_leases` — exactly one active role holder per execution.
+
 The shadow tables are migration evidence, not an authority claim. Making any
 SQLite record authoritative requires a later slice with a separately reviewed
 read/write cutover.
+
+## Slice 2 execution protocol
+
+Only new `portfolio_execution_create` work is controlled. The portfolio task,
+binding revision, target `ProjectRef`, and execution mode deterministically
+derive a stable `executionId`. Each retry receives a random `incarnationId`, a
+strictly increasing epoch, and a process-memory capability secret. SQLite holds
+only its SHA-256 verifier. The secret is never serialized into the session,
+transcript, task graph, or ControlStore inspection result.
+
+Start is ordered and fail-closed:
+
+1. atomically persist authority, logical execution, reserved incarnation, and
+   its sole role lease;
+2. create the physical Clay session;
+3. bind its stable `SessionRef` to the incarnation;
+4. persist the open start barrier (`ready`);
+5. assert the captured capability before provider construction;
+6. mark `started` after the provider handle is returned and before sending the
+   first message.
+
+Fault injection covers every boundary. A commit failure leaves no rows or
+session. A failure after reservation, binding, barrier opening, or provider
+construction yields no unfenced provider message and terminalizes immediately,
+or is terminalized by startup recovery when the process died before cleanup.
+New sessions that fail before their first provider message are removed from the
+live session map; coordinator sessions that predate the execution are retained
+with a terminal failure so a retry can reuse the same visible coordinator.
+Startup recovery never resumes an in-memory secret: it releases every
+incomplete lease, marks that incarnation failed, and a replay advances the
+same logical execution to the next epoch.
+
+When a crash separates the durable terminal transition from the legacy session
+file update, restart reconciliation treats the ControlStore as authoritative.
+A durably completed incarnation is projected back to `completed` and its typed
+completion is redelivered idempotently; incomplete incarnations are failed by
+the startup barrier before their session projection is reconciled.
+
+The capability fence is checked for `provider_start`, provider callbacks,
+tool authorization/calls, progress, and completion. The check binds all of
+`executionId`, `incarnationId`, epoch, role, authority id, capability verifier,
+and current lease. Advancing an epoch or releasing a lease makes every old
+category fail with `COOP_CONTROL_FENCE_REJECTED` before its mutation or effect.
+Unknown actions fail with `COOP_CONTROL_AUTHORITY_DENIED`. Provider callbacks
+capture the fence for the specific query, so a later incarnation cannot lend
+authority to an older stream.
+
+Verified project-coordinator completion commits through that captured fence
+before its legacy session projection is marked complete or archived, releasing
+the sole role lease durably. Late provider-start promises and watchdog timers
+also verify their captured incarnation before mutating session state, so an
+older turn cannot fail or abort its successor.
+
+Authority is an exact structured object: canonical Coop source `SessionRef`,
+portfolio task id, positive binding revision, target `ProjectRef`, execution
+mode/role, and the fixed five-action mask. Unknown fields, prose aliases,
+invalid refs, role escalation, and idempotency conflicts fail closed. Topics,
+objectives, acceptance text, owned paths, prompts, and transcripts never enter
+these tables.
 
 ## Deterministic shadow comparison
 

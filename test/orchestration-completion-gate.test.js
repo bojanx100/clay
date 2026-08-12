@@ -56,6 +56,7 @@ function gateHarness(tasks, options) {
       updates.push(text);
       target.isProcessing = true;
     },
+    finishControlledExecution: options.finishControlledExecution,
     sendState: function (target) {
       states.push(taskGraph.graphResolutionState(target));
     },
@@ -70,6 +71,37 @@ function gateHarness(tasks, options) {
     sessions: sessions,
   };
 }
+
+test("verified project completion commits the controlled incarnation before its projection", function () {
+  var calls = [];
+  var h = gateHarness([], {
+    finishControlledExecution: function (session, status) {
+      calls.push(status + ":" + session.orchestrationPolicy.portfolioExecution.status);
+      return true;
+    },
+  });
+  h.session.coopControlledBy = { coopSessionStorageId: "coop-home", since: 1 };
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-controlled-completion",
+      bindingRevision: 1,
+      idempotencyKey: "controlled-completion-r1",
+      mode: "project_coordinator",
+      status: "running",
+      control: { executionId: "exec:controlled" },
+    },
+  };
+  h.session.history = [{ type: "user_message", text: "Complete the controlled project." }, {
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Integrated.\n" +
+      "VERIFICATION: suite passed\nINTEGRATION_VERIFIED: yes\nESCALATION_REQUIRED: no",
+  }];
+
+  h.gate.handleTurnDone(h.session);
+
+  assert.deepEqual(calls, ["completed:running"]);
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "completed");
+});
 
 test("orchestration MCP exposes lifecycle, provider, and authoritative Coop session query operations", function () {
   var noop = function () {};
