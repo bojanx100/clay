@@ -3,6 +3,7 @@ var assert = require("node:assert");
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
+require("./helpers/isolated-clay-home");
 
 var TMP = path.join(os.tmpdir(), "clay-probe-test-" + process.pid);
 process.env.CLAY_MODEL_CATALOG_PATH = path.join(TMP, "catalog.json");

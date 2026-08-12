@@ -3,6 +3,7 @@ var assert = require("node:assert/strict");
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
+require("./helpers/isolated-clay-home");
 var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 
@@ -505,6 +506,92 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.equal(restartedReplay.ok, true);
   assert.equal(restartedReplay.reused, true);
   assert.equal(target.sessions.size, 3);
+});
+
+test("direct-leaf delegation routes advertised Fable aliases and leaves future versions unrouted", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-fable-direct-leaf-"));
+  var targetProjectId = "ad8c7932-da3c-4d0b-879b-eb7c847cb64d";
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, {
+    projectId: targetProjectId,
+    crossProject: router,
+    smState: {
+      availableVendors: ["claude"],
+      installedVendors: ["claude"],
+      providerRoutes: [{
+        id: "claude-anthropic",
+        vendor: "claude",
+        provider: "anthropic",
+        modelFamily: "claude",
+        label: "Claude",
+        enabled: true,
+        catalogVerified: true,
+        catalogSource: "live",
+      }],
+      verifiedModelsByRoute: {
+        "claude-anthropic": [{
+          value: "claude-fable-5[1m]",
+          resolvedModel: "claude-fable-5",
+        }],
+      },
+    },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+
+  var aliases = ["fable", "claude-fable-5"];
+  for (var i = 0; i < aliases.length; i++) {
+    var taskId = "fable-alias-" + i;
+    var routed = lead.api.coordinateExternalTask({
+      coordinatorSessionId: coop.storageId,
+      portfolioTaskId: taskId,
+      bindingRevision: 1,
+      idempotencyKey: "create-" + taskId,
+      mode: "direct_leaf",
+      targetProject: { projectId: targetProjectId },
+      title: "Fable direct leaf",
+      objective: "Run the bounded implementation task.",
+      context: "The advertised catalog token is authoritative.",
+      acceptanceCriteria: "The worker starts on Fable.",
+      ownedPaths: "lib/provider-routes.js",
+      provider: "claude",
+      model: aliases[i],
+    });
+    assert.equal(routed.ok, true, aliases[i] + " should route");
+    assert.equal(target.sessions.get(routed.localSessionId).model, "claude-fable-5[1m]");
+  }
+
+  var invalid = lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "fable-future-version",
+    bindingRevision: 1,
+    idempotencyKey: "create-fable-future-version",
+    mode: "direct_leaf",
+    targetProject: { projectId: targetProjectId },
+    title: "Future Fable direct leaf",
+    objective: "Run on an unadvertised future model.",
+    context: "No matching catalog entry exists.",
+    acceptanceCriteria: "The attempt fails closed.",
+    ownedPaths: "lib/provider-routes.js",
+    provider: "claude",
+    model: "claude-fable-6",
+  });
+  assert.equal(invalid.ok, false);
+  assert.equal(target.sessions.size, aliases.length);
+  var binding = router.getExecutionBinding("fable-future-version", 1);
+  assert.equal(binding.status, "unrouted");
 });
 
 test("project-coordinator completion closes its source binding through typed delivery", function () {

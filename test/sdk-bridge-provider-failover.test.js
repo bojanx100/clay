@@ -1,5 +1,6 @@
 var test = require("node:test");
 var assert = require("node:assert");
+require("./helpers/isolated-clay-home");
 
 var { attachBridgeStream } = require("../lib/sdk-bridge-stream");
 var { attachBridgeRecovery } = require("../lib/sdk-bridge-recovery");

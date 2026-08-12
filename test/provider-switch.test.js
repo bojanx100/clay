@@ -9,6 +9,7 @@ var assert = require("node:assert");
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
+require("./helpers/isolated-clay-home");
 
 var { attachProviderSwitch } = require("../lib/provider-switch");
 var { routeForId } = require("../lib/provider-routes");

@@ -1,5 +1,6 @@
 var test = require("node:test");
 var assert = require("node:assert");
+require("./helpers/isolated-clay-home");
 
 var providerHealth = require("../lib/provider-health");
 require("../lib/recovery-log").recordRecoveryEvent = function () {};

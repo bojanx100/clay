@@ -3,6 +3,7 @@ var assert = require("node:assert");
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
+require("./helpers/isolated-clay-home");
 
 var failoverModule = require("../lib/project-provider-failover");
 var providerHealth = require("../lib/provider-health");

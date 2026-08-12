@@ -3,6 +3,7 @@ var assert = require("node:assert");
 var fs = require("node:fs");
 var os = require("node:os");
 var path = require("node:path");
+require("./helpers/isolated-clay-home");
 
 var routes = require("../lib/provider-routes");
 var { fallbackCodexModels } = require("../lib/codex-models");
@@ -37,6 +38,7 @@ test("a persisted cold-start Codex seed is not treated as a verified catalog", f
     }));
     assert.deepStrictEqual(routes.verifiedCatalogForRoute(route), {
       models: ["gpt-5.6-sol"],
+      entries: [{ value: "gpt-5.6-sol" }],
       source: "last-known-good",
     }, "a value-only live catalog must remain verified across a cold start");
     var richLiveModels = fallbackCodexModels();
@@ -122,6 +124,11 @@ test("native Claude route merges only positive exact-probe evidence", function (
     });
     assert.deepStrictEqual(routes.verifiedCatalogForRoute(route, state), {
       models: ["claude-opus-4.8", "claude-opus-5"],
+      entries: [{ value: "claude-opus-4.8" }, {
+        value: "claude-opus-5",
+        displayName: "Opus 5",
+        description: "For complex tasks.",
+      }],
       source: "live+exact-probe",
     });
     state.verifiedModelsByRoute["claude-anthropic"].models.push("claude-opus-5");
@@ -134,4 +141,28 @@ test("native Claude route merges only positive exact-probe evidence", function (
     else process.env.CLAY_MODEL_CATALOG_PATH = previousPath;
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("verified catalogs preserve selectable and resolved model metadata", function () {
+  var route = routes.routeForId("claude-anthropic");
+  var catalog = routes.verifiedCatalogForRoute(route, {
+    verifiedModelsByRoute: {
+      "claude-anthropic": {
+        models: [{
+          value: "claude-fable-5[1m]",
+          resolvedModel: "claude-fable-5",
+          displayName: "Fable",
+        }],
+        source: "live",
+      },
+    },
+  });
+
+  assert.deepStrictEqual(catalog.models, ["claude-fable-5[1m]"]);
+  assert.deepStrictEqual(catalog.entries, [{
+    value: "claude-fable-5[1m]",
+    resolvedModel: "claude-fable-5",
+    displayName: "Fable",
+  }]);
+  assert.strictEqual(catalog.source, "live");
 });
