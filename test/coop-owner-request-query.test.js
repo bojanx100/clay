@@ -510,3 +510,105 @@ test("the canonical owner socket receives the full backlog", function () {
   assert.equal(harness.sent[0].ok, true);
   assert.equal(harness.sent[0].counts.unanswered, 1);
 });
+
+// --- owner-confirmed topic closure over the wire ------------------------------
+//
+// Two touches, deliberately: the server PROPOSES a set and the owner CONFIRMS
+// that exact set. Closing topics is destructive to the owner's own view, and
+// ingress 134 ("close all open topic except ones that have matching session in
+// one of the projects") is a rule, not a licence to sweep silently.
+
+function closureCtx(slug, index, isOwner) {
+  var sent = [];
+  return {
+    ctx: {
+      slug: slug,
+      coopTopicIndex: index,
+      isCoopTopicOwner: function () { return isOwner !== false; },
+      getProjectList: function () { return []; },
+      getGlobalCoopProjection: function () { return { projects: [] }; },
+      sm: { sessions: { forEach: function (fn) { fn({ coopHome: true, storageId: "s", history: [] }); } } },
+      sendTo: function (ws, payload) { sent.push(payload); },
+    },
+    sent: sent,
+  };
+}
+
+function fakeIndex(overrides) {
+  return Object.assign({
+    ensureRetro: function () { return { ok: true }; },
+    proposeTopicClosures: function () {
+      return { ok: true, proposalId: "p1", candidates: [{ topicId: "auto-a", title: "A", reason: "no_matching_session", turnCount: 1 }] };
+    },
+    confirmTopicClosures: function (decision) {
+      return { ok: true, proposalId: decision.proposalId, closed: decision.confirm ? ["auto-a"] : [], declined: !decision.confirm };
+    },
+  }, overrides || {});
+}
+
+test("the owner can ask for a closure proposal and nothing closes yet", function () {
+  var h = closureCtx("lead", fakeIndex(), true);
+  var handled = connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+
+  assert.equal(handled, true);
+  assert.equal(h.sent[0].type, "coop_topic_closure_proposal");
+  assert.equal(h.sent[0].ok, true);
+  assert.equal(h.sent[0].candidates.length, 1);
+  assert.equal(h.sent[0].closed, undefined, "proposing must not close anything");
+});
+
+test("confirming closes exactly the proposed set", function () {
+  var h = closureCtx("lead", fakeIndex(), true);
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: "p1", confirm: true,
+  });
+  assert.equal(h.sent[0].type, "coop_topic_closure_result");
+  assert.deepEqual(h.sent[0].closed, ["auto-a"]);
+});
+
+test("declining closes nothing", function () {
+  var h = closureCtx("lead", fakeIndex(), true);
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: "p1", confirm: false,
+  });
+  assert.deepEqual(h.sent[0].closed, []);
+  assert.equal(h.sent[0].declined, true);
+});
+
+test("a non-owner can neither propose nor confirm a closure sweep", function () {
+  var proposer = closureCtx("lead", fakeIndex(), false);
+  connection.handleTopicClosureMessage(proposer.ctx, {}, { type: "coop_topic_closure_propose" });
+  assert.equal(proposer.sent[0].ok, false);
+  assert.equal(proposer.sent[0].code, "access_denied");
+
+  var confirmer = closureCtx("lead", fakeIndex(), false);
+  connection.handleTopicClosureMessage(confirmer.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: "p1", confirm: true,
+  });
+  assert.equal(confirmer.sent[0].ok, false);
+  assert.equal(confirmer.sent[0].code, "access_denied");
+});
+
+test("a non-Coop socket is refused outright", function () {
+  var h = closureCtx("some-project", fakeIndex(), true);
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  assert.equal(h.sent[0].ok, false);
+  assert.equal(h.sent[0].code, "access_denied");
+});
+
+test("a confirm naming a different proposal than the one shown is refused", function () {
+  var h = closureCtx("lead", fakeIndex({
+    confirmTopicClosures: function () { return { ok: false, code: "proposal_stale" }; },
+  }), true);
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: "stale", confirm: true,
+  });
+  assert.equal(h.sent[0].ok, false);
+  assert.equal(h.sent[0].code, "proposal_stale");
+});
+
+test("the closure handler ignores unrelated messages", function () {
+  var h = closureCtx("lead", fakeIndex(), true);
+  assert.equal(connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_select" }), false);
+  assert.equal(h.sent.length, 0);
+});
