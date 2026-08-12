@@ -268,8 +268,16 @@ test("the Coop session ledger reconciles bindings and live session truth idempot
     "done", "hidden completed sessions remain terminal topic evidence, never active work");
   assert.equal(ledger.topicEvidence({ topicId: "topic-needs-input" })[0].workState,
     "needs_input");
-  assert.equal(ledger.topicEvidence({ topicId: "topic-previous" })[0].workState, "done",
+  var previousEvidence = ledger.topicEvidence({ topicId: "topic-previous" });
+  assert.equal(previousEvidence[0].workState, "done",
     "a later turn in the same coordinator cannot make an older completed topic Working");
+  assert.deepEqual(previousEvidence[0].coopTopicRef, { topicId: "topic-previous" },
+    "topic evidence always carries the exact queried TopicRef, not another session link");
+  assert.equal(coopTopicState({ topicId: "topic-previous" }, {
+    bindings: previousEvidence.map(function (entry) {
+      return { coopTopicRef: entry.coopTopicRef, status: "completed" };
+    }),
+  }).state, "done", "the exact historical topic projects Done through the shared state rule");
   assert.equal(ledger.topicEvidence({ topicId: "topic-active" })[0].workState, "working");
   var hiddenTopicBindings = ledger.topicEvidence({
     topicId: "topic-hidden-completed",
