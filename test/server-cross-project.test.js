@@ -781,3 +781,66 @@ test("without an injected ledger the staffing path behaves exactly as before", f
   assert.equal(staffTopic(harness, "portfolio-y", "auto-a7daa4cc660639337d144d93").ok, true);
   assert.equal(created.length, 2);
 });
+
+// --- cardinality guard must not misfire on legitimate reuse -------------------
+//
+// Review audit: the guard sits before the scope-promotion branch, so it must be
+// able to tell "a rival is staffing my topic" from "this is the same work
+// continuing". Blocking the latter would wedge every revision after the first.
+
+test("a scope expansion of the same task and topic is not treated as a rival", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card5-"));
+  var created = [];
+  var harness = cardinalityRouter(dir, ledgerIn(dir), created);
+  var topicId = "auto-a7daa4cc660639337d144d93";
+
+  var first = harness.router.createProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    portfolioTaskId: "portfolio-expand", bindingRevision: 1, idempotencyKey: "portfolio-expand-r1",
+    mode: "project_coordinator", targetProject: { projectId: harness.projectId },
+    coopTopicRef: { topicId: topicId }, objective: "Do the bounded work.",
+  });
+  assert.equal(first.ok, true);
+
+  // Same portfolio task, same topic, next revision: this is the SAME work
+  // widening its scope, not a second coordinator competing for the topic.
+  var expanded = harness.router.createProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    portfolioTaskId: "portfolio-expand", bindingRevision: 2, idempotencyKey: "portfolio-expand-r2",
+    mode: "project_coordinator", targetProject: { projectId: harness.projectId },
+    coopTopicRef: { topicId: topicId }, reason: "scope_expansion",
+    objective: "Do the widened work.",
+  });
+  assert.notEqual(expanded.reason, "coordinator_exists",
+    "the same task continuing on its own topic must not be refused as a rival");
+});
+
+test("an idempotent replay of a committed binding is never refused as a rival", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card6-"));
+  var created = [];
+  var harness = cardinalityRouter(dir, ledgerIn(dir), created);
+
+  var first = staffTopic(harness, "portfolio-replay", "auto-a7daa4cc660639337d144d93");
+  assert.equal(first.ok, true);
+  var replay = staffTopic(harness, "portfolio-replay", "auto-a7daa4cc660639337d144d93");
+  assert.equal(replay.ok, true, "the same binding replayed is the same work, not a rival");
+  assert.equal(created.length, 1);
+});
+
+test("a refused staffing leaves no coordinator claim behind", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card7-"));
+  var ledger = ledgerIn(dir);
+  var created = [];
+  var harness = cardinalityRouter(dir, ledger, created);
+  var topicId = "auto-a7daa4cc660639337d144d93";
+
+  staffTopic(harness, "portfolio-first", topicId);
+  var refused = staffTopic(harness, "portfolio-rival", topicId);
+
+  assert.equal(refused.ok, false);
+  // Exactly one claim: the refusal must not have recorded the rival on its way out.
+  assert.equal(ledger.coordinatorsForTopic({ topicId: topicId }).length, 1);
+  assert.equal(harness.router.getExecutionBindings().filter(function (b) {
+    return b.portfolioTaskId === "portfolio-rival";
+  }).length, 0, "a refused staffing leaves no binding either");
+});
