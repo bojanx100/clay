@@ -160,6 +160,32 @@ test("recency uses viewed time when any session was viewed, otherwise activity",
   assert.equal(viewed.active.localId, 3);
 });
 
+test("ordinary project restore never selects an internal session omitted from the sidebar", function () {
+  var internal = {
+    localId: 1,
+    storageId: "internal-crafting",
+    lastViewedAt: 100,
+    loop: { loopId: "loop-1", role: "crafting", source: "autoplan" },
+  };
+  var visible = { localId: 2, storageId: "visible-session", lastViewedAt: 10 };
+  var sessions = new Map([[1, internal], [2, visible]]);
+  var ordinary = state.findRestoredActiveSession(restoreOptions({
+    sessions: sessions,
+    allSessions: [internal, visible],
+    requestedSessionId: internal.storageId,
+    storedPresence: { sessionId: internal.localId },
+  }));
+  assert.equal(ordinary.active, visible);
+
+  var exact = state.findRestoredActiveSession(restoreOptions({
+    sessions: sessions,
+    allSessions: [internal, visible],
+    requestedSessionId: internal.storageId,
+    requestedSessionExact: true,
+  }));
+  assert.equal(exact.active, internal, "an explicit durable conversation link remains authoritative");
+});
+
 test("vendor, route, and Codex fallback model selection is deterministic", function () {
   var codex = state.selectInitialModelState({
     active: { vendor: "codex", providerRouteId: "codex-openai", requestedModel: "missing-model" },

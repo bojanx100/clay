@@ -50,3 +50,37 @@ test("shouldProcessSocketMessage: only the currently-active socket may render", 
   assert.strictEqual(shouldProcessSocketMessage(current, null), false);
   assert.strictEqual(shouldProcessSocketMessage(null, null), false);
 });
+
+test("initialSessionReference: plain project navigation lets the server choose the current default", async function () {
+  var policy = await loadPolicy();
+  var ordinaryProjectClick = policy.initialSessionReference({
+    currentSlug: "clay",
+    urlSessionRef: null,
+    tabSessionId: "stale-tab-session",
+    activeSessionProjectSlug: "webapp",
+    activeSessionId: 14,
+    cliSessionId: "active-webapp-session",
+    preferProjectDefault: true,
+  });
+  assert.strictEqual(ordinaryProjectClick, null);
+
+  var exactReference = policy.initialSessionReference({
+    currentSlug: "clay",
+    urlSessionRef: { projectId: "project-id", sessionStorageId: "exact-session" },
+    tabSessionId: "exact-session",
+    activeSessionProjectSlug: "webapp",
+    preferProjectDefault: true,
+  });
+  assert.strictEqual(exactReference, "exact-session", "explicit conversation links remain exact");
+
+  var reconnect = policy.initialSessionReference({
+    currentSlug: "clay",
+    urlSessionRef: null,
+    tabSessionId: "current-tab-session",
+    activeSessionProjectSlug: "clay",
+    activeSessionId: 14,
+    cliSessionId: "current-cli-session",
+    preferProjectDefault: false,
+  });
+  assert.strictEqual(reconnect, "current-tab-session", "ordinary reconnects preserve the open conversation");
+});
