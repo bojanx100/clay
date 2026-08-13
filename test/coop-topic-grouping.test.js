@@ -1156,6 +1156,38 @@ test("a session appearing after the proposal blocks it in production", function 
   assert.equal(h.index.load().topics[target].status, "open");
 });
 
+test("a matching-name session added after proposal blocks confirmation from the production ledger", function () {
+  var h = realClosureHarness();
+  var sessionEvidence = [];
+  h.ctx.crossProject = {
+    sessionLedger: {
+      list: function () { return sessionEvidence; },
+    },
+    getExecutionBindings: function () { return []; },
+  };
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+  var target = proposal.candidates[0].topicId;
+  var title = h.index.load().topics[target].title;
+
+  sessionEvidence = [{
+    title: title,
+    sessionPresent: true,
+    hidden: false,
+    sessionRef: {
+      projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba",
+    },
+    coopTopicRefs: [],
+  }];
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+
+  assert.equal(h.index.load().topics[target].status, "open",
+    "confirmation must repeat the proposal-time matching live-session guard");
+});
+
 test("a genuinely finished topic still closes through the handler", function () {
   var h = handlerHarness();
   var run = proposeThenConfirm(h);
