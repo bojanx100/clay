@@ -111,6 +111,33 @@ this slice deliberately does not attach it to an existing Coop module.
 > Remove them at the **2026-08-20 (Europe/Zagreb)** checkpoint after the
 > activated control path has completed its rollback-window verification.
 
+The supported persistent daemon configuration is `coop.controlKernel` in the
+active `daemon.json` or `daemon-dev.json`. When present, it is authoritative
+over inherited shell environment for all three flags, including explicit
+`false` rollback values:
+
+```json
+{
+  "coop": {
+    "controlKernel": {
+      "store": true,
+      "executions": true,
+      "recovery": true,
+      "rollbackScaffoldingRemovalReminder": {
+        "id": "coop-control-kernel-remove-rollback-scaffolding-2026-08-20",
+        "dueAt": "2026-08-20T09:00:00+02:00",
+        "timeZone": "Europe/Zagreb",
+        "status": "open"
+      }
+    }
+  }
+}
+```
+
+Restart through the normal daemon lifecycle after changing this section. To
+roll back, set `store`, `executions`, and `recovery` to `false` together, then
+restart; partial activation is not supported.
+
 `createControlStore()` activates only when one of these is true:
 
 ```text
