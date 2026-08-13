@@ -81,6 +81,26 @@ test("recording the same ingress twice is idempotent and never resets an answer"
   assert.equal(ledger.list().length, 1);
 });
 
+test("two live ledger instances preserve disjoint owner-request mutations", function () {
+  var file = tempFile();
+  var seed = makeLedger({ file: file, start: 500 });
+  var answeredId = "coop:" + COOP_SESSION + ":233";
+  var laterId = "coop:" + COOP_SESSION + ":240";
+  seed.record(ingress(233));
+  var staleDaemon = makeLedger({ file: file, start: 1000 });
+  var reconciler = makeLedger({ file: file, start: 2000 });
+
+  reconciler.markAnswered(answeredId, { eventIndex: 118921, at: 3000 });
+  staleDaemon.record(ingress(240));
+
+  var reloaded = ownerRequests.attachCoopOwnerRequests({ file: file });
+  assert.equal(reloaded.get(answeredId).response.state, "answered");
+  assert.equal(reloaded.get(answeredId).response.responseRef.eventIndex, 118921);
+  assert.equal(reloaded.get(laterId).response.state, "unanswered");
+  assert.deepEqual(reloaded.list().map(function (record) { return record.ingressId; }),
+    [answeredId, laterId]);
+});
+
 // --- response semantics: worker start is not an answer -----------------------
 
 test("linking a coordinator does NOT answer the owner", function () {

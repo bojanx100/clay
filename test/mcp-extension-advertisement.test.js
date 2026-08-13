@@ -212,9 +212,13 @@ test("browser tools are advertised before the extension connects", async functio
   });
   var servers = localMcpServers.getLocalMcpServers();
   var browserServer = servers && servers["clay-browser"];
+  var coopControlServer = servers && servers["clay-coop-control"];
 
   assert.ok(browserServer);
   assert.equal(browserServer.tools.length, 19);
+  assert.ok(coopControlServer);
+  assert.deepEqual(coopControlServer.tools.map(function (tool) { return tool.name; }),
+    ["inspect_ledger_records", "reconcile_ledger_records"]);
 
   var listTabs = browserServer.tools.find(function (tool) {
     return tool.name === "browser_list_tabs";

@@ -119,6 +119,52 @@ test("retro extraction is complete, deterministic, idempotent, and reference-onl
   } finally { h.cleanup(); }
 });
 
+test("two live topic-index instances preserve disjoint topic mutations", function () {
+  var h = harness();
+  try {
+    var session = canonicalSession();
+    h.index.ensureRetro(session, retroOptions());
+    var second = topics.createTopicIndex({ file: h.index.file, now: function () { return 500; } });
+    var ref = { topicId: "codex-authentication" };
+    second.load();
+
+    second.applyTopicDisposition(ref, { verb: "accept_done", note: "Completed.",
+      expectedRevision: 0, requestId: "two-instance-disposition" });
+    second.close(ref);
+    var created = h.index.classifyCanonicalIngress(session,
+      { text: "Zephyr observatory calibration matrix" },
+      { projects: [], isProjectAvailable: function () { return false; } });
+
+    var reloaded = topics.createTopicIndex({ file: h.index.file });
+    var topic = reloaded.resolve(ref, true).topic;
+    assert.equal(topic.status, "closed");
+    assert.equal(topic.ownerDisposition.status, "done");
+    assert.equal(reloaded.resolve(created.topicRef, true).ok, true);
+    assert.equal(reloaded.load().dispositionRequests.some(function (request) {
+      return request.requestId === "two-instance-disposition";
+    }), true);
+  } finally { h.cleanup(); }
+});
+
+test("a stale direct topic snapshot is rejected by revision and digest CAS", function () {
+  var h = harness();
+  try {
+    h.index.ensureRetro(canonicalSession(), retroOptions());
+    var stale = topics.createTopicIndex({ file: h.index.file });
+    var fresh = topics.createTopicIndex({ file: h.index.file });
+    var staleState = stale.load();
+    staleState.topics["codex-authentication"].title = "Stale overwrite";
+
+    fresh.rename({ topicId: "codex-authentication" }, "Fresh title");
+
+    assert.throws(function () { stale.save(); }, function (error) {
+      return error && error.code === "ledger_conflict";
+    });
+    assert.equal(topics.createTopicIndex({ file: h.index.file })
+      .resolve({ topicId: "codex-authentication" }, true).topic.title, "Fresh title");
+  } finally { h.cleanup(); }
+});
+
 test("topic metadata operations preserve references and nested execution links", function () {
   var h = harness();
   try {
@@ -471,6 +517,7 @@ test("the title retrofit fixes an already-minted garbled topic and is idempotent
       keywords: [], eventRefs: [], relatedExecutions: [],
       turnRefs: [{ sessionStorageId: session.storageId, startEventIndex: 6, endEventIndex: 8 }],
     };
+    h.index.save();
 
     var report = h.index.retrofitTopicTitles(session);
     assert.equal(report.ok, true);
