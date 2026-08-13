@@ -292,6 +292,46 @@ function connectionHarness(h, session) {
   return { ctx: ctx, sent: sent };
 }
 
+test("owner disposition passes the acting socket to the production-shaped work-state callback", function () {
+  var h = harness();
+  try {
+    seedLegacyIndex(h, { "historical-a": legacyTopic("historical-a") });
+    var session = legacySession();
+    h.index.ensureDispositionBackfill(session);
+    var harnessed = connectionHarness(h, session);
+    var ownerSocket = { isOwner: true };
+    var actorSeen = null;
+    function ledgerTopicBindings(topicRef, metadata, ws) {
+      if (!ws) throw new ReferenceError("ws is not defined");
+      actorSeen = ws;
+      return [];
+    }
+    // Mirrors the injected server callback: binding evidence is resolved
+    // against the acting socket before the stale-state check is evaluated.
+    harnessed.ctx.computeCoopTopicWorkState = function (topicRef, metadata, ws) {
+      return topicState.projectedTopicState(topicRef, {
+        tasks: session.orchestrationTasks,
+        bindings: ledgerTopicBindings(topicRef, metadata, ws),
+        metadata: metadata,
+        foreground: { isProcessing: false, topicRef: null },
+      }).workState;
+    };
+
+    assert.doesNotThrow(function () {
+      assert.equal(topicConnection.handleCoopMessage(harnessed.ctx, ownerSocket, {
+        type: "coop_topic_disposition", requestId: "actor-context",
+        topicRef: { topicId: "historical-a" }, verb: "accept_done",
+        expectedState: "needs_input",
+      }), true);
+    });
+    assert.equal(actorSeen, ownerSocket);
+    assert.equal(harnessed.sent[0].type, "coop_topic_disposition_result");
+    assert.equal(harnessed.sent[0].requestId, "actor-context");
+    assert.equal(harnessed.sent[0].ok, true);
+    assert.equal(harnessed.sent[0].disposition.status, "done");
+  } finally { h.cleanup(); }
+});
+
 test("a topic decision is owner-only, stale-checked, applied once and broadcast", function () {
   var h = harness();
   try {
