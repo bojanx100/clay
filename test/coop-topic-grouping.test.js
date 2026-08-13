@@ -530,6 +530,7 @@ function realClosureHarness() {
   var sent = [];
   return {
     index: index,
+    session: session,
     sent: sent,
     ctx: {
       slug: "lead",
@@ -1037,7 +1038,13 @@ function handlerHarness(evidence) {
   var h = realClosureHarness();
   var live = evidence || {};
   h.ctx.coopSessionEvidence = function () { return live.sessionEvidence || []; };
-  h.ctx.coopLinkedTasks = function () { return live.tasks || []; };
+  // Production owns closure task evidence on the canonical Coop session. A
+  // test-only ctx.coopLinkedTasks provider used to make this test pass while
+  // the real handler always supplied an empty task list.
+  Object.defineProperty(h.session, "orchestrationTasks", {
+    configurable: true,
+    get: function () { return live.tasks || []; },
+  });
   h.ctx.crossProject = { getExecutionBindings: function () { return live.bindings || []; } };
   h.ctx.coopOwnerRequests = { list: function () { return live.requests || []; } };
   h.live = live;
@@ -1069,17 +1076,56 @@ test("an unanswered request arriving after the proposal blocks it in production"
     "confirmation must re-read evidence, not sweep on a stale list");
 });
 
-test("a task that became live after the proposal blocks it in production", function () {
+test("every blocking task status added after proposal blocks in production", function () {
+  var statuses = ["running", "queued", "reviewing", "failed", "blocked", "waiting_user"];
+  for (var i = 0; i < statuses.length; i++) {
+    var h = handlerHarness();
+    connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+    var proposal = h.sent[0];
+    var target = proposal.candidates[0].topicId;
+
+    h.live.tasks = [{ taskId: "t", status: statuses[i], coopTopicRef: { topicId: target } }];
+    connection.handleTopicClosureMessage(h.ctx, {}, {
+      type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+    });
+    assert.equal(h.index.load().topics[target].status, "open",
+      statuses[i] + " must protect the topic through the real handler");
+  }
+});
+
+test("owner needs_input added after proposal blocks confirmation in production", function () {
+  var h = handlerHarness();
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+  var target = proposal.candidates[0].topicId;
+  var state = h.index.load();
+  state.topics[target].ownerDisposition = { status: "needs_input" };
+  h.index.save();
+
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+  assert.equal(h.index.load().topics[target].status, "open");
+});
+
+test("a related execution added after the proposal blocks confirmation in production", function () {
   var h = handlerHarness();
   connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
   var proposal = h.sent[0];
   var target = proposal.candidates[0].topicId;
 
-  h.live.tasks = [{ taskId: "t", status: "failed", coopTopicRef: { topicId: target } }];
+  assert.equal(h.index.linkExecution({ topicId: target }, {
+    sessionRef: {
+      projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+      sessionStorageId: "3046a4dc-2b49-47a8-80dc-1511fb809aba",
+    },
+  }).ok, true);
   connection.handleTopicClosureMessage(h.ctx, {}, {
     type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
   });
-  assert.equal(h.index.load().topics[target].status, "open");
+
+  assert.equal(h.index.load().topics[target].status, "open",
+    "confirmation must re-read newly linked execution evidence");
 });
 
 test("a binding that became active after the proposal blocks it in production", function () {
@@ -1116,6 +1162,66 @@ test("a genuinely finished topic still closes through the handler", function () 
   assert.ok(run.proposal.candidates.length > 0);
   assert.equal(run.result.closed, run.proposal.candidates.length,
     "nothing changed, so the sweep proceeds");
+});
+
+test("bulk closure reconciles answered working owner requests", function () {
+  var ownerRequests = require("../lib/coop-owner-requests");
+  var h = handlerHarness();
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+  var target = proposal.candidates[0].topicId;
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-closure-owner-requests-"));
+  var ledger = ownerRequests.attachCoopOwnerRequests({ file: path.join(dir, "requests.json") });
+  var ingressId = "coop:871a194b-8879-40f7-a1fe-656e48e722af:500";
+  ledger.record({
+    ingressId: ingressId,
+    ingressSequence: 500,
+    sessionRef: { projectId: "system-lead", sessionStorageId: "871a194b-8879-40f7-a1fe-656e48e722af" },
+  });
+  ledger.classify(ingressId, {
+    kind: "existing_topic",
+    topicRef: { topicId: target },
+    projectRefs: [{ projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" }],
+  });
+  ledger.markAnswered(ingressId, { eventIndex: 501 });
+  ledger.setState(ingressId, "working");
+  h.ctx.coopOwnerRequests = ledger;
+
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+
+  assert.equal(h.index.load().topics[target].status, "closed");
+  assert.equal(ledger.get(ingressId).state, "done",
+    "bulk close must settle the same answered working request as explicit close");
+});
+
+test("a duplicate confirmation retries owner-request reconciliation", function () {
+  var h = handlerHarness();
+  var attempts = 0;
+  h.ctx.coopOwnerRequests = {
+    list: function () { return []; },
+    reconcileTopicClosure: function () {
+      attempts += 1;
+      return attempts === 1 ? { ok: false, reason: "persistence_failed" } : { ok: true };
+    },
+  };
+  connection.handleTopicClosureMessage(h.ctx, {}, { type: "coop_topic_closure_propose" });
+  var proposal = h.sent[0];
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+  assert.equal(h.sent[1].ok, false);
+  assert.equal(h.sent[1].code, "owner_request_reconcile_failed");
+
+  connection.handleTopicClosureMessage(h.ctx, {}, {
+    type: "coop_topic_closure_confirm", proposalId: proposal.proposalId, confirm: true,
+  });
+  assert.equal(h.sent[2].ok, true);
+  assert.equal(h.sent[2].duplicate, true);
+  assert.ok(h.sent[2].ownerRequestsReconciled > 0);
+  assert.ok(attempts > proposal.candidates.length,
+    "the duplicate must revisit the durable closed topic ids");
 });
 
 // --- typed SessionRef matching ------------------------------------------------

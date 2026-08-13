@@ -446,3 +446,15 @@ test("a newly created record has the same shape as one loaded from disk", functi
     Object.keys(afterReload[0].response).sort());
   assert.deepEqual(inMemory, afterReload, "memory and reload must agree exactly");
 });
+
+test("markAnswered returns the exact response shape that reload produces", function () {
+  var file = tempFile();
+  var ledger = makeLedger({ file: file });
+  var id = "coop:" + COOP_SESSION + ":182";
+  ledger.record(ingress(182));
+  var answered = ledger.markAnswered(id, { eventIndex: 1825 });
+  var reloaded = ownerRequests.attachCoopOwnerRequests({ file: file }).get(id);
+
+  assert.deepEqual(answered, reloaded,
+    "a successful live mutation must converge exactly with its durable reload");
+});

@@ -628,6 +628,25 @@ test("transferring a claim to a replacement keeps exactly one coordinator", func
   assert.deepEqual(makeLedger(file).canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_B);
 });
 
+test("transfer metadata survives normalization and reload without shape drift", function () {
+  var file = tempFile();
+  var ledger = makeLedger(file);
+  var id = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: id });
+  assert.equal(ledger.transferCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, from: COORD_A, to: COORD_B,
+    reason: "rehydrated",
+  }).ok, true);
+
+  var live = ledger.listCoordinators();
+  var reloaded = makeLedger(file).listCoordinators();
+  assert.equal(live[0].transferReason, "rehydrated");
+  assert.ok(Number.isFinite(live[0].transferredAt));
+  assert.deepEqual(live, reloaded,
+    "transferCoordinator metadata must survive the validator used on reload");
+});
+
 test("a transfer never invents a claim that was not there", function () {
   var ledger = makeLedger();
   open(ledger, 182, TOPIC, [{ projectId: CLAY }]);

@@ -772,14 +772,18 @@ test("execution carrying no TopicRef is unaffected by topic cardinality", functi
   assert.equal(created.length, 2);
 });
 
-test("without an injected ledger the staffing path behaves exactly as before", function () {
+test("topic-bound coordinator staffing fails closed without the claim ledger", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card4-"));
   var created = [];
   var harness = cardinalityRouter(dir, null, created);
 
-  assert.equal(staffTopic(harness, "portfolio-x", "auto-a7daa4cc660639337d144d93").ok, true);
-  assert.equal(staffTopic(harness, "portfolio-y", "auto-a7daa4cc660639337d144d93").ok, true);
-  assert.equal(created.length, 2);
+  var first = staffTopic(harness, "portfolio-x", "auto-a7daa4cc660639337d144d93");
+  var second = staffTopic(harness, "portfolio-y", "auto-a7daa4cc660639337d144d93");
+  assert.equal(first.ok, false);
+  assert.equal(first.reason, "coordinator_claim_unavailable");
+  assert.equal(second.ok, false);
+  assert.equal(created.length, 0,
+    "a topic-bound coordinator must not start when cardinality cannot be proven");
 });
 
 // --- cardinality guard must not misfire on legitimate reuse -------------------
@@ -908,4 +912,137 @@ test("a replay after a failed claim re-claims instead of reusing the loser", fun
   })[0];
   assert.notEqual(binding && binding.status, "active",
     "no apparently-active losing binding may remain");
+});
+
+test("a failed cleanup leaves an active binding recoverable only by re-claiming", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-cleanup-retry-"));
+  var realStore = require("../lib/portfolio-execution-bindings")
+    .createPortfolioExecutionBindings({ file: path.join(dir, "bindings.json") });
+  var bindingStore = Object.create(realStore);
+  var cleanupCalls = 0;
+  bindingStore.markUnavailable = function () {
+    cleanupCalls += 1;
+    return { ok: false, reason: "persistence_failed" };
+  };
+  var claimedCoordinator = null;
+  var claims = 0;
+  var ownerLedger = {
+    canonicalCoordinator: function () { return claimedCoordinator; },
+    claimCoordinator: function (input) {
+      claims += 1;
+      if (claims === 1) return { ok: false, reason: "persistence_failed" };
+      claimedCoordinator = input.coordinator;
+      return { ok: true, created: true, coordinator: input.coordinator };
+    },
+  };
+  var created = [];
+  var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({ bindingStore: bindingStore, ownerRequests: ownerLedger });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () {
+      created.push("coordinator-" + (created.length + 1));
+      return { ok: true, created: true,
+        sessionRef: { projectId: projectId, sessionStorageId: created[created.length - 1] } };
+    },
+  });
+  var harness = { router: router, projectId: projectId };
+  var topicId = "auto-a7daa4cc660639337d144d93";
+
+  var first = staffTopic(harness, "portfolio-cleanup-retry", topicId);
+  assert.equal(first.ok, false);
+  assert.equal(cleanupCalls, 1);
+  assert.equal(router.getExecutionBinding("portfolio-cleanup-retry").status, "active",
+    "fault injection leaves the committed binding active on disk");
+
+  var retry = staffTopic(harness, "portfolio-cleanup-retry", topicId);
+  assert.equal(retry.ok, true);
+  assert.equal(retry.reused, true);
+  assert.equal(claims, 2, "retry must claim the existing coordinator before success");
+  assert.equal(created.length, 1, "claim recovery must not start a rival session");
+  assert.deepEqual(claimedCoordinator, retry.coordinatorRef);
+});
+
+test("coordinator replay fails closed when canonical claim lookup is missing", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-claim-missing-"));
+  var ledger = ledgerIn(dir);
+  var created = [];
+  var harness = cardinalityRouter(dir, ledger, created);
+  var topicId = "auto-a7daa4cc660639337d144d93";
+  assert.equal(staffTopic(harness, "portfolio-claim-missing", topicId).ok, true);
+
+  delete ledger.canonicalCoordinator;
+  var replay = staffTopic(harness, "portfolio-claim-missing", topicId);
+  assert.equal(replay.ok, false,
+    "an unverifiable claim cannot be treated as a committed replay");
+  assert.notEqual(harness.router.getExecutionBinding("portfolio-claim-missing").status, "active");
+});
+
+test("coordinator replay fails closed when canonical claim lookup throws", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-claim-throws-"));
+  var ledger = ledgerIn(dir);
+  var created = [];
+  var harness = cardinalityRouter(dir, ledger, created);
+  var topicId = "auto-a7daa4cc660639337d144d93";
+  assert.equal(staffTopic(harness, "portfolio-claim-throws", topicId).ok, true);
+
+  ledger.canonicalCoordinator = function () { throw new Error("ledger unavailable"); };
+  var replay = staffTopic(harness, "portfolio-claim-throws", topicId);
+  assert.equal(replay.ok, false,
+    "a throwing lookup cannot prove that the binding still holds its claim");
+  assert.notEqual(harness.router.getExecutionBinding("portfolio-claim-throws").status, "active");
+});
+
+test("migrated coordinator retry re-claims after claim and cleanup failures", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-migrated-claim-retry-"));
+  var realStore = require("../lib/portfolio-execution-bindings")
+    .createPortfolioExecutionBindings({ file: path.join(dir, "bindings.json") });
+  var bindingStore = Object.create(realStore);
+  var cleanupCalls = 0;
+  bindingStore.markUnavailable = function () {
+    cleanupCalls += 1;
+    return { ok: false, reason: "persistence_failed" };
+  };
+  var claimedCoordinator = null;
+  var claims = 0;
+  var ownerLedger = {
+    canonicalCoordinator: function () { return claimedCoordinator; },
+    claimCoordinator: function (input) {
+      claims += 1;
+      if (claims === 1) return { ok: false, reason: "persistence_failed" };
+      claimedCoordinator = input.coordinator;
+      return { ok: true, created: true, coordinator: input.coordinator };
+    },
+  };
+  var lead = leadCutoverHarness("running", true);
+  var starts = 0;
+  var router = createCrossProjectRouter({
+    bindingStore: bindingStore,
+    deliveryFile: path.join(dir, "delivery.json"),
+    getProjectContext: function (slug) { return slug === "lead" ? lead.project : null; },
+    ownerRequests: ownerLedger,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return CUTOVER_TARGET_ID; },
+    deliverCrossProjectEnvelope: function () {
+      starts += 1;
+      return { ok: true, created: true,
+        sessionRef: { projectId: CUTOVER_TARGET_ID, sessionStorageId: "target-coordinator" } };
+    },
+  });
+  var input = migrationInput(1, true);
+  input.mode = "project_coordinator";
+  input.coopTopicRef = { topicId: "auto-a7daa4cc660639337d144d93" };
+
+  var first = router.migrateLegacyExecution(input);
+  assert.equal(first.ok, false);
+  assert.equal(cleanupCalls, 1, "migration must attempt the same unavailable cleanup as creation");
+  assert.equal(router.getExecutionBinding(input.portfolioTaskId).status, "active");
+
+  var retry = router.migrateLegacyExecution(input);
+  assert.equal(retry.ok, true);
+  assert.equal(retry.migrated, true);
+  assert.equal(retry.reused, true);
+  assert.equal(claims, 2, "migrated replay must claim and verify before success");
+  assert.equal(starts, 1, "claim recovery reuses the committed migrated coordinator");
 });
