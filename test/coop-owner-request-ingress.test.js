@@ -370,6 +370,26 @@ test("a queued auto-resume is not an answer even after the retry flag is cleared
   assert.equal(ledger.get(INGRESS).response.state, "unanswered");
 });
 
+test("an automatic continuation restores the exact ingress after the idle drain", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([{ type: "user_message" }, { type: "info" }, { type: "done", code: 0 }]);
+  var control = conversationControl.attachCoopConversationControl({
+    coopOwnerRequests: ledger,
+    sm: { saveSessionFile: function () {}, broadcastSessionList: function () {} },
+    sendToSession: function () {},
+  });
+
+  session.coopConversationIngress.activeIngressId = null;
+  session.history.push({ type: "user_message", text: "↻ Resuming the interrupted response", autoAction: true });
+  session.history.push({ type: "delta", text: "Visible final reply" }, { type: "done", code: 0 });
+
+  assert.equal(control.resumeIngress(session, INGRESS), true);
+  assert.equal(control.markAnswered(session), true);
+  assert.equal(ledger.get(INGRESS).response.state, "answered");
+  assert.equal(ledger.get(INGRESS).response.responseRef.eventIndex, 5);
+});
+
 test("an owner-scheduled message is not mistaken for an auto-resume", function () {
   var ledger = tempLedger();
   recordIngress(ledger);

@@ -182,6 +182,19 @@ test("both surfaces read section order from the one shared model function", func
   assert.match(mobile, /renderCoopTopicSections/);
 });
 
+test("desktop and mobile expose current attention through the topic hierarchy, never raw Unanswered rows", function () {
+  var topics = source("sidebar-coop-topics.js");
+  var desktop = source("sidebar-sessions.js");
+  var mobile = source("sidebar-mobile.js");
+  var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
+
+  assert.match(topics, /renderCoopNowIndex/);
+  assert.doesNotMatch(topics, /owner-request|OwnerRequest|Unanswered/);
+  assert.doesNotMatch(desktop, /ownerRequestPanelSignature|coop-owner-request/);
+  assert.doesNotMatch(mobile, /coop-owner-request/);
+  assert.doesNotMatch(css, /coop-owner-request|coop-owner-requests/);
+});
+
 test("Close moves a topic to the Done section and Reopen restores it without loss", async function () {
   var ui = await loadTopicControls();
   function payload(status, workState, stateSource) {

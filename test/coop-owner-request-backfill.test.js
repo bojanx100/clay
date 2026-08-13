@@ -40,6 +40,52 @@ function run(history) {
   return { ledger: ledger, result: result };
 }
 
+var AUDITED_ANSWERED = [1, 2, 3, 4, 9, 28, 32, 36, 37, 53, 72, 73, 76,
+  79, 82, 86, 103, 104, 106, 107, 115, 116, 126, 127, 128, 129, 131, 134,
+  142, 147, 150, 151, 160, 161, 162, 163, 166, 167, 168, 173, 185, 187,
+  198, 201, 202, 204, 209, 211, 213, 214, 223, 224];
+var AUDITED_SUPERSEDED = [35, 85, 102, 105, 143, 148, 149, 174, 175, 176,
+  192, 196, 215, 216];
+var AUDITED_INFORMATIONAL = [184];
+
+function auditedHistory() {
+  var history = [];
+  var responses = {};
+  var sequences = AUDITED_ANSWERED.concat(AUDITED_SUPERSEDED, AUDITED_INFORMATIONAL)
+    .sort(function (left, right) { return left - right; });
+  for (var i = 0; i < sequences.length; i++) {
+    var sequence = sequences[i];
+    var uncategorised = [1, 2, 3, 4, 9].indexOf(sequence) >= 0;
+    history.push(ingress(sequence, uncategorised ? { coopTopicRef: null } : {}));
+    if (AUDITED_ANSWERED.indexOf(sequence) >= 0) {
+      if (sequence === 187) {
+        history.push({ type: "user_message", text: "[Clay direct-leaf completed] Audit report" });
+      } else {
+        history.push({ type: "delta", text: "Visible answer " + sequence });
+      }
+      responses[sequence] = history.length - 1;
+    }
+  }
+  history.push(ingress(300));
+  return { history: history, responses: responses };
+}
+
+function recordAuditPopulation(ledger, history) {
+  for (var i = 0; i < history.length; i++) {
+    var event = history[i];
+    if (event.type !== "user_message" || !event.coopIngressId) continue;
+    ledger.record({
+      ingressId: event.coopIngressId,
+      ingressSequence: event.coopIngressSequence,
+      ingressKind: event.coopIngressKind,
+      sessionRef: { projectId: "system-lead", sessionStorageId: COOP },
+      requestRef: { projectId: "system-lead", sessionStorageId: COOP, eventIndex: i },
+      receivedAt: event._ts,
+      topicRef: event.coopTopicRef,
+    });
+  }
+}
+
 test("a turn with assistant output before its terminator answered the owner", function () {
   var out = run([ingress(1), { type: "delta" }, { type: "done", code: 0 }]);
   assert.equal(out.result.counts.answered, 1);
@@ -84,6 +130,33 @@ test("a turn the owner replaced before it finished is superseded, not unanswered
 
 test("a turn still in flight is left unanswered", function () {
   var out = run([ingress(1), { type: "delta" }]);
+  assert.equal(out.result.counts.unanswered, 1);
+});
+
+test("a silent retry terminator follows its automatic continuation to the visible reply", function () {
+  var out = run([
+    ingress(1), { type: "thinking_stop" }, { type: "done", code: 0 },
+    { type: "scheduled_message_queued", text: "↻ Resuming the interrupted response", autoAction: true },
+    { type: "scheduled_message_sent" },
+    { type: "user_message", text: "↻ Resuming the interrupted response" },
+    { type: "delta", text: "The requested audit is complete." }, { type: "done", code: 0 },
+  ]);
+
+  assert.equal(out.result.counts.answered, 1);
+  assert.equal(out.result.counts.unanswered, 0);
+  assert.equal(out.ledger.get("coop:" + COOP + ":1").response.responseRef.eventIndex, 7);
+});
+
+test("an automatic continuation still needs its own visible assistant output", function () {
+  var out = run([
+    ingress(1), { type: "delta", text: "partial" }, { type: "done", code: 0 },
+    { type: "scheduled_message_queued", text: "↻ Resuming the interrupted response", autoAction: true },
+    { type: "scheduled_message_sent" },
+    { type: "user_message", text: "↻ Resuming the interrupted response" },
+    { type: "done", code: 0 },
+  ]);
+
+  assert.equal(out.result.counts.answered, 0);
   assert.equal(out.result.counts.unanswered, 1);
 });
 
@@ -133,4 +206,51 @@ test("auditOwnerRequests reports state without touching any ledger", function ()
 test("history with no owner ingress audits to nothing", function () {
   assert.deepEqual(backfill.auditOwnerRequests([{ type: "delta" }, { type: "done", code: 0 }]), []);
   assert.deepEqual(backfill.auditOwnerRequests(null), []);
+});
+
+test("independent historical evidence settles the exact 67-record population idempotently", function () {
+  var fixture = auditedHistory();
+  var ledger = ledgerFor();
+  recordAuditPopulation(ledger, fixture.history);
+  var evidence = {
+    answered: AUDITED_ANSWERED.map(function (sequence) {
+      return { sequence: sequence, responseEventIndex: fixture.responses[sequence] };
+    }),
+    superseded: AUDITED_SUPERSEDED,
+    informational: AUDITED_INFORMATIONAL,
+  };
+  var all = AUDITED_ANSWERED.concat(AUDITED_SUPERSEDED, AUDITED_INFORMATIONAL);
+
+  assert.equal(all.length, 67);
+  assert.equal(new Set(all).size, 67);
+  var first = backfill.reconcileOwnerRequestEvidence(ledger,
+    { storageId: COOP, coopHome: true, history: fixture.history }, evidence);
+  var second = backfill.reconcileOwnerRequestEvidence(ledger,
+    { storageId: COOP, coopHome: true, history: fixture.history }, evidence);
+
+  assert.deepEqual(first, { ok: true,
+    counts: { answered: 52, superseded: 14, informational: 1, unchanged: 0 } });
+  assert.deepEqual(second, { ok: true,
+    counts: { answered: 0, superseded: 0, informational: 0, unchanged: 67 } });
+  assert.equal(ledger.unanswered().map(function (record) { return record.ingressSequence; }).join(","), "300");
+  assert.equal(ledger.get("coop:" + COOP + ":184").response.state, "not_required");
+  assert.equal(ledger.get("coop:" + COOP + ":187").response.responseRef.eventIndex,
+    fixture.responses[187]);
+  assert.equal(ledger.get("coop:" + COOP + ":131").response.responseRef.eventIndex,
+    fixture.responses[131]);
+  assert.equal(ledger.list().filter(function (record) { return !record.topicRef; }).length, 5);
+});
+
+test("historical reconciliation rejects non-visible response evidence without mutation", function () {
+  var fixture = auditedHistory();
+  var ledger = ledgerFor();
+  recordAuditPopulation(ledger, fixture.history);
+  var result = backfill.reconcileOwnerRequestEvidence(ledger,
+    { storageId: COOP, coopHome: true, history: fixture.history }, {
+      answered: [{ sequence: 1, responseEventIndex: 0 }],
+    });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "invalid_response_ref");
+  assert.equal(ledger.get("coop:" + COOP + ":1").response.state, "unanswered");
 });

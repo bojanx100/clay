@@ -126,6 +126,22 @@ test("markAnswered is the only transition to answered and is stamped with the re
   assert.equal(ledger.unanswered().length, 0);
 });
 
+test("an informational owner message can be settled without inventing an answer", function () {
+  var file = tempFile();
+  var ledger = makeLedger({ file: file });
+  var id = "coop:" + COOP_SESSION + ":182";
+  ledger.record(ingress(182));
+
+  var record = ledger.markNoResponseRequired(id);
+  var reloaded = ownerRequests.attachCoopOwnerRequests({ file: file }).get(id);
+
+  assert.equal(record.response.state, "not_required");
+  assert.equal(record.response.responseRef, null);
+  assert.equal(record.state, "done");
+  assert.equal(ledger.hasUnansweredOwnerRequests(), false);
+  assert.equal(reloaded.response.state, "not_required");
+});
+
 test("answering does not close the request: work may still be running", function () {
   var ledger = makeLedger();
   var id = "coop:" + COOP_SESSION + ":182";
