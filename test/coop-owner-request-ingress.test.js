@@ -27,7 +27,8 @@ function coopSession(history) {
     storageId: COOP_SESSION,
     localId: "local-coop",
     history: history || [],
-    coopConversationIngress: { nextSequence: 183, recent: [], activeIngressId: INGRESS },
+    coopConversationIngress: { nextSequence: 183, recent: [], activeIngressId: INGRESS,
+      activeResponseStartIndex: 1 },
   };
 }
 
@@ -251,20 +252,48 @@ test("an injected ledger is the one that is written", function () {
 // typing a follow-up while Coop was mid-reply -- silently stopped every later
 // turn on that session from ever being marked answered.
 
-test("an interrupted request is superseded, not left dangling forever", function () {
+test("an interrupted repeated request is superseded, not left dangling forever", function () {
   var ledger = tempLedger();
   recordIngress(ledger);
-  var session = coopSession([{ type: "user_message" }, { type: "delta" }, { type: "done", code: 0 }]);
+  var session = coopSession([
+    { type: "user_message", coopIngressId: INGRESS, coopTopicRef: TOPIC,
+      text: "what about 2539?" },
+    { type: "user_message", coopIngressId: "coop:" + COOP_SESSION + ":183",
+      coopTopicRef: TOPIC, text: "WHAT ABOUT 2539?" },
+    { type: "delta" },
+    { type: "done", code: 0 },
+  ]);
   session.coopPriorityInterruptRequested = true;
 
   assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
   var record = ledger.get(INGRESS);
   assert.equal(record.response.state, "superseded", "the owner withdrew it; nobody answered it");
   assert.equal(record.response.answeredAt, null);
-  assert.equal(record.response.supersededBy, "owner_interrupt");
+  assert.equal(record.response.supersededBy, "owner_repeat");
   // Terminal, so it stops pinning the owner queue and the Lead tick.
   assert.equal(ledger.unanswered().length, 0);
   assert.equal(ledger.hasUnansweredOwnerRequests(), false);
+});
+
+test("a distinct rapid follow-up leaves the interrupted request unanswered", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var second = "coop:" + COOP_SESSION + ":183";
+  var session = coopSession([
+    { type: "user_message", coopIngressId: INGRESS, coopTopicRef: TOPIC,
+      text: "what about 2539?" },
+    { type: "user_message", coopIngressId: second, coopTopicRef: TOPIC,
+      text: "why does Coop miss distinct owner questions?" },
+    { type: "info", text: "Conversation interrupted" },
+    { type: "done", code: 0 },
+  ]);
+  session.coopPriorityInterruptRequested = true;
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), false);
+  assert.equal(ledger.get(INGRESS).response.state, "unanswered");
+  assert.equal(ledger.unanswered().length, 1);
+  assert.equal(session.coopPriorityInterruptRequested, false,
+    "the interrupt signal is consumed even though the request stays unresolved");
 });
 
 test("the interrupt flag is consumed so the NEXT turn can still be answered", function () {
@@ -284,6 +313,29 @@ test("the interrupt flag is consumed so the NEXT turn can still be answered", fu
 
   assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
   assert.equal(ledger.get(second).response.state, "answered");
+});
+
+test("a stale interrupt from a non-owner turn cannot supersede the next answered ingress", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([
+    { type: "user_message", coopIngressId: INGRESS, coopTopicRef: TOPIC,
+      text: "again you missed my question; answer 2539" },
+  ]);
+  session.coopConversationIngress.activeIngressId = null;
+  session.coopPriorityInterruptRequested = true;
+  var control = conversationControl.attachCoopConversationControl({
+    coopOwnerRequests: ledger,
+    sm: { saveSessionFile: function () {}, broadcastSessionList: function () {} },
+    sendToSession: function () {},
+  });
+
+  control.markDispatched(session, INGRESS);
+  session.history.push({ type: "delta", text: "Owner-visible answer about 2539." },
+    { type: "done", code: 0 });
+
+  assert.equal(control.markAnswered(session), true);
+  assert.equal(ledger.get(INGRESS).response.state, "answered");
 });
 
 // --- a done(0) is not an answer on its own -----------------------------------
@@ -364,7 +416,7 @@ test("a queued auto-resume is not an answer even after the retry flag is cleared
   var session = coopSession([{ type: "user_message" }, { type: "delta" },
     { type: "info" }, { type: "done", code: 0 }]);
   session.streamEndedAutoRetryQueued = false;
-  session.scheduledMessage = { autoAction: true, text: "continue" };
+  session.scheduledMessage = { autoAction: true, text: "continue", coopIngressId: INGRESS };
 
   assert.equal(conversationControl.markIngressAnswered(session, ledger), false);
   assert.equal(ledger.get(INGRESS).response.state, "unanswered");
@@ -381,13 +433,44 @@ test("an automatic continuation restores the exact ingress after the idle drain"
   });
 
   session.coopConversationIngress.activeIngressId = null;
-  session.history.push({ type: "user_message", text: "↻ Resuming the interrupted response", autoAction: true });
+  assert.equal(control.resumeIngress(session, INGRESS), true);
+  session.history.push({ type: "user_message", text: "↻ Resuming the interrupted response",
+    autoAction: true, coopContinuationIngressId: INGRESS });
   session.history.push({ type: "delta", text: "Visible final reply" }, { type: "done", code: 0 });
 
-  assert.equal(control.resumeIngress(session, INGRESS), true);
   assert.equal(control.markAnswered(session), true);
   assert.equal(ledger.get(INGRESS).response.state, "answered");
   assert.equal(ledger.get(INGRESS).response.responseRef.eventIndex, 5);
+});
+
+test("a reply to a different synthetic turn cannot answer the active owner ingress", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([
+    { type: "user_message", coopIngressId: INGRESS, coopTopicRef: TOPIC,
+      text: "what about 2539?" },
+    { type: "user_message", text: "↻ Lead tick", autoAction: true },
+    { type: "delta", text: "Progress on a different topic." },
+    { type: "done", code: 0 },
+  ]);
+  session.coopConversationIngress.activeResponseStartIndex = 1;
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), false);
+  assert.equal(ledger.get(INGRESS).response.state, "unanswered");
+});
+
+test("a restored active ingress without a response boundary fails closed", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([
+    { type: "user_message", coopIngressId: INGRESS, text: "what about 2539?" },
+    { type: "delta", text: "Unattributed output after a restart." },
+    { type: "done", code: 0 },
+  ]);
+  session.coopConversationIngress.activeResponseStartIndex = null;
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), false);
+  assert.equal(ledger.get(INGRESS).response.state, "unanswered");
 });
 
 test("an owner-scheduled message is not mistaken for an auto-resume", function () {

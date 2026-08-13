@@ -117,15 +117,30 @@ test("an errored turn did not answer the owner", function () {
   assert.equal(out.result.counts.unanswered, 1);
 });
 
-test("a turn the owner replaced before it finished is superseded, not unanswered", function () {
-  var out = run([ingress(1), { type: "delta" },
-    ingress(2), { type: "delta" }, { type: "done", code: 0 }]);
+test("a genuinely repeated turn supersedes the interrupted copy", function () {
+  var repeated = "what about 2539?";
+  var out = run([ingress(1, { text: repeated }), { type: "delta" },
+    ingress(2, { text: "  WHAT ABOUT   2539?  " }),
+    { type: "delta" }, { type: "done", code: 0 }]);
 
   assert.equal(out.result.counts.superseded, 1);
   assert.equal(out.result.counts.answered, 1);
   // Superseded is terminal: the owner withdrew it, so it is not outstanding.
   assert.equal(out.ledger.unanswered().length, 0);
   assert.equal(out.ledger.get("coop:" + COOP + ":1").response.state, "superseded");
+});
+
+test("rapid distinct owner questions remain independently unresolved", function () {
+  var first = ingress(240, { text: "what about 2539?" });
+  var second = ingress(241, { text: "why did Coop miss that question?" });
+  var out = run([first, { type: "delta", text: "partial" }, second,
+    { type: "delta", text: "Answer to the second question." }, { type: "done", code: 0 }]);
+
+  assert.equal(out.ledger.get(first.coopIngressId).response.state, "unanswered");
+  assert.equal(out.ledger.get(second.coopIngressId).response.state, "answered");
+  assert.deepEqual(out.ledger.unanswered().map(function (record) {
+    return record.ingressSequence;
+  }), [240]);
 });
 
 test("a turn still in flight is left unanswered", function () {
@@ -136,9 +151,11 @@ test("a turn still in flight is left unanswered", function () {
 test("a silent retry terminator follows its automatic continuation to the visible reply", function () {
   var out = run([
     ingress(1), { type: "thinking_stop" }, { type: "done", code: 0 },
-    { type: "scheduled_message_queued", text: "↻ Resuming the interrupted response", autoAction: true },
+    { type: "scheduled_message_queued", text: "↻ Resuming the interrupted response", autoAction: true,
+      coopContinuationIngressId: "coop:" + COOP + ":1" },
     { type: "scheduled_message_sent" },
-    { type: "user_message", text: "↻ Resuming the interrupted response" },
+    { type: "user_message", text: "↻ Resuming the interrupted response",
+      coopContinuationIngressId: "coop:" + COOP + ":1" },
     { type: "delta", text: "The requested audit is complete." }, { type: "done", code: 0 },
   ]);
 
@@ -150,14 +167,36 @@ test("a silent retry terminator follows its automatic continuation to the visibl
 test("an automatic continuation still needs its own visible assistant output", function () {
   var out = run([
     ingress(1), { type: "delta", text: "partial" }, { type: "done", code: 0 },
-    { type: "scheduled_message_queued", text: "↻ Resuming the interrupted response", autoAction: true },
+    { type: "scheduled_message_queued", text: "↻ Resuming the interrupted response", autoAction: true,
+      coopContinuationIngressId: "coop:" + COOP + ":1" },
     { type: "scheduled_message_sent" },
-    { type: "user_message", text: "↻ Resuming the interrupted response" },
+    { type: "user_message", text: "↻ Resuming the interrupted response",
+      coopContinuationIngressId: "coop:" + COOP + ":1" },
     { type: "done", code: 0 },
   ]);
 
   assert.equal(out.result.counts.answered, 0);
   assert.equal(out.result.counts.unanswered, 1);
+});
+
+test("the #2539 restart audit does not use a Lead tick as response evidence", function () {
+  var owner = ingress(239, {
+    text: "what about 2539?",
+    coopIngressDispatchedAt: 2000,
+  });
+  var out = run([
+    owner,
+    { type: "info", text: "Conversation interrupted", _ts: 1500 },
+    { type: "done", code: 0, _ts: 1500 },
+    { type: "scheduled_message_queued", text: "↻ Lead tick", autoAction: true, _ts: 2100 },
+    { type: "scheduled_message_sent", _ts: 2200 },
+    { type: "user_message", text: "↻ Lead tick", autoAction: true, _ts: 2201 },
+    { type: "delta", text: "Progress on a different question.", _ts: 2300 },
+    { type: "done", code: 0, _ts: 2400 },
+  ]);
+
+  assert.equal(out.ledger.get(owner.coopIngressId).response.state, "unanswered");
+  assert.equal(out.ledger.unanswered().length, 1);
 });
 
 test("the backfill is idempotent and never re-answers", function () {
