@@ -105,6 +105,12 @@ this slice deliberately does not attach it to an existing Coop module.
 
 ## Activation and kill switch
 
+> **Temporary rollback scaffolding:** The legacy execution flow, shadow
+> comparison, compatibility flags, and fallback code remain only for the
+> activation rollback window. Do not maintain these as permanent dual paths.
+> Remove them at the **2026-08-20 (Europe/Zagreb)** checkpoint after the
+> activated control path has completed its rollback-window verification.
+
 `createControlStore()` activates only when one of these is true:
 
 ```text
