@@ -149,7 +149,12 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `coop-control-execution-schema.js` + `coop-control-execution-audit.js` | Exact Slice 2 SQLite table definitions and fail-closed logical startup audit |
 | `coop-control-execution-completion.js` | Shared captured-capability terminalization for direct leaves and project coordinators |
 | `coop-control-fence.js` + `coop-control-execution-target.js` | New Coop portfolio execution integration and provider callback/tool/progress/completion fencing; strict pass-through when disabled |
-| `coop-control-runtime.js` | Process-local owner for the optional execution controller and startup recovery barrier |
+| `coop-control-runtime.js` + `coop-control-runtime-target.js` + `coop-control-target-recovery-adapter.js` | Process-wide ProjectRef/SessionManager recovery registry plus target-session rehydration, routed delivery/effects, continuity-derived provider input, and recovery-preserving provider starts |
+| `coop-control-continuity.js` + `coop-control-continuity-verifier.js` + `coop-control-rehydration.js` | Exact transcript-free continuity packets, canonical durable-predecessor/binding comparison, privacy exclusions, bounded collections/bytes, restart restoration, and deterministic resume input |
+| `coop-control-handoff.js` + `coop-control-handoff-target.js` + `coop-control-store-recovery.js` + `coop-control-store-handoff-rotation.js` | Slice 3 Class A/Class B monotonic handoff, durable SessionManager successor receipt, atomic cutover, same-ref predecessor reactivation, exact inactive-successor cleanup, and post-cutover roll-forward |
+| `coop-control-delivery.js` + `coop-control-delivery-replay.js` | Permanent stable-message inbox/outbox dedup, bounded target-session payload replay, joined pending-effect reads, and transactional effect receipts/reconciliation |
+| `coop-control-execution-message.js` | Crash-safe visible application and provider resumption for durable external execution messages |
+| `coop-control-startup.js` + `coop-control-recovery-audit.js` | Default-off recovery barrier, startup replay, ordered validation, and fail-closed Slice 3 logical audits |
 | `project-status.js` | Project status payloads plus mutable title/icon metadata and title update broadcasts |
 | `project-update-checker.js` | Background update-version checks, hourly admin broadcasts, and latest-version state accessors |
 | `project-vendor-models.js` | Vendor model-list message handling, lazy adapter initialization, and model-info responses |

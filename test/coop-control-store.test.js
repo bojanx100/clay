@@ -72,11 +72,13 @@ availableTest("an activated ControlStore uses WAL and applies migrations in orde
     assert.equal(store.enabled, true);
     assert.equal(store.journalMode, "wal");
     assert.equal(store.schemaVersion, controlStore.LATEST_SCHEMA_VERSION);
-    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3]);
+    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3, 4, 5]);
     assert.deepEqual(store.listMigrations().map(function (row) { return row.name; }), [
       "control-record-foundation",
       "shadow-comparison-foundation",
       "execution-control-foundation",
+      "recovery-control-foundation",
+      "recovery-payload-receipts",
     ]);
     store.close();
   } finally {
@@ -103,13 +105,68 @@ availableTest("an existing database is backed up before an ordered migration", f
     var store = controlStore.openControlStore({ dbPath: h.dbPath, now: function () { return 1000; } });
     assert.ok(store.migration.backupPath);
     assert.equal(fs.existsSync(store.migration.backupPath), true);
-    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3]);
+    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3, 4, 5]);
 
     var backup = new sqlite.DatabaseSync(store.migration.backupPath, { readOnly: true });
     assert.equal(backup.prepare("PRAGMA user_version").get().user_version, 1);
     assert.equal(backup.prepare("SELECT COUNT(*) AS count FROM coop_control_records").get().count, 1);
     backup.close();
     store.close();
+  } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("a valid v4 recovery database is audited before backup and migrates to v5", function () {
+  var h = harness();
+  try {
+    var sqlite = require("node:sqlite");
+    var db = new sqlite.DatabaseSync(h.dbPath);
+    for (var i = 0; i < 4; i++) {
+      controlStore.MIGRATIONS[i].apply(db);
+      db.prepare("INSERT INTO coop_control_migrations (version, name, applied_at) VALUES (?, ?, ?)")
+        .run(controlStore.MIGRATIONS[i].version, controlStore.MIGRATIONS[i].name, 900 + i);
+      db.exec("PRAGMA user_version = " + controlStore.MIGRATIONS[i].version);
+    }
+    db.close();
+
+    var store = controlStore.openControlStore({ dbPath: h.dbPath, now: function () { return 1000; } });
+    assert.equal(store.migration.fromVersion, 4);
+    assert.equal(store.migration.toVersion, 5);
+    assert.ok(store.migration.backupPath);
+    assert.equal(fs.existsSync(store.migration.backupPath), true);
+    var backup = new sqlite.DatabaseSync(store.migration.backupPath, { readOnly: true });
+    assert.equal(backup.prepare("PRAGMA user_version").get().user_version, 4);
+    assert.equal(backup.prepare("SELECT COUNT(*) AS count FROM coop_control_outbox").get().count, 0);
+    backup.close();
+    store.close();
+  } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("a corrupt v4 recovery database fails closed before backup", function () {
+  var h = harness();
+  try {
+    var sqlite = require("node:sqlite");
+    var db = new sqlite.DatabaseSync(h.dbPath);
+    for (var i = 0; i < 4; i++) {
+      controlStore.MIGRATIONS[i].apply(db);
+      db.prepare("INSERT INTO coop_control_migrations (version, name, applied_at) VALUES (?, ?, ?)")
+        .run(controlStore.MIGRATIONS[i].version, controlStore.MIGRATIONS[i].name, 900 + i);
+      db.exec("PRAGMA user_version = " + controlStore.MIGRATIONS[i].version);
+    }
+    db.prepare("INSERT INTO coop_control_inbox (message_id, sender_project_id, sender_session_id, " +
+      "recipient_project_id, recipient_session_id, message_kind, reference_id, payload_digest, " +
+      "effect_id, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("message-corrupt-v4", "system-lead", "lead-session", PROJECT_A, "target-session",
+        "rehydration", "checkpoint-corrupt-v4", "a".repeat(64), "effect-corrupt-v4", 950);
+    db.close();
+    assert.throws(function () { controlStore.openControlStore({ dbPath: h.dbPath }); },
+      function (error) { return error && error.code === "COOP_CONTROL_STORE_LOGICAL_CORRUPTION"; });
+    assert.equal(fs.readdirSync(h.dir).some(function (name) {
+      return name.indexOf("backup-v4-to-v5") !== -1;
+    }), false);
   } finally {
     h.cleanup();
   }

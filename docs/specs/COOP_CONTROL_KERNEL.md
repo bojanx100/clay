@@ -1,12 +1,15 @@
 # Coop control kernel
 
-Status: **Slices 1 and 2 implemented, default off.**
+Status: **Slices 1, 2, and 3 implemented, default off.**
 
 Slice 1 introduces a narrow SQLite WAL `ControlStore` and a deterministic
 shadow importer/comparator. Slice 2 adds durable logical executions,
 incarnations, epochs, role leases, structured authority, a start barrier, and
 capability fencing for new Coop-controlled portfolio execution. Existing
 owner/topic stores and ordinary sessions remain authoritative and unchanged.
+Slice 3 adds monotonic Class A/Class B handoff, immutable transcript-free
+continuity checkpoints, permanent stable-message inbox/outbox rows, effect
+intent/receipt reconciliation, and a fail-closed startup recovery barrier.
 
 ## Boundary
 
@@ -18,6 +21,8 @@ slices:
 - privacy-safe shadow digests and mismatch evidence used during migration.
 - logical execution identities, physical incarnations, monotonic epochs,
   current role leases, start state, and reference-only authority.
+- handoff identities and states, continuity checkpoints, stable delivery
+  identities, and visible-effect intents/receipts.
 
 Slice 1 has writable typed schemas only for `owner_request` and
 `coordinator_claim`. Approvals, execution bindings, tasks, checkpoints,
@@ -61,6 +66,23 @@ rejects a topic-index source explicitly.
   transition for direct leaves and project coordinators.
 - `lib/coop-control-fence.js` and `lib/coop-control-execution-target.js` enforce
   capabilities at the portfolio/provider boundary.
+- `lib/coop-control-continuity.js`, `lib/coop-control-continuity-verifier.js`,
+  and `lib/coop-control-rehydration.js` own the exact checkpoint schema,
+  canonical form, durable-predecessor comparison, privacy boundary, and
+  restart restoration.
+- `lib/coop-control-recovery-schema.js`, `lib/coop-control-store-recovery.js`,
+  `lib/coop-control-store-handoff-rotation.js`, and
+  `lib/coop-control-recovery-audit.js` own Slice 3 physical state, restricted
+  transactions, restart predecessor rotation, and version-aware startup audits.
+- `lib/coop-control-handoff.js` and `lib/coop-control-handoff-target.js` own
+  Class A/Class B preparation, durable SessionManager successor evidence,
+  cutover, fencing, abort, and roll-forward.
+- `lib/coop-control-delivery.js`, `lib/coop-control-delivery-replay.js`, and
+  `lib/coop-control-target-recovery-adapter.js` own stable-message delivery,
+  bounded target-session replay resolution, and effect reconciliation.
+- `lib/coop-control-execution-message.js` owns crash-safe visible application
+  and provider resumption for durable execution messages.
+- `lib/coop-control-startup.js` owns the recovery barrier and ordered replay.
 
 The primary exports for later wiring are:
 
@@ -72,6 +94,11 @@ The primary exports for later wiring are:
   `compareShadow` — deterministic shadow operations;
 - `MIGRATIONS`, `LATEST_SCHEMA_VERSION`, and `CONTROL_RECORD_TYPES` — stable
   schema and adapter compatibility constants.
+- `createHandoffControl`, `createDeliveryControl`, and
+  `createStartupRecovery` (plus their `attachCoopControl*` compatibility
+  aliases) — gated Slice 3 construction;
+- `buildContinuityPacket` and `runTranscriptFreeExam` — deterministic
+  continuity and bounded rehydration evidence.
 
 The `attachCoopControlStore` alias exists for the server module convention, but
 this slice deliberately does not attach it to an existing Coop module.
@@ -103,6 +130,21 @@ CLAY_COOP_CONTROL_EXECUTIONS=1
 second flag absent, the portfolio target and SDK/provider bridge take their
 pre-existing paths and no SQLite file is opened. Activation is evaluated at
 daemon startup; changing either environment variable requires a restart.
+
+Slice 3 requires all three flags:
+
+```text
+CLAY_COOP_CONTROL_STORE=1
+CLAY_COOP_CONTROL_EXECUTIONS=1
+CLAY_COOP_CONTROL_RECOVERY=1
+```
+
+An explicit `options.enabled === false` is the programmatic Slice 3 kill
+switch. With the recovery flag absent, handoff and delivery adapters perform no
+filesystem I/O, the startup barrier is a pass-through, and the portfolio
+message path keeps its legacy behaviour. With the flag present, controlled
+portfolio intake fails closed until validation and replay open the startup
+barrier.
 
 `openControlStore()` intentionally bypasses the flag. It is the explicit API
 for tests and for a future wiring point that has already evaluated authority
@@ -166,6 +208,27 @@ Migration 3 creates:
   verifier, and start-barrier state;
 - `coop_control_role_leases` — exactly one active role holder per execution.
 
+Migration 4 creates:
+
+- `coop_control_handoffs` — deterministic handoff identity, immutable class,
+  predecessor/successor refs and epochs, monotonic state, audited durable
+  Class B successor-creation receipt, and audit codes;
+- `coop_control_checkpoints` — one immutable canonical continuity packet per
+  handoff, with its verified SHA-256 digest;
+- `coop_control_outbox` / `coop_control_inbox` — permanent stable-message
+  identities, delivery attempts, and acknowledgements beyond any bounded dedup
+  window;
+- `coop_control_effects` — one stable visible-effect intent per accepted inbox
+  message plus its durable receipt.
+
+Migration 5 creates:
+
+- `coop_control_delivery_payloads` — one bounded actionable delivery reference
+  per outbox/inbox identity; it never copies text, prompts, transcripts, or
+  runtime context;
+- `coop_control_successor_receipts` — exact SessionManager creation evidence
+  for a Class B preallocated successor before it can be marked created.
+
 The shadow tables are migration evidence, not an authority claim. Making any
 SQLite record authoritative requires a later slice with a separately reviewed
 read/write cutover.
@@ -228,6 +291,103 @@ mode/role, and the fixed five-action mask. Unknown fields, prose aliases,
 invalid refs, role escalation, and idempotency conflicts fail closed. Topics,
 objectives, acceptance text, owned paths, prompts, and transcripts never enter
 these tables.
+
+## Slice 3 recovery protocol
+
+Slice 3 distinguishes two operations. Class A changes an unhealthy provider
+route while retaining the visible `SessionRef`. It still advances the physical
+incarnation and epoch, so callbacks from the prior provider are stale. Class B
+replaces unhealthy context with exactly one preallocated successor
+`SessionRef`; replaying its deterministic `handoffId` returns that same
+successor instead of creating another session.
+
+Preparation atomically persists the handoff and its immutable continuity
+checkpoint while the predecessor still holds its lease. A Class B successor is
+created idempotently through the target `SessionManager` against the
+preallocated ref. Its saved exact `SessionRef` and deterministic receipt are
+registered and verified before it can be marked created.
+Cutover is one transaction:
+the predecessor incarnation becomes failed/superseded, the successor
+incarnation becomes ready, the epoch advances, and the sole role lease moves.
+An explicit live abort may leave the predecessor unchanged. After a process
+restart, a prepared handoff instead rotates a fresh fenced incarnation onto
+the same predecessor `SessionRef`, restores continuity, and reactivates it
+before recording the abort. A receipted inactive Class B preallocation is
+deleted or hidden only when its session-file marker exactly matches that
+handoff and receipt. Cutover is the point
+of no return: later failure cannot transfer authority back and can only advance
+again to a fresh fenced incarnation bound to the same chosen successor ref.
+
+The continuity packet has an exact allowlist and deterministic identity order.
+It preserves admitted objectives, accepted decisions, unanswered owner-request
+identities, task ownership/status, execution bindings, structured authorities,
+explicit logical execution cross-links, and learning-reference placeholders.
+Task and binding status values are lossless canonical-store codes; bindings are
+identified by `(portfolioTaskId, bindingRevision)`, not task id alone. Every
+execution must exactly link its task, binding revision, mode/role, target,
+authority id, and canonical Lead source. Topic data, projections, transcripts,
+messages, prompts, hidden reasoning, conversation history, summaries, and
+runtime context are rejected. Startup reparses and canonicalizes every packet;
+digest mismatch or schema/privacy drift is logical corruption, never empty
+state.
+Every collection is bounded at 256 records and the canonical packet is bounded
+at 131072 UTF-8 bytes. The status allowlists are null-prototype own-property
+maps, so inherited names such as `constructor` and `toString` are never valid.
+An `unrouted` binding is the single exact binding state allowed to omit both
+authority and execution; routed states retain complete cross-links.
+
+Stable delivery no longer relies on the legacy 64-command session window. The
+permanent inbox primary key makes acceptance logically exactly once for a
+stable `messageId`. Inbox acceptance and its visible-effect intent commit in
+one transaction alongside one bounded payload reference. Execution-message
+text is resolved from the bounded target-session replay record by that stable
+reference; an unavailable, identity-mismatched, or digest-mismatched record
+fails closed. Each message kind has one allowed effect kind and the effect
+target must exactly equal the envelope recipient, both at live acceptance and
+startup audit. Startup reads intended effects through one joined pending query
+and makes one row pass without per-effect inbox lookups or redundant full
+scans. Reconciliation always supplies the same `effectId` to the
+idempotent executor; the receipt commits only after the effect returns. A crash
+between the visible effect and receipt therefore reuses the same identity and
+cannot create a second visible action.
+
+Direct execution-message content is saved before inbox/effect intent in a
+bounded target-session replay record, never in ControlStore. The record binds
+the exact message, payload reference, SHA-256 digest, effect id, and target
+`SessionRef`. This boundary uses an acknowledged durable session save that
+bypasses heavy-save coalescing and propagates write failure before any SQLite
+intent can commit. Class B successor preallocation uses the same acknowledged
+save before recording its creation receipt. Recovery resolves and reapplies it under that identity; cleanup
+requires a durable effect receipt and, when present, an acknowledged outbox.
+
+On startup the recovery barrier remains closed while the store runs physical
+and logical audits, classifies every recoverable handoff before generic cleanup,
+terminalizes incomplete non-handoff executions, rotates and reactivates
+pre-cutover predecessors on their same visible refs,
+rolls post-cutover handoffs forward, replays pending outbox messages,
+reconciles intended effects, and repeats this serialized pass until no
+recoverable handoff, pending outbox, or intended effect remains. Runtime target
+handlers for rehydration, activation, delivery, and effect receipt are wired
+before this loop begins, but recovery itself starts only after the target
+SessionManager has its durable project identity. A process-wide registry routes
+each recovery operation by target `ProjectRef`; an unregistered target keeps
+the barrier closed and a later project registration retries the same durable
+work. Synchronously loaded projects register during one daemon turn, and one
+deferred process recovery pass begins only after that registration batch.
+An effect whose visible history append survived a crash still resumes its
+provider under the rotated fence; history presence alone is never accepted as
+provider-start evidence. Asynchronous effect application remains part of the
+closed barrier and commits its receipt only after provider evidence resolves.
+Recovery/handoff provider-start failures retain the current lease and
+handoff row for the next roll-forward, while ordinary starts keep their
+terminal cleanup behavior. Rehydration derives one deterministic bounded
+provider input from all continuity categories at runtime without storing that
+input in SQLite. Controlled orchestration intake
+checks the still-closed barrier until asynchronous provider-start evidence has
+completed. Any
+missing activation/delivery/rehydration handler, pending acknowledgement, or
+corruption leaves the barrier closed. Controlled orchestration intake checks
+this barrier before applying commands; ordinary flag-off traffic does not.
 
 ## Deterministic shadow comparison
 
@@ -377,3 +537,14 @@ The focused tests cover:
   `classification.source` — including full-width stand-ins and preserved empty
   values — alongside strict rejection of the same values on a direct write;
 - metadata counts compared against both the source count and the stored rows.
+
+## Slice 3 verification
+
+Focused tests cover Class A `SessionRef` retention, Class B singleton
+successors, every injected handoff boundary, pre-cutover abort, post-cutover
+roll-forward, stale capability rejection, durable predecessor/canonical-binding
+comparison, bounded continuity survival across reopen, privacy-field rejection,
+permanent dedup beyond 64 message ids, durable delivery-reference replay,
+effect crash reconciliation, asynchronous startup-barrier ordering, joined
+effect-query scaling, exact migration/schema validation, fail-closed checkpoint
+corruption, and strict flag-off compatibility.

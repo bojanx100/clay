@@ -5,6 +5,7 @@ var os = require("os");
 var path = require("path");
 var controlStore = require("../lib/coop-control-store");
 var executions = require("../lib/coop-control-executions");
+var deliveryModule = require("../lib/coop-control-delivery");
 var external = require("../lib/project-task-orchestrator-external");
 var attachCompletionGate =
   require("../lib/project-task-orchestrator-completion").attachCompletionGate;
@@ -140,7 +141,9 @@ function target(control, timeline, options) {
     },
   };
   var attached = external.attachPortfolioExecutionTarget({
+    coopDeliveryControl: opts.deliveryControl,
     coopExecutionControl: control,
+    coopStartupRecovery: opts.startupRecovery,
     crossProject: {
       getExecutionBinding: function () {
         var session = Array.from(sessions.values())[0];
@@ -186,6 +189,37 @@ availableTest("the real target starts only after durable bind and barrier, then 
     assert.equal(durable.current.startState, "completed");
     assert.equal(durable.leases.length, 0);
     assert.equal(timeline.indexOf("delivery") > timeline.indexOf("provider"), true);
+    control.close();
+  } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("execution modes reject inherited object names", function () {
+  var h = harness();
+  try {
+    var control = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    assert.throws(function () {
+      control.reserveStart({
+        portfolioTaskId: "portfolio-controlled-task",
+        bindingRevision: 1,
+        idempotencyKey: "portfolio-controlled-task-r1",
+        mode: "constructor",
+        targetProject: { projectId: PROJECT_A },
+        source: { projectId: "system-lead", sessionStorageId: COOP_SESSION },
+      });
+    }, function (error) { return error && error.code === "COOP_CONTROL_AUTHORITY_INVALID"; });
+    var token = control.reserveStart({ portfolioTaskId: "portfolio-action-task", bindingRevision: 1,
+      idempotencyKey: "portfolio-action-task-r1", mode: "direct_leaf",
+      targetProject: { projectId: PROJECT_A },
+      source: { projectId: "system-lead", sessionStorageId: COOP_SESSION } });
+    control.bindStart(token, { projectId: PROJECT_A, sessionStorageId: "action-session" });
+    control.openStartBarrier(token);
+    control.markProviderStarted(token);
+    ["constructor", "toString"].forEach(function (action) {
+      assert.throws(function () { control.assertCapability(token, action); },
+        function (error) { return error && error.code === "COOP_CONTROL_AUTHORITY_DENIED"; });
+    });
     control.close();
   } finally {
     h.cleanup();
@@ -750,6 +784,33 @@ availableTest("messages route to the active incarnation after a controlled retry
     assert.equal(first.history.some(function (item) {
       return item && item.text === "continue active attempt";
     }), false);
+    control.close();
+  } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("enabled target delivery remains logically exactly once after more than 64 commands", function () {
+  var h = harness();
+  try {
+    var timeline = [];
+    var control = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var delivery = deliveryModule.createDeliveryControl({ enabled: true, store: control.getStore() });
+    var runtime = target(control, timeline, { deliveryControl: delivery,
+      startupRecovery: { assertReady: function () { return true; } } });
+    var result = runtime.attached.handleEnvelope(envelope(70));
+    var session = runtime.sessions.get(result.localSessionId);
+    var initialLength = session.history.length;
+    for (var i = 0; i < 70; i++) {
+      assert.equal(runtime.attached.handleEnvelope(messageEnvelope(100 + i, "command " + i)).ok, true);
+    }
+    assert.equal(session.history.length, initialLength + 70);
+    assert.equal(delivery.listInbox().length, 70);
+    assert.equal(session.orchestrationPolicy.portfolioExecution.appliedCommandIds, undefined);
+    assert.equal(runtime.attached.handleEnvelope(messageEnvelope(100, "command 0")).ok, true);
+    assert.equal(session.history.length, initialLength + 70);
+    assert.equal(delivery.listInbox().length, 70);
+    delivery.close();
     control.close();
   } finally {
     h.cleanup();
