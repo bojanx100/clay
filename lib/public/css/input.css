@@ -1408,8 +1408,7 @@
 }
 #active-vendor-indicator.hidden { display: none; }
 body.coop-home-active #active-vendor-indicator,
-body.coop-home-active #vendor-toggle-wrap,
-body.coop-home-active #config-chip-wrap {
+body.coop-home-active #vendor-toggle-wrap {
   display: none !important;
 }
 #active-vendor-icon {

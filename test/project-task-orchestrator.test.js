@@ -99,6 +99,18 @@ function brief(parent) {
   };
 }
 
+function portfolioSession(ctx, portfolioTaskId) {
+  var matches = Array.from(ctx.sessions.values()).filter(function (session) {
+    var execution = session.orchestrationPolicy && session.orchestrationPolicy.portfolioExecution;
+    return execution && execution.portfolioTaskId === portfolioTaskId;
+  });
+  matches.sort(function (left, right) {
+    return right.orchestrationPolicy.portfolioExecution.bindingRevision -
+      left.orchestrationPolicy.portfolioExecution.bindingRevision;
+  });
+  return matches[0];
+}
+
 test("coordinates a queued request in a new owned worker without interrupting the parent", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
@@ -430,10 +442,8 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.equal(promoted.ok, true);
   assert.equal(leaf.isProcessing, false);
   assert.equal(leaf.orchestrationPolicy.portfolioExecution.status, "superseded");
-  assert.equal(target.sessions.size, 2);
-  var projectCoordinator = Array.from(target.sessions.values()).find(function (session) {
-    return session.coordinationMode;
-  });
+  assert.equal(target.sessions.size, 3);
+  var projectCoordinator = portfolioSession(target, "portfolio-slice-7");
   assert.ok(projectCoordinator);
   assert.equal(projectCoordinator.orchestrationPolicy.portfolioExecution.status, "running");
   assert.equal(router.getExecutionBinding("portfolio-slice-7").mode, "project_coordinator");
@@ -481,7 +491,7 @@ test("Coop creates one direct leaf in the target project and promotes it without
       session.orchestrationParent.sessionStorageId === projectCoordinator.storageId;
   });
   assert.ok(localWorker);
-  assert.equal(target.sessions.size, 3);
+  assert.equal(target.sessions.size, 4);
   assert.equal(lead.sessions.size, 1);
 
   var afterRestart = createCrossProjectRouter({
@@ -505,7 +515,7 @@ test("Coop creates one direct leaf in the target project and promotes it without
   });
   assert.equal(restartedReplay.ok, true);
   assert.equal(restartedReplay.reused, true);
-  assert.equal(target.sessions.size, 3);
+  assert.equal(target.sessions.size, 4);
 });
 
 test("direct-leaf delegation routes advertised Fable aliases and leaves future versions unrouted", function () {
@@ -627,7 +637,7 @@ test("project-coordinator completion closes its source binding through typed del
     ownedPaths: "lib/target.js",
   });
   assert.equal(created.ok, true);
-  var projectCoordinator = Array.from(target.sessions.values())[0];
+  var projectCoordinator = portfolioSession(target, "portfolio-project-closure");
   projectCoordinator.history.push({
     type: "delta",
     text: "PROJECT_COMPLETED: yes\nSUMMARY: Target integration verified.\n" +
@@ -679,7 +689,7 @@ test("project-coordinator needs-input turns stay active and resume through typed
     acceptanceCriteria: "Stay resumable while verification needs input.",
     ownedPaths: "lib/target.js",
   });
-  var projectCoordinator = Array.from(target.sessions.values())[0];
+  var projectCoordinator = portfolioSession(target, "portfolio-needs-input-coordinator");
 
   function finishNeedsInputTurn() {
     projectCoordinator.history.push({
@@ -701,8 +711,14 @@ test("project-coordinator needs-input turns stay active and resume through typed
   var binding = router.getExecutionBinding("portfolio-needs-input-coordinator", 1);
   var projected = router.queryCoopSessions({
     projectRefs: [{ projectId: targetProjectId }],
+    topLevelOnly: false,
   }).sessions.find(function (entry) {
     return entry.sessionStorageId === projectCoordinator.storageId;
+  });
+  var projectRollup = router.queryCoopSessions({
+    projectRefs: [{ projectId: targetProjectId }],
+  }).sessions.find(function (entry) {
+    return entry.sessionStorageId === binding.projectCoordinator.sessionStorageId;
   });
   assert.equal(metadata.status, "needs_input");
   assert.equal(metadata.reason, "verification_route_unavailable");
@@ -714,6 +730,8 @@ test("project-coordinator needs-input turns stay active and resume through typed
   }), false);
   assert.equal(projected.lifecycleState, "needs_input");
   assert.equal(projected.workState, "needs_input");
+  assert.equal(projectRollup.lifecycleState, "needs_input");
+  assert.equal(projectRollup.workState, "needs_input");
 
   var steer = lead.api.steerProjectCoordinatorFromTool({
     coordinatorSessionId: coop.storageId,
@@ -732,15 +750,24 @@ test("project-coordinator needs-input turns stay active and resume through typed
   assert.equal(Object.hasOwn(metadata, "reason"), false);
   projected = router.queryCoopSessions({
     projectRefs: [{ projectId: targetProjectId }],
+    topLevelOnly: false,
   }).sessions.find(function (entry) {
     return entry.sessionStorageId === projectCoordinator.storageId;
   });
   assert.equal(projected.lifecycleState, "running");
   assert.equal(projected.workState, "working");
+  projectRollup = router.queryCoopSessions({
+    projectRefs: [{ projectId: targetProjectId }],
+  }).sessions.find(function (entry) {
+    return entry.sessionStorageId === binding.projectCoordinator.sessionStorageId;
+  });
+  assert.equal(projectRollup.lifecycleState, "running");
+  assert.equal(projectRollup.workState, "working");
 
   finishNeedsInputTurn();
   projected = router.queryCoopSessions({
     projectRefs: [{ projectId: targetProjectId }],
+    topLevelOnly: false,
   }).sessions.find(function (entry) {
     return entry.sessionStorageId === projectCoordinator.storageId;
   });
@@ -749,6 +776,13 @@ test("project-coordinator needs-input turns stay active and resume through typed
   assert.equal(projectCoordinator.hidden, undefined);
   assert.equal(projected.lifecycleState, "needs_input");
   assert.equal(projected.workState, "needs_input");
+  projectRollup = router.queryCoopSessions({
+    projectRefs: [{ projectId: targetProjectId }],
+  }).sessions.find(function (entry) {
+    return entry.sessionStorageId === binding.projectCoordinator.sessionStorageId;
+  });
+  assert.equal(projectRollup.lifecycleState, "needs_input");
+  assert.equal(projectRollup.workState, "needs_input");
 });
 
 test("steering an idle project coordinator starts a new turn even with a stale query instance", function () {
@@ -782,7 +816,7 @@ test("steering an idle project coordinator starts a new turn even with a stale q
     acceptanceCriteria: "Wake on typed steering.",
     ownedPaths: "lib/idle.js",
   });
-  var projectCoordinator = Array.from(target.sessions.values())[0];
+  var projectCoordinator = portfolioSession(target, "portfolio-idle-steer");
   projectCoordinator.isProcessing = false;
   projectCoordinator.queryInstance = {};
   var startsBefore = target.starts.length;
@@ -1220,7 +1254,7 @@ test("delegate tool routes a typed binding into the target project without a Lea
   assert.equal(lead.sessions.size, 1);
   assert.equal(lead.starts.length, 0);
   assert.equal(coop.orchestrationTasks.length, 0);
-  assert.equal(target.sessions.size, 1);
+  assert.equal(target.sessions.size, 2);
   assert.equal(target.starts.length, 1);
   var binding = router.getExecutionBinding("portfolio-tool-route", 1);
   assert.equal(binding.targetProject.projectId, targetProjectId);
@@ -1278,10 +1312,15 @@ test("an explicitly selected target coordinator is bound and reused without sele
 
   var result = router.createProjectExecution(input);
   assert.equal(result.ok, true);
-  assert.equal(result.created, false);
-  assert.equal(result.sessionStorageId, existing.storageId);
-  assert.equal(sessions.size, 2);
-  assert.equal(target.starts[0].session, existing);
+  assert.equal(result.created, true);
+  assert.deepEqual(result.projectCoordinatorRef, {
+    projectId: projectId,
+    sessionStorageId: existing.storageId,
+  });
+  assert.notEqual(result.sessionStorageId, existing.storageId);
+  assert.equal(sessions.size, 3);
+  assert.equal(target.starts[0].session.coordinationRole, "task_coordinator");
+  assert.equal(target.starts[0].session.orchestrationParent.sessionStorageId, existing.storageId);
   assert.equal(unrelated.orchestrationPolicy, undefined);
   assert.deepEqual(router.createProjectExecution(input).sessionRef, result.sessionRef);
   assert.equal(target.starts.length, 1);

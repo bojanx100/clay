@@ -277,6 +277,51 @@ test("Coop ingress recovery state persists without creating a second conversatio
   }
 });
 
+test("Coop incarnation and project hierarchy references survive restart", async function () {
+  var h = makeSessionHarness({ isLead: true });
+  try {
+    var home = [...h.sm.sessions.values()].find(function (session) { return session.coopHome; });
+    home.storageId = "coop-incarnation-home";
+    home.coopIncarnation = {
+      version: 1,
+      incarnationId: "coop-incarnation-persisted",
+      epoch: 7,
+      vendor: "codex",
+      providerRouteId: "codex-openai",
+      model: "gpt-5.6-sol",
+      updatedAt: 100,
+    };
+    var child = h.sm.createSessionRaw({ storageId: "persisted-task-coordinator" });
+    child.coordinationMode = true;
+    child.coordinationRole = "task_coordinator";
+    child.projectCoordinatorRef = {
+      projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+      sessionStorageId: "durable-project-root",
+    };
+    h.sm.saveSessionFile(home, { durable: true });
+    h.sm.saveSessionFile(child, { durable: true });
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var restoredHome = [...restored.sessions.values()].find(function (session) {
+      return session.storageId === "coop-incarnation-home";
+    });
+    assert.deepStrictEqual(restoredHome.coopIncarnation, home.coopIncarnation);
+    var restoredChild = [...restored.sessions.values()].find(function (session) {
+      return session.storageId === "persisted-task-coordinator";
+    });
+    assert.strictEqual(restoredChild.coordinationRole, "task_coordinator");
+    assert.deepStrictEqual(restoredChild.projectCoordinatorRef, child.projectCoordinatorRef);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
 test("Live UI worker cards persist with their coordinator session", async function () {
   var h = makeSessionHarness();
   try {

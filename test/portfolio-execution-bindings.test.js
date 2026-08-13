@@ -151,14 +151,19 @@ test("stranded direct leaves reconcile every terminal worker outcome", function 
   }
 });
 
-test("typed project-coordinator completion preserves its canonical ref and closes current work", function () {
+test("typed task-coordinator completion preserves its child and durable project-root refs", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-coordinator-completion-"));
   var file = path.join(dir, "bindings.json");
   var store = createBindings({ file: file, now: function () { return 200; } });
   store.reserve(request(1, "project_coordinator"));
   store.commit("portfolio-task", 1, {
     projectId: PROJECT_ID,
-    sessionStorageId: "canonical-project-coordinator",
+    sessionStorageId: "bounded-task-coordinator",
+  }, {
+    projectCoordinatorRef: {
+      projectId: PROJECT_ID,
+      sessionStorageId: "durable-project-coordinator",
+    },
   });
 
   var completed = store.complete("portfolio-task", 1, {
@@ -170,13 +175,21 @@ test("typed project-coordinator completion preserves its canonical ref and close
   assert.equal(completed.binding.status, "completed");
   assert.deepEqual(completed.binding.coordinator, {
     projectId: PROJECT_ID,
-    sessionStorageId: "canonical-project-coordinator",
+    sessionStorageId: "bounded-task-coordinator",
+  });
+  assert.deepEqual(completed.binding.projectCoordinator, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "durable-project-coordinator",
   });
   assert.deepEqual(store.listCurrent(), []);
   assert.equal(store.complete("portfolio-task", 1, {
     eventId: "project-completion-1",
     executionMode: "project_coordinator",
   }).duplicate, true);
+
+  var restarted = createBindings({ file: file });
+  assert.deepEqual(restarted.get("portfolio-task", 1).projectCoordinator,
+    completed.binding.projectCoordinator);
 });
 
 test("stranded project-coordinator bindings reconcile from durable completed session evidence", function () {
@@ -248,6 +261,35 @@ test("version-one binding files migrate without changing canonical references", 
   assert.deepEqual(migrated.get("portfolio-task", 1).worker, {
     projectId: PROJECT_ID,
     sessionStorageId: "preserved-worker",
+  });
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).version, 2);
+});
+
+test("interrupted version-three rollout migrates to canonical version two", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-v3-recovery-"));
+  var file = path.join(dir, "bindings.json");
+  fs.writeFileSync(file, JSON.stringify({
+    schema: "clay.portfolio_execution_bindings",
+    version: 3,
+    bindings: [{
+      portfolioTaskId: "portfolio-task",
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT_ID },
+      bindingRevision: 1,
+      idempotencyKey: "interrupted-v3-command",
+      status: "active",
+      createdAt: 1,
+      updatedAt: 2,
+      coordinator: { projectId: PROJECT_ID, sessionStorageId: "task-coordinator" },
+      projectCoordinator: { projectId: PROJECT_ID, sessionStorageId: "project-coordinator" },
+    }],
+  }, null, 2));
+
+  var migrated = createBindings({ file: file });
+  assert.equal(migrated.getLoadError(), null);
+  assert.deepEqual(migrated.get("portfolio-task", 1).projectCoordinator, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "project-coordinator",
   });
   assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).version, 2);
 });

@@ -161,6 +161,12 @@ function target(control, timeline, options) {
   return { attached: attached, sessions: sessions, sm: sm };
 }
 
+function controlledSession(runtime) {
+  return Array.from(runtime.sessions.values()).find(function (session) {
+    return !!(session.orchestrationPolicy && session.orchestrationPolicy.portfolioExecution);
+  });
+}
+
 availableTest("the real target starts only after durable bind and barrier, then completes under the same fence", function () {
   var h = harness();
   try {
@@ -226,7 +232,7 @@ availableTest("execution modes reject inherited object names", function () {
   }
 });
 
-availableTest("reused project coordinators receive a durable incarnation before provider start", function () {
+availableTest("a reusable project coordinator starts a separately fenced task coordinator", function () {
   var h = harness();
   try {
     var timeline = [];
@@ -244,14 +250,16 @@ availableTest("reused project coordinators receive a durable incarnation before 
     };
     runtime.sessions.set(session.localId, session);
     var result = runtime.attached.handleEnvelope(coordinatorEnvelope(2, session.storageId));
+    var taskCoordinator = controlledSession(runtime);
     assert.equal(result.ok, true);
-    assert.equal(result.reused, true);
-    assert.equal(result.localSessionId, session.localId);
-    assert.equal(timeline.indexOf("session"), -1);
-    assert.ok(session.orchestrationPolicy.portfolioExecution.control);
-    var metadata = session.orchestrationPolicy.portfolioExecution.control;
+    assert.equal(result.reused, false);
+    assert.notEqual(result.localSessionId, session.localId);
+    assert.ok(timeline.indexOf("session") !== -1);
+    assert.equal(taskCoordinator.orchestrationParent.sessionStorageId, session.storageId);
+    assert.ok(taskCoordinator.orchestrationPolicy.portfolioExecution.control);
+    var metadata = taskCoordinator.orchestrationPolicy.portfolioExecution.control;
     var durable = control.inspect(metadata.executionId);
-    assert.equal(durable.current.sessionRef.sessionStorageId, session.storageId);
+    assert.equal(durable.current.sessionRef.sessionStorageId, taskCoordinator.storageId);
     assert.equal(durable.current.startState, "started");
     assert.equal(durable.leases.length, 1);
     assert.ok(timeline.indexOf("provider") > timeline.indexOf("save"));
@@ -281,6 +289,7 @@ availableTest("verified project-coordinator completion durably completes and rel
     };
     runtime.sessions.set(session.localId, session);
     runtime.attached.handleEnvelope(coordinatorEnvelope(62, session.storageId));
+    session = controlledSession(runtime);
     var metadata = session.orchestrationPolicy.portfolioExecution.control;
     session.history.push({ type: "delta", text: "PROJECT_COMPLETED: yes\n" +
       "SUMMARY: Integrated.\nVERIFICATION: suite passed\n" +
@@ -329,6 +338,7 @@ availableTest("restart hydrates a coordinator projection after durable completio
     };
     runtime.sessions.set(session.localId, session);
     runtime.attached.handleEnvelope(coordinatorEnvelope(63, session.storageId));
+    session = controlledSession(runtime);
     var metadata = session.orchestrationPolicy.portfolioExecution.control;
     session.history.push({ type: "delta", text: "PROJECT_COMPLETED: yes\n" +
       "SUMMARY: Integrated.\nVERIFICATION: suite passed\n" +
@@ -381,6 +391,7 @@ availableTest("restart completion replay rejects mismatched durable metadata", f
     };
     runtime.sessions.set(session.localId, session);
     runtime.attached.handleEnvelope(coordinatorEnvelope(64, session.storageId));
+    session = controlledSession(runtime);
     session._coopExecutionFence.complete();
     delete session._coopExecutionFence;
     session.orchestrationPolicy.portfolioExecution.control.incarnationId = "inc:stale";
@@ -413,6 +424,7 @@ availableTest("a failed reused coordinator retries at a new epoch and resets vis
     };
     runtime.sessions.set(session.localId, session);
     runtime.attached.handleEnvelope(coordinatorEnvelope(3, session.storageId));
+    session = controlledSession(runtime);
     session._coopExecutionFence.abandon("retry");
     session.isProcessing = false;
     var metadata = session.orchestrationPolicy.portfolioExecution;
@@ -463,6 +475,7 @@ availableTest("a stale provider-start promise cannot fail a newer coordinator in
     };
     runtime.sessions.set(session.localId, session);
     runtime.attached.handleEnvelope(coordinatorEnvelope(60, session.storageId));
+    session = controlledSession(runtime);
     session._coopExecutionFence.abandon("retry");
     session.isProcessing = false;
     session.orchestrationPolicy.portfolioExecution.status = "failed";
@@ -568,7 +581,7 @@ availableTest("an asynchronously reported provider-start failure removes the new
   }
 });
 
-availableTest("provider-start failure settles a reused coordinator without touching a successor", async function () {
+availableTest("provider-start failure removes only the new task coordinator and preserves the project root", async function () {
   var h = harness();
   try {
     var timeline = [];
@@ -590,10 +603,13 @@ availableTest("provider-start failure settles a reused coordinator without touch
     runtime.sessions.set(session.localId, session);
 
     runtime.attached.handleEnvelope(coordinatorEnvelope(65, session.storageId));
+    session = controlledSession(runtime);
     var metadata = session.orchestrationPolicy.portfolioExecution.control;
     await new Promise(function (resolve) { setImmediate(resolve); });
 
-    assert.equal(runtime.sessions.has(session.localId), true);
+    assert.equal(runtime.sessions.has(session.localId), false);
+    assert.equal(runtime.sessions.has(99), true);
+    assert.equal(runtime.sessions.get(99).orchestrationTasks.length, 0);
     assert.equal(session.isProcessing, false);
     assert.equal(session.orchestrationPolicy.portfolioExecution.status, "failed");
     var durable = control.inspect(metadata.executionId);

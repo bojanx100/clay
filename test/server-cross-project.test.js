@@ -703,6 +703,7 @@ test("migration failure leaves durable attention and never falls back to Lead", 
 
 function cardinalityRouter(dir, ownerRequests, created) {
   var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var projectCoordinatorRef = null;
   var router = createCrossProjectRouter({
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
@@ -710,10 +711,13 @@ function cardinalityRouter(dir, ownerRequests, created) {
   });
   router.registerProjectResolver({
     getProjectId: function () { return projectId; },
-    deliverCrossProjectEnvelope: function () {
-      created.push("coordinator-" + (created.length + 1));
+    deliverCrossProjectEnvelope: function (envelope) {
+      created.push("task-coordinator-" + (created.length + 1));
+      projectCoordinatorRef = envelope.payload.targetProjectCoordinator ||
+        projectCoordinatorRef || { projectId: projectId, sessionStorageId: "project-coordinator" };
       return { ok: true, created: true,
-        sessionRef: { projectId: projectId, sessionStorageId: created[created.length - 1] } };
+        sessionRef: { projectId: projectId, sessionStorageId: created[created.length - 1] },
+        projectCoordinatorRef: projectCoordinatorRef };
     },
   });
   return { router: router, projectId: projectId };
@@ -734,7 +738,7 @@ function ledgerIn(dir) {
     .attachCoopOwnerRequests({ file: path.join(dir, "owner-requests.json") });
 }
 
-test("a second coordinator for the same topic and project is refused at the staffing path", function () {
+test("the same topic can run multiple task coordinators under one project coordinator", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card-"));
   var created = [];
   var harness = cardinalityRouter(dir, ledgerIn(dir), created);
@@ -742,14 +746,13 @@ test("a second coordinator for the same topic and project is refused at the staf
   var first = staffTopic(harness, "portfolio-topic-first", "auto-a7daa4cc660639337d144d93");
   assert.equal(first.ok, true, "the first coordinator for a topic is allowed");
 
-  // A DIFFERENT portfolio task, same topic, same project: the binding store has
-  // no objection, and that is exactly the hole this closes.
+  // A DIFFERENT portfolio task, same topic, same project gets its own bounded
+  // task coordinator while reusing the durable project root.
   var second = staffTopic(harness, "portfolio-topic-second", "auto-a7daa4cc660639337d144d93");
-  assert.equal(second.ok, false);
-  assert.equal(second.reason, "coordinator_exists");
-  assert.equal(second.coordinator.sessionStorageId, created[0],
-    "the refusal names the canonical coordinator so the caller reuses it");
-  assert.equal(created.length, 1, "no rival coordinator session was created");
+  assert.equal(second.ok, true);
+  assert.notDeepEqual(second.sessionRef, first.sessionRef);
+  assert.deepEqual(second.projectCoordinatorRef, first.projectCoordinatorRef);
+  assert.equal(created.length, 2);
 });
 
 test("staffing a different topic in the same project is still allowed", function () {
@@ -759,7 +762,10 @@ test("staffing a different topic in the same project is still allowed", function
 
   assert.equal(staffTopic(harness, "portfolio-a", "auto-aaaaaaaaaaaaaaaaaaaaaaaa").ok, true);
   assert.equal(staffTopic(harness, "portfolio-b", "auto-bbbbbbbbbbbbbbbbbbbbbbbb").ok, true);
-  assert.equal(created.length, 2, "cardinality is per topic AND project, not per project");
+  assert.equal(created.length, 2);
+  var bindings = harness.router.getExecutionBindings();
+  assert.deepEqual(bindings[0].projectCoordinator, bindings[1].projectCoordinator,
+    "both topics reuse one durable coordinator for the ProjectRef");
 });
 
 test("execution carrying no TopicRef is unaffected by topic cardinality", function () {
@@ -831,7 +837,7 @@ test("an idempotent replay of a committed binding is never refused as a rival", 
   assert.equal(created.length, 1);
 });
 
-test("a refused staffing leaves no coordinator claim behind", function () {
+test("concurrent staffing keeps one coordinator claim and two task bindings", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-card7-"));
   var ledger = ledgerIn(dir);
   var created = [];
@@ -839,14 +845,14 @@ test("a refused staffing leaves no coordinator claim behind", function () {
   var topicId = "auto-a7daa4cc660639337d144d93";
 
   staffTopic(harness, "portfolio-first", topicId);
-  var refused = staffTopic(harness, "portfolio-rival", topicId);
+  var concurrent = staffTopic(harness, "portfolio-rival", topicId);
 
-  assert.equal(refused.ok, false);
-  // Exactly one claim: the refusal must not have recorded the rival on its way out.
+  assert.equal(concurrent.ok, true);
+  // Exactly one canonical project coordinator, with distinct task bindings.
   assert.equal(ledger.coordinatorsForTopic({ topicId: topicId }).length, 1);
   assert.equal(harness.router.getExecutionBindings().filter(function (b) {
     return b.portfolioTaskId === "portfolio-rival";
-  }).length, 0, "a refused staffing leaves no binding either");
+  }).length, 1);
 });
 
 test("a coordinator lost to a rival between precheck and claim does not commit", function () {
@@ -861,7 +867,7 @@ test("a coordinator lost to a rival between precheck and claim does not commit",
 
   var realClaim = ledger.claimCoordinator;
   var prechecked = false;
-  ledger.canonicalCoordinator = function () { prechecked = true; return null; };
+  ledger.canonicalProjectCoordinator = function () { prechecked = true; return null; };
   ledger.claimCoordinator = function (input) {
     // By the time the real claim runs, a rival owns the pair.
     if (prechecked) return { ok: false, reason: "coordinator_exists",

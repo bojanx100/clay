@@ -100,6 +100,26 @@ test("same vendor+route is a no-op and records nothing", function () {
   assert.strictEqual(session.vendor, "claude");
 });
 
+test("a forced fresh restart keeps the exact current route and model even if its catalog went stale", function () {
+  var sm = makeSm({ modelsByVendor: { claude: ["claude-sonnet-4-6"], codex: ["gpt-5.5"] } });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({ model: "claude-opus-4.8" });
+  var result = switcher.executeProviderSwitch({
+    session: session,
+    targetVendor: "claude",
+    targetRouteId: "claude-anthropic",
+    targetModel: "claude-opus-4.8",
+    forceFresh: true,
+    reuseCurrentTarget: true,
+  });
+
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(session.vendor, "claude");
+  assert.strictEqual(session.providerRouteId, "claude-anthropic");
+  assert.strictEqual(session.model, "claude-opus-4.8");
+  assert.strictEqual(session.cliSessionId, null);
+});
+
 test("same vendor+route can reconcile to a different verified model", function () {
   var sm = makeSm({ modelsByVendor: { claude: ["claude-opus-4.8"], codex: ["gpt-5.5", "gpt-5.6-luna"] } });
   var switcher = makeSwitcher(sm);

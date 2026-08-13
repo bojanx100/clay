@@ -521,11 +521,14 @@
                 <div id="config-popover" class="hidden">
                   <div class="config-popover-header">
                     <span class="config-popover-title">Settings</span>
-                    <button id="config-switch-vendor-btn" type="button" class="config-switch-vendor-btn" title="Switch vendor for this session"></button>
+                    <div class="config-popover-actions">
+                      <button id="config-coop-restart-btn" type="button" class="config-switch-vendor-btn hidden" title="Restart Coop's model context without restarting Clay">Restart</button>
+                      <button id="config-switch-vendor-btn" type="button" class="config-switch-vendor-btn" title="Switch vendor for this session"></button>
+                    </div>
                   </div>
                   <div id="config-provider-route-menu" class="config-provider-route-menu hidden"></div>
                   <div class="config-section">
-                    <div class="config-section-label">SESSION MODEL</div>
+                    <div id="config-model-section-label" class="config-section-label">SESSION MODEL</div>
                     <div id="config-model-list" class="config-radio-list"></div>
                   </div>
                   <div id="config-automation-section" class="config-section">

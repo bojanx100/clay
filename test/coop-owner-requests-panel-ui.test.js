@@ -385,6 +385,84 @@ test("clicking an unanswered row reuses the existing canonical-event drill-throu
   assert.equal(rows[1].disabled, true);
 });
 
+test("clicking a hierarchy session uses the exact canonical SessionRef", async function () {
+  var ctx = await loadPanel({ coopOwnerRequests: overview() });
+  var sent = [];
+  ctx.panel.renderOwnerRequestPanel(ctx.root, {
+    now: NOW,
+    send: function (message) { sent.push(message); return true; },
+  });
+  var nodes = findAll(ctx.root, "coop-owner-request-node");
+  var coordinator = nodes.find(function (node) {
+    return node.dataset.kind === "coordinator";
+  });
+  assert.equal(coordinator.tagName, "BUTTON");
+  coordinator.click();
+  assert.deepEqual(sent, [{
+    type: "resolve_session_ref",
+    sessionRef: COORD,
+    scope: "owner_request_hierarchy",
+  }]);
+});
+
+test("the shared mobile hierarchy renders task coordinators and their workers with direct handoffs", async function () {
+  var view = overview();
+  var taskRef = { projectId: CLAY, sessionStorageId: "task-coordinator" };
+  view.topics[0].projects[0].taskCoordinators = [{
+    sessionRef: taskRef,
+    title: "Task coordinator",
+    workState: "working",
+    live: true,
+    workers: [{ sessionRef: WORKER, title: "Reviewer", workState: "working", live: true }],
+  }];
+  view.topics[0].projects[0].workers = [];
+  var ctx = await loadPanel({ coopOwnerRequests: view });
+  var sent = [];
+  ctx.panel.renderOwnerRequestPanel(ctx.root, {
+    mobile: true,
+    now: NOW,
+    send: function (message) { sent.push(message); return true; },
+  });
+  var nodes = findAll(ctx.root, "mobile-coop-owner-request-node");
+  var task = nodes.find(function (node) {
+    return node.dataset.kind === "task_coordinator";
+  });
+  var reviewer = nodes.find(function (node) {
+    return node.dataset.kind === "worker";
+  });
+
+  assert.equal(task.dataset.depth, "3");
+  assert.equal(reviewer.dataset.depth, "4");
+  task.click();
+  reviewer.click();
+  assert.deepEqual(sent, [
+    { type: "resolve_session_ref", sessionRef: taskRef, scope: "owner_request_hierarchy" },
+    { type: "resolve_session_ref", sessionRef: WORKER, scope: "owner_request_hierarchy" },
+  ]);
+});
+
+test("hidden and missing hierarchy sessions are reference-only, not actionable", async function () {
+  var view = overview();
+  view.topics[0].projects[0].coordinator.hidden = true;
+  view.topics[0].projects[0].coordinator.live = false;
+  view.topics[0].projects[0].workers[0].present = false;
+  view.topics[0].projects[0].workers[0].live = false;
+  var ctx = await loadPanel({ coopOwnerRequests: view });
+  var sent = [];
+  ctx.panel.renderOwnerRequestPanel(ctx.root, {
+    now: NOW,
+    send: function (message) { sent.push(message); return true; },
+  });
+  var nodes = findAll(ctx.root, "coop-owner-request-node");
+  var sessions = nodes.filter(function (node) { return node.tagName === "BUTTON"; });
+  assert.equal(sessions.length, 2);
+  assert.equal(sessions[0].disabled, true);
+  assert.equal(sessions[1].disabled, true);
+  sessions[0].click();
+  sessions[1].click();
+  assert.deepEqual(sent, []);
+});
+
 test("the panel delegates resolution rather than duplicating the protocol", async function () {
   var source = readModule("coop-owner-requests-panel.js");
   assert.match(source, /import \{[^}]*requestCanonicalEvent[^}]*\} from '\.\/global-coop-projection\.js'/);

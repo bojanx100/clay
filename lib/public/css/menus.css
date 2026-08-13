@@ -581,6 +581,11 @@
   letter-spacing: 0.05em;
   color: var(--text-muted);
 }
+.config-popover-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .config-switch-vendor-btn {
   background: none;
   border: 1px solid var(--border);

@@ -84,6 +84,32 @@ test("a topic with no coordinator yet still renders its project", async function
   assert.deepEqual(rows.map(function (r) { return r.kind; }), ["topic", "project"]);
 });
 
+test("rows preserve project coordinator, task coordinator, and worker hierarchy", async function () {
+  var mod = await import(MODULE);
+  var taskRef = { projectId: CLAY, sessionStorageId: "task-coordinator" };
+  var rows = mod.ownerRequestRows({
+    topics: [{
+      topicRef: TOPIC,
+      title: "T",
+      projects: [{
+        projectRef: { projectId: CLAY },
+        coordinator: { sessionRef: COORD, title: "Project root", workState: "working" },
+        taskCoordinators: [{
+          sessionRef: taskRef,
+          title: "Bounded task",
+          workState: "working",
+          workers: [{ sessionRef: WORKER, title: "Reviewer", workState: "working" }],
+        }],
+        workers: [],
+      }],
+    }],
+  });
+  assert.deepEqual(rows.map(function (row) { return row.kind; }),
+    ["topic", "project", "coordinator", "task_coordinator", "worker"]);
+  assert.deepEqual(rows.map(function (row) { return row.depth; }), [0, 1, 2, 3, 4]);
+  assert.deepEqual(rows[3].sessionRef, taskRef);
+});
+
 test("the handler ignores unrelated messages and keeps a refusal visible", async function () {
   var mod = await import(MODULE);
   assert.equal(mod.handleOwnerRequestOverview({ type: "session_list" }), false);

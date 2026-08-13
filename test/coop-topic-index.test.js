@@ -724,7 +724,7 @@ test("Coop session-ref resolution refuses a session that became a worker", funct
         ok: true,
         ref: ref,
         project: { slug: "clay" },
-        session: ref.sessionStorageId === "worker-now"
+        session: /^worker/.test(ref.sessionStorageId)
           ? { localId: 9, orchestrationParent: { sessionStorageId: "coordinator", taskId: "t1" } }
           : { localId: 4 },
       };
@@ -735,6 +735,50 @@ test("Coop session-ref resolution refuses a session that became a worker", funct
   assert.equal(topicConnection.handleCoopMessage(ctx, {}, { type: "resolve_session_ref", sessionRef: workerRef }), true);
   assert.deepEqual(sent[0], { type: "session_ref_resolved", ok: false, code: "worker_session_denied" });
   assert.equal(JSON.stringify(sent).includes("worker-now"), false, "no worker reference is echoed back");
+
+  ctx.coopOwnerRequests = {
+    list: function () {
+      return [{
+        ingressId: "coop:test:1", ingressSequence: 1, ingressKind: "user_message",
+        receivedAt: 1, requestRef: null, topicRef: { topicId: "topic-1" },
+        projectRefs: [{ projectId: CLAY }], expectsExecution: true, state: "working",
+        response: { state: "unanswered", answeredAt: null },
+      }];
+    },
+    listCoordinators: function () {
+      return [{ topicId: "topic-1", projectId: CLAY,
+        coordinator: { projectId: CLAY, sessionStorageId: "coordinator" } }];
+    },
+  };
+  ctx.coopSessionLedger = {
+    list: function () {
+      return [{
+        sessionRef: { projectId: CLAY, sessionStorageId: "coordinator" },
+        sessionPresent: true, hidden: false, role: "project_coordinator", workState: "working",
+      }, {
+        sessionRef: workerRef,
+        parentSessionRef: { projectId: CLAY, sessionStorageId: "coordinator" },
+        sessionPresent: true, hidden: false, role: "worker", workState: "working",
+      }];
+    },
+  };
+  ctx.coopTopicIndex = { load: function () { return { topics: {} }; } };
+  ctx.isCoopTopicOwner = function () { return true; };
+
+  sent.length = 0;
+  topicConnection.handleCoopMessage(ctx, {}, {
+    type: "resolve_session_ref", sessionRef: workerRef, scope: "owner_request_hierarchy",
+  });
+  assert.equal(sent[0].ok, true, "an ACL-scoped hierarchy member resolves directly");
+  assert.deepEqual(sent[0].sessionRef, workerRef);
+
+  sent.length = 0;
+  topicConnection.handleCoopMessage(ctx, {}, {
+    type: "resolve_session_ref",
+    sessionRef: { projectId: CLAY, sessionStorageId: "worker-not-projected" },
+    scope: "owner_request_hierarchy",
+  });
+  assert.deepEqual(sent[0], { type: "session_ref_resolved", ok: false, code: "worker_session_denied" });
 
   sent.length = 0;
   var topRef = { projectId: CLAY, sessionStorageId: "still-top" };

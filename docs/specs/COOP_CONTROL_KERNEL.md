@@ -422,6 +422,59 @@ missing activation/delivery/rehydration handler, pending acknowledgement, or
 corruption leaves the barrier closed. Controlled orchestration intake checks
 this barrier before applying commands; ordinary flag-off traffic does not.
 
+## Canonical Coop incarnation controls
+
+The permanent canonical Coop `SessionRef` has an independent model-context
+incarnation epoch. Owner-only **Restart**, **Switch model**, and **Switch
+provider** actions rotate that epoch and use the shared provider switch
+executor with a forced fresh context. Restart preserves the current exact
+provider route and model. Model switching preserves the provider route and
+requires the selected model to be the applied model. Provider switching
+requires both the selected route and model to be applied. None of these actions
+restarts the Clay daemon.
+
+Rotation preserves the Coop session, durable transcript, owner ingress lane,
+topics, owner-request backlog, queued messages, scheduled messages, and
+outstanding execution references. Every provider query captures the current
+incarnation capability. After rotation, callbacks from the prior query fail the
+same fence used for controlled execution before they can mutate history, run a
+tool, report progress, or complete. A switch that fails before exact target
+verification restores the previous route, model, native provider ids, history
+boundary, tombstone, and incarnation metadata; the prior capability remains
+current so the existing Coop can recover.
+
+The responsive Coop configuration panel is one DOM surface shared by desktop
+and mobile. It exposes the exact Restart, Switch model, and Switch provider
+controls only for the canonical Lead session. Confirmation uses Clay's custom
+dialog surface. Results return as typed `coop_incarnation_result` messages.
+
+## Durable project and task coordinator hierarchy
+
+Each canonical `ProjectRef` owns one durable reusable project coordinator
+`SessionRef`. It is a runtimeless hierarchy root, not a bounded execution
+attempt. Startup or a new portfolio task reuses that ref even when the prior
+runtime session was archived, hidden, or carried a completed legacy binding;
+reactivation clears archive-only state and removes the obsolete per-task
+binding from the root. The owner-request ledger converges legacy per-topic roots
+onto the earliest durable root transactionally and idempotently.
+
+Every admitted project-coordinator portfolio binding creates or reuses a child
+task coordinator for that bounded workstream. Multiple task coordinators may be
+running concurrently beneath the project root. Workers and reviewers are owned
+by their task coordinator, and their task graph is isolated from sibling
+workstreams. A terminal task-coordinator result updates the matching
+reference-only external task on the project root before its typed completion is
+delivered to the portfolio binding. The binding stores both the child task
+coordinator ref and the stable project coordinator ref, so restart/recovery can
+reconstruct task→project→Coop ownership without a `coordinator_exists` dead
+end.
+
+Coop projects this as ProjectRef → project coordinator → task coordinators →
+workers/reviewers. Nodes contain canonical SessionRefs and bounded lifecycle
+facts only. Selecting a node performs the existing ACL-checked canonical
+SessionRef resolution; it never copies a project transcript into Coop, creates
+a Lead-local executor, or changes the ordinary project chat list.
+
 ## Deterministic shadow comparison
 
 Slice 1 imports the existing `clay.coop_owner_requests` reference-only store.

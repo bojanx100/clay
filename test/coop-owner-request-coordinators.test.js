@@ -10,8 +10,8 @@ var ownerRequests = require("../lib/coop-owner-requests");
 // Portfolio bindings already guarantee one active binding per portfolio task.
 // That is not the property the owner cares about. The owner asks about a
 // TOPIC, that topic touches one or more projects, and each affected project
-// must end up with exactly ONE coordinator -- so a follow-up on the same topic
-// reaches the coordinator already working on it instead of staffing a rival.
+// must end up with exactly ONE durable coordinator. Topic claims route through
+// that coordinator, while bounded task coordinators may come and go beneath it.
 
 var CLAY = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
@@ -47,7 +47,7 @@ function open(ledger, sequence, topicRef, projectRefs) {
   return ingressId(sequence);
 }
 
-// --- exactly one coordinator per (topic, project) -----------------------------
+// --- exactly one durable coordinator per project ------------------------------
 
 test("the first claim for a topic and project becomes the canonical coordinator", function () {
   var ledger = makeLedger();
@@ -109,17 +109,57 @@ test("one topic across two projects gets exactly one coordinator per project", f
   assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: WEBAPP }), COORD_WEBAPP);
 });
 
-test("the same project under a different topic is a different coordinator", function () {
+test("the same project under a different topic reuses its durable coordinator", function () {
   var ledger = makeLedger();
   var first = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
   var second = open(ledger, 183, OTHER_TOPIC, [{ projectId: CLAY }]);
   ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: first });
-  var other = ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_B, ingressId: second });
+  var rival = ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_B, ingressId: second });
+  var other = ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: second });
 
+  assert.equal(rival.ok, false);
+  assert.equal(rival.reason, "coordinator_exists");
   assert.equal(other.ok, true);
-  assert.equal(other.created, true, "cardinality is per topic AND project, not per project alone");
+  assert.equal(other.created, true, "the topic claim is new even though its project coordinator is reused");
   assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A);
-  assert.deepEqual(ledger.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), COORD_B);
+  assert.deepEqual(ledger.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), COORD_A);
+  assert.deepEqual(ledger.canonicalProjectCoordinator({ projectId: CLAY }), COORD_A);
+});
+
+test("legacy per-topic project coordinators converge durably and idempotently on reload", function () {
+  var file = tempFile();
+  var ledger = makeLedger(file);
+  var first = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  var second = open(ledger, 183, OTHER_TOPIC, [{ projectId: WEBAPP }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: first });
+  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: WEBAPP },
+    coordinator: COORD_WEBAPP, ingressId: second });
+
+  // Simulate the old one-coordinator-per-(topic, project) file shape by moving
+  // the second claim into Clay under another valid Clay SessionRef.
+  var stored = JSON.parse(fs.readFileSync(file, "utf8"));
+  stored.coordinators[0].claimedAt = 1000;
+  stored.coordinators[1].claimedAt = 2000;
+  stored.coordinators[1].projectId = CLAY;
+  stored.coordinators[1].coordinator = COORD_B;
+  stored.requests[1].projectRefs = [{ projectId: CLAY }];
+  stored.requests[1].links.coordinators = [COORD_B];
+  fs.writeFileSync(file, JSON.stringify(stored, null, 2) + "\n");
+
+  var migrated = makeLedger(file);
+  assert.deepEqual(migrated.canonicalProjectCoordinator({ projectId: CLAY }), COORD_A);
+  assert.deepEqual(migrated.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A);
+  assert.deepEqual(migrated.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), COORD_A);
+  assert.deepEqual(migrated.get(second).links.coordinators, [COORD_A]);
+  assert.equal(migrated.listCoordinators()[1].transferReason,
+    "project_coordinator_migration");
+
+  var afterFirstLoad = fs.readFileSync(file, "utf8");
+  var restarted = makeLedger(file);
+  assert.deepEqual(restarted.listCoordinators(), migrated.listCoordinators());
+  assert.equal(fs.readFileSync(file, "utf8"), afterFirstLoad,
+    "a second restart must not rewrite an already-converged ledger");
 });
 
 test("a coordinator whose project does not match its ProjectRef is refused", function () {
@@ -476,14 +516,13 @@ test("merging into a topic that already owns the pair keeps exactly one coordina
   var source = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
   var target = open(ledger, 183, OTHER_TOPIC, [{ projectId: CLAY }]);
   ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: source });
-  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_B, ingressId: target });
+  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: target });
 
   assert.equal(ledger.retopic(TOPIC, OTHER_TOPIC).ok, true);
-  // One coordinator per (topic, project) is the rule; the incumbent wins.
+  // Both topic claims already route through the durable project coordinator.
   assert.equal(ledger.coordinatorsForTopic(OTHER_TOPIC).length, 1);
-  assert.deepEqual(ledger.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), COORD_B);
-  // The moved request is re-pointed at the surviving coordinator, not the loser.
-  assert.deepEqual(ledger.get(source).links.coordinators, [COORD_B]);
+  assert.deepEqual(ledger.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), COORD_A);
+  assert.deepEqual(ledger.get(source).links.coordinators, [COORD_A]);
 });
 
 test("a closure whose write fails does not report topics settled", function () {
@@ -559,10 +598,7 @@ test("a late requestRef write that fails is reported, not masked", function () {
   assert.equal(ledger.get(id).requestRef, null);
 });
 
-test("merging repoints only the source topic's links, never an unrelated topic's", function () {
-  // repointCoordinatorLinks rewrote the losing coordinator across EVERY request,
-  // so merging A into B silently rewrote an unrelated topic's request from A to
-  // B while that topic's canonical claim stayed A -- leaving it with two.
+test("merging project-coordinator topics never disturbs an unrelated topic's links", function () {
   var ledger = makeLedger();
   var sourceId = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
   var targetId = open(ledger, 183, OTHER_TOPIC, [{ projectId: CLAY }]);
@@ -570,15 +606,12 @@ test("merging repoints only the source topic's links, never an unrelated topic's
   var unrelatedId = open(ledger, 184, THIRD, [{ projectId: CLAY }]);
 
   ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: sourceId });
-  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_B, ingressId: targetId });
-  // The unrelated topic legitimately uses coordinator A too.
+  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY }, coordinator: COORD_A, ingressId: targetId });
   ledger.linkExecution(unrelatedId, { coordinator: COORD_A });
 
   assert.equal(ledger.retopic(TOPIC, OTHER_TOPIC).ok, true);
 
-  // The merged request follows the surviving coordinator.
-  assert.deepEqual(ledger.get(sourceId).links.coordinators, [COORD_B]);
-  // The unrelated topic is untouched, and still has exactly one coordinator.
+  assert.deepEqual(ledger.get(sourceId).links.coordinators, [COORD_A]);
   assert.deepEqual(ledger.get(unrelatedId).links.coordinators, [COORD_A],
     "an unrelated topic's link must not be rewritten by someone else's merge");
   assert.deepEqual(ledger.coordinatorsForTopic(THIRD), [COORD_A]);
@@ -626,6 +659,27 @@ test("transferring a claim to a replacement keeps exactly one coordinator", func
   assert.deepEqual(ledger.get(id).links.coordinators, [COORD_B]);
   // And it survives a restart.
   assert.deepEqual(makeLedger(file).canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_B);
+});
+
+test("a project-coordinator transfer moves every topic claim and request link atomically", function () {
+  var ledger = makeLedger();
+  var first = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);
+  var second = open(ledger, 183, OTHER_TOPIC, [{ projectId: CLAY }]);
+  ledger.claimCoordinator({ topicRef: TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: first });
+  ledger.claimCoordinator({ topicRef: OTHER_TOPIC, projectRef: { projectId: CLAY },
+    coordinator: COORD_A, ingressId: second });
+
+  var moved = ledger.transferCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, from: COORD_A, to: COORD_B,
+  });
+
+  assert.equal(moved.ok, true);
+  assert.deepEqual(ledger.canonicalProjectCoordinator({ projectId: CLAY }), COORD_B);
+  assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_B);
+  assert.deepEqual(ledger.canonicalCoordinator(OTHER_TOPIC, { projectId: CLAY }), COORD_B);
+  assert.deepEqual(ledger.get(first).links.coordinators, [COORD_B]);
+  assert.deepEqual(ledger.get(second).links.coordinators, [COORD_B]);
 });
 
 test("transfer metadata survives normalization and reload without shape drift", function () {

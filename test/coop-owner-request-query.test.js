@@ -158,6 +158,54 @@ test("a genuinely running coordinator and worker both count", function () {
   assert.equal(result.counts.working, 2);
 });
 
+test("task coordinators and their workers nest under the durable project coordinator", function () {
+  var taskRef = { projectId: CLAY, sessionStorageId: "task-coordinator-a" };
+  var reviewerRef = { projectId: CLAY, sessionStorageId: "reviewer-a" };
+  var result = overview({
+    requests: [request(182)],
+    coordinators: [{ topicId: TOPIC, projectId: CLAY, coordinator: COORD }],
+    sessions: [
+      session(COORD, { title: "Project root" }),
+      session(taskRef, { title: "Task coordinator A", role: "task_coordinator",
+        topLevel: false, parentSessionRef: COORD }),
+      session(reviewerRef, { title: "Reviewer A", role: "worker",
+        topLevel: false, parentSessionRef: taskRef }),
+    ],
+  });
+  var project = result.topics[0].projects[0];
+  assert.equal(project.taskCoordinators.length, 1);
+  assert.equal(project.taskCoordinators[0].title, "Task coordinator A");
+  assert.equal(project.taskCoordinators[0].workers.length, 1);
+  assert.equal(project.taskCoordinators[0].workers[0].title, "Reviewer A");
+});
+
+test("a shared project root shows each task coordinator only under its own topic", function () {
+  var otherTopic = "auto-bbbbbbbbbbbbbbbbbbbbbbbb";
+  var firstTask = { projectId: CLAY, sessionStorageId: "task-coordinator-first" };
+  var secondTask = { projectId: CLAY, sessionStorageId: "task-coordinator-second" };
+  var result = overview({
+    requests: [request(182), request(183, { topicRef: { topicId: otherTopic } })],
+    coordinators: [
+      { topicId: TOPIC, projectId: CLAY, coordinator: COORD },
+      { topicId: otherTopic, projectId: CLAY, coordinator: COORD },
+    ],
+    sessions: [
+      session(COORD, { title: "Project root" }),
+      session(firstTask, { title: "First task", role: "task_coordinator",
+        topLevel: false, parentSessionRef: COORD, coopTopicRefs: [{ topicId: TOPIC }] }),
+      session(secondTask, { title: "Second task", role: "task_coordinator",
+        topLevel: false, parentSessionRef: COORD, coopTopicRefs: [{ topicId: otherTopic }] }),
+    ],
+  });
+
+  assert.deepEqual(result.topics[0].projects[0].taskCoordinators.map(function (entry) {
+    return entry.title;
+  }), ["First task"]);
+  assert.deepEqual(result.topics[1].projects[0].taskCoordinators.map(function (entry) {
+    return entry.title;
+  }), ["Second task"]);
+});
+
 test("a coordinator waiting on the owner counts as needs input, not working", function () {
   var result = overview({
     requests: [request(182)],
