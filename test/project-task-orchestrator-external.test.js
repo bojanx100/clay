@@ -1,7 +1,11 @@
 var test = require("node:test");
 var assert = require("node:assert");
+var fs = require("fs");
+var os = require("os");
+var path = require("path");
 
 var externalOrchestration = require("../lib/project-task-orchestrator-external");
+var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 var createExternalTaskCoordinator = externalOrchestration.createExternalTaskCoordinator;
 var attachPortfolioExecutionTarget = externalOrchestration.attachPortfolioExecutionTarget;
 var terminalStatusForTurn =
@@ -281,4 +285,78 @@ test("direct leaves never strand a completed worker report in graph-only reviewi
   ].join("\n");
 
   assert.equal(terminalStatusForTurn({}, { type: "done", code: 0 }, result), "needs_input");
+});
+
+test("restart recovery closes an archived project coordinator binding after session reconciliation", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-archived-coordinator-binding-"));
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var request = {
+    source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+    portfolioTaskId: "portfolio-archived-recovery",
+    bindingRevision: 1,
+    idempotencyKey: "portfolio-archived-recovery-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+  };
+  assert.equal(router.bindingStore.reserve(request).ok, true);
+  assert.equal(router.bindingStore.commit(request.portfolioTaskId, request.bindingRevision, {
+    projectId: projectId,
+    sessionStorageId: "archived-task-coordinator",
+  }).ok, true);
+
+  var metadata = Object.assign({}, request, { status: "running" });
+  var coordinator = {
+    localId: 7,
+    storageId: "archived-task-coordinator",
+    history: [],
+    isProcessing: false,
+    orchestrationProjectCompletion: { status: "pending", completionRevision: 0 },
+    orchestrationPolicy: { portfolioExecution: metadata },
+  };
+  var sessions = new Map([[coordinator.localId, coordinator]]);
+  var sm = {
+    sessions: sessions,
+    getProjectId: function () { return projectId; },
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+  };
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    getSessionManager: function () { return sm; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+  var attached = attachPortfolioExecutionTarget({
+    coopDeliveryControl: { enabled: true },
+    coopStartupRecovery: {},
+    crossProject: router,
+    sdk: {},
+    sm: sm,
+    slug: "clay",
+  });
+
+  metadata.status = "failed";
+  metadata.reason = "restart_recovery";
+  metadata.terminalAt = 1234;
+  metadata.updatedAt = 1234;
+  coordinator.hidden = true;
+  router.bindingStore.markAttention(request.portfolioTaskId, request.bindingRevision,
+    "session_archived");
+  assert.equal(router.getExecutionBinding(request.portfolioTaskId, 1).status, "active");
+  assert.equal(router.getExecutionBinding(request.portfolioTaskId, 1).statusReason,
+    "session_archived");
+
+  attached.reconcilePersistedSessions();
+
+  var binding = router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision);
+  assert.equal(binding.status, "failed");
+  assert.equal(binding.completedAt, 1234);
+  assert.equal(binding.statusReason, undefined);
+  assert.equal(binding.attentionAt, undefined);
+  assert.equal(coordinator.orchestrationProjectCompletion.status, "pending",
+    "a recovered failure is terminal but not a verified project completion");
+  assert.deepEqual(router.bindingStore.listCurrent(), []);
 });

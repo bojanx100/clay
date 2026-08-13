@@ -238,6 +238,59 @@ test("stranded project-coordinator bindings reconcile from durable completed ses
   assert.equal(store.get("portfolio-task", 1).status, "completed");
 });
 
+test("restart-failed project coordinators terminalize ghost bindings without false completion", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-reconcile-archived-project-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 250; } });
+  store.reserve(request(1, "project_coordinator"));
+  store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "restart-failed-project-coordinator",
+  });
+  store.markAttention("portfolio-task", 1, "session_archived");
+
+  var session = {
+    hidden: true,
+    orchestrationProjectCompletion: {
+      status: "pending",
+      completionRevision: 0,
+    },
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-task",
+        bindingRevision: 1,
+        idempotencyKey: "command-1",
+        mode: "project_coordinator",
+        status: "failed",
+        reason: "restart_recovery",
+        terminalAt: 1234,
+      },
+    },
+  };
+
+  var reconciled = store.reconcileStrandedCompletions({
+    sessionForBinding: function () { return session; },
+    saveSession: function () {},
+  });
+
+  assert.equal(reconciled.ok, true);
+  assert.equal(reconciled.reconciled.length, 1);
+  assert.equal(reconciled.reconciled[0].status, "failed");
+  assert.equal(reconciled.reconciled[0].completedAt, 1234);
+  assert.equal(store.get("portfolio-task", 1).status, "failed");
+  assert.equal(store.get("portfolio-task", 1).statusReason, undefined);
+  assert.equal(store.get("portfolio-task", 1).attentionAt, undefined);
+  assert.equal(session.orchestrationProjectCompletion.status, "pending",
+    "restart recovery must not invent verified project completion");
+  assert.deepEqual(store.listCurrent(), []);
+  assert.equal(store.reconcileStrandedCompletions({
+    sessionForBinding: function () { return session; },
+    saveSession: function () {},
+  }).reconciled.length, 0, "repeated recovery must not rewrite a terminal binding");
+  assert.equal(store.reserve(request(2, "project_coordinator")).ok, true,
+    "the terminal recovery outcome must release the portfolio slot");
+});
+
 test("version-one binding files migrate without changing canonical references", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-migration-"));
   var file = path.join(dir, "bindings.json");
