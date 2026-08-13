@@ -84,3 +84,19 @@ test("initialSessionReference: plain project navigation lets the server choose t
   });
   assert.strictEqual(reconnect, "current-tab-session", "ordinary reconnects preserve the open conversation");
 });
+
+test("projectSessionIdForSync: never sends a source-project local id to the target project", async function () {
+  var policy = await loadPolicy();
+
+  assert.strictEqual(policy.projectSessionIdForSync({
+    currentSlug: "clay",
+    activeSessionProjectSlug: "lead",
+    activeSessionId: 28,
+  }), null, "project-local ids must not cross a project socket boundary");
+
+  assert.strictEqual(policy.projectSessionIdForSync({
+    currentSlug: "clay",
+    activeSessionProjectSlug: "clay",
+    activeSessionId: 336,
+  }), 336, "the acknowledged target-project session remains syncable");
+});

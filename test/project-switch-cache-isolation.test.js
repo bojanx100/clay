@@ -40,6 +40,17 @@ test("all plain Lead entry points route to canonical Coop home and preserve exac
   assert.match(projects, /options\.sessionRef\.sessionStorageId/);
 });
 
+test("selecting the already-current project revalidates its default session", function () {
+  var projects = source("modules/app-projects.js");
+  var sameProject = projects.slice(
+    projects.indexOf("if (slug === store.get('currentSlug'))"),
+    projects.indexOf("resetFileBrowser();")
+  );
+
+  assert.match(sameProject, /resetClientState\(\);\s+connect\(\{ preferProjectDefault: true \}\);\s+return;/);
+  assert.doesNotMatch(projects, /isHomeHubVisible\(\)[\s\S]{0,180}preferProjectDefault\)\) return/);
+});
+
 test("Back and Forward use the same target-keyed session cache reset", function () {
   var app = source("app.js");
   assert.match(app, /store\.set\(\{ currentSlug: newSlug \}\);\s+window\.dispatchEvent\(new CustomEvent\("clay:project-switching"/);

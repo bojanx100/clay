@@ -168,3 +168,59 @@ test("rejected and missing handoff switches leave deterministic non-green eviden
   ]);
   assert.deepStrictEqual(harness.switched, []);
 });
+
+test("stale client ids cannot switch or sync into hidden sessions", function () {
+  var hidden = {
+    localId: 28,
+    storageId: "hidden-clay-chat",
+    hidden: true,
+    ownerId: "owner-a",
+    vendor: "claude",
+    history: [{ type: "done" }],
+  };
+  var current = {
+    localId: 336,
+    storageId: "visible-clay-chat",
+    ownerId: "owner-a",
+    vendor: "claude",
+    history: [{ type: "done" }],
+  };
+  var switched = [];
+  var sm = {
+    sessions: new Map([[hidden.localId, hidden], [current.localId, current]]),
+    modelsByVendor: {},
+    switchSession: function (id) { switched.push(id); },
+  };
+  var lifecycle = attachProjectSessionsLifecycle({
+    slug: "clay",
+    sm: sm,
+    tm: { list: function () { return []; } },
+    sendTo: function () {},
+    usersModule: {
+      isMultiUser: function () { return true; },
+      canAccessSession: function (ownerId, session) { return ownerId === session.ownerId; },
+    },
+    userPresence: { setPresence: function () {} },
+    getSessionForWs: function () { return current; },
+    getOsUserInfoForWs: function () { return null; },
+    hydrateImageRefs: function () {},
+    broadcastPresence: function () {},
+    loadContextSources: function () { return []; },
+    saveContextSources: function () {},
+    getClaudeOpenModeForWs: function () { return "gui"; },
+    viewHandlers: { resolveSessionForView: function () {} },
+    tuiHandlers: {},
+    email: { getEmailDefaults: function () { return []; } },
+  });
+  var ws = {
+    _clayUser: { id: "owner-a" },
+    _clayActiveSession: current.localId,
+    _clayDeliveredLen: 0,
+  };
+
+  lifecycle.handleLifecycleMessage(ws, { type: "switch_session", id: hidden.localId });
+  lifecycle.handleLifecycleMessage(ws, { type: "sync_external_session", id: hidden.localId });
+
+  assert.deepStrictEqual(switched, [current.localId]);
+  assert.strictEqual(ws._clayActiveSession, current.localId);
+});
