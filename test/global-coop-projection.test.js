@@ -63,6 +63,8 @@ test("Coop projects each accessible configured project into a main-lane lens wit
     coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
     orchestrationParent: { sessionStorageId: coordinator.storageId, taskId: task.taskId },
   });
+  task.workerSessionId = worker.localId;
+  task.workerStorageId = worker.storageId;
   var clay = project("11111111-1111-5111-8111-111111111111", "clay", [coordinator, directOwnerSession, worker], { title: "Clay" });
   var worktree = project("22222222-2222-5222-8222-222222222222", "clay--feature", [], { isWorktree: true });
   var mate = project("33333333-3333-5333-8333-333333333333", "mate-ada", [], { isMate: true });
@@ -137,6 +139,12 @@ test("Coop projection keeps one persistent project root and only live or attenti
     coordinationMode: true, coordinationRole: "task_coordinator",
     orchestrationParent: { sessionStorageId: clayRoot.storageId, taskId: "completed-task" },
   });
+  clayRoot.orchestrationTasks[0].workerSessionId = clayActive.localId;
+  clayRoot.orchestrationTasks[0].workerStorageId = clayActive.storageId;
+  clayRoot.orchestrationTasks[1].workerSessionId = clayAttention.localId;
+  clayRoot.orchestrationTasks[1].workerStorageId = clayAttention.storageId;
+  clayRoot.orchestrationTasks[2].workerSessionId = clayCompleted.localId;
+  clayRoot.orchestrationTasks[2].workerStorageId = clayCompleted.storageId;
   var ownerCoordinator = session(14, {
     storageId: "owner-direct-coordinator", title: "Owner direct coordinator",
     coordinationMode: true,
@@ -150,6 +158,8 @@ test("Coop projection keeps one persistent project root and only live or attenti
     coordinationMode: true, coordinationRole: "task_coordinator",
     orchestrationParent: { sessionStorageId: webappRoot.storageId, taskId: "webapp-completed" },
   });
+  webappRoot.orchestrationTasks[0].workerSessionId = webappCompleted.localId;
+  webappRoot.orchestrationTasks[0].workerStorageId = webappCompleted.storageId;
 
   var clay = project(clayId, "clay", [
     clayRoot, clayActive, clayAttention, clayCompleted, ownerCoordinator,

@@ -2,7 +2,8 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var path = require("node:path");
 var pathToFileURL = require("node:url").pathToFileURL;
-var buildGlobalCoopProjection = require("../lib/global-coop-projection").buildGlobalCoopProjection;
+var globalCoopProjection = require("../lib/global-coop-projection");
+var buildGlobalCoopProjection = globalCoopProjection.buildGlobalCoopProjection;
 
 var CLAY = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
@@ -44,12 +45,95 @@ function coordinatorFixture() {
   var lead = project("system-lead", "lead", "Coop", [coopHome], { isLead: true });
 
   var clayActive = session(12, {
+    storageId: "clay-active-task-coordinator",
     title: "Show project coordinators in Coop sidebar",
     coordinationMode: true,
     coordinationRole: "task_coordinator",
     coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
     orchestrationParent: { taskId: "clay-active", sessionStorageId: "clay-project-coordinator" },
   });
+  var clayWorkerRunning = session(15, {
+    storageId: "clay-worker-running",
+    title: "Implement hierarchy projection",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "clay-worker-running", sessionStorageId: clayActive.storageId },
+  });
+  var clayWorkerAttention = session(16, {
+    storageId: "clay-worker-attention",
+    title: "Review hierarchy ownership",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "clay-worker-attention", sessionStorageId: clayActive.storageId },
+  });
+  var clayWorkerCompleted = session(17, {
+    storageId: "clay-worker-completed",
+    title: "Fulfilled QA worker",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "clay-worker-completed", sessionStorageId: clayActive.storageId },
+  });
+  var clayWorkerHidden = session(18, {
+    storageId: "clay-worker-hidden",
+    title: "Hidden running worker",
+    hidden: true,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "clay-worker-hidden", sessionStorageId: clayActive.storageId },
+  });
+  var ownerDirectWorker = session(19, {
+    storageId: "owner-direct-worker",
+    title: "Owner direct worker",
+    orchestrationParent: { taskId: "owner-direct-worker", sessionStorageId: clayActive.storageId },
+  });
+  var foreignControlledWorker = session(27, {
+    storageId: "foreign-controlled-worker",
+    title: "Foreign Coop worker",
+    coopControlledBy: { coopSessionStorageId: "other-coop-home", since: 1 },
+    orchestrationParent: { taskId: "foreign-controlled-worker", sessionStorageId: clayActive.storageId },
+  });
+  var staleWorker = session(23, {
+    storageId: "clay-worker-stale",
+    title: "Historical worker attempt",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "clay-worker-running", sessionStorageId: clayActive.storageId },
+  });
+  var unrelatedWorker = session(24, {
+    storageId: "unrelated-worker",
+    title: "Unrelated worker",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "missing-task", sessionStorageId: clayActive.storageId },
+  });
+  var unboundWorker = session(28, {
+    storageId: "worker-without-binding-id",
+    title: "Worker without binding id",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "worker-without-binding-id", sessionStorageId: clayActive.storageId },
+  });
+  delete unboundWorker.localId;
+  var duplicateWorker = session(25, {
+    storageId: clayWorkerRunning.storageId,
+    title: "Duplicate storage record",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "clay-worker-running", sessionStorageId: clayActive.storageId },
+  });
+  var nestedWorker = session(26, {
+    storageId: "nested-worker",
+    title: "Fourth-level worker",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "nested-worker", sessionStorageId: clayWorkerRunning.storageId },
+  });
+  clayActive.orchestrationTasks = [
+    task("clay-worker-running", "running", clayWorkerRunning),
+    task("clay-worker-attention", "needs_input", clayWorkerAttention),
+    task("clay-worker-completed", "completed", clayWorkerCompleted),
+    task("clay-worker-hidden", "running", clayWorkerHidden),
+    task("owner-direct-worker", "running", ownerDirectWorker),
+    task("foreign-controlled-worker", "running", foreignControlledWorker),
+    {
+      taskId: "worker-without-binding-id",
+      title: unboundWorker.title,
+      status: "running",
+      updatedAt: unboundWorker.lastActivity,
+    },
+  ];
+  clayWorkerRunning.orchestrationTasks = [task("nested-worker", "running", nestedWorker)];
   var clayCompleted = session(13, {
     title: "Completed Clay task",
     coordinationMode: true,
@@ -67,6 +151,23 @@ function coordinatorFixture() {
       task("clay-active", "running", clayActive),
       task("clay-completed", "completed", clayCompleted),
     ],
+  });
+  var foreignRoot = session(29, {
+    storageId: "foreign-project-coordinator",
+    title: "Foreign project coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "other-coop-home", since: 1 },
+    orchestrationTasks: [],
+  });
+  var groupedRoot = session(30, {
+    storageId: "grouped-project-coordinator",
+    title: "Grouped project coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationGroupParent: { taskId: "historical-root", sessionStorageId: "old-parent" },
+    orchestrationTasks: [],
   });
   var ownerDirect = session(11, {
     title: "Owner-opened direct coordinator",
@@ -99,10 +200,15 @@ function coordinatorFixture() {
   return {
     lead: lead,
     clay: project(CLAY, "clay", "Clay", [
-      clayRoot, ownerDirect, ownerTaskCoordinator, clayActive, clayCompleted,
+      foreignRoot, groupedRoot, clayRoot, ownerDirect, ownerTaskCoordinator, clayActive, clayCompleted,
+      clayWorkerRunning, clayWorkerAttention, clayWorkerCompleted, clayWorkerHidden,
+      ownerDirectWorker, foreignControlledWorker, staleWorker, unrelatedWorker,
+      unboundWorker, nestedWorker,
     ]),
     webapp: project(WEBAPP, "webapp", "Webapp", [webappRoot, webappAttention]),
     clayActive: clayActive,
+    clayWorkerRunning: clayWorkerRunning,
+    duplicateWorker: duplicateWorker,
     webappAttention: webappAttention,
   };
 }
@@ -124,6 +230,10 @@ test("global Coop projection keeps one persistent canonical root and only live t
   assert.equal(projects[CLAY].summary.coordinatorTree[0].role, "project_coordinator");
   assert.equal(JSON.stringify(projects[CLAY].summary.coordinatorTree).includes("Owner-opened"), false,
     "owner-opened sessions are never adopted beneath the Coop root");
+  assert.equal(JSON.stringify(projects[CLAY].summary.coordinatorTree).includes("Foreign project coordinator"), false,
+    "a project coordinator controlled by a different Coop cannot suppress the canonical root");
+  assert.equal(JSON.stringify(projects[CLAY].summary.coordinatorTree).includes("Grouped project coordinator"), false,
+    "group-parent metadata disqualifies a session from becoming a project root");
   assert.deepEqual(projects[CLAY].summary.coordinatorTree[0].children.map(function (item) {
     return item.title;
   }), ["Show project coordinators in Coop sidebar"],
@@ -131,6 +241,42 @@ test("global Coop projection keeps one persistent canonical root and only live t
   assert.deepEqual(projects[WEBAPP].summary.coordinatorTree[0].children.map(function (item) {
     return item.status;
   }), ["needs_input"]);
+  var taskCoordinator = projects[CLAY].summary.coordinatorTree[0].children[0];
+  assert.deepEqual(taskCoordinator.taskRef, {
+    projectId: CLAY,
+    coordinatorSessionStorageId: "clay-project-coordinator",
+    taskId: "clay-active",
+  });
+  assert.deepEqual(taskCoordinator.children.map(function (item) {
+    return [item.title, item.status, item.sessionRef, item.taskRef];
+  }), [
+    ["Implement hierarchy projection", "running", {
+      projectId: CLAY, sessionStorageId: "clay-worker-running",
+    }, {
+      projectId: CLAY,
+      coordinatorSessionStorageId: "clay-active-task-coordinator",
+      taskId: "clay-worker-running",
+    }],
+    ["Review hierarchy ownership", "needs_input", {
+      projectId: CLAY, sessionStorageId: "clay-worker-attention",
+    }, {
+      projectId: CLAY,
+      coordinatorSessionStorageId: "clay-active-task-coordinator",
+      taskId: "clay-worker-attention",
+    }],
+  ], "only exact current active and attention worker bindings are projected once");
+  assert.equal(JSON.stringify(taskCoordinator).includes("Owner direct worker"), false);
+  assert.equal(JSON.stringify(taskCoordinator).includes("Foreign Coop worker"), false);
+  assert.equal(JSON.stringify(taskCoordinator).includes("Historical worker attempt"), false);
+  assert.equal(JSON.stringify(taskCoordinator).includes("Unrelated worker"), false);
+  assert.equal(JSON.stringify(taskCoordinator).includes("Worker without binding id"), false);
+  assert.equal(JSON.stringify(taskCoordinator).includes("Fulfilled QA worker"), false);
+  assert.equal(JSON.stringify(taskCoordinator).includes("Hidden running worker"), false);
+  assert.equal(JSON.stringify(taskCoordinator).includes("Fourth-level worker"), false);
+  assert.equal(projects[CLAY].summary.metrics.activeWorkers, 1,
+    "the existing task-coordinator metric remains stable");
+  assert.equal(projects[CLAY].summary.metrics.activeTaskWorkers, 2,
+    "the third-level worker metric counts exact current worker sessions");
 
   fixture.clayActive.hidden = true;
   fixture.webappAttention.hidden = true;
@@ -147,6 +293,113 @@ test("global Coop projection keeps one persistent canonical root and only live t
     { projectId: CLAY, roots: 1, children: 0 },
     { projectId: WEBAPP, roots: 1, children: 0 },
   ], "terminal child rows close while both reusable project roots persist");
+});
+
+test("global Coop hierarchy fails closed on ambiguous storage records regardless of order", function () {
+  var fixture = coordinatorFixture();
+  fixture.clay.sm.sessions.set(fixture.duplicateWorker.localId, fixture.duplicateWorker);
+
+  function assertAmbiguousWorkerHidden() {
+    var projection = buildGlobalCoopProjection({ projects: [fixture.lead, fixture.clay] });
+    var serialized = JSON.stringify(projection.projects[0].summary.coordinatorTree);
+    assert.equal(serialized.includes("Implement hierarchy projection"), false);
+    assert.equal(serialized.includes("Duplicate storage record"), false);
+    assert.equal(projection.projects[0].summary.metrics.activeTaskWorkers, 1);
+  }
+
+  assertAmbiguousWorkerHidden();
+  var entries = Array.from(fixture.clay.sm.sessions.entries());
+  fixture.clay.sm.sessions = new Map([
+    [fixture.duplicateWorker.localId, fixture.duplicateWorker],
+  ].concat(entries.filter(function (entry) {
+    return entry[0] !== fixture.duplicateWorker.localId;
+  })));
+  assertAmbiguousWorkerHidden();
+});
+
+test("global Coop hierarchy applies session ACLs independently at task and worker depth", function () {
+  var fixture = coordinatorFixture();
+  var denyWorker = buildGlobalCoopProjection({
+    projects: [fixture.lead, fixture.clay],
+    canAccessSession: function (_actor, _project, sessionValue) {
+      return sessionValue.storageId !== "clay-worker-attention";
+    },
+  });
+  var workerSummary = denyWorker.projects[0].summary;
+  assert.equal(JSON.stringify(workerSummary.coordinatorTree).includes("clay-worker-attention"), false);
+  assert.equal(workerSummary.metrics.activeWorkers, 1);
+  assert.equal(workerSummary.metrics.activeTaskWorkers, 1);
+
+  var denyTaskCoordinator = buildGlobalCoopProjection({
+    projects: [fixture.lead, fixture.clay],
+    canAccessSession: function (_actor, _project, sessionValue) {
+      return sessionValue.storageId !== "clay-active-task-coordinator";
+    },
+  });
+  var taskSummary = denyTaskCoordinator.projects[0].summary;
+  assert.equal(JSON.stringify(taskSummary.coordinatorTree).includes("clay-active-task-coordinator"), false);
+  assert.equal(JSON.stringify(taskSummary.coordinatorTree).includes("clay-worker-running"), false);
+  assert.equal(taskSummary.metrics.activeWorkers, 0);
+  assert.equal(taskSummary.metrics.activeTaskWorkers, 0);
+});
+
+test("global Coop hierarchy accepts the durable legacy worker storage binding", function () {
+  var fixture = coordinatorFixture();
+  var taskRecord = fixture.clayActive.orchestrationTasks[0];
+  taskRecord.workerSessionStorageId = taskRecord.workerStorageId;
+  delete taskRecord.workerStorageId;
+  var projection = buildGlobalCoopProjection({ projects: [fixture.lead, fixture.clay] });
+  assert.equal(JSON.stringify(projection.projects[0].summary.coordinatorTree)
+    .includes("clay-worker-running"), true);
+});
+
+test("global Coop hierarchy rejects malformed durable bindings without local-id fallback", function () {
+  var malformedValues = ["", 0, { invalid: true }];
+  for (var i = 0; i < malformedValues.length; i++) {
+    var fixture = coordinatorFixture();
+    var taskRecord = fixture.clayActive.orchestrationTasks[0];
+    taskRecord.workerStorageId = malformedValues[i];
+    taskRecord.workerSessionId = fixture.clayWorkerRunning.localId;
+    var projection = buildGlobalCoopProjection({ projects: [fixture.lead, fixture.clay] });
+    assert.equal(JSON.stringify(projection.projects[0].summary.coordinatorTree)
+      .includes("clay-worker-running"), false);
+  }
+});
+
+test("global Coop hierarchy fails closed when canonical project roots are ambiguous", function () {
+  var fixture = coordinatorFixture();
+  var secondRoot = session(31, {
+    storageId: "second-canonical-project-coordinator",
+    title: "Second canonical project coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationTasks: [],
+  });
+  fixture.clay.sm.sessions.set(secondRoot.localId, secondRoot);
+
+  function assertNoArbitraryRoot() {
+    var projection = buildGlobalCoopProjection({ projects: [fixture.lead, fixture.clay] });
+    assert.equal(projection.projects[0].summary.coordinatorTree.length, 0);
+    assert.equal(projection.projects[0].summary.metrics.activeCoordinators, 0);
+  }
+
+  assertNoArbitraryRoot();
+  var entries = Array.from(fixture.clay.sm.sessions.entries());
+  fixture.clay.sm.sessions = new Map([[secondRoot.localId, secondRoot]].concat(entries.filter(function (entry) {
+    return entry[0] !== secondRoot.localId;
+  })));
+  assertNoArbitraryRoot();
+});
+
+test("project summary helper fails closed without canonical Coop identity", function () {
+  var fixture = coordinatorFixture();
+  var summary = globalCoopProjection.summaryForProject({}, fixture.clay);
+  assert.equal(summary.coordinatorTree.length, 0);
+  assert.equal(summary.activeWork.length, 0);
+  assert.equal(summary.metrics.activeCoordinators, 0);
+  assert.equal(summary.metrics.activeWorkers, 0);
+  assert.equal(summary.metrics.activeTaskWorkers, 0);
 });
 
 function createElement(tag) {
@@ -193,7 +446,7 @@ function moduleUrl(name) {
   return pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", name)).href;
 }
 
-function projectedProject(projectId, title, childTitle) {
+function projectedProject(projectId, title, childTitle, workerTitle) {
   return {
     projectRef: { projectId: projectId },
     title: title,
@@ -209,7 +462,23 @@ function projectedProject(projectId, title, childTitle) {
           title: childTitle,
           role: "task_coordinator",
           status: "running",
-          children: [],
+          taskRef: {
+            projectId: projectId,
+            coordinatorSessionStorageId: title.toLowerCase() + "-project-coordinator",
+            taskId: title.toLowerCase() + "-task",
+          },
+          children: workerTitle ? [{
+            sessionRef: { projectId: projectId, sessionStorageId: title.toLowerCase() + "-worker" },
+            taskRef: {
+              projectId: projectId,
+              coordinatorSessionStorageId: title.toLowerCase() + "-task-coordinator",
+              taskId: title.toLowerCase() + "-worker-task",
+            },
+            title: workerTitle,
+            role: "worker",
+            status: "running",
+            children: [],
+          }] : [],
         }] : [],
       }],
     },
@@ -219,11 +488,12 @@ function projectedProject(projectId, title, childTitle) {
 test("shared Coop renderer places project coordinator rows in desktop and mobile global sidebars", async function () {
   globalThis.document = { createElement: createElement };
   var modelModule = await import(moduleUrl("sidebar-coop-topic-model.js") + "?v=" + Date.now());
+  var hierarchyModel = await import(moduleUrl("sidebar-coop-hierarchy-model.js") + "?v=" + Date.now());
   var renderer = await import(moduleUrl("sidebar-coop-hierarchy.js") + "?v=" + Date.now());
   var model = {
     hasProjection: true,
     projects: [
-      projectedProject(CLAY, "Clay", "Show project coordinators in Coop sidebar"),
+      projectedProject(CLAY, "Clay", "Show project coordinators in Coop sidebar", "Implement hierarchy projection"),
       projectedProject(WEBAPP, "Webapp", ""),
     ],
     uncategorisedTopics: [],
@@ -233,11 +503,16 @@ test("shared Coop renderer places project coordinator rows in desktop and mobile
   assert.deepEqual(sections.map(function (section) { return section.label; }), ["Clay", "Webapp"],
     "project roots create global Coop groups even when no topic row exists");
 
+  var normalized = hierarchyModel.cloneCoopProjectHierarchy(model.projects[0].summary.coordinatorTree);
+  assert.equal(normalized[0].children[0].children[0].role, "worker");
+  assert.equal(normalized[0].children[0].children[0].taskRef.taskId, "clay-worker-task");
+
+  var sent = [];
   var desktop = createElement("div");
   var mobile = createElement("div");
   for (var i = 0; i < sections.length; i++) {
     renderer.renderCoopProjectHierarchy(desktop, sections[i].hierarchy, {
-      mobile: false, send: function () { return true; },
+      mobile: false, send: function (message) { sent.push(message); return true; },
     });
     renderer.renderCoopProjectHierarchy(mobile, sections[i].hierarchy, {
       mobile: true, send: function () { return true; },
@@ -248,9 +523,20 @@ test("shared Coop renderer places project coordinator rows in desktop and mobile
   var mobileRows = byClass(mobile, "mobile-coop-project-coordinator-row");
   assert.equal(desktopRows.filter(function (row) { return row.classList.contains("root"); }).length, 2);
   assert.equal(desktopRows.filter(function (row) { return row.classList.contains("child"); }).length, 1);
+  assert.equal(desktopRows.filter(function (row) { return row.classList.contains("grandchild"); }).length, 1);
   assert.equal(mobileRows.filter(function (row) { return row.classList.contains("root"); }).length, 2);
   assert.equal(mobileRows.filter(function (row) { return row.classList.contains("child"); }).length, 1);
+  assert.equal(mobileRows.filter(function (row) { return row.classList.contains("grandchild"); }).length, 1);
   assert.equal(desktopRows.filter(function (row) { return row.classList.contains("child"); })[0]
     .children[1].textContent,
     "Show project coordinators in Coop sidebar");
+  var desktopWorker = desktopRows.filter(function (row) { return row.classList.contains("grandchild"); })[0];
+  assert.equal(desktopWorker.children[0].attributes.title, "Working",
+    "the status marker keeps the project-session tooltip interaction");
+  desktopWorker.listeners.click();
+  assert.deepEqual(sent[sent.length - 1], {
+    type: "resolve_session_ref",
+    sessionRef: { projectId: CLAY, sessionStorageId: "clay-worker" },
+    scope: "owner_request_hierarchy",
+  }, "clicking a worker opens its exact canonical SessionRef");
 });
