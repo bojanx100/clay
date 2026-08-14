@@ -402,6 +402,29 @@ test("project summary helper fails closed without canonical Coop identity", func
   assert.equal(summary.metrics.activeTaskWorkers, 0);
 });
 
+test("global Coop hierarchy caps third-level worker fan-out synchronously", function () {
+  var fixture = coordinatorFixture();
+  for (var i = 0; i < 30; i++) {
+    var worker = session(100 + i, {
+      storageId: "fanout-worker-" + i,
+      title: "Fan-out worker " + i,
+      coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+      orchestrationParent: {
+        taskId: "fanout-task-" + i,
+        sessionStorageId: fixture.clayActive.storageId,
+      },
+    });
+    fixture.clayActive.orchestrationTasks.push(task("fanout-task-" + i, "running", worker));
+    fixture.clay.sm.sessions.set(worker.localId, worker);
+  }
+  var projection = buildGlobalCoopProjection({ projects: [fixture.lead, fixture.clay] });
+  var taskCoordinator = projection.projects[0].summary.coordinatorTree[0].children[0];
+  assert.equal(taskCoordinator.children.length, 24);
+  assert.equal(projection.projects[0].summary.metrics.activeTaskWorkers, 24);
+  assert.equal(taskCoordinator.children[0].title, "Fan-out worker 29",
+    "the synchronous cap retains the existing status and recency ordering");
+});
+
 function createElement(tag) {
   var node = {
     tagName: String(tag).toUpperCase(),
