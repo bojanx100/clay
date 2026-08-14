@@ -182,17 +182,60 @@ test("both surfaces read section order from the one shared model function", func
   assert.match(mobile, /renderCoopTopicSections/);
 });
 
-test("desktop and mobile expose current attention through the topic hierarchy, never raw Unanswered rows", function () {
+test("desktop and mobile omit Now and expose execution through the project hierarchy", function () {
   var topics = source("sidebar-coop-topics.js");
   var desktop = source("sidebar-sessions.js");
   var mobile = source("sidebar-mobile.js");
   var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
 
   assert.match(topics, /renderCoopNowIndex/);
+  assert.match(topics, /entries: \[\]/,
+    "the shared desktop/mobile boundary must suppress every legacy Now entry");
   assert.doesNotMatch(topics, /owner-request|OwnerRequest|Unanswered/);
   assert.doesNotMatch(desktop, /ownerRequestPanelSignature|coop-owner-request/);
   assert.doesNotMatch(mobile, /coop-owner-request/);
   assert.doesNotMatch(css, /coop-owner-request|coop-owner-requests/);
+});
+
+test("admitted work leaves Topics while unadmitted intake in the same project remains", async function () {
+  var ui = await loadTopicControls();
+  var coordinatorRef = { projectId: CLAY, sessionStorageId: "clay-project-coordinator" };
+  ui.projection.setGlobalCoopProjection(projectionMessage({
+    projects: [{
+      projectRef: { projectId: CLAY }, slug: "clay", title: "Clay",
+      summary: {
+        coordinatorTree: [{
+          sessionRef: coordinatorRef,
+          title: "Project coordinator",
+          role: "project_coordinator",
+          status: "running",
+          children: [],
+        }],
+      },
+      topics: [
+        topic("intake", { projectRef: { projectId: CLAY }, workState: "needs_input", stateSource: "unlinked_default" }),
+        topic("working", { projectRef: { projectId: CLAY }, workState: "working", stateSource: "task_working" }),
+        topic("attention", { projectRef: { projectId: CLAY }, workState: "needs_input", stateSource: "task_attention" }),
+        topic("accepted", { projectRef: { projectId: CLAY }, workState: "done", stateSource: "task_accepted" }),
+        topic("legacy-linked", {
+          projectRef: { projectId: CLAY }, workState: "needs_input", stateSource: "unlinked_default",
+          relatedSessions: [{ sessionRef: coordinatorRef, projectRef: { projectId: CLAY }, title: "Project coordinator" }],
+        }),
+      ],
+    }],
+    topics: [
+      topic("foreground-intake", { group: "uncategorised", workState: "working", stateSource: "foreground" }),
+      topic("cross-admitted", { group: "cross_project", workState: "done", stateSource: "execution_completed" }),
+    ],
+  }));
+
+  var sections = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
+  assert.deepEqual(sectionShape(sections), ["uncategorised:Uncategorised", "project:Clay"]);
+  assert.deepEqual(sections[0].topics.map(function (item) { return item.topicRef.topicId; }), ["foreground-intake"]);
+  assert.deepEqual(sections[1].topics.map(function (item) { return item.topicRef.topicId; }), ["intake"]);
+  assert.equal(sections[1].hierarchy.length, 1, "the persistent coordinator stays visible");
+  assert.equal(sections.some(function (section) { return section.kind === "done"; }), false,
+    "admitted completed work does not reappear as a duplicate Done topic");
 });
 
 test("Close moves a topic to the Done section and Reopen restores it without loss", async function () {
