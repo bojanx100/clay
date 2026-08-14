@@ -142,7 +142,7 @@ test("the Coop session ledger reconciles bindings and live session truth idempot
     lastActivity: 600,
     coopControlledBy: { coopSessionStorageId: "coop-home", since: 150 },
     orchestrationPolicy: { portfolioExecution: execution(
-      "completed-visible", "direct_leaf", "completed", { completedAt: 600 }
+      "completed-visible", "direct_leaf", "running", { completedAt: 600 }
     ) },
   };
   var ownerDirect = {
@@ -372,6 +372,92 @@ test("project-coordinator needs-input execution outranks retained active tasks",
   assert.equal(projected.workState, "needs_input");
   assert.equal(projected.hidden, false);
   assert.equal(projected.terminalOutcome, null);
+});
+
+test("terminal child bindings outrank stale task-coordinator runtime state", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-terminal-child-"));
+  var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
+  var taskId = "orphan-coordinator-lifecycle";
+  var rootId = "585c5ab9-8526-498a-8a88-7fc105a290ac";
+  var revisions = [{
+    revision: 3,
+    storageId: "70ee959b-9b4c-4ae6-a65e-1982195d0e6e",
+    status: "failed",
+  }, {
+    revision: 5,
+    storageId: "30086b0e-6440-4b07-ad62-53a6ca9b3ac8",
+    status: "failed",
+  }, {
+    revision: 6,
+    storageId: "completed-r6",
+    status: "completed",
+  }];
+  var root = {
+    storageId: rootId,
+    title: "Project coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+    orchestrationTasks: [],
+  };
+  var sessions = [root];
+  var bindings = [];
+  for (var i = 0; i < revisions.length; i++) {
+    var item = revisions[i];
+    var taskKey = "task-r" + item.revision;
+    root.orchestrationTasks.push({
+      taskId: taskKey,
+      clientRef: "portfolio:" + taskId + ":" + item.revision,
+      externalTaskCoordinator: true,
+      workerStorageId: item.storageId,
+      status: item.revision === 6 ? "completed" : "running",
+      currentActivity: item.revision === 6 ? "Task coordinator completed" :
+        "Task coordinator is running",
+      updatedAt: 100 + item.revision,
+    });
+    sessions.push({
+      storageId: item.storageId,
+      title: "Task coordinator r" + item.revision,
+      hidden: item.revision === 6,
+      coordinationMode: true,
+      coordinationRole: "task_coordinator",
+      orchestrationParent: { taskId: taskKey, sessionStorageId: rootId },
+      orchestrationPolicy: { portfolioExecution: execution(
+        taskId, "project_coordinator", item.revision === 6 ? "completed" : "running", {
+          bindingRevision: item.revision,
+          idempotencyKey: taskId + "-r" + item.revision,
+          updatedAt: 200 + item.revision,
+        }
+      ) },
+    });
+    var record = binding(taskId, CLAY_ID, item.storageId, "project_coordinator", item.status);
+    record.bindingRevision = item.revision;
+    record.idempotencyKey = taskId + "-r" + item.revision;
+    record.updatedAt = 300 + item.revision;
+    record.completedAt = 300 + item.revision;
+    record.statusReason = item.status === "completed" ? "Later revision completed." :
+      "Exact revision failed.";
+    bindings.push(record);
+  }
+  root.orchestrationTasks.push({ taskId: "current-work", status: "running", updatedAt: 500 });
+
+  assert.equal(ledger.reconcile({
+    bindings: bindings,
+    projects: [project(CLAY_ID, sessions)],
+  }).ok, true);
+  for (var revisionIndex = 0; revisionIndex < 2; revisionIndex++) {
+    var failed = ledger.get({ projectId: CLAY_ID, sessionStorageId: revisions[revisionIndex].storageId });
+    assert.equal(failed.lifecycleState, "failed");
+    assert.equal(failed.workState, "needs_input");
+    assert.equal(failed.closedAt, 300 + revisions[revisionIndex].revision);
+    assert.equal(failed.hidden, false, "projection reconciliation must not hide prior failures");
+  }
+  var completed = ledger.get({ projectId: CLAY_ID, sessionStorageId: "completed-r6" });
+  assert.equal(completed.lifecycleState, "completed");
+  assert.equal(completed.workState, "done");
+  var persistent = ledger.get({ projectId: CLAY_ID, sessionStorageId: rootId });
+  assert.equal(persistent.lifecycleState, "running");
+  assert.equal(persistent.workState, "working");
 });
 
 test("a compacted continuation inherits the exact source binding and topic", function () {
