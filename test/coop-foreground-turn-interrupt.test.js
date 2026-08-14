@@ -22,8 +22,10 @@ function query(name) {
   };
 }
 
-function harness() {
+function harness(options) {
+  options = options || {};
   var starts = [];
+  var pushes = [];
   var leadTicks = 0;
   var session = {
     coopHome: true,
@@ -66,7 +68,10 @@ function harness() {
       // Production startQuery is async and does not replace queryInstance until
       // provider setup finishes. Preserve that timing in this regression.
       startQuery: function (target, text) { starts.push(text); },
-      pushMessage: function () { throw new Error("foreground turns must start separately"); },
+      pushMessage: function (target, text) {
+        if (!options.allowPush) throw new Error("foreground turns must start separately");
+        pushes.push(text);
+      },
     },
     sendToSession: function () {},
     onProcessingChanged: function () {},
@@ -104,12 +109,50 @@ function harness() {
     control: control,
     finalize: finalize,
     leadTickCount: function () { return leadTicks; },
+    pushes: pushes,
     queue: queue,
     session: session,
     starts: starts,
     startLeadTick: startLeadTick,
   };
 }
+
+test("owner ingress dispatches through an idle reusable Codex query", function () {
+  var h = harness({ allowPush: true });
+  var idleQuery = query("idle-codex");
+  var owner = OWNER_MESSAGES[0];
+  var ingressId = "coop:" + COOP_SESSION + ":" + owner.sequence;
+  h.session.queryInstance = idleQuery;
+  h.session.isProcessing = false;
+  h.session.history.push({
+    type: "user_message",
+    text: owner.text,
+    _ts: owner.at,
+    coopIngressId: ingressId,
+    coopIngressSequence: owner.sequence,
+    coopIngressPending: true,
+  });
+
+  h.queue.dispatchPreparedToSdk(h.session, {
+    coopIngress: true,
+    ingressId: ingressId,
+    ingressSequence: owner.sequence,
+    finalText: owner.text,
+    displayText: owner.text,
+    images: null,
+    pastes: null,
+    imageCount: 0,
+    clientMessageId: "owner-" + owner.sequence,
+    intent: "chat",
+  });
+
+  assert.equal(h.session.pendingCoopIngress.length, 0);
+  assert.equal(h.session.coopConversationIngress.activeIngressId, ingressId);
+  assert.equal(h.session.isProcessing, true);
+  assert.equal(h.session.queryInstance, idleQuery);
+  assert.deepEqual(h.pushes, [owner.text]);
+  assert.deepEqual(h.starts, []);
+});
 
 test("owner ingress 254-256 preempts each Lead tick before background work resumes", function () {
   var h = harness();

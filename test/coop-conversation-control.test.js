@@ -82,7 +82,11 @@ test("active Coop turns prioritize later ingress without using the normal queue"
   assert.equal(session.coopPriorityInterruptRequested, true);
   assert.ok(aborted >= 1);
 
+  // The interrupted turn's finalizer clears the stop state before reconciling
+  // the foreground queue.
   session.isProcessing = false;
+  session.taskStopRequested = false;
+  session.steerInterruptRequested = false;
   h.queue.flushCoopIngress(session);
   assert.equal(h.events.includes("start:first"), true);
   assert.equal(session.history[0].coopIngressPending, undefined);
