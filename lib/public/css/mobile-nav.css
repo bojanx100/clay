@@ -883,31 +883,15 @@
   /* Status dot is now inline within the row for compact single-row design.
      The accessible name still includes the state, and tooltip provides full text. */
   .mobile-coop-topic-title { overflow: hidden; flex: 1 1 auto; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-coop-topic-state-label { flex: 0 0 auto; color: var(--text-dimmer); font-size: 11px; }
   .mobile-coop-topic-wrapper { margin: 3px 0 5px; }
   .mobile-coop-topic-wrapper.active { border-left: 2px solid var(--accent); }
   .mobile-coop-topic-row { min-height: 40px; gap: 5px; padding: 9px 10px 4px 11px; font-size: 14px; }
-  /* Status dot: compact inline indicator with animation for working state. */
+  /* Compact static lifecycle indicator; the accessible name also states it. */
   .mobile-coop-topic-status { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--text-dimmer); }
-  .mobile-coop-topic-status-active,
-  .mobile-coop-topic-status-running { background: var(--accent); }
-  .mobile-coop-topic-status-blocked,
-  .mobile-coop-topic-status-failed,
-  .mobile-coop-topic-status-needs_input { background: var(--warning, #d99824); }
+  .mobile-coop-topic-status-exploring { background: var(--accent); }
+  .mobile-coop-topic-status-parked { background: var(--warning, #d99824); }
   .mobile-coop-topic-wrapper.attention .mobile-coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }
-  /* Pulse animation for working state: only when actively in progress. */
-  .mobile-coop-topic-status[data-animating="working"] {
-    animation: mobile-coop-topic-status-pulse 1.2s ease-in-out infinite;
-  }
-  /* Respect prefers-reduced-motion by disabling animation. */
-  @media (prefers-reduced-motion: reduce) {
-    .mobile-coop-topic-status[data-animating="working"] {
-      animation: none;
-    }
-  }
-  @keyframes mobile-coop-topic-status-pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(1.2); }
-  }
   .mobile-coop-topic-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mobile-coop-topic-unread { flex: 0 0 auto; padding: 2px 6px; border-radius: 9px; background: rgba(var(--accent-rgb), .14); color: var(--accent); font-size: 10px; }
 
@@ -1679,7 +1663,7 @@
 
 @media (max-width: 900px) {
   
-  /* Compact collapsed Done section on the phone sheet. */
+  /* Compact collapsed Closed section on the phone sheet. */
   .mobile-coop-topic-done-toggle { display: block; width: 100%; min-height: 42px; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-dimmer); cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; text-align: left; }
   .mobile-coop-topic-done-toggle:active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
 }

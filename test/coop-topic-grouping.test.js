@@ -670,6 +670,65 @@ test("merging a topic moves its owner requests and coordinator claim to the targ
   assert.equal(h.ledger.get(id).response.state, "unanswered");
 });
 
+test("undoing a Thread merge restores transcript membership and owner-request ownership", function () {
+  var h = mergeHarness();
+  h.index.load().topics[SOURCE.topicId] = makeTopic(SOURCE.topicId, "Provider fallback rework",
+    { kind: "uncategorised" }, "automatic", 1, ["provider", "fallback"]);
+  h.index.save();
+  var id = seedRequest(h.ledger, 201, SOURCE);
+
+  management.handleManagement(h.ctx, {}, {
+    type: "coop_thread_merge", targetThreadRef: { threadId: CANON.topicId },
+    threadRef: { threadId: SOURCE.topicId },
+    sourceThreadRefs: [{ threadId: SOURCE.topicId }],
+  }, h.deps);
+  assert.equal(h.sent[0].ok, true, JSON.stringify(h.sent[0]));
+  assert.deepEqual(h.ledger.get(id).topicRef, CANON);
+  assert.equal(h.index.resolve(SOURCE, true).topic.status, "merged");
+
+  h.sent.length = 0;
+  management.handleManagement(h.ctx, {}, { type: "coop_thread_undo" }, h.deps);
+  assert.equal(h.sent[0].ok, true, JSON.stringify(h.sent[0]));
+  assert.deepEqual(h.ledger.get(id).topicRef, SOURCE,
+    "Undo restores the exact reference-only owner-request attribution");
+  assert.equal(h.index.resolve(SOURCE, true).topic.status, "open");
+  assert.equal(h.index.resolve(CANON, true).topic.eventRefs.length, 0);
+});
+
+test("reassigning and undoing a Thread turn moves its owner request without transcript loss", function () {
+  var h = mergeHarness();
+  var source = makeTopic(SOURCE.topicId, "Provider fallback rework",
+    { kind: "uncategorised" }, "automatic", 1, ["provider", "fallback"]);
+  var turn = { projectId: "system-lead", sessionStorageId: "canonical-home",
+    startEventIndex: 40, endEventIndex: 42 };
+  source.turnRefs = [turn];
+  source.eventRefs = [{ projectId: "system-lead", sessionStorageId: "canonical-home", eventIndex: 40 }];
+  h.index.load().topics[SOURCE.topicId] = source;
+  h.index.save();
+  var id = "coop:871a194b-8879-40f7-a1fe-656e48e722af:202";
+  h.ledger.record({ ingressId: id, ingressSequence: 202,
+    sessionRef: { projectId: "system-lead", sessionStorageId: "871a194b-8879-40f7-a1fe-656e48e722af" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-home", eventIndex: 40 } });
+  h.ledger.classify(id, { kind: "existing_topic", topicRef: SOURCE,
+    projectRefs: [{ projectId: CLAY_ID }] });
+
+  management.handleManagement(h.ctx, {}, {
+    type: "coop_thread_reassign", sourceThreadRef: { threadId: SOURCE.topicId },
+    targetThreadRef: { threadId: CANON.topicId }, turnRef: turn,
+  }, h.deps);
+  assert.equal(h.sent[0].ok, true);
+  assert.deepEqual(h.ledger.get(id).topicRef, CANON);
+  assert.equal(h.index.resolve(SOURCE, true).topic.turnRefs.length, 0);
+  assert.equal(h.index.resolve(CANON, true).topic.turnRefs.length, 7);
+
+  h.sent.length = 0;
+  management.handleManagement(h.ctx, {}, { type: "coop_thread_undo" }, h.deps);
+  assert.equal(h.sent[0].ok, true);
+  assert.deepEqual(h.ledger.get(id).topicRef, SOURCE);
+  assert.equal(h.index.resolve(SOURCE, true).topic.turnRefs.length, 1);
+  assert.equal(h.index.resolve(CANON, true).topic.turnRefs.length, 6);
+});
+
 test("a merge whose ledger move cannot be persisted is reported as failed", function () {
   var stubbed = {
     retopic: function () { return { ok: false, reason: "persistence_failed" }; },

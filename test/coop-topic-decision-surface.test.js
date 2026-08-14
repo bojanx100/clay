@@ -34,10 +34,11 @@ test("task items are matched to the topic by canonical TopicRef only", function 
   assert.doesNotMatch(surface, /\.title ===|updatedAt/);
 });
 
-test("the surface fails closed instead of rendering a verbs-only card", function () {
-  // No selected topic -> nothing; no panels -> null; empty host is hidden.
+test("the surface always renders lifecycle controls for a selected Thread", function () {
+  // No selected Thread -> nothing; lifecycle controls remain without decisions.
   assert.match(surface, /if \(!topic\) return null;/);
-  assert.match(surface, /if \(!panels\.length\) return null;/);
+  assert.match(surface, /import \{ createThreadControls \} from '\.\/coop-thread-controls\.js';/);
+  assert.match(surface, /surface\.appendChild\(createThreadControls\(topic, opts\)\)/);
   assert.match(surface, /host\.hidden = !surface;/);
 });
 
@@ -52,11 +53,11 @@ test("the surface mounts above the conversation, once", function () {
   assert.match(surface, /getElementById\(SURFACE_ID\)/);
 });
 
-test("the heading names the topic and is announced as a heading", function () {
-  assert.match(surface, /"Your decision \u2014 " \+ canonicalTopicTitle\(topic, "this topic"\)/);
+test("the heading names the Thread and is announced as a heading", function () {
+  assert.match(surface, /"Thread \u2014 " \+ canonicalTopicTitle\(topic, "this Thread"\)/);
   assert.match(surface, /setAttribute\("role", "heading"\)/);
   assert.match(surface, /setAttribute\("aria-level", "2"\)/);
-  assert.match(surface, /setAttribute\("aria-label", "Decisions for "/);
+  assert.match(surface, /setAttribute\("aria-label", "Controls for "/);
 });
 
 test("the surface repaints on every store key it derives from", function () {

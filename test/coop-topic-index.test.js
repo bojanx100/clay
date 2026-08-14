@@ -187,14 +187,17 @@ test("topic metadata operations preserve references and nested execution links",
     assert.equal(h.index.rename(selected.topicRef, "Renamed follow up").ok, true);
     assert.equal(h.index.move(selected.topicRef, { projectRef: { projectId: CLAY } }).ok, true);
     assert.equal(h.index.addEventMembership(selected.topicRef, [{ eventIndex: 0 }]).ok, true);
-    assert.equal(h.index.linkExecution(selected.topicRef, {
+    var linkedExecution = {
       projectRef: { projectId: CLAY },
       children: [{ sessionRef: { projectId: CLAY, sessionStorageId: "project-coordinator" }, children: [{
         taskRef: { projectId: CLAY, coordinatorSessionStorageId: "project-coordinator", taskId: "child-task" },
       }] }],
-    }).ok, true);
+    };
+    assert.equal(h.index.linkExecution(selected.topicRef, linkedExecution).ok, true);
+    assert.equal(h.index.linkExecution(selected.topicRef, linkedExecution).unchanged, true);
     assert.equal(h.index.merge(selected.topicRef, [mergeSource.topicRef]).ok, true);
     assert.equal(h.index.resolve(mergeSource.topicRef, true).topic.status, "merged");
+    assert.equal(h.index.resolve(selected.topicRef).topic.relatedExecutions.length, 1);
     assert.equal(h.index.resolve(selected.topicRef).topic.relatedExecutions[0].children[0].children[0].taskRef.taskId, "child-task");
 
     var split = h.index.split(selected.topicRef, [{
@@ -352,6 +355,7 @@ test("canonical topic ingress rejects stale, deleted, mismatched, and unavailabl
     assert.deepEqual(h.index.resolveCanonicalEvent({ topicId: "navigation-session-restoration" }, { eventIndex: 6 }), {
       ok: true,
       topicRef: { topicId: "navigation-session-restoration" },
+      threadRef: { threadId: "navigation-session-restoration" },
       eventRef: { projectId: "system-lead", sessionStorageId: "canonical-topic-home", eventIndex: 6 },
       turnRef: { projectId: "system-lead", sessionStorageId: "canonical-topic-home", startEventIndex: 6, endEventIndex: 8 },
     });
@@ -389,6 +393,8 @@ test("automatic classification reuses durable topics and infers a bounded projec
     // ledger: reusing a durable topic is existing_topic, never new_topic.
     assert.deepEqual(seed, {
       ok: true, topicRef: { topicId: "navigation-session-restoration" },
+      threadRef: { threadId: "navigation-session-restoration" },
+      threadState: "exploring", threadTitle: "Navigation and session restoration",
       projectRef: { projectId: CLAY }, created: false, classification: "existing_topic",
     });
 

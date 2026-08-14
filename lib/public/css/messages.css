@@ -2192,6 +2192,23 @@ body.wide-view .turn-meta {
   overflow-wrap: anywhere;
 }
 
+.coop-thread-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.coop-thread-state { padding: 4px 8px; border-radius: 999px; background: rgba(var(--accent-rgb), .12); color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.coop-thread-control { min-height: 30px; padding: 5px 9px; border: 1px solid var(--border-subtle); border-radius: 7px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 11px; }
+.coop-thread-control:hover { border-color: var(--accent); color: var(--text); }
+.coop-thread-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.coop-thread-dialog-overlay { position: fixed; z-index: 10020; inset: 0; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0, 0, 0, .48); }
+.coop-thread-dialog { width: min(440px, 100%); max-height: min(620px, calc(100vh - 36px)); overflow: auto; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); box-shadow: 0 18px 50px rgba(0, 0, 0, .28); }
+.coop-thread-dialog h2 { margin: 0 0 8px; color: var(--text); font-size: 16px; }
+.coop-thread-dialog p { margin: 0 0 14px; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+.coop-thread-dialog-actions, .coop-thread-target-list { display: flex; flex-direction: column; gap: 8px; }
+.coop-thread-dialog-button, .coop-thread-target { min-height: 38px; padding: 8px 11px; border: 1px solid var(--border-subtle); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; font: inherit; text-align: left; }
+.coop-thread-dialog-button:hover, .coop-thread-target:hover { border-color: var(--accent); background: var(--sidebar-hover); }
+.coop-thread-dialog-button.destructive { color: var(--danger, #d45b5b); }
+.coop-thread-dialog-button.quiet { color: var(--text-dimmer); }
+.coop-thread-dialog-button:focus-visible, .coop-thread-target:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* Task-scoped decision panel (worker result + verbs). */
 .coop-action-detail {
   display: flex;
@@ -2284,6 +2301,20 @@ body.wide-view .turn-meta {
 .coop-topic-review-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .coop-topic-review-action:disabled { opacity: .5; cursor: default; }
 .coop-topic-review-accept_done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
+
+.coop-thread-route {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 5px;
+  overflow: hidden;
+  color: var(--text-dimmer);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* --- Reply-anchor chip -------------------------------------------------------
    Names the topic-lens message a bubble is a reply to, so it no longer reads

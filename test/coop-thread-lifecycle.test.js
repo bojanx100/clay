@@ -49,6 +49,12 @@ function allThreads(projection) {
   }, []);
 }
 
+function durableThreads(index) {
+  return Object.keys(index.load().topics).filter(function (id) {
+    return id !== "uncategorised-conversations";
+  }).map(function (id) { return index.load().topics[id]; });
+}
+
 function threadForTurn(rows, startEventIndex) {
   return rows.find(function (row) {
     return row.lastTurnRef && row.lastTurnRef.startEventIndex === startEventIndex ||
@@ -64,7 +70,7 @@ test("three distinct owner themes become durable Threads and a related turn reat
       clayProjectRef: { projectId: CLAY }, projects: [],
     }).ok, true);
 
-    var rows = allThreads(h.index.project({ history: canonical.history }));
+    var rows = durableThreads(h.index);
     var renderer = threadForTurn(rows, 0);
     var narrative = threadForTurn(rows, 2);
     var travel = threadForTurn(rows, 4);
@@ -77,7 +83,10 @@ test("three distinct owner themes become durable Threads and a related turn reat
     assert.deepEqual(renderer.topicRef, { topicId: renderer.threadRef.threadId },
       "legacy TopicRef remains a lossless compatibility alias");
     assert.equal(renderer.threadState, lifecycle.THREAD_STATES.EXPLORING);
-    assert.deepEqual(renderer.lastTurnRef, {
+    var projectedRenderer = allThreads(h.index.project({ history: canonical.history })).find(function (row) {
+      return row.threadRef.threadId === renderer.threadRef.threadId;
+    });
+    assert.deepEqual(projectedRenderer.lastTurnRef, {
       projectId: "system-lead", sessionStorageId: canonical.storageId,
       startEventIndex: 6, endEventIndex: 7,
     });
@@ -120,7 +129,7 @@ test("owner correction reassigns and merges canonical turn references, then undo
   try {
     var canonical = session();
     h.index.ensureRetro(canonical, { clayProjectRef: { projectId: CLAY }, projects: [] });
-    var rows = allThreads(h.index.project({ history: canonical.history }));
+    var rows = durableThreads(h.index);
     var renderer = threadForTurn(rows, 0);
     var narrative = threadForTurn(rows, 2);
     var turn = {

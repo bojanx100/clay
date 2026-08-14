@@ -44,12 +44,28 @@ function createElement(tag) {
     node.children.push(child);
     return child;
   };
+  node.removeChild = function (child) {
+    var index = node.children.indexOf(child);
+    if (index !== -1) node.children.splice(index, 1);
+    child.parentNode = null;
+    return child;
+  };
   node.addEventListener = function (type, handler) {
     node.listeners[type] = (node.listeners[type] || []).concat(handler);
   };
   node.click = function () {
     var handlers = node.listeners.click || [];
-    for (var i = 0; i < handlers.length; i++) handlers[i]({ stopPropagation: function () {} });
+    for (var i = 0; i < handlers.length; i++) handlers[i]({ target: node, currentTarget: node,
+      stopPropagation: function () {}, preventDefault: function () {} });
+  };
+  node.focus = function () { if (globalThis.document) globalThis.document.activeElement = node; };
+  node.querySelectorAll = function (selector) {
+    if (selector !== "button:not([disabled])") return [];
+    return descendants(node).filter(function (item) { return item.tagName === "BUTTON" && !item.disabled; });
+  };
+  node.querySelector = function (selector) {
+    if (selector !== "button") return null;
+    return descendants(node).filter(function (item) { return item.tagName === "BUTTON"; })[0] || null;
   };
   return node;
 }
@@ -81,7 +97,9 @@ function source(name) {
 // projection module instance -- the controls resolve topics through it. Per-test
 // isolation comes from createStore plus a fresh setGlobalCoopProjection call.
 async function loadTopicControls() {
-  globalThis.document = { createElement: createElement, getElementById: function () { return null; } };
+  var body = createElement("body");
+  globalThis.document = { createElement: createElement, getElementById: function () { return null; },
+    body: body, activeElement: null };
   var storeModule = await import(modulePath("store.js"));
   storeModule.createStore({ activeCoopHome: true, currentSlug: "lead" });
   return {
@@ -197,7 +215,7 @@ test("desktop and mobile omit Now and expose execution through the project hiera
   assert.doesNotMatch(css, /coop-owner-request|coop-owner-requests/);
 });
 
-test("admitted work leaves Topics while unadmitted intake in the same project remains", async function () {
+test("admitted work leaves Threads while unadmitted discussion remains", async function () {
   var ui = await loadTopicControls();
   var coordinatorRef = { projectId: CLAY, sessionStorageId: "clay-project-coordinator" };
   ui.projection.setGlobalCoopProjection(projectionMessage({
@@ -238,33 +256,53 @@ test("admitted work leaves Topics while unadmitted intake in the same project re
     "admitted completed work does not reappear as a duplicate Done topic");
 });
 
-test("Close moves a topic to the Done section and Reopen restores it without loss", async function () {
+test("the shared desktop/mobile model separates Exploring, Parked, Handed off, and Closed", async function () {
   var ui = await loadTopicControls();
-  function payload(status, workState, stateSource) {
+  ui.projection.setGlobalCoopProjection(projectionMessage({
+    projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [
+      topic("exploring", { projectRef: { projectId: CLAY }, threadState: "exploring" }),
+      topic("parked", { projectRef: { projectId: CLAY }, threadState: "parked" }),
+      topic("handed-off", { projectRef: { projectId: CLAY }, threadState: "handed_off" }),
+      topic("closed", { projectRef: { projectId: CLAY }, threadState: "closed",
+        status: "closed", closeOutcome: "not_pursuing" }),
+    ] }],
+  }));
+  var sections = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
+  assert.deepEqual(sectionShape(sections), ["project:Clay", "parked:Parked", "closed:Closed"]);
+  assert.deepEqual(sections[0].topics.map(function (item) { return item.topicRef.topicId; }), ["exploring"]);
+  assert.deepEqual(sections[1].topics.map(function (item) { return item.topicRef.topicId; }), ["parked"]);
+  assert.deepEqual(sections[2].topics.map(function (item) { return item.topicRef.topicId; }), ["closed"]);
+  assert.equal(JSON.stringify(sections).indexOf("handed-off"), -1,
+    "Handed-off execution appears only beneath the persistent project coordinator");
+});
+
+test("Close moves a Thread to collapsed Closed and Resume restores it without loss", async function () {
+  var ui = await loadTopicControls();
+  function payload(status, threadState, closeOutcome) {
     return projectionMessage({
       projects: [{
         projectRef: { projectId: CLAY }, slug: "clay", title: "Clay",
         topics: [topic("close-refresh", {
           projectRef: { projectId: CLAY }, title: "Close refresh",
-          status: status, workState: workState, stateSource: stateSource,
+          status: status, threadState: threadState, closeOutcome: closeOutcome,
+          workState: "needs_input", stateSource: "unlinked_default",
           eventRefs: [{ sessionStorageId: "s", eventIndex: 3 }],
         })],
       }],
     });
   }
-  ui.projection.setGlobalCoopProjection(payload("open", "needs_input", "unlinked_default"));
+  ui.projection.setGlobalCoopProjection(payload("open", "exploring", null));
   assert.deepEqual(sectionShape(ui.model.coopTopicSections(
     ui.projection.buildGlobalCoopDisplayModel(""))), ["project:Clay"]);
 
-  // The authoritative post-close payload still contains the topic -- closed
-  // topics stay projectable as Done evidence -- so both surfaces move it to
-  // the compact Done section rather than dropping it.
-  ui.projection.setGlobalCoopProjection(payload("closed", "done", "topic_closed"));
+  // Closed Threads remain projectable as provenance in one compact section.
+  ui.projection.setGlobalCoopProjection(payload("closed", "closed", "implemented_resolved"));
   var closedModel = ui.projection.buildGlobalCoopDisplayModel("");
   var closedSections = ui.model.coopTopicSections(closedModel);
-  assert.deepEqual(sectionShape(closedSections), ["done:Done"]);
+  assert.deepEqual(sectionShape(closedSections), ["closed:Closed"]);
   var closedTopic = closedSections[0].topics[0];
   assert.equal(closedTopic.status, "closed");
+  assert.equal(closedTopic.closeOutcome, "implemented_resolved");
 
   // A closed row's overflow menu offers Reopen, not a dead second Close, and
   // activating it sends exactly the reopen message for the live topic.
@@ -274,28 +312,28 @@ test("Close moves a topic to the Done section and Reopen restores it without los
   });
   var toggle = byClass(menu, "coop-topic-menu-toggle")[0];
   var item = byClass(menu, "coop-topic-menu-item")[0];
-  assert.equal(item.textContent, "Reopen topic");
-  assert.equal(item.getAttribute("aria-label"), "Reopen topic Close refresh");
+  assert.equal(item.textContent, "Reopen Thread");
+  assert.equal(item.getAttribute("aria-label"), "Reopen Thread Close refresh");
   toggle.click();
   item.click();
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].type, "coop_topic_reopen");
-  assert.deepEqual(sent[0].topicRef, { topicId: "close-refresh" });
+  assert.deepEqual(sent[0], {
+    type: "coop_thread_state", state: "exploring", closeOutcome: null,
+    topicRef: { topicId: "close-refresh" }, threadRef: { threadId: "close-refresh" },
+  });
 
   // The post-reopen payload restores the topic to its open section with its
   // membership intact: nothing about the history was lost in the round trip.
-  ui.projection.setGlobalCoopProjection(payload("open", "needs_input", "unlinked_default"));
+  ui.projection.setGlobalCoopProjection(payload("open", "exploring", null));
   var reopened = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
   assert.deepEqual(sectionShape(reopened), ["project:Clay"]);
   assert.equal(reopened[0].topics[0].title, "Close refresh");
 
-  // An open row's menu still offers Close behind the confirmation, and the
-  // confirmation copy tells the truth about where the topic goes: the Done
-  // section, not oblivion.
+  // An open row offers the explicit-outcome Close dialog.
   var openMenu = ui.close.createTopicMenu(reopened[0].topics[0], { send: function () { return true; } });
-  assert.equal(byClass(openMenu, "coop-topic-menu-item")[0].textContent, "Close topic…");
-  assert.match(source("sidebar-coop-topic-close.js"), /Done section/);
-  assert.doesNotMatch(source("sidebar-coop-topic-close.js"), /stops appearing/);
+  assert.equal(byClass(openMenu, "coop-topic-menu-item")[0].textContent, "Close Thread…");
+  assert.match(source("coop-thread-controls.js"), /Implemented \/ resolved/);
+  assert.match(source("coop-thread-controls.js"), /Not pursuing/);
 
   var messages = source("app-messages-sessions.js");
   var handler = messages.slice(messages.indexOf("function handleGlobalCoopProjection"));
@@ -307,7 +345,7 @@ test("Close moves a topic to the Done section and Reopen restores it without los
 
 // --- Close action ---
 
-test("cancelling Close is a strict no-op and confirming closes exactly once", async function () {
+test("cancelling Close is a strict no-op and choosing an outcome closes exactly once", async function () {
   var ui = await loadTopicControls();
   var selected = topic("close-me", { projectRef: { projectId: CLAY }, title: "Closable topic" });
   ui.projection.setGlobalCoopProjection(projectionMessage({
@@ -316,28 +354,27 @@ test("cancelling Close is a strict no-op and confirming closes exactly once", as
   var known = ui.projection.buildGlobalCoopDisplayModel("").projects[0].topics[0];
 
   var sent = [];
-  var prompts = [];
-  function confirm(text, onConfirm, okLabel, destructive, cancelLabel) {
-    prompts.push({ text: text, okLabel: okLabel, destructive: destructive, cancelLabel: cancelLabel, onConfirm: onConfirm });
-  }
   function send(message) { sent.push(message); return true; }
 
-  assert.equal(ui.close.requestTopicClose(known, { confirm: confirm, send: send }), true);
-  assert.equal(prompts.length, 1);
-  // Opening the confirmation sends nothing; cancelling simply never calls back.
+  assert.equal(ui.close.requestTopicClose(known, { send: send }), true);
   assert.equal(sent.length, 0);
-  assert.match(prompts[0].text, /Closable topic/);
-  assert.equal(prompts[0].okLabel, "Close topic");
-  assert.equal(prompts[0].cancelLabel, "Cancel");
-  assert.equal(prompts[0].destructive, false);
+  var firstDialog = byClass(document.body, "coop-thread-dialog")[0];
+  var firstButtons = byClass(firstDialog, "coop-thread-dialog-button");
+  assert.deepEqual(firstButtons.map(function (button) { return button.textContent; }),
+    ["Implemented / resolved", "Not pursuing", "Cancel"]);
+  firstButtons[2].click();
+  assert.equal(sent.length, 0, "Cancel does not mutate durable state");
 
-  prompts[0].onConfirm();
-  prompts[0].onConfirm();
+  assert.equal(ui.close.requestTopicClose(known, { send: send }), true);
+  var secondDialog = byClass(document.body, "coop-thread-dialog")[0];
+  var implemented = byClass(secondDialog, "coop-thread-dialog-button")[0];
+  implemented.click();
+  implemented.click();
   assert.equal(sent.length, 1, "a repeated confirmation must not close twice");
   assert.deepEqual(sent[0], {
-    type: "coop_topic_close",
+    type: "coop_thread_state", state: "closed", closeOutcome: "implemented_resolved",
     topicRef: { topicId: "close-me" },
-    projectRef: { projectId: CLAY },
+    threadRef: { threadId: "close-me" },
   });
 });
 
@@ -350,18 +387,17 @@ test("Close re-resolves on confirm so a topic merged meanwhile is not resurrecte
   var known = ui.projection.buildGlobalCoopDisplayModel("").projects[0].topics[0];
 
   var sent = [];
-  var pending = null;
   assert.equal(ui.close.requestTopicClose(known, {
-    confirm: function (text, onConfirm) { pending = onConfirm; },
     send: function (message) { sent.push(message); return true; },
   }), true);
+  var pending = byClass(document.body, "coop-thread-dialog-button")[0];
 
   // While the modal is open the topic is merged away, so a refreshed projection
   // no longer contains it. Closing the captured copy would re-add it as closed.
   ui.projection.setGlobalCoopProjection(projectionMessage({
     projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [] }],
   }));
-  pending();
+  pending.click();
   assert.equal(sent.length, 0, "a topic that vanished mid-confirmation is not closed");
 });
 
@@ -396,9 +432,7 @@ test("the overflow menu is a keyboard-usable menu whose item never navigates the
     projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [selected] }],
   }));
   var known = ui.projection.buildGlobalCoopDisplayModel("").projects[0].topics[0];
-  var prompts = [];
   var menu = ui.close.createTopicMenu(known, {
-    confirm: function (text, onConfirm) { prompts.push(onConfirm); },
     send: function () { return true; },
   });
 
@@ -410,11 +444,11 @@ test("the overflow menu is a keyboard-usable menu whose item never navigates the
   assert.equal(toggle.getAttribute("aria-haspopup"), "menu");
   assert.equal(toggle.getAttribute("aria-expanded"), "false");
   assert.equal(toggle.getAttribute("aria-controls"), list.id);
-  assert.equal(toggle.getAttribute("aria-label"), "Topic options for Row topic");
+  assert.equal(toggle.getAttribute("aria-label"), "Thread options for Row topic");
   assert.equal(list.getAttribute("role"), "menu");
   assert.equal(list.hidden, true, "the menu starts collapsed");
   assert.equal(item.getAttribute("role"), "menuitem");
-  assert.equal(item.getAttribute("aria-label"), "Close topic Row topic");
+  assert.equal(item.getAttribute("aria-label"), "Close Thread Row topic");
 
   // Opening reflects into aria-expanded; the menu stays in the DOM either way.
   toggle.click();
@@ -430,13 +464,13 @@ test("the overflow menu is a keyboard-usable menu whose item never navigates the
   assert.deepEqual(focused, ["toggle"]);
 
   // Activating the item stops propagation (never navigates the row), closes
-  // the menu, and routes Close through the explicit confirmation.
+  // the menu, and routes Close through the explicit-outcome custom dialog.
   toggle.click();
   var stopped = 0;
   item.listeners.click[0]({ stopPropagation: function () { stopped++; } });
   assert.equal(stopped, 1);
   assert.equal(list.hidden, true, "acting closes the menu");
-  assert.equal(prompts.length, 1, "Close still goes through the confirmation");
+  assert.equal(byClass(document.body, "coop-thread-dialog").length, 1);
 });
 
 // --- Related-sessions expander ---
@@ -671,8 +705,9 @@ test("no forbidden Coop sidebar affordance reappears", function () {
   var topics = source("sidebar-coop-topics.js");
   var links = source("sidebar-coop-topic-links.js");
   var closeSource = source("sidebar-coop-topic-close.js");
+  var controls = source("coop-thread-controls.js");
   var model = source("sidebar-coop-topic-model.js");
-  var all = topics + links + closeSource + model;
+  var all = topics + links + closeSource + controls + model;
   assert.doesNotMatch(all, /New topic|coop-topic-create|coop_topic_create/);
   assert.doesNotMatch(all, /report-card|reportCard|coop-topic-diagnostics/);
   assert.doesNotMatch(all, /coop-topic-actions|coop-topic-drawer|coop-topic-details/);
@@ -686,16 +721,16 @@ test("no forbidden Coop sidebar affordance reappears", function () {
   assert.doesNotMatch(closeSource, /from '\.\/app-connection\.js'/);
 });
 
-// --- ARIA wiring for the decision panel and Done disclosure ---
+// --- ARIA wiring for the decision panel and Closed disclosure ---
 
-test("the decision panel and Done disclosure keep their accessible wiring", function () {
+test("the decision panel and Closed disclosure keep their accessible wiring", function () {
   // The review panel moved into the topic decision surface: it renders as a
   // labelled group, always open, and never as a sidebar disclosure toggle.
   var review = source("sidebar-coop-topic-review.js");
   assert.match(review, /var panelId = prefix \+ "coop-topic-review-panel-" \+ id\.replace/,
     "review panel ids stay stable per topic");
   assert.match(review, /wrapper\.setAttribute\("role", "group"\)/);
-  assert.match(review, /wrapper\.setAttribute\("aria-label", "Decide topic "/);
+  assert.match(review, /wrapper\.setAttribute\("aria-label", "Decide Thread "/);
   assert.doesNotMatch(review, /aria-expanded/,
     "no disclosure semantics remain: the panel is always open in context");
   assert.doesNotMatch(review, /createTopicReviewControl/,
@@ -703,17 +738,18 @@ test("the decision panel and Done disclosure keep their accessible wiring", func
 
   var topics = source("sidebar-coop-topics.js");
   assert.match(topics, /var panelId = prefix \+ "coop-topic-done-panel"/,
-    "the Done panel id is stable and the prefix keeps desktop/mobile unique");
+    "the legacy protocol id is stable while the owner-facing section is Closed");
+  assert.match(topics, /"Closed \(" \+ topics\.length \+ "\)"/);
   assert.match(topics, /toggle\.setAttribute\("aria-controls", panelId\)/);
   assert.match(topics, /toggle\.setAttribute\("aria-expanded", open \? "true" : "false"\)/);
   assert.match(topics, /panel\.hidden = !open/);
-  // The Done toggle is a real button, so Enter/Space activation is native.
+  // The Closed toggle is a real button, so Enter/Space activation is native.
   assert.match(topics, /toggle = document\.createElement\("button"\)/);
 });
 
 // --- Topic-row layout contract (title primary, quiet meta line, one overflow) ---
 
-test("the topic row keeps the title primary and shows status as an inline dot", function () {
+test("the Thread row keeps the title primary and shows lifecycle text plus an inline dot", function () {
   var topics = source("sidebar-coop-topics.js");
   // The title is the primary content; the status dot is now inline within the
   // row button for a single compact row. No secondary meta line is created.
@@ -722,16 +758,18 @@ test("the topic row keeps the title primary and shows status as an inline dot", 
   assert.ok(rowBuilder.indexOf("row.appendChild(title)") !== -1);
   assert.ok(rowBuilder.indexOf("row.appendChild(marker)") !== -1,
     "the status dot is appended to the row button, not to a secondary meta line");
+  assert.ok(rowBuilder.indexOf("row.appendChild(stateLabel)") !== -1,
+    "the lifecycle state is visible in words on desktop and mobile");
   assert.doesNotMatch(rowBuilder, /meta\.appendChild\(activityEl\)|meta\.appendChild\(marker\)/,
     "no meta line or activity text is rendered");
   assert.doesNotMatch(rowBuilder, /createTopicReviewControl/);
   // The row's accessible name still announces the state even though only the
   // dot is visible.
   assert.ok(rowBuilder.indexOf("topicAriaLabel(topic, activity)") !== -1);
-  // The dot has a title attribute for tooltip and animation attribute only for
-  // working state.
+  // The dot has a title attribute and uses the explicit lifecycle state class.
   assert.match(rowBuilder, /marker\.setAttribute\("title", activity\)/);
-  assert.match(rowBuilder, /marker\.setAttribute\("data-animating", "working"\)/);
+  assert.match(rowBuilder, /topicStatusClass\(topic\.threadState\)/);
+  assert.doesNotMatch(rowBuilder, /data-animating/);
   // No status text appears anywhere in the row.
   assert.doesNotMatch(topics, /\.coop-topic-activity {/);
   assert.doesNotMatch(topics, /\.coop-topic-meta {/);
@@ -739,12 +777,10 @@ test("the topic row keeps the title primary and shows status as an inline dot", 
   var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"), "utf8");
   assert.doesNotMatch(mobile, /\.mobile-coop-topic-activity {/);
   assert.doesNotMatch(mobile, /\.mobile-coop-topic-meta {/);
-  // Dot animation respects prefers-reduced-motion.
   var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.match(css, /\.coop-topic-status\[data-animating="working"\] \{[\s\S]*animation: none/);
-  assert.match(css, /\.coop-topic-status-done \{ background: var\(--success/);
-  assert.doesNotMatch(rowBuilder, /data-animating", "done"/);
+  assert.match(css, /\.coop-topic-status-exploring \{ background: var\(--accent\)/);
+  assert.match(css, /\.coop-topic-status-parked \{ background: var\(--warning/);
+  assert.match(css, /\.coop-topic-status-closed,/);
 });
 
 test("Close and Reopen live behind one overflow menu with the confirm gate intact", function () {

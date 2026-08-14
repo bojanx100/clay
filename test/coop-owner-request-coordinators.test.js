@@ -43,6 +43,7 @@ function open(ledger, sequence, topicRef, projectRefs) {
   });
   ledger.classify(ingressId(sequence), {
     kind: "new_topic", topicRef: topicRef, projectRefs: projectRefs || [],
+    implementationDecision: { intent: "implement", source: "explicit_owner_turn" },
   });
   return ingressId(sequence);
 }

@@ -217,7 +217,7 @@ test("a conversational classification carries no ProjectRef and expects no execu
   assert.equal(record.expectsExecution, false);
 });
 
-test("new_topic and existing_topic both expect execution once a ProjectRef is resolved", function () {
+test("theme classification never expects execution without an owner implementation decision", function () {
   var ledger = makeLedger();
   ledger.record(ingress(1));
   ledger.record(ingress(2));
@@ -226,8 +226,22 @@ test("new_topic and existing_topic both expect execution once a ProjectRef is re
   var reused = ledger.classify("coop:" + COOP_SESSION + ":2",
     { kind: "existing_topic", topicRef: TOPIC, projectRefs: [{ projectId: LEAD_PROJECT }] });
 
-  assert.equal(created.expectsExecution, true);
-  assert.equal(reused.expectsExecution, true);
+  assert.equal(created.expectsExecution, false);
+  assert.equal(reused.expectsExecution, false);
+});
+
+test("an explicit owner implementation decision admits the selected ProjectRef", function () {
+  var ledger = makeLedger();
+  ledger.record(ingress(3));
+  var record = ledger.classify("coop:" + COOP_SESSION + ":3", {
+    kind: "existing_topic", topicRef: TOPIC,
+    projectRefs: [{ projectId: LEAD_PROJECT }],
+    implementationDecision: { intent: "implement" },
+  });
+
+  assert.equal(record.expectsExecution, true);
+  assert.equal(record.implementationDecision.intent, "implement");
+  assert.equal(record.implementationDecision.source, "explicit_owner_turn");
 });
 
 test("an unresolved ProjectRef records attention instead of silently dropping the request", function () {
