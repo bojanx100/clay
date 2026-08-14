@@ -46,6 +46,8 @@ test("Coop projects each accessible configured project into a main-lane lens wit
   };
   var coordinator = session(10, {
     coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
     orchestrationTasks: [task],
     orchestrationProjectCompletion: {
       status: "completed",
@@ -56,6 +58,9 @@ test("Coop projects each accessible configured project into a main-lane lens wit
   var directOwnerSession = session(11, { title: "Owner direct conversation" });
   var worker = session(12, {
     title: "Canonical worker",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
     orchestrationParent: { sessionStorageId: coordinator.storageId, taskId: task.taskId },
   });
   var clay = project("11111111-1111-5111-8111-111111111111", "clay", [coordinator, directOwnerSession, worker], { title: "Clay" });
@@ -88,10 +93,96 @@ test("Coop projects each accessible configured project into a main-lane lens wit
     channel.channel.sessionRef.sessionStorageId);
 });
 
+test("Coop projection keeps one persistent project root and only live or attention children per project", function () {
+  var home = session(1, { storageId: "coop-home", coopHome: true });
+  var lead = project("system-lead", "lead", [home], { isLead: true });
+  var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var webappId = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+
+  function controlled(id, value) {
+    return session(id, Object.assign({
+      coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    }, value || {}));
+  }
+
+  function projectRoot(id, storageId, tasks) {
+    return controlled(id, {
+      storageId: storageId,
+      title: "Project coordinator",
+      coordinationMode: true,
+      coordinationRole: "project_coordinator",
+      orchestrationTasks: tasks,
+    });
+  }
+
+  var clayRoot = projectRoot(10, "clay-project-root", [{
+    taskId: "active-task", status: "running",
+  }, {
+    taskId: "attention-task", status: "needs_input",
+  }, {
+    taskId: "completed-task", status: "completed",
+  }]);
+  var clayActive = controlled(11, {
+    storageId: "clay-active-task", title: "Active task coordinator",
+    coordinationMode: true, coordinationRole: "task_coordinator",
+    orchestrationParent: { sessionStorageId: clayRoot.storageId, taskId: "active-task" },
+  });
+  var clayAttention = controlled(12, {
+    storageId: "clay-attention-task", title: "Attention task coordinator",
+    coordinationMode: true, coordinationRole: "task_coordinator",
+    orchestrationParent: { sessionStorageId: clayRoot.storageId, taskId: "attention-task" },
+  });
+  var clayCompleted = controlled(13, {
+    storageId: "clay-completed-task", title: "Completed task coordinator",
+    coordinationMode: true, coordinationRole: "task_coordinator",
+    orchestrationParent: { sessionStorageId: clayRoot.storageId, taskId: "completed-task" },
+  });
+  var ownerCoordinator = session(14, {
+    storageId: "owner-direct-coordinator", title: "Owner direct coordinator",
+    coordinationMode: true,
+  });
+
+  var webappRoot = projectRoot(20, "webapp-project-root", [{
+    taskId: "webapp-completed", status: "completed",
+  }]);
+  var webappCompleted = controlled(21, {
+    storageId: "webapp-completed-task", title: "Completed Webapp task coordinator",
+    coordinationMode: true, coordinationRole: "task_coordinator",
+    orchestrationParent: { sessionStorageId: webappRoot.storageId, taskId: "webapp-completed" },
+  });
+
+  var clay = project(clayId, "clay", [
+    clayRoot, clayActive, clayAttention, clayCompleted, ownerCoordinator,
+  ], { title: "Clay" });
+  var webapp = project(webappId, "webapp", [webappRoot, webappCompleted], { title: "Webapp" });
+  var projection = buildGlobalCoopProjection({ projects: [lead, clay, webapp] });
+
+  assert.deepEqual(projection.projects.map(function (item) { return item.title; }), ["Clay", "Webapp"]);
+  var clayTree = projection.projects[0].summary.coordinatorTree;
+  assert.equal(clayTree.length, 1);
+  assert.equal(clayTree[0].sessionRef.sessionStorageId, clayRoot.storageId);
+  assert.deepEqual(clayTree[0].children.map(function (child) {
+    return [child.sessionRef.sessionStorageId, child.status];
+  }), [
+    [clayActive.storageId, "running"],
+    [clayAttention.storageId, "needs_input"],
+  ]);
+  assert.equal(JSON.stringify(clayTree).includes(clayCompleted.storageId), false);
+  assert.equal(JSON.stringify(clayTree).includes(ownerCoordinator.storageId), false);
+
+  var webappTree = projection.projects[1].summary.coordinatorTree;
+  assert.equal(webappTree.length, 1, "the reusable project row remains after its child completes");
+  assert.equal(webappTree[0].sessionRef.sessionStorageId, webappRoot.storageId);
+  assert.deepEqual(webappTree[0].children, []);
+  assert.equal(JSON.stringify(webappTree).includes(webappCompleted.storageId), false);
+});
+
 test("Coop summary applies project ACLs and summarizes attention without exposing attempts", function () {
   var lead = project("system-lead", "lead", [session(1, { storageId: "coop-home", coopHome: true })], { isLead: true });
   var blocked = session(2, {
     coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
     orchestrationTasks: [{
       taskId: "needs-owner",
       title: "Choose owner",

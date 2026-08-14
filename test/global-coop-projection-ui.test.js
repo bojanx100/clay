@@ -27,12 +27,12 @@ function project(projectId, slug, title) {
       coordinatorTree: [{
         sessionRef: { projectId: projectId, sessionStorageId: "coordinator-" + slug },
         title: "Canonical coordinator",
-        role: "coordinator",
+        role: "project_coordinator",
         status: "running",
         children: [{
           sessionRef: { projectId: projectId, sessionStorageId: "worker-" + slug },
           title: "Canonical worker",
-          role: "worker",
+          role: "task_coordinator",
           status: "running",
           children: [],
         }],
@@ -82,11 +82,15 @@ test("project lens URLs preserve the exact Coop lens for browser history", async
   assert.equal(ui.projectLensPath("/p/lead/", "?keep=1&coopProject=old", null), "/p/lead/?keep=1");
 });
 
-test("Lead renderers keep primary navigation to compact project-grouped topic chats", function () {
+test("desktop and mobile Coop renderers share the persistent project coordinator hierarchy", function () {
   var desktop = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-sessions.js"), "utf8");
   var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"), "utf8");
   var projection = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "global-coop-projection.js"), "utf8");
   var topics = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topics.js"), "utf8");
+  var hierarchy = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-hierarchy.js"), "utf8");
+  var model = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-sessions-model.js"), "utf8");
+  var desktopCss = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
+  var mobileCss = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"), "utf8");
 
   // Both surfaces render through the one shared section builder, so category
   // order and the project heading markup cannot drift between them.
@@ -94,6 +98,15 @@ test("Lead renderers keep primary navigation to compact project-grouped topic ch
   assert.match(mobile, /renderCoopTopicSections/);
   assert.match(topics, /prefix \+ "global-coop-project-heading"/);
   assert.match(topics, /renderCoopProjectTopics/);
+  assert.match(topics, /renderCoopProjectHierarchy/);
+  assert.match(hierarchy, /coop-project-coordinator-row/);
+  assert.match(hierarchy, /var prefix = opts\.mobile \? "mobile-" : ""/);
+  assert.match(desktopCss, /\.coop-project-coordinator-row/);
+  assert.match(mobileCss, /\.mobile-coop-project-coordinator-row/);
+  assert.match(hierarchy, /"owner_request_hierarchy"/);
+  assert.match(model, /sessionsForOrdinaryProjectSidebar/);
+  assert.match(desktop, /buildSessionListModel/);
+  assert.match(mobile, /sessionsForOrdinaryProjectSidebar/);
   assert.doesNotMatch(desktop, /Open canonical project|appendProjectedSessionTree|requestCanonicalSession|requestProjectChannel/);
   assert.doesNotMatch(mobile, /Open canonical project|appendMobileProjectedSessionTree|requestCanonicalSession|requestProjectChannel/);
   assert.match(desktop, /store\.get\("currentSlug"\) !== "lead"\) updateCountdowns\(\)/);

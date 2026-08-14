@@ -635,8 +635,9 @@ test("no forbidden Coop sidebar affordance reappears", function () {
   assert.doesNotMatch(all, /coop-topic-actions|coop-topic-drawer|coop-topic-details/);
   // Never the browser-native dialogs.
   assert.doesNotMatch(all, /window\.confirm|[^.\w]confirm\(["']|window\.alert|window\.prompt/);
-  // No worker hierarchy modelling survives on the Coop topic path.
-  assert.doesNotMatch(all, /coordinatorTree|relatedExecutions|cloneRelatedExecution/);
+  // Topic-related links stay flat. The separate project hierarchy renderer may
+  // show current coordinator rows, but topic payloads never regrow worker trees.
+  assert.doesNotMatch(all, /relatedExecutions|cloneRelatedExecution/);
   // The two leaf controls stay independent of the app connection graph.
   assert.doesNotMatch(links, /from '\.\/app-connection\.js'/);
   assert.doesNotMatch(closeSource, /from '\.\/app-connection\.js'/);

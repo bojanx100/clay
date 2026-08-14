@@ -8,6 +8,40 @@ function loadModel() {
   return import(pathToFileURL(modulePath).href);
 }
 
+test("ordinary project sidebar excludes Coop hierarchy while preserving direct sessions", async function () {
+  var m = await loadModel();
+  var ownerDirect = { id: 1, title: "Owner direct" };
+  var ownerCoordinator = { id: 2, title: "Owner coordinator", coordinationMode: true };
+  var coopDirectLeaf = { id: 3, title: "Coop direct leaf", leadOwned: true };
+  var projectRoot = {
+    id: 4, title: "Project coordinator", leadOwned: true, coordinationMode: true,
+  };
+  var taskCoordinator = {
+    id: 5, title: "Task coordinator", leadOwned: true, coordinationMode: true,
+    orchestrationParent: { sessionId: 4 },
+  };
+  var taskWorker = {
+    id: 6, title: "Task worker", leadOwned: true,
+    orchestrationParent: { sessionId: 5 },
+  };
+
+  var visible = m.sessionsForOrdinaryProjectSidebar([
+    ownerDirect, ownerCoordinator, coopDirectLeaf, projectRoot, taskCoordinator, taskWorker,
+  ]);
+  assert.deepEqual(visible.map(function (item) { return item.id; }), [1, 2, 3]);
+
+  var model = m.buildSessionListModel([
+    ownerDirect, ownerCoordinator, coopDirectLeaf, projectRoot, taskCoordinator, taskWorker,
+  ], {
+    frozenOrder: null,
+    frozenOrderSlug: null,
+    currentSlug: "clay",
+    searchMatchIds: null,
+    getDateGroup: function () { return "Today"; },
+  });
+  assert.deepEqual(model.regularItems.map(function (item) { return item.data.id; }), [1, 2, 3]);
+});
+
 test("compareSessionListItems: bookmarked sessions sort before unbookmarked, then by favoriteOrder, then recency", async function () {
   var m = await loadModel();
   var bookmarkedLater = { type: "session", data: { bookmarked: true, favoriteOrder: 1 }, lastActivity: 5 };
@@ -283,8 +317,8 @@ test("buildSessionListModel: keeps Favorites first and partitions roots into ME 
   assert.deepEqual(model.bookmarkedItems.map(function (item) { return item.data.id; }), [1]);
   assert.deepEqual(model.ownershipSections.map(function (section) { return section.key; }), ["me", "lead"]);
   assert.deepEqual(model.ownershipSections[0].items.map(function (item) { return item.data.id; }), [2, 4]);
-  assert.equal(model.ownershipSections[0].items[0].type, "coordinator");
-  assert.deepEqual(model.ownershipSections[0].items[0].children.map(function (session) { return session.id; }), [3]);
+  assert.equal(model.ownershipSections[0].items[0].type, "session");
+  assert.equal(model.ownershipSections[0].items[0].data.id, 2);
   assert.deepEqual(model.ownershipSections[1].items.map(function (item) { return item.data.id; }), [5]);
   assert.deepEqual(model.ownershipSections[0].dateGroups.map(function (group) { return group.name; }), ["Today"]);
   assert.deepEqual(model.ownershipSections[1].dateGroups.map(function (group) { return group.name; }), ["Older"]);
@@ -309,9 +343,9 @@ test("buildSessionListModel: omits empty ownership sections and preserves a sear
     searchMatchIds: new Set([2, 3]),
     getDateGroup: getDateGroup,
   });
-  assert.deepEqual(searched.ownershipSections.map(function (section) { return section.key; }), ["me", "lead"]);
-  assert.equal(searched.ownershipSections[0].items[0].type, "coordinator");
-  assert.deepEqual(searched.ownershipSections[0].dateGroups[0].sessionIds, [2]);
+  assert.deepEqual(searched.ownershipSections.map(function (section) { return section.key; }), ["lead"]);
+  assert.equal(searched.ownershipSections[0].items[0].data.id, 3);
+  assert.deepEqual(searched.ownershipSections[0].dateGroups[0].sessionIds, [3]);
 
   var onlyLead = m.buildSessionListModel([directLead], {
     frozenOrder: null,
