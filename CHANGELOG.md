@@ -1,3 +1,19 @@
+# [2.47.0-beta.2](https://github.com/chadbyte/clay/compare/v2.47.0-beta.1...v2.47.0-beta.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **ui:** bind new sessions to selected vendor ([9511f4c](https://github.com/chadbyte/clay/commit/9511f4c0d51906d04e106668b5c08017a3689551))
+* **yoke:** populate Kiro tool_result content from split ACP updates ([fb1d8b2](https://github.com/chadbyte/clay/commit/fb1d8b243da2686098053f30878952c3bb7a8ac0))
+* **yoke:** route Kiro ACP events per session ([9bffa51](https://github.com/chadbyte/clay/commit/9bffa5102cf23871c270a772f67b81d386c1e149))
+
+
+### Features
+
+* **sidebar:** replace vendor buttons with a New session picker ([5a1b34a](https://github.com/chadbyte/clay/commit/5a1b34a4bdc76502bb4fbf820a346f402b71b074))
+* **yoke:** add Kiro CLI adapter via Agent Client Protocol ([3d00286](https://github.com/chadbyte/clay/commit/3d002866de6ba2dc755232de60296e236df91d9e))
+* **yoke:** complete Kiro v3 adapter support ([bfa082a](https://github.com/chadbyte/clay/commit/bfa082a9e12460646baa942e0abe831da49b86a0))
+
 # [2.47.0-beta.1](https://github.com/chadbyte/clay/compare/v2.46.0...v2.47.0-beta.1) (2026-07-20)
 
 
