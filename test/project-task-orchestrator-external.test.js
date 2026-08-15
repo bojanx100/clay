@@ -100,6 +100,29 @@ test("external task rejects a missing or ordinary target conversation", function
   });
 });
 
+test("the next typed dispatch reuses explicit approval text restored from history", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var topic = { topicId: "auto-fb42f62b499c463e340f95b8" };
+  var source = { localId: 1, storageId: "canonical-coop", history: [{
+    type: "user_message",
+    text: "ok set it to implement...",
+    coopIngressId: "coop:canonical-coop:281",
+    coopTopicRef: topic,
+  }] };
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+
+  assert.equal(coordinate({ coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "cleanup", bindingRevision: 3,
+    targetProject: { projectId: projectId }, coopTopicRef: topic }).ok, true);
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:281");
+  assert.deepEqual(delivered.coopTopicRef, topic);
+});
+
 test("an external Live UI report can promote an ordinary conversation", function () {
   var ordinary = {
     localId: 9,

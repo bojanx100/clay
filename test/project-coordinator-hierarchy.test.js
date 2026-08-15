@@ -1,6 +1,7 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var hierarchy = require("../lib/project-coordinator-hierarchy");
+var buildFanInEvent = require("../lib/coop-fanin-events").buildFanInEvent;
 
 function manager(existing) {
   var sessions = existing || new Map();
@@ -122,6 +123,32 @@ test("one project root owns multiple concurrent task coordinators and their roll
   assert.equal(Array.from(sm.sessions.values()).filter(function (session) {
     return session.coordinationRole === "project_coordinator";
   }).length, 1);
+});
+
+test("a restored terminal task rollup does not restamp or replay fan-in", function () {
+  var sm = manager();
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var root = hierarchy.ensureProjectCoordinator(sm, projectId, null,
+    { sessionStorageId: "coop" });
+  var child = sm.createSessionRaw({ coordinationMode: true,
+    coopControlledBy: { coopSessionStorageId: "coop", since: 1 } });
+  hierarchy.linkTaskCoordinator(sm, root, child, {
+    request: request("restart-dedupe", 1), brief: brief("Restart dedupe"),
+  });
+
+  assert.equal(hierarchy.rollUpTaskCoordinator(sm, child, "completed", "Verified."), true);
+  var task = root.orchestrationTasks[0];
+  var updatedAt = task.updatedAt;
+  var eventCount = root.orchestrationEvents.length;
+  var beforeRestart = buildFanInEvent(child, task, { status: task.status,
+    occurredAt: task.updatedAt, summary: task.resultSummary });
+
+  assert.equal(hierarchy.rollUpTaskCoordinator(sm, child, "completed", "Verified."), false);
+  var afterRestart = buildFanInEvent(child, task, { status: task.status,
+    occurredAt: task.updatedAt, summary: task.resultSummary });
+  assert.equal(task.updatedAt, updatedAt);
+  assert.equal(root.orchestrationEvents.length, eventCount);
+  assert.equal(afterRestart.eventId, beforeRestart.eventId);
 });
 
 test("a failed child start removes only its project-root reference", function () {

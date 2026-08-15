@@ -33,6 +33,12 @@ function ledgerFor() {
   return ownerRequests.attachCoopOwnerRequests({ file: path.join(dir, "r.json") });
 }
 
+function digestEvent(event) {
+  return require("node:crypto").createHash("sha256").update([
+    String(event.type || ""), String(event._ts || ""), String(event.text || event.content || ""),
+  ].join("\n")).digest("hex");
+}
+
 function run(history) {
   var ledger = ledgerFor();
   var result = backfill.backfillOwnerRequests(ledger,
@@ -233,6 +239,63 @@ test("an explicit implementation decision persists once across restart backfill"
     at: 281000,
   });
   assert.equal(restartedLedger.list().length, 1);
+});
+
+test("startup migration backfills a proven approval and exact historical responses once", function () {
+  var approval = ingress(281, { text: "ok set it to implement..." });
+  var missed = ingress(283, { text: "what now?" });
+  var response = { type: "delta_replace", text: "The missed request is now answered.", _ts: 300000 };
+  var history = [approval, { type: "delta", text: "Approved" }, { type: "done", code: 0 },
+    missed, response];
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-startup-backfill-"));
+  var file = path.join(dir, "r.json");
+  var session = { storageId: COOP, coopHome: true, history: history };
+  var sm = { sessions: new Map([[1, session]]) };
+  var migrations = [{
+    migrationId: "test-proven-history",
+    sessionStorageId: COOP,
+    requests: [{ sequence: 281, eventIndex: 0, digest: digestEvent(approval) },
+      { sequence: 283, eventIndex: 3, digest: digestEvent(missed) }],
+    evidence: { answered: [{ sequence: 283, responseEventIndex: 4,
+      responseDigest: digestEvent(response) }] },
+  }];
+
+  var firstLedger = ownerRequests.attachCoopOwnerRequests({ file: file });
+  var first = backfill.migrateOwnerRequestHistory(firstLedger, sm, { migrations: migrations });
+  var persistedOnce = fs.readFileSync(file, "utf8");
+  var restartedLedger = ownerRequests.attachCoopOwnerRequests({ file: file });
+  var replayed = backfill.migrateOwnerRequestHistory(restartedLedger, sm, { migrations: migrations });
+
+  assert.equal(first.ok, true);
+  assert.equal(replayed.ok, true);
+  assert.equal(firstLedger.get(approval.coopIngressId).implementationDecision.intent, "implement");
+  assert.equal(restartedLedger.get(approval.coopIngressId).implementationDecision.intent, "implement");
+  assert.equal(restartedLedger.get(missed.coopIngressId).response.state, "answered");
+  assert.equal(restartedLedger.get(missed.coopIngressId).response.responseRef.eventIndex, 4);
+  assert.equal(restartedLedger.list().length, 2);
+  assert.equal(fs.readFileSync(file, "utf8"), persistedOnce,
+    "restart replay must not restamp already migrated facts");
+  assert.deepEqual(replayed.migrations[0].counts,
+    { answered: 0, superseded: 0, informational: 0, unchanged: 1 });
+});
+
+test("startup response migration fails closed when canonical evidence changed", function () {
+  var request = ingress(283, { text: "what now?" });
+  var response = { type: "delta_replace", text: "A response.", _ts: 300000 };
+  var ledger = ledgerFor();
+  var session = { storageId: COOP, coopHome: true, history: [request, response] };
+  var result = backfill.migrateOwnerRequestHistory(ledger,
+    { sessions: new Map([[1, session]]) }, { migrations: [{
+      migrationId: "changed-evidence",
+      sessionStorageId: COOP,
+      requests: [{ sequence: 283, eventIndex: 0, digest: digestEvent(request) }],
+      evidence: { answered: [{ sequence: 283, responseEventIndex: 1,
+        responseDigest: "not-the-canonical-digest" }] },
+    }] });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.migrations[0].reason, "response_evidence_changed");
+  assert.equal(ledger.get(request.coopIngressId).response.state, "unanswered");
 });
 
 test("backfilled requests carry the canonical event reference, not the text", function () {
