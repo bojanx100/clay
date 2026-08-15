@@ -1,6 +1,6 @@
 # Handoff: agent-driven session spawning (issue #358)
 
-**Status:** proposed / ready to implement
+**Status:** MVP implemented (commit 5fc36eb, session-bound tool servers included) / phase 2 ready to implement
 **Author:** handoff from Chad + Claude, 2026-08-15
 **Branch:** start from `main`
 **Issue:** https://github.com/chadbyte/clay/issues/358 ("I have 10 issues and
@@ -144,21 +144,134 @@ later if asked). In `getLocalMcpServers()` no dynamic condition is needed
 beyond that static gate, but keep the hook in mind if spawn ever becomes
 config-gated.
 
-### What the MVP does NOT include (phase 2, do not build now)
+### Delivered by the MVP (commit 5fc36eb)
 
-- `forkFromCurrent`: seeding children with parent context via
-  `sdk.forkSession`. Claude-only (capability `fork`), interacts with uuid
-  selection ("fork from the latest message"). Design note: when built, gate
-  on `sm.capabilitiesByVendor[vendor].fork` and require child vendor ===
-  parent vendor.
-- Sidebar grouping of children under the parent (the loop-group UI in
-  `sidebar-sessions.js` is the template). MVP children are ordinary
-  sessions with clear titles.
-- Parent auto-notification when all children finish (a system message into
-  the parent session). `check_spawned_sessions` polling covers the MVP.
-- Issue #357 (vendor handoff) builds on this: new session + first-message
-  injection is the shared core. Keep `spawnOne(opts)` factored so a future
-  handoff path can call it with a context package.
+Everything above is implemented, plus one correction over this document's
+original text: tool servers are **bound per query** to the calling session
+(`getLocalMcpServers(forSession)` in `lib/project.js`,
+`getMcpServers(session)` in `lib/sdk-bridge.js:1334`). Never resolve the
+caller via `sm.getActiveSession()` — that is the project-global "last
+viewed" session and breaks the depth guard; the unbound descriptor-listing
+instance fails closed by design. Keep this invariant in phase 2.
+
+### Out of scope for phase 2 as well (do not build)
+
+- Sidebar grouping of children under the parent (loop-group UI is the
+  template when it happens).
+- Parent auto-notification when all children finish; polling covers it.
+- Worktree-per-child isolation. In Clay a worktree is a separate project
+  (own slug and project context, see `lib/daemon-projects.js`), so spawning
+  into worktrees is cross-project orchestration — a phase 3 design of its
+  own. Phase 2 children share the parent's cwd; the tool description
+  should keep advising analysis-style parallelism over concurrent edits.
+- Issue #357 (vendor handoff) still builds on `spawnOne`; unchanged.
+
+---
+
+## Phase 2: `forkFromCurrent` (context-inheriting spawn)
+
+**Goal:** the pattern promised in issue #358's thread (Karamorf's fork
+workflow, endorsed by the maintainer comment): load context once into the
+parent, then fan out children that START with that context, no re-explaining.
+
+### Existing fork pipeline (verified, reuse it)
+
+The UI fork already does everything per child; steal its recipe from
+`lib/project-sessions.js:1220-1266`:
+
+1. `sdk.forkSession(session, uuid)` -> resolves `{ sessionId: <new
+   cliSessionId>, useLocalHistory: <bool> }` (`forkSessionUnified`,
+   `lib/sdk-bridge.js:1065`, which calls
+   `adapter.forkSession(session.cliSessionId, { upToMessageId: uuid, dir: cwd })`).
+2. If `useLocalHistory`: copy the parent's local `history` (the UI trims to
+   the uuid's `historyIndex`; for full-context spawn just copy
+   `session.history.slice()`), rebuild `messageUUIDs` from `message_uuid`
+   entries, set `forked.cliSessionId = result.sessionId`.
+3. Else: `require("./cli-sessions").readCliSessionHistory(resolveSessionHome(session), cwd, result.sessionId)`
+   provides the display history.
+4. A later `startQuery` on the child resumes the forked CLI session because
+   `resumeSessionId: session.cliSessionId` (`lib/sdk-bridge.js` queryOpts) —
+   that is what actually gives the agent the parent context. The local
+   history copy is only for the transcript UI.
+
+### Tool surface change
+
+Add one optional input to `spawn_sessions`:
+
+- `forkFromCurrent` (boolean, default false): "Children start with a copy
+  of this session's full conversation context."
+
+No new tool. `check_spawned_sessions` unchanged.
+
+### Implementation in `attachSessionSpawn`
+
+In `spawn(args, caller)` when `args.forkFromCurrent` is true, validate
+BEFORE creating anything:
+
+1. `caller.cliSessionId` must exist (the parent has completed at least one
+   turn). Error text: "forkFromCurrent requires the calling session to have
+   at least one completed turn".
+2. Capability gate: `sm.capabilitiesByVendor[vendor]` must have
+   `fork: true`. Note the capabilities map is only populated after adapter
+   init (the parent is mid-query, so its own vendor is always initialized —
+   but guard anyway and fail with a clear error).
+3. Vendor lock: an explicit `args.vendor` different from `caller.vendor`
+   is an error ("forkFromCurrent children must use the parent's vendor") —
+   a fork is a CLI-native session copy and cannot change runtime.
+4. Fork uuid: use the LAST entry of `caller.messageUUIDs` (full context).
+   If `messageUUIDs` is empty but `cliSessionId` exists, still call
+   forkSession with the last uuid absent — check what
+   `adapter.forkSession` does with `upToMessageId: undefined` before
+   relying on it; if it throws, treat as error (1) instead.
+
+Then per child, BEFORE queueing (serially, in batch order):
+
+- `await sdk.forkSession(caller, lastUuid)` -> `{ sessionId, useLocalHistory }`.
+- Create the child exactly as the MVP does, then set
+  `child.cliSessionId = sessionId` and copy the display history per the
+  recipe above (both `useLocalHistory` branches).
+- The queued `start()` is unchanged: push the task prompt as a
+  `user_message` and `startQuery` — the query resumes the forked CLI
+  session, so the agent sees parent context + its task prompt.
+
+Failure handling: fork the children serially; if fork N fails, stop there
+and return a tool result containing both `spawned` (the ones that made it,
+already queued) and `failed: { index, error }`. Do not attempt rollback:
+orphaned forked CLI sessions are inert JSONL copies and Clay sessions
+already created are visible/deletable in the sidebar. The agent gets an
+honest partial report.
+
+Concurrency note: `sdk.forkSession` calls are awaited one at a time before
+`queue.add` — do not interleave them with running child queries writing to
+the same parent JSONL.
+
+### Tests to add (extend `test/session-spawn.test.js`)
+
+1. forkFromCurrent happy path: fake `sdk.forkSession` returning
+   `{ sessionId: "cli-fork-N", useLocalHistory: true }`; assert each child
+   gets its own `cliSessionId`, a copied history array (not the same
+   reference as the parent's), and that the task prompt is appended AFTER
+   the copied history when `start()` runs.
+2. Parent without `cliSessionId` -> exact error, nothing created.
+3. Capability gate: `capabilitiesByVendor` lacking `fork` -> error.
+4. Vendor mismatch with `forkFromCurrent` -> error.
+5. Partial failure: `forkSession` rejects on the 2nd child -> result lists
+   1 spawned + the failure; queue only received the 1st task.
+6. All existing tests stay green (default `forkFromCurrent: false` path
+   must be byte-for-byte the MVP behavior).
+
+### Phase 2 acceptance criteria
+
+1. Live: load a plan into a parent session, spawn 3 children with
+   `forkFromCurrent: true`, and each child demonstrably knows the plan
+   without it appearing in its task prompt (ask each child "what plan are
+   you working from?").
+2. Child transcripts in the UI show the inherited conversation followed by
+   their own task prompt.
+3. Fresh-spawn path (default) behaves exactly as before.
+4. Error paths above verified; `npm test` green; sweeps green.
+5. Issue #358 can be closed referencing both the MVP and this phase
+   (draft the closing comment for Chad's approval — never post without it).
 
 ---
 
