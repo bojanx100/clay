@@ -1,3 +1,10 @@
+# [2.47.0-beta.6](https://github.com/chadbyte/clay/compare/v2.47.0-beta.5...v2.47.0-beta.6) (2026-08-15)
+
+
+### Features
+
+* **ui:** present worktrees as branches inside their project ([2bb8915](https://github.com/chadbyte/clay/commit/2bb89153e7600baf464aab7692655a2fa5c3d001))
+
 # [2.47.0-beta.5](https://github.com/chadbyte/clay/compare/v2.47.0-beta.4...v2.47.0-beta.5) (2026-08-15)
 
 
