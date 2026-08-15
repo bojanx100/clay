@@ -8,30 +8,45 @@ function loadModel() {
   return import(pathToFileURL(modulePath).href);
 }
 
-test("ordinary project sidebar excludes Coop hierarchy while preserving direct sessions", async function () {
+test("ordinary project sidebar shows one persistent Coop root and preserves only non-terminal work", async function () {
   var m = await loadModel();
   var ownerDirect = { id: 1, title: "Owner direct" };
   var ownerCoordinator = { id: 2, title: "Owner coordinator", coordinationMode: true };
   var coopDirectLeaf = { id: 3, title: "Coop direct leaf", leadOwned: true };
   var projectRoot = {
     id: 4, title: "Project coordinator", leadOwned: true, coordinationMode: true,
+    coordinationRole: "project_coordinator",
   };
   var taskCoordinator = {
     id: 5, title: "Task coordinator", leadOwned: true, coordinationMode: true,
-    orchestrationParent: { sessionId: 4 },
+    coordinationRole: "task_coordinator",
+    orchestrationParent: { sessionId: 4, taskStatus: "running" },
   };
   var taskWorker = {
     id: 6, title: "Task worker", leadOwned: true,
-    orchestrationParent: { sessionId: 5 },
+    orchestrationParent: { sessionId: 5, taskStatus: "completed" },
   };
+  var needsInput = { id: 7, title: "Needs input", leadOwned: true,
+    coopExecutionStatus: "needs_input" };
+  var superseded = { id: 8, title: "Superseded", leadOwned: true,
+    coopExecutionStatus: "superseded" };
+  var cancelled = { id: 9, title: "Cancelled without fulfillment proof", leadOwned: true,
+    coopExecutionStatus: "cancelled" };
+  var dismissed = { id: 10, title: "Dismissed without fulfillment proof", leadOwned: true,
+    orchestrationParent: { taskStatus: "dismissed" } };
+  var contradictoryAttention = { id: 11, title: "Terminal task with execution attention", leadOwned: true,
+    orchestrationParent: { taskStatus: "completed" }, coopExecutionStatus: "failed" };
 
   var visible = m.sessionsForOrdinaryProjectSidebar([
     ownerDirect, ownerCoordinator, coopDirectLeaf, projectRoot, taskCoordinator, taskWorker,
+    needsInput, superseded, cancelled, dismissed, contradictoryAttention,
   ]);
-  assert.deepEqual(visible.map(function (item) { return item.id; }), [1, 2, 3]);
+  assert.deepEqual(visible.map(function (item) { return item.id; }),
+    [1, 2, 3, 4, 5, 7, 9, 10, 11]);
 
   var model = m.buildSessionListModel([
     ownerDirect, ownerCoordinator, coopDirectLeaf, projectRoot, taskCoordinator, taskWorker,
+    needsInput, superseded, cancelled, dismissed, contradictoryAttention,
   ], {
     frozenOrder: null,
     frozenOrderSlug: null,
@@ -39,7 +54,11 @@ test("ordinary project sidebar excludes Coop hierarchy while preserving direct s
     searchMatchIds: null,
     getDateGroup: function () { return "Today"; },
   });
-  assert.deepEqual(model.regularItems.map(function (item) { return item.data.id; }), [1, 2, 3]);
+  assert.deepEqual(model.regularItems.map(function (item) { return item.data.id; }),
+    [1, 2, 3, 4, 7, 9, 10, 11]);
+  var rootItem = model.regularItems.find(function (item) { return item.data.id === 4; });
+  assert.equal(rootItem.type, "coordinator");
+  assert.deepEqual(rootItem.children.map(function (item) { return item.id; }), [5]);
 });
 
 test("compareSessionListItems: bookmarked sessions sort before unbookmarked, then by favoriteOrder, then recency", async function () {
@@ -194,6 +213,13 @@ test("sessionListSignature: stable for equivalent input, changes when a tracked 
     m.sessionListSignature([sessionA], "", null, {}),
     m.sessionListSignature([ownershipChanged], "", null, {})
   );
+  var executionCompleted = { id: 1, title: "A", unread: 0, lastActivity: 1,
+    leadOwned: true, coordinationRole: "task_coordinator", coopExecutionStatus: "completed" };
+  var executionNeedsInput = Object.assign({}, executionCompleted, { coopExecutionStatus: "needs_input" });
+  assert.notEqual(
+    m.sessionListSignature([executionCompleted], "", null, {}),
+    m.sessionListSignature([executionNeedsInput], "", null, {})
+  );
 });
 
 test("partitionSessionList: separates loop sessions from normal sessions and drops hidden crafting sessions", async function () {
@@ -295,7 +321,13 @@ test("buildSessionListModel: respects search visibility when splitting and group
 test("buildSessionListModel: keeps Favorites first and partitions roots into ME then Lead", async function () {
   var m = await loadModel();
   var favorite = { id: 1, bookmarked: true, lastActivity: 50 };
-  var coordinator = { id: 2, coordinationMode: true, lastActivity: 40 };
+  var coordinator = {
+    id: 2,
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    leadOwned: true,
+    lastActivity: 40,
+  };
   var leadWorker = {
     id: 3,
     leadOwned: true,
@@ -316,17 +348,24 @@ test("buildSessionListModel: keeps Favorites first and partitions roots into ME 
 
   assert.deepEqual(model.bookmarkedItems.map(function (item) { return item.data.id; }), [1]);
   assert.deepEqual(model.ownershipSections.map(function (section) { return section.key; }), ["me", "lead"]);
-  assert.deepEqual(model.ownershipSections[0].items.map(function (item) { return item.data.id; }), [2, 4]);
-  assert.equal(model.ownershipSections[0].items[0].type, "session");
-  assert.equal(model.ownershipSections[0].items[0].data.id, 2);
-  assert.deepEqual(model.ownershipSections[1].items.map(function (item) { return item.data.id; }), [5]);
+  assert.deepEqual(model.ownershipSections[0].items.map(function (item) { return item.data.id; }), [4]);
+  assert.deepEqual(model.ownershipSections[1].items.map(function (item) { return item.data.id; }), [2, 5]);
+  assert.equal(model.ownershipSections[1].items[0].type, "coordinator");
+  assert.equal(model.ownershipSections[1].items[0].data.id, 2);
   assert.deepEqual(model.ownershipSections[0].dateGroups.map(function (group) { return group.name; }), ["Today"]);
-  assert.deepEqual(model.ownershipSections[1].dateGroups.map(function (group) { return group.name; }), ["Older"]);
+  assert.deepEqual(model.ownershipSections[1].dateGroups.map(function (group) { return group.name; }),
+    ["Today", "Older"]);
 });
 
 test("buildSessionListModel: omits empty ownership sections and preserves a searched coordinator root", async function () {
   var m = await loadModel();
-  var coordinator = { id: 1, coordinationMode: true, lastActivity: 20 };
+  var coordinator = {
+    id: 1,
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    leadOwned: true,
+    lastActivity: 20,
+  };
   var leadWorker = {
     id: 2,
     leadOwned: true,
@@ -345,7 +384,9 @@ test("buildSessionListModel: omits empty ownership sections and preserves a sear
   });
   assert.deepEqual(searched.ownershipSections.map(function (section) { return section.key; }), ["lead"]);
   assert.equal(searched.ownershipSections[0].items[0].data.id, 3);
-  assert.deepEqual(searched.ownershipSections[0].dateGroups[0].sessionIds, [3]);
+  assert.equal(searched.ownershipSections[0].items[1].type, "coordinator");
+  assert.equal(searched.ownershipSections[0].items[1].data.id, 1);
+  assert.deepEqual(searched.ownershipSections[0].dateGroups[0].sessionIds, [3, 2]);
 
   var onlyLead = m.buildSessionListModel([directLead], {
     frozenOrder: null,

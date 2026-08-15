@@ -17,6 +17,8 @@ test("ordinary discussion and project mentions do not admit typed execution", fu
   assert.equal(lifecycle.explicitImplementationDecision("Could this be a useful follow-up?"), null);
   assert.equal(lifecycle.explicitImplementationDecision("Let's discuss whether to implement this in Clay"), null);
   assert.equal(lifecycle.explicitImplementationDecision("I think we should fix this in Clay"), null);
+  assert.equal(lifecycle.explicitImplementationDecision("The fix is on the way"), null);
+  assert.equal(lifecycle.explicitImplementationDecision("Should we set it to implement?"), null);
 });
 
 test("explicit owner implementation decisions are recognized separately from theme classification", function () {
@@ -32,15 +34,30 @@ test("explicit owner implementation decisions are recognized separately from the
   assert.deepEqual(lifecycle.explicitImplementationDecision("Can you fix this in Clay?"), {
     intent: "fix", projectName: "Clay",
   });
+  assert.deepEqual(lifecycle.explicitImplementationDecision("ok set it to implement..."), {
+    intent: "implement", projectName: "",
+  });
 });
 
-function executionRouter(entries, delivered, handedOff) {
+function executionRouter(entries, delivered, handedOff, options) {
+  options = options || {};
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-thread-admission-"));
   var claimed = null;
+  var classifications = 0;
   var router = createCrossProjectRouter({
     bindingFile: path.join(dir, "bindings.json"),
     ownerRequests: {
       forTopic: function () { return entries; },
+      classify: function (ingressId, input) {
+        classifications++;
+        var entry = entries.find(function (candidate) {
+          return candidate.ingressId === ingressId;
+        });
+        if (!entry) return null;
+        entry.implementationDecision = input.implementationDecision;
+        entry.expectsExecution = true;
+        return entry;
+      },
       claimCoordinator: function (input) { claimed = input.coordinator; return { ok: true }; },
       canonicalCoordinator: function () { return claimed; },
       canonicalProjectCoordinator: function () { return null; },
@@ -54,7 +71,8 @@ function executionRouter(entries, delivered, handedOff) {
   router.registerProjectResolver({
     getProjectId: function () { return "system-lead"; },
     getSessionManager: function () {
-      return { sessions: new Map([[1, { coopHome: true, storageId: "canonical-coop" }]]) };
+      return { sessions: new Map([[1, { coopHome: true, storageId: "canonical-coop",
+        history: options.history || [] }]]) };
     },
   });
   router.registerProjectResolver({
@@ -65,7 +83,8 @@ function executionRouter(entries, delivered, handedOff) {
         sessionRef: { projectId: PROJECT, sessionStorageId: "thread-worker" } };
     },
   });
-  return { router: router, dir: dir };
+  return { router: router, dir: dir,
+    classificationCount: function () { return classifications; } };
 }
 
 function execute(router, source) {
@@ -91,6 +110,57 @@ test("typed project execution fails closed until the current owner ingress has a
     assert.equal(delivered.length, 0);
     assert.equal(handedOff.length, 0);
   } finally { fs.rmSync(discussion.dir, { recursive: true, force: true }); }
+});
+
+test("owner text approval is replayed from the exact canonical event and persisted once", function () {
+  var delivered = [];
+  var handedOff = [];
+  var entries = [{ ingressId: INGRESS, topicRef: TOPIC, projectRefs: [],
+    expectsExecution: false, implementationDecision: null,
+    classification: { kind: "conversational", source: "ingress_route" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 } }];
+  var approved = executionRouter(entries, delivered, handedOff, { history: [{
+    type: "user_message", text: "ok set it to implement...", coopIngressId: INGRESS,
+    coopTopicRef: TOPIC, _ts: 1786779753167,
+  }] });
+  try {
+    var result = execute(approved.router);
+    assert.equal(result.ok, true);
+    assert.equal(approved.classificationCount(), 1);
+    assert.deepEqual(entries[0].implementationDecision, {
+      intent: "implement", projectName: "",
+      source: "explicit_owner_turn", at: 1786779753167,
+    });
+    assert.equal(delivered.length, 1);
+
+    var replay = execute(approved.router);
+    assert.equal(replay.ok, true);
+    assert.equal(replay.reused, true);
+    assert.equal(approved.classificationCount(), 1,
+      "a replay must reuse the persisted decision instead of recording it again");
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("a generic explicit decision admits the next typed ProjectRef but an explicit mismatch does not", function () {
+  var delivered = [];
+  var handedOff = [];
+  var generic = executionRouter([{ ingressId: INGRESS, topicRef: TOPIC,
+    projectRefs: [], expectsExecution: true,
+    implementationDecision: { intent: "implement", source: "explicit_owner_turn" } }],
+  delivered, handedOff);
+  try {
+    assert.equal(execute(generic.router).ok, true);
+  } finally { fs.rmSync(generic.dir, { recursive: true, force: true }); }
+
+  var mismatch = executionRouter([{ ingressId: INGRESS, topicRef: TOPIC,
+    projectRefs: [{ projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" }],
+    expectsExecution: true,
+    implementationDecision: { intent: "implement", source: "explicit_owner_turn" } }], [], []);
+  try {
+    assert.deepEqual(execute(mismatch.router), {
+      ok: false, reason: "owner_implementation_project_mismatch",
+    });
+  } finally { fs.rmSync(mismatch.dir, { recursive: true, force: true }); }
 });
 
 test("an explicit decision creates typed ProjectRef execution and marks the Thread handed off", function () {

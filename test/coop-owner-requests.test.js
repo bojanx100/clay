@@ -244,6 +244,29 @@ test("an explicit owner implementation decision admits the selected ProjectRef",
   assert.equal(record.implementationDecision.source, "explicit_owner_turn");
 });
 
+test("the first durable implementation decision survives classification replay", function () {
+  var ledger = makeLedger();
+  var id = "coop:" + COOP_SESSION + ":4";
+  ledger.record(ingress(4));
+  var first = ledger.classify(id, {
+    kind: "existing_topic",
+    topicRef: TOPIC,
+    implementationDecision: { intent: "implement", at: 4000 },
+  });
+  var replayed = ledger.classify(id, {
+    kind: "existing_topic",
+    topicRef: TOPIC,
+    implementationDecision: { intent: "ship", at: 9000 },
+  });
+
+  assert.deepEqual(replayed.implementationDecision, first.implementationDecision);
+  assert.deepEqual(replayed.implementationDecision, {
+    intent: "implement",
+    source: "explicit_owner_turn",
+    at: 4000,
+  });
+});
+
 test("an unresolved ProjectRef records attention instead of silently dropping the request", function () {
   var ledger = makeLedger();
   var id = "coop:" + COOP_SESSION + ":182";

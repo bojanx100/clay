@@ -227,6 +227,8 @@ test("session-list serialization exposes validated Lead ownership without Coop i
     runtimeTerminalId: 6,
     taskLauncher: { autoLaunch: true, autoKind: "pr", workflowCompleted: true },
     coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    orchestrationPolicy: { portfolioExecution: { status: "superseded" } },
     orchestrationTasks: [{ taskId: "task-4", status: "running" }],
     coopControlledBy: { coopSessionStorageId: "coop-home-private", since: 123 },
   };
@@ -243,6 +245,8 @@ test("session-list serialization exposes validated Lead ownership without Coop i
   assert.equal(record.vendor, "codex");
   assert.equal(record.runtimeTerminalId, 6);
   assert.equal(record.leadOwned, true);
+  assert.equal(record.coordinationRole, "task_coordinator");
+  assert.equal(record.coopExecutionStatus, "superseded");
   assert.equal(Object.prototype.hasOwnProperty.call(record, "coopControlledBy"), false);
   assert.equal(JSON.stringify(record).includes("coop-home-private"), false);
 
@@ -261,6 +265,8 @@ test("session-list broadcasts expose Lead ownership without Coop identifiers", a
     localId: 1,
     title: "Lead controlled",
     coopControlledBy: { coopSessionStorageId: "coop-home-private", since: 1 },
+    coordinationRole: "project_coordinator",
+    orchestrationPolicy: { portfolioExecution: { status: "completed" } },
   };
   var direct = { localId: 2, title: "Direct" };
   var broadcast = attachSessionBroadcast({
@@ -275,6 +281,8 @@ test("session-list broadcasts expose Lead ownership without Coop identifiers", a
 
   assert.equal(messages.length, 1);
   assert.deepEqual(messages[0].sessions.map(function (session) { return session.leadOwned; }), [true, false]);
+  assert.equal(messages[0].sessions[0].coordinationRole, "project_coordinator");
+  assert.equal(messages[0].sessions[0].coopExecutionStatus, "completed");
   assert.equal(JSON.stringify(messages[0]).includes("coop-home-private"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(messages[0].sessions[0], "coopControlledBy"), false);
 });

@@ -213,6 +213,28 @@ test("the backfill is idempotent and never re-answers", function () {
   assert.equal(ledger.list().length, 2);
 });
 
+test("an explicit implementation decision persists once across restart backfill", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-backfill-restart-"));
+  var file = path.join(dir, "r.json");
+  var history = [ingress(281, { text: "ok set it to implement..." })];
+  var session = { storageId: COOP, coopHome: true, history: history };
+  var firstLedger = ownerRequests.attachCoopOwnerRequests({ file: file });
+
+  backfill.backfillOwnerRequests(firstLedger, session, {});
+  var first = firstLedger.get("coop:" + COOP + ":281");
+  var restartedLedger = ownerRequests.attachCoopOwnerRequests({ file: file });
+  backfill.backfillOwnerRequests(restartedLedger, session, {});
+  var replayed = restartedLedger.get("coop:" + COOP + ":281");
+
+  assert.deepEqual(replayed.implementationDecision, first.implementationDecision);
+  assert.deepEqual(replayed.implementationDecision, {
+    intent: "implement",
+    source: "explicit_owner_turn",
+    at: 281000,
+  });
+  assert.equal(restartedLedger.list().length, 1);
+});
+
 test("backfilled requests carry the canonical event reference, not the text", function () {
   var out = run([ingress(1), { type: "delta" }, { type: "done", code: 0 }]);
   var record = out.ledger.get("coop:" + COOP + ":1");
