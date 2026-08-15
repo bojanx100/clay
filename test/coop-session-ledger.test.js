@@ -488,6 +488,83 @@ test("an exact completed legacy project-coordinator binding outranks stale runni
   assert.equal(projected.closedAt, 300);
 });
 
+test("a terminal historical child cannot reactivate a restored completed project root", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-restored-root-"));
+  var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
+  var root = {
+    storageId: "restored-project-root",
+    title: "Project coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+    orchestrationProjectCompletion: {
+      status: "pending",
+      portfolioTaskId: "initial-project-work",
+      bindingRevision: 1,
+    },
+    orchestrationTasks: [{
+      taskId: "stale-restart-task",
+      clientRef: "portfolio:historical-restart-work:1",
+      workerStorageId: "historical-child",
+      status: "running",
+      updatedAt: 350,
+    }],
+  };
+  var completed = binding("initial-project-work", CLAY_ID, root.storageId,
+    "project_coordinator", "completed");
+  completed.completedAt = 300;
+  completed.updatedAt = 300;
+  var historical = binding("historical-restart-work", CLAY_ID, "historical-child",
+    "project_coordinator", "superseded");
+  historical.completedAt = 340;
+  historical.updatedAt = 340;
+
+  assert.equal(ledger.reconcile({
+    bindings: [completed, historical], projects: [project(CLAY_ID, [root])],
+  }).ok, true);
+  var projected = ledger.get({ projectId: CLAY_ID, sessionStorageId: root.storageId });
+  assert.equal(projected.lifecycleState, "completed");
+  assert.equal(projected.workState, "done");
+  assert.equal(projected.closedAt, 300);
+  assert.equal(projected.terminalOutcome.status, "completed");
+});
+
+test("a live attention child still keeps a restored project root actionable", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-restored-attention-"));
+  var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
+  var root = {
+    storageId: "restored-attention-root",
+    title: "Project coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+    orchestrationTasks: [{
+      taskId: "attention-task",
+      clientRef: "portfolio:current-attention-work:2",
+      workerStorageId: "attention-child",
+      status: "running",
+      updatedAt: 350,
+    }],
+  };
+  var completed = binding("initial-project-work", CLAY_ID, root.storageId,
+    "project_coordinator", "completed");
+  completed.completedAt = 300;
+  completed.updatedAt = 300;
+  var attention = binding("current-attention-work", CLAY_ID, "attention-child",
+    "project_coordinator", "active");
+  attention.bindingRevision = 2;
+  attention.attentionAt = 340;
+  attention.updatedAt = 340;
+
+  assert.equal(ledger.reconcile({
+    bindings: [completed, attention], projects: [project(CLAY_ID, [root])],
+  }).ok, true);
+  var projected = ledger.get({ projectId: CLAY_ID, sessionStorageId: root.storageId });
+  assert.equal(projected.lifecycleState, "needs_input");
+  assert.equal(projected.workState, "needs_input");
+  assert.equal(projected.terminalOutcome, null);
+});
+
 test("a compacted continuation inherits the exact source binding and topic", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-compaction-"));
   var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
