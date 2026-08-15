@@ -372,6 +372,19 @@ test("owner authorization without a decision still blocks anything that is not p
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
 });
 
+test("a matching conversational ingress without explicit owner authorization admits nothing", function () {
+  var delivered = [];
+  var discussion = executionRouter([ownerApprovedConversationalEntry()], delivered, [],
+    { history: [{ type: "user_message", text: "Let's discuss both reviews first",
+      coopIngressId: INGRESS_332, coopTopicRef: THREADS_TOPIC, _ts: 1786809874802 }] });
+  try {
+    assert.deepEqual(councilDispatch(discussion.router), {
+      ok: false, reason: "owner_implementation_decision_required",
+    });
+    assert.equal(delivered.length, 0);
+  } finally { fs.rmSync(discussion.dir, { recursive: true, force: true }); }
+});
+
 test("a withdrawn owner turn authorizes no review worker", function () {
   var delivered = [];
   var withdrawn = executionRouter([ownerApprovedConversationalEntry({

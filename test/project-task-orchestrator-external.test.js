@@ -123,6 +123,69 @@ test("the next typed dispatch reuses explicit approval text restored from histor
   assert.deepEqual(delivered.coopTopicRef, topic);
 });
 
+function routedReadOnlyReview(input) {
+  var topic = { topicId: "auto-61f5ae911c79deab7fa6b255" };
+  var source = { localId: 1, storageId: "canonical-coop", history: [{
+    type: "user_message",
+    text: "Implement the earlier approved task.",
+    coopIngressId: "coop:canonical-coop:281",
+    coopTopicRef: topic,
+  }, {
+    type: "user_message",
+    text: "do them",
+    coopIngressId: "coop:canonical-coop:332",
+    coopTopicRef: topic,
+  }] };
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    createProjectExecution: function (execution) {
+      delivered = execution;
+      return { ok: true };
+    },
+  });
+
+  var result = coordinate(Object.assign({
+    coordinatorSessionId: "canonical-coop",
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    coopTopicRef: topic,
+    mode: "project_coordinator",
+  }, input));
+  assert.equal(result.ok, true);
+  return delivered;
+}
+
+test("Council dispatch binds the current owner-approved read-only review ingress", function () {
+  var delivered = routedReadOnlyReview({
+    portfolioTaskId: "clay-threads-v2-council-review-2026-08-15",
+    bindingRevision: 2,
+    idempotencyKey: "clay-threads-v2-council-review-20260815-r2-owner-approved",
+    title: "Council review for Threads V2",
+    objective: "Run a participatory Council-style review for Coop Threads V2.",
+    context: "The owner authorized both proposed reviews with ingress 332: do them.",
+    acceptanceCriteria: "Return recommendations without source edits.",
+    ownedPaths: "read-only: product interaction architecture; no source edits",
+  });
+
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:332");
+});
+
+test("Triage dispatch binds the current owner-approved read-only review ingress", function () {
+  var delivered = routedReadOnlyReview({
+    portfolioTaskId: "clay-threads-v2-triage-review-2026-08-15",
+    bindingRevision: 1,
+    idempotencyKey: "clay-threads-v2-triage-review-20260815-r1-owner-approved",
+    title: "Triage review for Threads V2 routing",
+    objective: "Run a focused Triage review of routing and title behavior.",
+    context: "The owner authorized both proposed reviews with ingress 332: do them.",
+    acceptanceCriteria: "Return prioritized findings without source edits.",
+    ownedPaths: "read-only: routing, title, and triage requirements; no source edits",
+  });
+
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:332");
+});
+
 test("an external Live UI report can promote an ordinary conversation", function () {
   var ordinary = {
     localId: 9,
