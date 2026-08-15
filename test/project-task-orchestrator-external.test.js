@@ -169,6 +169,8 @@ test("Council dispatch binds the current owner-approved read-only review ingress
   });
 
   assert.equal(delivered.coopIngressId, "coop:canonical-coop:332");
+  assert.equal(delivered.controlRole, "council");
+  assert.equal(delivered.reviewOnly, true);
 });
 
 test("Triage dispatch binds the current owner-approved read-only review ingress", function () {
@@ -184,6 +186,8 @@ test("Triage dispatch binds the current owner-approved read-only review ingress"
   });
 
   assert.equal(delivered.coopIngressId, "coop:canonical-coop:332");
+  assert.equal(delivered.controlRole, "triage");
+  assert.equal(delivered.reviewOnly, true);
 });
 
 test("an external Live UI report can promote an ordinary conversation", function () {

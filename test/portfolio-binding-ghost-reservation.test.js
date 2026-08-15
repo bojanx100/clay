@@ -235,6 +235,37 @@ test("a conflicting idempotency key on the same revision is refused", function (
   assert.equal(conflict.reason, "idempotency_conflict");
 });
 
+test("terminal read-only attention releases the portfolio for an authorized repair revision", function () {
+  var api = store();
+  var review = request("review-to-repair", 1, {
+    mode: "project_coordinator",
+  });
+  assert.equal(api.reserve(review).ok, true);
+  assert.equal(api.commit("review-to-repair", 1, {
+    projectId: TARGET.projectId,
+    sessionStorageId: "council-review",
+  }).ok, true);
+
+  var attention = api.complete("review-to-repair", 1, {
+    eventId: "review-attention-1",
+    terminalStatus: "needs_input",
+    executionMode: "project_coordinator",
+    completedAt: 1200,
+    controlRole: "council",
+    reviewOnly: true,
+  });
+  assert.equal(attention.ok, true);
+  assert.equal(attention.binding.status, "needs_input");
+  assert.equal(attention.binding.controlRole, "council");
+  assert.equal(attention.binding.reviewOnly, true);
+
+  var repair = api.reserve(request("review-to-repair", 2, {
+    mode: "project_coordinator",
+  }));
+  assert.equal(repair.ok, true,
+    "a terminal verification finding must not deadlock the separately authorized repair");
+});
+
 test("a re-armed reservation is still a single record", function () {
   var api = store();
   api.reserve(request("t", 1));

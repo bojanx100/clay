@@ -37,6 +37,7 @@ function gateHarness(tasks, options) {
   for (var di = 0; di < descendants.length; di++) sessions.set(descendants[di].localId, descendants[di]);
   var gate = attachCompletionGate({
     sm: {
+      getProjectId: function () { return "5332aafc-31e7-5cb1-ba96-c8d90e78260e"; },
       saveSessionFile: function () { saves++; },
       broadcastSessionList: function () { broadcasts++; },
       hideSession: function (localId) {
@@ -52,6 +53,7 @@ function gateHarness(tasks, options) {
       },
     },
     flushCoordinatorUpdates: function () { return false; },
+    crossProject: options.crossProject || null,
     queueCoordinatorUpdate: function (target, text) {
       updates.push(text);
       target.isProcessing = true;
@@ -71,6 +73,47 @@ function gateHarness(tasks, options) {
     sessions: sessions,
   };
 }
+
+test("a read-only Council attention result terminalizes its binding without hiding the session", function () {
+  var delivered = [];
+  var h = gateHarness([], {
+    crossProject: {
+      createEnvelope: function (input) { return input; },
+      deliverEnvelope: function (envelope) {
+        delivered.push(envelope);
+        return { ok: true, delivered: true };
+      },
+    },
+  });
+  h.session.title = "Council: legacy read-only verification";
+  h.session.coopControlledBy = { coopSessionStorageId: "clay-root", since: 1 };
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "council-review",
+      bindingRevision: 1,
+      idempotencyKey: "council-review-r1",
+      mode: "project_coordinator",
+      status: "running",
+      source: { projectId: "system-lead", sessionStorageId: "clay-root" },
+    },
+  };
+  h.session.history = [{
+    type: "delta",
+    text: "WORKER_STATUS: needs_input\nSUMMARY: Two actionable findings require repair.\n" +
+      "REASON: verification_findings\nESCALATION_REQUIRED: yes",
+  }];
+
+  h.gate.handleTurnDone(h.session);
+
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "needs_input");
+  assert.equal(h.session.hidden, undefined);
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0].payload.type, "portfolio_execution_completed");
+  assert.equal(delivered[0].payload.terminalStatus, "needs_input");
+  assert.equal(delivered[0].payload.controlRole, "council");
+  assert.equal(delivered[0].payload.reviewOnly, true);
+  assert.match(delivered[0].payload.resultSummary, /actionable findings/);
+});
 
 test("verified project completion commits the controlled incarnation before its projection", function () {
   var calls = [];

@@ -43,23 +43,140 @@ function controlSession(id, role, title, extra) {
   }, extra || {}));
 }
 
-test("Coop projects only visible Council and Triage roles in stable order", function () {
-  var home = session(1, { storageId: "coop-home", coopHome: true });
-  var hiddenCouncil = controlSession(2, "council", "Hidden Council", { hidden: true });
-  var visibleCouncil = controlSession(3, "council", "Council");
-  var visibleTriage = controlSession(4, "triage", "Triage");
-  var unknown = controlSession(5, "observer", "Observer");
-  var ordinary = session(6, { title: "Owner session", coordinationRole: "coop_control_plane" });
+test("exact Council and archived Triage executions project without persistent placeholders or duplicates", function () {
+  var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var topicRef = { topicId: "threads-v2" };
+  var home = session(1, { storageId: "coop-home", coopHome: true, history: [] });
+  var placeholderCouncil = controlSession(2, "council", "Council");
+  var placeholderTriage = controlSession(3, "triage", "Triage");
+  var rootRef = { projectId: "system-lead", sessionStorageId: "clay-root" };
+  var root = session(4, {
+    storageId: rootRef.sessionStorageId,
+    title: "Clay coordinator",
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: home.storageId, since: 1 },
+    orchestrationPolicy: { coopControlPlane: {
+      version: 1, role: "project_coordinator", projectRef: { projectId: clayId }, createdAt: 1,
+    } },
+    orchestrationTasks: [{
+      taskId: "council-task", clientRef: "portfolio:threads-v2-council-review:1",
+      title: "Council: shape Threads V2", status: "running", externalTaskCoordinator: true,
+      workerStorageId: "council-execution",
+      workerSessionRef: { projectId: clayId, sessionStorageId: "council-execution" },
+      coopTopicRef: topicRef,
+    }, {
+      taskId: "triage-task", clientRef: "portfolio:threads-v2-triage-review:1",
+      title: "Triage Threads V2 routing", status: "completed", externalTaskCoordinator: true,
+      workerStorageId: "triage-execution",
+      workerSessionRef: { projectId: clayId, sessionStorageId: "triage-execution" },
+      coopTopicRef: topicRef,
+    }, {
+      taskId: "ordinary-task", title: "Implement the accepted repair", status: "running",
+      externalTaskCoordinator: true, workerStorageId: "ordinary-execution",
+      workerSessionRef: { projectId: clayId, sessionStorageId: "ordinary-execution" },
+      coopTopicRef: topicRef,
+    }],
+  });
+  var council = session(20, {
+    storageId: "council-execution",
+    title: "Council: shape Threads V2",
+    isProcessing: true,
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    projectCoordinatorRef: rootRef,
+    coopControlledBy: { coopSessionStorageId: root.storageId, since: 1 },
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "threads-v2-council-review", bindingRevision: 1,
+      idempotencyKey: "threads-v2-council-review-r1", mode: "project_coordinator",
+      controlRole: "council", reviewOnly: true, status: "running", updatedAt: 20,
+    } },
+  });
+  var triage = session(21, {
+    storageId: "triage-execution",
+    title: "Triage Threads V2 routing",
+    hidden: true,
+    closedAt: 30,
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    projectCoordinatorRef: rootRef,
+    coopControlledBy: { coopSessionStorageId: root.storageId, since: 1 },
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "threads-v2-triage-review", bindingRevision: 1,
+      idempotencyKey: "threads-v2-triage-review-r1", mode: "project_coordinator",
+      status: "completed", completedAt: 30, updatedAt: 30,
+    } },
+    orchestrationProjectCompletion: {
+      status: "completed", summary: "Triage kept Main as the safe fallback.",
+      verification: "171 focused tests passed.", completedAt: 30,
+    },
+  });
+  var ordinary = session(22, {
+    storageId: "ordinary-execution",
+    title: "Implement the accepted repair",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    projectCoordinatorRef: rootRef,
+    coopControlledBy: { coopSessionStorageId: root.storageId, since: 1 },
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "threads-v2-repair", bindingRevision: 1,
+      idempotencyKey: "threads-v2-repair-r1", mode: "project_coordinator",
+      status: "running", updatedAt: 25,
+    } },
+  });
+  var ownerDirect = session(23, { title: "Owner direct conversation" });
   var lead = project("system-lead", "lead",
-    [home, hiddenCouncil, visibleTriage, unknown, ordinary, visibleCouncil], { isLead: true });
+    [home, placeholderCouncil, placeholderTriage, root], { isLead: true });
+  var clay = project(clayId, "clay", [council, triage, ordinary, ownerDirect], { title: "Clay" });
+  var topicIndex = {
+    ensureRetro: function () { return { ok: true }; },
+    project: function () { return { groups: [{ kind: "uncategorised", topics: [{
+      topicRef: topicRef, title: "Threads V2", status: "open", threadState: "exploring",
+    }] }] }; },
+  };
 
-  var projection = buildGlobalCoopProjection({ projects: [lead] });
+  var projection = buildGlobalCoopProjection({
+    projects: [lead, clay], coopTopicIndex: topicIndex,
+    canAccessProject: function () { return true; },
+    canAccessSession: function () { return true; },
+    canAccessArchivedSession: function () { return true; },
+  });
+
   assert.deepEqual(projection.controlPlaneSessions.map(function (item) {
-    return [item.role, item.title, item.sessionRef.sessionStorageId];
-  }), [
-    ["council", "Council", visibleCouncil.storageId],
-    ["triage", "Triage", visibleTriage.storageId],
-  ]);
+    return [item.role, item.title, item.sessionRef.projectId,
+      item.sessionRef.sessionStorageId, item.status, item.processing];
+  }), [["council", "Council: shape Threads V2", clayId,
+    "council-execution", "running", true]]);
+  assert.deepEqual(projection.controlPlaneResults.map(function (item) {
+    return [item.role, item.title, item.summary, item.topicRef.topicId];
+  }), [["triage", "Triage Threads V2 routing",
+    "Triage kept Main as the safe fallback.", "threads-v2"]]);
+  assert.equal(projection.topics[0].controlResults[0].summary,
+    "Triage kept Main as the safe fallback.");
+  assert.deepEqual(projection.projects[0].summary.coordinatorTree[0].children.map(function (item) {
+    return item.sessionRef.sessionStorageId;
+  }), ["ordinary-execution"], "Council is not duplicated under Clay's generic task hierarchy");
+  assert.equal(JSON.stringify(projection).includes("Owner direct conversation"), false);
+
+  var privateArchive = buildGlobalCoopProjection({
+    projects: [lead, clay], coopTopicIndex: topicIndex,
+    canAccessProject: function () { return true; },
+    canAccessSession: function () { return true; },
+    canAccessArchivedSession: function () { return false; },
+  });
+  assert.deepEqual(privateArchive.controlPlaneResults, [],
+    "archived result evidence preserves the session ACL boundary");
+
+  council.isProcessing = false;
+  council.orchestrationPolicy.portfolioExecution.status = "needs_input";
+  council.orchestrationPolicy.portfolioExecution.updatedAt = 40;
+  var waiting = buildGlobalCoopProjection({
+    projects: [lead, clay], coopTopicIndex: topicIndex,
+    canAccessProject: function () { return true; },
+    canAccessSession: function () { return true; },
+  });
+  assert.equal(waiting.controlPlaneSessions[0].status, "needs_input");
+  assert.equal(waiting.controlPlaneSessions[0].processing, false,
+    "waiting remains visible without a processing pulse");
 });
 
 test("Coop projects each accessible configured project into a main-lane lens with canonical nested sessions", function () {

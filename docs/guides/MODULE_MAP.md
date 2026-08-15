@@ -61,8 +61,10 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `coop-owner-request-migrations.js` | Finite digest-bound owner-request startup repairs | Verifies exact canonical request events and finalized visible response ranges before any migration is applied; transcript drift fails closed |
 | `coop-owner-response-linkage.js` | Exact later-turn owner response attribution | Durably stages the ingress/request refs from an `answer_owner` decision on the current canonical Coop response turn, then settles only that set after visible output finalizes |
 | `coop-owner-request-query.js` | Owner-facing projection of the execution flow | Pure join of requests, coordinator claims and the session ledger into unanswered requests plus topic → projects → durable project coordinators → task coordinators → workers; hidden, missing and terminal sessions never count as working |
-| `global-coop-coordinator-tree.js` | Global Coop sidebar execution hierarchy | Exact bounded projection of Lead-resident ProjectRef-bound coordinators → durable handed-off Thread containers → target-project task coordinators → current bound worker sessions, with canonical TopicRef/TaskRef/SessionRef ownership, dependency metadata, and active/attention rollup |
+| `global-coop-coordinator-tree.js` | Global Coop sidebar execution hierarchy | Exact bounded projection of Lead-resident ProjectRef-bound coordinators → durable handed-off Thread containers → target-project task coordinators → current bound worker sessions, with canonical TopicRef/TaskRef/SessionRef ownership, dependency metadata, active/attention rollup, and Council/Triage exclusion from the generic hierarchy |
 | `coop-control-plane.js` | Persistent Coop control-plane sessions | Ensures project-named ProjectRef-bound coordinators plus Council/Triage in Lead, owns cross-project task links, and conservatively migrates live legacy target-local hierarchy metadata |
+| `coop-control-role.js` | Durable owner-visible control execution classification | Separates Council/Triage/project-coordinator ownership from generic orchestration mechanics and recovers legacy roles from bounded task/title identifiers |
+| `coop-control-session-projection.js` | Owner-visible Council/Triage execution and result projection | Joins exact target SessionRefs to Lead control tasks, projects running/attention state without false processing, retains ACL-filtered archived results, and attaches them to canonical Threads |
 | `coop-topic-index.js` | Durable Coop ThreadRef/TopicRef membership index | Restart-safe lossless migration, many-to-many turn references, lifecycle/correction seams, and reference-only persistence under `~/.clay/lead/` |
 | `coop-thread-lifecycle.js` | Thread migration, state transitions, and correction history | Exploring/Parked/Handed off/Closed states, explicit close outcomes, ThreadRef aliases, bounded undo/redo snapshots, and strict implementation-intent detection |
 | `coop-read-only-review-admission.js` | Narrow owner-authorization boundary for read-only planning and review dispatch | Requires a canonical plural owner approval, a `read-only:` ownership scope, and explicit Council/Triage/design/planning/review framing without promoting the turn to implementation intent |
@@ -178,14 +180,14 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-task-orchestrator.js` | `coordinate_queued_message` (via user-message routing), `orchestration_tasks_state` | Project-local worker execution plus target-owned portfolio execution command dispatch, recovery, scheduling, and automatic result return |
 | `project-task-orchestrator-steering.js` | Typed cross-project coordinator steering | Validates canonical Coop source, target ProjectRef/SessionRef, and durable target delivery without Lead-local fallback |
 | `project-task-orchestrator-binding-migration.js` | MCP `migrate_control_plane_binding` | Canonical-Coop-only tool entry that normalizes exact ProjectRef/portfolio/revision/prior-identity refs and relays typed control-plane binding migration to the daemon router |
-| `project-task-orchestrator-completion.js` | (called by task orchestrator) | Server-authoritative graph reconciliation, verified child task-coordinator completion rollup, and restart-safe revocation handling; the durable project root itself does not complete with one bounded task |
+| `project-task-orchestrator-completion.js` | (called by task orchestrator) | Server-authoritative graph reconciliation, verified child task-coordinator completion rollup, restart-safe revocation handling, and terminal delivery of actionable read-only verification attention; the durable project root itself does not complete with one bounded task |
 | `project-task-orchestrator-coordinator.js` | (called by task orchestrator) | Stable project/task coordinator and worker lookup, direct-leaf delegation guard, and on-demand promotion for eligible top-level sessions |
 | `project-task-orchestrator-demotion.js` | (called by task orchestrator) | Automatic and deferred task-coordinator demotion when no owned workers remain; durable project roots are never demoted |
 | `project-task-orchestrator-external.js` | (called by task orchestrator) | External task-coordinator messaging, retry, stop, and restart recovery |
 | `project-task-orchestrator-external-delegation.js` | (called by task orchestrator) | Tool-facing local and cross-project delegation entry points, including project execution route recovery |
 | `project-task-orchestrator-direct-leaf-completion.js` | (called by external orchestration) | Typed direct-leaf completion delivery and restart repair without historical owner-lane replay |
 | `project-task-orchestrator-direct-leaf-status.js` | (called by external orchestration) | Converts terminal direct-leaf results and adapter shutdowns into deterministic completed/failed lifecycle states |
-| `project-task-orchestrator-project-completion-transport.js` | (called by completion gate) | Typed, idempotent project-coordinator completion delivery that closes the source binding without direct file mutation |
+| `project-task-orchestrator-project-completion-transport.js` | (called by completion gate) | Typed, idempotent project-coordinator completion or read-only attention delivery that closes the source binding without direct file mutation |
 | `project-task-orchestrator-cross-project.js` | (called by task orchestrator) | Source-side completion closure, delivery acknowledgement, and suppression of late completed-leaf updates |
 | `project-task-orchestrator-followup.js` | (called by task orchestrator) | Existing-worker follow-ups, retries, direct task messages, and cross-project coordinator update delivery |
 | `project-coordinate-queued.js` | `coordinate_queued_message` helper | Converts an explicit Coordinate action into a context-rich owned worker task |
@@ -228,7 +230,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-lifecycle.js` | Session creation, raw/background session creation, switching/replay fanout, and CLI resume materialization |
 | `sessions-loader.js` | Persisted session JSONL loading, restart-interruption recovery, legacy history relabeling, moved session file adoption |
 | `sessions-persistence.js` | Session JSONL meta rewrites, heavy-save coalescing, atomic tmp+rename writes, append high-water marks |
-| `sessions.js` | Per-project session manager, persistence wiring, and project-scoped `SessionRef` resolution |
+| `sessions.js` | Per-project session manager, persistence wiring, project-scoped `SessionRef` resolution, and a transcript-free archived-evidence ACL check that never makes hidden sessions navigable |
 | `sessions-queued-messages.js` | Pending queued/steer user message reconstruction for session switch payloads, including image ref hydration |
 | `sessions-records.js` | Session record metadata updates: visibility, favorites/bookmark ordering, and owner assignment |
 | `sessions-search.js` | Session title/content search and per-session content hit extraction |
@@ -412,20 +414,20 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-skills-install.js` | Skill install dialog, requireSkills, requireClayMateInterview |
 | `app-favicon.js` | Dynamic favicon, IO blink, urgent blink, send button mode, activity indicator |
 | `app-header.js` | Session rename, session info popover, progressive history loading |
-| `global-coop-projection.js` | Permanent Coop UI state, automatic topic-lens navigation, two-phase fail-closed URL selection, dense facts, and exact canonical SessionRef handoffs without transcript copies |
+| `global-coop-projection.js` | Permanent Coop UI state, automatic topic-lens navigation, two-phase fail-closed URL selection, dense facts, exact canonical SessionRef handoffs, and Council/Triage lifecycle/result normalization without transcript copies |
 | `app-messages-coop-topics.js` | Canonical live-message filtering and topic projection refresh after completed turns |
 | `coop-reply-anchor.js` | Renders the "Reply in &lt;topic&gt;" chip on a message sent from a topic lens, on both the live echo and history replay. Re-applies the server's fail-closed gates (version, same-topic) before trusting a persisted anchor, suppresses itself inside the topic's own lens, and only becomes clickable when the anchored event is actually on screen |
 | `coop-conversation-state.js` | Owner-facing persistent Coop work activity beside the composer (Working on X / Reviewing / Waiting / Idle - waiting for you plus background-task count). Renders voice `Listening` separately from `store.voiceListening`, so input state and work state coexist |
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
 | `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Coop project/topic lenses with canonical worker trees |
-| `sidebar-coop-topic-model.js` | Pure shared desktop/mobile Coop section model: conditional Threads, Project coordinators, Council, and Triage groups with handed-off/closed Threads omitted from the top level |
+| `sidebar-coop-topic-model.js` | Pure shared desktop/mobile Coop section model: conditional Threads, Project coordinators, Council, and Triage groups with exact execution state and retained control results; handed-off/closed Threads remain omitted from the top level |
 | `coop-thread-controls.js` | Selected-Thread lifecycle controls and custom dialogs for park/resume, reassign, merge, explicit-outcome close, and undo |
 | `coop-thread-route.js` | Owner-turn chip that surfaces the automatically or explicitly selected durable Thread |
 | `sidebar-coop-topic-close.js` | Compatibility overflow menu that opens the explicit-outcome Thread dialog or restores a Closed Thread |
 | `sidebar-coop-topic-links.js` | Collapsed, accessible per-topic expander listing related top-level canonical project sessions. Titles only; navigates by exact ProjectRef/SessionRef held in closures, never in DOM attributes |
 | `confirm-modal.js` | The shared confirmation modal (`showConfirm`/`hideConfirm`/`initConfirmModal`). Dependency-free so any module can confirm without pulling in the app graph. Never uses browser-native `confirm()` |
-| `sidebar-coop-topics.js` | Shared desktop/mobile conditional Coop group renderer, Thread rows with visible lifecycle labels, project coordinator hierarchy, and Council/Triage session navigation |
+| `sidebar-coop-topics.js` | Shared desktop/mobile conditional Coop group renderer, Thread rows with retained control results, project coordinator hierarchy, exact Council/Triage navigation, and running-only processing indicators |
 | `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
 | `sidebar-sessions-context-menu.js` | Session and loop context menus, provider handoff entries, visibility toggle, and shared menu state |
 | `sidebar-sessions-orchestration.js` | Existing-session “Add to coordinator” picker, recommendation rows, and adoption acknowledgement |

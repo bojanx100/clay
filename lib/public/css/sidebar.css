@@ -1121,6 +1121,7 @@
 .coop-control-plane-row {
   display: flex;
   align-items: center;
+  gap: 6px;
   width: calc(100% - 16px);
   min-height: 34px;
   margin: 2px 8px;
@@ -1132,10 +1133,28 @@
   font: inherit;
   font-weight: 650;
   text-align: left;
+  cursor: pointer;
 }
 .coop-control-plane-row:hover,
 .coop-control-plane-row:focus-visible { background: var(--sidebar-hover); color: var(--text); }
 .coop-control-plane-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.coop-control-plane-title { overflow: hidden; flex: 1 1 auto; text-overflow: ellipsis; white-space: nowrap; }
+.coop-control-plane-state { color: var(--text-dimmer); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.coop-control-plane-row.processing .coop-project-coordinator-marker {
+  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.14);
+  animation: vendor-dot-pulse 1.1s ease-in-out infinite;
+}
+.coop-control-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 3px 8px 5px;
+  padding: 6px 9px;
+  border-left: 2px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+.coop-control-result-title { font-size: 10px; font-weight: 700; }
+.coop-control-result-summary { font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
 
 /* --- Action required queue ---------------------------------------------- */
 /* Sits above the lenses. Deliberately louder than a topic row: these are the

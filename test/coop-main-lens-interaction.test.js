@@ -330,8 +330,14 @@ test("entering Coop with no lens in the URL selects Main", async function () {
 test("desktop and mobile render the same non-empty Coop control groups and navigation", async function () {
   var ctx = await controlGroupHarness();
   var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
-  var councilRef = { projectId: "system-lead", sessionStorageId: "council" };
-  var triageRef = { projectId: "system-lead", sessionStorageId: "triage" };
+  var councilRef = { projectId: clayId, sessionStorageId: "council-execution" };
+  var triageRef = { projectId: clayId, sessionStorageId: "triage-execution" };
+  var triageResult = {
+    role: "triage", title: "Triage Threads V2 routing", status: "completed",
+    summary: "Main remains the safe fallback.", verification: "171 focused tests passed.",
+    completedAt: 30, topicRef: { topicId: "conditional-groups" },
+    executionRef: { projectId: clayId, sessionStorageId: "triage-completed" },
+  };
   ctx.projection.setGlobalCoopProjection({
     type: "global_coop_projection",
     coop: { localId: 7 },
@@ -345,11 +351,15 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
     topics: [{
       topicRef: { topicId: "conditional-groups" }, title: "Conditional control groups",
       group: "uncategorised", threadState: "exploring", status: "open",
+      controlResults: [triageResult],
     }],
     controlPlaneSessions: [
-      { role: "council", title: "Council", sessionRef: councilRef },
-      { role: "triage", title: "Triage", sessionRef: triageRef },
+      { role: "council", title: "Council: shape Threads V2", sessionRef: councilRef,
+        status: "running", processing: true },
+      { role: "triage", title: "Triage follow-up", sessionRef: triageRef,
+        status: "needs_input", processing: false },
     ],
+    controlPlaneResults: [triageResult],
   });
   var model = ctx.projection.buildGlobalCoopDisplayModel("");
   var sections = ctx.model.coopTopicSections(model);
@@ -371,6 +381,13 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   }), ["Clay coordinator"]);
   var desktopControlRows = byClass(desktop, "coop-control-plane-row");
   assert.equal(desktopControlRows.length, 2);
+  assert.equal(desktopControlRows[0].classList.contains("processing"), true);
+  assert.equal(desktopControlRows[1].classList.contains("processing"), false);
+  assert.match(desktopControlRows[0].textContent, /Running/);
+  assert.match(desktopControlRows[1].textContent, /Needs input/);
+  assert.deepEqual(byClass(desktop, "coop-control-result-summary").map(function (item) {
+    return item.textContent;
+  }), ["Main remains the safe fallback."]);
   desktopControlRows[0].click();
   assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: councilRef });
 
@@ -388,6 +405,11 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   }), ["Project coordinators", "Council", "Triage"]);
   var mobileControlRows = byClass(mobile, "mobile-coop-control-plane-row");
   assert.equal(mobileControlRows.length, 2);
+  assert.equal(mobileControlRows[0].classList.contains("processing"), true);
+  assert.equal(mobileControlRows[1].classList.contains("processing"), false);
+  assert.deepEqual(byClass(mobile, "mobile-coop-control-result-summary").map(function (item) {
+    return item.textContent;
+  }), ["Main remains the safe fallback."]);
   mobileControlRows[1].click();
   assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: triageRef });
   assert.equal(navigated, 1);

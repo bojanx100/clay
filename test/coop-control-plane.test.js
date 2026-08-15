@@ -133,8 +133,8 @@ test("global Coop projects Lead root to target task coordinator to its worker", 
   assert.equal(tree[0].children[0].title, "Verify activated fixes");
   assert.equal(tree[0].children[0].sessionRef.projectId, CLAY);
   assert.equal(tree[0].children[0].children[0].title, "Run focused tests");
-  assert.deepEqual(result.controlPlaneSessions.map(function (item) { return item.title; }),
-    ["Council", "Triage"]);
+  assert.deepEqual(result.controlPlaneSessions, [],
+    "persistent control peers are not owner-visible execution placeholders");
 });
 
 test("legacy target-local hierarchy migrates without terminalizing active evidence", function () {
