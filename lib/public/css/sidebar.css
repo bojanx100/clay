@@ -993,7 +993,7 @@
 
 .session-top-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   padding: 0 0 2px;
 }
@@ -1239,6 +1239,29 @@
 
 .session-ctx-item.session-ctx-delete { color: var(--error); }
 .session-ctx-item.session-ctx-delete:hover { background: var(--error-8); }
+
+/* --- New-session vendor picker --- */
+.session-new-menu { min-width: 200px; }
+
+.session-ctx-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.session-new-vendor .session-new-vendor-name { flex: 1 1 auto; min-width: 0; }
+.session-new-vendor.active { color: var(--text); font-weight: 600; }
+
+/* Uninstalled vendors stay clickable on purpose: the click opens the
+   vendor's homepage instead of creating a session. */
+.session-new-vendor.disabled { opacity: 0.45; }
+.session-new-vendor.disabled:hover { opacity: 0.7; }
+
+.session-new-vendor-note {
+  font-size: 11px;
+  color: var(--text-dimmer);
+  white-space: nowrap;
+}
 
 /* --- Session inline rename --- */
 .session-rename-input {
