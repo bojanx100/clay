@@ -271,6 +271,95 @@ test("project registration reconciles a hidden completed coordinator's active bi
     "completed");
 });
 
+test("project registration supersedes and hides only an evidence-bound restart failure", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-restart-supersession-"));
+  var bindingFile = path.join(dir, "bindings.json");
+  var failedRef = { projectId: projectId, sessionStorageId: "failed-restart" };
+  var successorRef = { projectId: projectId, sessionStorageId: "verified-successor" };
+  var rootRef = { projectId: projectId, sessionStorageId: "project-root" };
+  fs.writeFileSync(bindingFile, JSON.stringify({
+    schema: "clay.portfolio_execution_bindings",
+    version: 2,
+    bindings: [{
+      portfolioTaskId: "failed-restart-task", bindingRevision: 1,
+      idempotencyKey: "failed-restart-r1", mode: "project_coordinator",
+      targetProject: { projectId: projectId }, status: "failed",
+      coordinator: failedRef, projectCoordinator: rootRef,
+      createdAt: 10, updatedAt: 20, completedAt: 20,
+    }, {
+      portfolioTaskId: "verified-successor-task", bindingRevision: 5,
+      idempotencyKey: "verified-successor-r5", mode: "project_coordinator",
+      targetProject: { projectId: projectId }, status: "completed",
+      coordinator: successorRef, projectCoordinator: rootRef,
+      createdAt: 30, updatedAt: 40, completedAt: 40,
+    }],
+  }, null, 2));
+  var failed = {
+    localId: 1, storageId: failedRef.sessionStorageId,
+    coordinationRole: "task_coordinator", orchestrationTasks: [],
+    coopControlledBy: { coopSessionStorageId: "old-coop", since: 1 },
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "failed-restart-task", bindingRevision: 1,
+      status: "failed", reason: "restart_recovery", terminalAt: 20,
+    } },
+  };
+  var successor = {
+    localId: 2, storageId: successorRef.sessionStorageId,
+    coordinationRole: "task_coordinator",
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "verified-successor-task", bindingRevision: 5,
+      status: "completed", completedAt: 40,
+    } },
+    orchestrationProjectCompletion: {
+      status: "completed", portfolioTaskId: "verified-successor-task", bindingRevision: 5,
+      completedAt: 40, summary: "Verified restart.", verification: "Focused suite passed.",
+      integrationVerification: "yes", escalationRequired: "no",
+    },
+  };
+  var saves = 0;
+  var sessions = new Map([[1, failed], [2, successor]]);
+  var manager = {
+    sessions: sessions,
+    getActiveSession: function () { return null; },
+    saveSessionFile: function () { saves++; },
+    hideSession: function (localId) {
+      sessions.get(localId).hidden = true;
+      saves++;
+    },
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: bindingFile,
+    deliveryFile: path.join(dir, "delivery.json"),
+    restartSupersessionRules: [{
+      ruleId: "registration_restart_cleanup",
+      targetProject: { projectId: projectId },
+      controllerSessionStorageId: "old-coop",
+      failed: {
+        portfolioTaskId: "failed-restart-task", bindingRevision: 1, coordinator: failedRef,
+      },
+      successors: [{
+        portfolioTaskId: "verified-successor-task", bindingRevision: 5,
+        coordinator: successorRef, projectCoordinator: rootRef,
+      }],
+      verifiedCommits: ["c24865ed8a394e90158540c40ba4222778a0f8e6"],
+    }],
+  });
+
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    getSessionManager: function () { return manager; },
+  });
+
+  assert.equal(router.getExecutionBinding("failed-restart-task", 1).status, "superseded");
+  assert.equal(failed.orchestrationPolicy.portfolioExecution.status, "superseded");
+  assert.equal(failed.hidden, true);
+  assert.equal(saves, 1);
+  assert.equal(router.reconcileRestartSupersessions().reconciled[0].outcome,
+    "already_reconciled");
+  assert.equal(saves, 1, "replay does not rewrite the durable cleanup");
+});
+
 test("a compacted project coordinator completes its original canonical binding", function () {
   var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-compacted-completion-"));

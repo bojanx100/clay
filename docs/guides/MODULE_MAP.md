@@ -109,7 +109,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `server-live-ui-registry.js` | Server-instance Live UI pairing identities, proof, reconnect credentials, deduplication, isolation, and revocation |
 | `server-lead.js` | Permanent Coop pseudo-project registration, designated-owner resolution, managed no-local-execution directive, and immutable legacy Lead reference/supersession helpers |
 | `lead-mode.js` | Server-authoritative Coop Lead mode: one-time owner-preference migration, designated Clay-owner mutation authority, durable audit trail, and cross-project state fanout; it gates autonomous powers, not Coop persistence |
-| `server-cross-project.js` | Daemon cross-project router: non-authoritative legacy text notifications, typed durable delivery by stable ProjectRef/SessionRef, and controlled legacy-to-project execution migration |
+| `server-cross-project.js` | Daemon cross-project router: non-authoritative legacy text notifications, typed durable delivery by stable ProjectRef/SessionRef, controlled legacy-to-project execution migration, and project-registration reconciliation of audited restart supersessions |
 | `cross-project-delivery.js` | Typed delivery envelopes, atomic bounded outbox/inbox/cursor persistence, acknowledgement, ordered replay/retry, and dead-letter state |
 | `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
 | `project-live-ui-workspace.js` | Server-authoritative inspected-port ownership mapping across registered projects and git worktrees |
@@ -151,7 +151,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `coop-work-activity.js` | Persistent Coop work activity | Derives Working/Reviewing/Waiting/Idle plus the active background-task count from durable task, ingress, and history references only. Restart- and reconnect-stable, and never reads prompt, transcript, or task text. Voice Listening is deliberately not part of this state |
 | `global-coop-projection.js` | ACL-filtered permanent-Coop project lenses with dense facts and canonical nested SessionRefs; never creates project-local transcripts or execution |
 | `project-coop-channels.js` | Private durable project-scoped Coop channel identity, metadata validation, ACL checks, scoped prompt context, and channel handoff handling |
-| `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable and legacy SessionRefs, schema migration, terminal completion closure, supersession/tombstones, and project-coordinator completion projection |
+| `portfolio-execution-bindings.js` | Durable idempotent portfolio binding revisions for target-project coordinators/direct leaves, stable and legacy SessionRefs, schema migration, terminal completion closure, supersession/tombstones, evidence-bound restart-failure supersession, and project-coordinator completion projection |
 | `project-coordinator-hierarchy.js` | Project execution hierarchy compatibility | Creates/reads legacy target-local roots, binds target task coordinators to Lead control-plane parents, and rolls up legacy local task hierarchies during migration |
 | `portfolio-execution-binding-completion.js` | Atomic idempotent direct-leaf completion and acknowledgement state for durable execution bindings |
 | `coop-control-store.js` + `coop-control-store-migrations.js` | Default-off SQLite WAL control kernel, ordered migrations/backups, exact schema validation, restricted transactions, and compatibility exports |
@@ -205,6 +205,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-pr-review-state.js` | PR-review task state persistence for review/CI/QA follow-up passes |
 | `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
 | `coop-self-cleanup-runtime.js` | Project-scoped, Lead-mode-gated Coop projection cleanup, compaction scheduling, and durable audit replay |
+| `coop-restart-supersession.js` | Fail-closed audited transition from one exact `restart_recovery` failure to a hidden superseded projection only after every owner-approved successor binding and completion record verifies |
 | `project-workspace.js` | `workspace_get`, `workspace_dev_*` | Session workspace context assembly: repo links, worktree binding, PR/preview metadata, dev server lifecycle, and live workspace context patches |
 | `project-workspace-live-ui-binding.js` | Safe Live UI dev-server rebinding to the selected chat's current exact project root/worktree and target origin |
 | `project-workspace-dev-discovery.js` | (called by project workspace) | Detects configured dev ports started outside Workspace while preserving per-worktree port ownership |

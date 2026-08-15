@@ -311,6 +311,98 @@ test("restart-failed project coordinators terminalize ghost bindings without fal
     "the terminal recovery outcome must release the portfolio slot");
 });
 
+test("a restart-only failed binding accepts only exact durable supersession evidence", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-restart-supersession-"));
+  var file = path.join(dir, "bindings.json");
+  var clock = 300;
+  var store = createBindings({ file: file, now: function () { return clock++; } });
+  store.reserve(request(1, "project_coordinator"));
+  store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "restart-failed-project-coordinator",
+  });
+  store.markAttention("portfolio-task", 1, "session_archived");
+  var session = {
+    hidden: true,
+    orchestrationProjectCompletion: { status: "pending", completionRevision: 0 },
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "portfolio-task", bindingRevision: 1,
+      idempotencyKey: "command-1", mode: "project_coordinator",
+      status: "failed", reason: "restart_recovery", terminalAt: 400,
+    } },
+  };
+  store.reconcileStrandedCompletions({
+    sessionForBinding: function () { return session; },
+    saveSession: function () {},
+  });
+  var failed = store.get("portfolio-task", 1);
+  var successorRequest = {
+    portfolioTaskId: "later-verified-task",
+    mode: "project_coordinator",
+    targetProject: { projectId: PROJECT_ID },
+    bindingRevision: 5,
+    idempotencyKey: "later-verified-task-r5",
+  };
+  assert.equal(store.reserve(successorRequest).ok, true);
+  assert.equal(store.commit(successorRequest.portfolioTaskId, successorRequest.bindingRevision, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "later-coordinator",
+  }, {
+    projectCoordinatorRef: { projectId: PROJECT_ID, sessionStorageId: "durable-project-root" },
+  }).ok, true);
+  assert.equal(store.complete(successorRequest.portfolioTaskId, successorRequest.bindingRevision, {
+    eventId: "later-completion-event",
+    executionMode: "project_coordinator",
+    resultEventId: "later-result-event",
+    completedAt: 450,
+  }).ok, true);
+  var evidence = {
+    ruleId: "verified_restart_followup",
+    reconciledAt: 500,
+    controllerSessionStorageId: "old-coop",
+    failed: {
+      portfolioTaskId: "portfolio-task",
+      bindingRevision: 1,
+      coordinator: failed.coordinator,
+      completedAt: failed.completedAt,
+    },
+    successors: [{
+      portfolioTaskId: "later-verified-task",
+      bindingRevision: 5,
+      coordinator: { projectId: PROJECT_ID, sessionStorageId: "later-coordinator" },
+      projectCoordinator: { projectId: PROJECT_ID, sessionStorageId: "durable-project-root" },
+      completedAt: 450,
+    }],
+    verifiedCommits: ["c24865ed8a394e90158540c40ba4222778a0f8e6"],
+  };
+
+  assert.equal(store.supersedeRestartRecovery("portfolio-task", 1,
+    Object.assign({}, evidence, { failed: Object.assign({}, evidence.failed, {
+      coordinator: { projectId: PROJECT_ID, sessionStorageId: "wrong" },
+    }) })).reason, "restart_supersession_binding_mismatch");
+  assert.equal(store.get("portfolio-task", 1).status, "failed");
+  assert.equal(store.supersedeRestartRecovery("portfolio-task", 1,
+    Object.assign({}, evidence, { successors: [Object.assign({}, evidence.successors[0], {
+      completedAt: 451,
+    })] })).reason, "restart_supersession_successor_mismatch");
+  assert.equal(store.get("portfolio-task", 1).status, "failed");
+
+  var superseded = store.supersedeRestartRecovery("portfolio-task", 1, evidence);
+  assert.equal(superseded.ok, true);
+  assert.equal(superseded.binding.status, "superseded");
+  assert.equal(superseded.binding.statusReason, "restart_recovery_superseded");
+  assert.equal(superseded.binding.completedAt, failed.completedAt,
+    "supersession preserves the original failure time and never invents completion");
+  assert.equal(store.supersedeRestartRecovery("portfolio-task", 1, evidence).duplicate, true);
+
+  var restarted = createBindings({ file: file });
+  assert.equal(restarted.get("portfolio-task", 1).status, "superseded");
+  assert.equal(restarted.get("portfolio-task", 1).restartSupersession.ruleId,
+    "verified_restart_followup");
+  assert.deepEqual(restarted.get("portfolio-task", 1).restartSupersession.verifiedCommits,
+    evidence.verifiedCommits);
+});
+
 test("version-one binding files migrate without changing canonical references", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-migration-"));
   var file = path.join(dir, "bindings.json");

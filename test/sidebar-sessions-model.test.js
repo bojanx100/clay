@@ -16,7 +16,6 @@ test("ordinary project sidebar omits the Coop root and is invariant across Lead 
   var projectRoot = {
     id: 4, title: "Project coordinator", leadOwned: true, coordinationMode: true,
     coordinationRole: "project_coordinator",
-    coopControlledBy: { coopSessionStorageId: "canonical-coop" },
   };
   var taskCoordinator = {
     id: 5, title: "Task coordinator", leadOwned: true, coordinationMode: true,
@@ -345,7 +344,7 @@ test("buildSessionListModel: keeps Favorites first and partitions roots into ME 
   var coordinator = {
     id: 2,
     coordinationMode: true,
-    coordinationRole: "project_coordinator",
+    coordinationRole: "task_coordinator",
     leadOwned: true,
     lastActivity: 40,
   };
@@ -383,7 +382,7 @@ test("buildSessionListModel: omits empty ownership sections and preserves a sear
   var coordinator = {
     id: 1,
     coordinationMode: true,
-    coordinationRole: "project_coordinator",
+    coordinationRole: "task_coordinator",
     leadOwned: true,
     lastActivity: 20,
   };

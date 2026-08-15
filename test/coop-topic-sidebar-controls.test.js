@@ -141,11 +141,11 @@ test("all open topics render in one Threads group without legacy categories", as
     projects: [
       { projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", icon: "C",
         summary: { coordinatorTree: [{ sessionRef: { projectId: "system-lead", sessionStorageId: "clay-coordinator" },
-          title: "Clay coordinator", role: "project_coordinator", children: [] }] },
+          title: "Project coordinator", role: "project_coordinator", children: [] }] },
         topics: [topic("clay-one", { projectRef: { projectId: CLAY } })] },
       { projectRef: { projectId: WEBAPP }, slug: "webapp", title: "Webapp",
         summary: { coordinatorTree: [{ sessionRef: { projectId: "system-lead", sessionStorageId: "webapp-coordinator" },
-          title: "Webapp coordinator", role: "project_coordinator", children: [] }] }, topics: [] },
+          title: "webapp coordinator", role: "project_coordinator", children: [] }] }, topics: [] },
     ],
     topics: [topic("cross-one", { group: "cross_project" }), topic("uncat-one", { group: "uncategorised" })],
     controlPlaneSessions: [
