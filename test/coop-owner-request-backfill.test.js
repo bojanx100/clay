@@ -39,6 +39,12 @@ function digestEvent(event) {
   ].join("\n")).digest("hex");
 }
 
+function digestRange(history, start, end) {
+  var proof = [];
+  for (var i = start; i <= end; i++) proof.push(i + ":" + digestEvent(history[i]));
+  return require("node:crypto").createHash("sha256").update(proof.join("\n")).digest("hex");
+}
+
 function run(history) {
   var ledger = ledgerFor();
   var result = backfill.backfillOwnerRequests(ledger,
@@ -277,6 +283,65 @@ test("startup migration backfills a proven approval and exact historical respons
     "restart replay must not restamp already migrated facts");
   assert.deepEqual(replayed.migrations[0].counts,
     { answered: 0, superseded: 0, informational: 0, unchanged: 1 });
+});
+
+test("startup migration can prove two old requests from one exact finalized response range", function () {
+  var first = ingress(292, { text: "first old request" });
+  var second = ingress(295, { text: "second old request" });
+  var history = [first, second,
+    { type: "delta", text: "Answered the first exact request.", _ts: 300000 },
+    { type: "delta", text: " Answered the second exact request.", _ts: 300001 },
+    { type: "done", code: 0, _ts: 300002 }];
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-startup-range-backfill-"));
+  var file = path.join(dir, "r.json");
+  var ledger = ownerRequests.attachCoopOwnerRequests({ file: file });
+  var migrations = [{
+    migrationId: "test-proven-response-range",
+    sessionStorageId: COOP,
+    requestReplay: false,
+    requests: [
+      { ingressId: first.coopIngressId, sequence: 292, eventIndex: 0, digest: digestEvent(first) },
+      { ingressId: second.coopIngressId, sequence: 295, eventIndex: 1, digest: digestEvent(second) },
+    ],
+    evidence: { answered: [
+      { sequence: 292, responseStartEventIndex: 2, responseEventIndex: 4,
+        responseDigest: digestRange(history, 2, 4) },
+      { sequence: 295, responseStartEventIndex: 2, responseEventIndex: 4,
+        responseDigest: digestRange(history, 2, 4) },
+    ] },
+  }];
+  var sm = { sessions: new Map([[1, { storageId: COOP, coopHome: true, history: history }]]) };
+
+  var migrated = backfill.migrateOwnerRequestHistory(ledger, sm, { migrations: migrations });
+  var once = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  var replayed = backfill.migrateOwnerRequestHistory(
+    ownerRequests.attachCoopOwnerRequests({ file: file }), sm, { migrations: migrations });
+
+  assert.equal(migrated.ok, true);
+  assert.equal(ledger.get(first.coopIngressId).response.responseRef.eventIndex, 4);
+  assert.equal(ledger.get(second.coopIngressId).response.responseRef.eventIndex, 4);
+  assert.equal(replayed.ok, true);
+  assert.equal(fs.readFileSync(file, "utf8"), once);
+});
+
+test("startup exact-range migration rejects a changed ingress id before writing", function () {
+  var request = ingress(292, { text: "old request" });
+  var changed = Object.assign({}, request, { coopIngressId: "coop:" + COOP + ":999" });
+  var ledger = ledgerFor();
+  var result = backfill.migrateOwnerRequestHistory(ledger,
+    { sessions: new Map([[1, { storageId: COOP, coopHome: true, history: [changed] }]]) },
+    { migrations: [{
+      migrationId: "changed-exact-ingress",
+      sessionStorageId: COOP,
+      requestReplay: false,
+      requests: [{ ingressId: request.coopIngressId, sequence: 292,
+        eventIndex: 0, digest: digestEvent(request) }],
+      evidence: {},
+    }] });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.migrations[0].reason, "request_evidence_changed");
+  assert.equal(ledger.list().length, 0);
 });
 
 test("startup response migration fails closed when canonical evidence changed", function () {

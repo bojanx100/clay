@@ -76,3 +76,17 @@ test("a restored auto-resume timer retains its ingress across a daemon restart",
   assert.deepEqual(ctx.resumed, [INGRESS]);
   assert.equal(session.history[2].coopContinuationIngressId, INGRESS);
 });
+
+test("a scheduled Lead wake keeps typed automation provenance on its response turn", function () {
+  var ctx = harness();
+  var session = { localId: 44, history: [], isProcessing: false };
+
+  ctx.messages.scheduleMessage(session, "lead tick", Date.now(),
+    "Run one Lead tick now.", "↻ Lead tick", { autoAction: true });
+  assert.equal(ctx.messages.sendScheduledMessageNow(session), true);
+
+  assert.equal(session.history[2].type, "user_message");
+  assert.equal(session.history[2].autoAction, true);
+  assert.equal(session.history[2].synthetic, true);
+  assert.equal(session.history[2].coopContinuationIngressId, undefined);
+});

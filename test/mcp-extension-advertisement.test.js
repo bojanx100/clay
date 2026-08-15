@@ -218,7 +218,7 @@ test("browser tools are advertised before the extension connects", async functio
   assert.equal(browserServer.tools.length, 19);
   assert.ok(coopControlServer);
   assert.deepEqual(coopControlServer.tools.map(function (tool) { return tool.name; }),
-    ["inspect_ledger_records", "reconcile_ledger_records"]);
+    ["inspect_ledger_records", "link_owner_response", "reconcile_ledger_records"]);
 
   var listTabs = browserServer.tools.find(function (tool) {
     return tool.name === "browser_list_tabs";

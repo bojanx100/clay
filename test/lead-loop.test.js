@@ -46,6 +46,66 @@ test("at capacity: waits, staffs nothing", function () {
   assert.ok(/at capacity/.test(d[0].reason));
 });
 
+test("typed ProjectRef bindings are part of the Lead capacity and stale-premise view", function () {
+  var targetProject = { projectId: "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04" };
+  var active = {
+    portfolioTaskId: "portfolio-active", bindingRevision: 1,
+    mode: "project_coordinator", targetProject: targetProject, status: "active",
+  };
+  var needsInput = {
+    portfolioTaskId: "portfolio-needs-input", bindingRevision: 1,
+    mode: "direct_leaf", targetProject: targetProject, status: "needs_input",
+  };
+  var completed = Object.assign({}, active, { portfolioTaskId: "portfolio-completed", status: "completed" });
+  var unrouted = Object.assign({}, active, { portfolioTaskId: "portfolio-unrouted", status: "unrouted" });
+  var input = {
+    portfolio: { items: [pItem("next", 100)] },
+    inFlight: [], capacity: 1, now: NOW, lastStandupAt: NOW,
+  };
+
+  [active, needsInput].forEach(function (binding) {
+    var decision = loop.leadTick(Object.assign({}, input, { portfolioBindings: [binding] }));
+    assert.equal(decision.length, 1);
+    assert.equal(decision[0].action, "wait");
+    assert.match(decision[0].reason, /at capacity \(1\/1\)/);
+    assert.equal(loop.inFlightForTick(Object.assign({}, input, { portfolioBindings: [binding] })).length, 1);
+  });
+
+  [completed, unrouted].forEach(function (binding) {
+    var decision = loop.leadTick(Object.assign({}, input, { portfolioBindings: [binding] }));
+    assert.equal(decision[0].action, "staff");
+    assert.equal(loop.inFlightForTick(Object.assign({}, input, { portfolioBindings: [binding] })).length, 0);
+  });
+
+  var afterCompletion = loop.leadTick(Object.assign({}, input, { portfolioBindings: [completed] }));
+  assert.equal(afterCompletion[0].action, "staff", "completion frees capacity for the next item");
+
+  var completedThenNext = loop.leadTick(Object.assign({}, input, {
+    portfolio: { items: [pItem("portfolio-completed", 200), pItem("next", 100)] },
+    portfolioBindings: [completed],
+  }));
+  assert.equal(completedThenNext[0].action, "staff");
+  assert.equal(completedThenNext[0].item.id, "next",
+    "completion frees capacity without restaffing the completed item");
+
+  var sameTask = Object.assign({}, active, { portfolioTaskId: "next" });
+  var other = pItem("other", 90);
+  var noDuplicate = loop.leadTick(Object.assign({}, input, {
+    capacity: 2,
+    portfolio: { items: [pItem("next", 100), other] },
+    portfolioBindings: [sameTask],
+  }));
+  assert.deepEqual(noDuplicate.filter(function (item) { return item.action === "staff"; })
+    .map(function (item) { return item.item.id; }), ["other"]);
+
+  var staleLegacyReleased = loop.inFlightForTick(Object.assign({}, input, {
+    inFlight: [{ item: { id: "portfolio-completed" } }],
+    portfolioBindings: [completed],
+  }));
+  assert.equal(staleLegacyReleased.length, 0,
+    "the latest typed terminal state overrides a stale legacy in-flight row");
+});
+
 test("skips in-flight and dependency-blocked items", function () {
   var blocked = pItem("dep", 200); blocked.blockedBy = "voice-roadmap";
   var d = loop.leadTick({
@@ -116,6 +176,11 @@ function unanswered(sequence, extra) {
   return Object.assign({
     ingressId: "coop:871a194b-8879-40f7-a1fe-656e48e722af:" + sequence,
     ingressSequence: sequence,
+    requestRef: {
+      projectId: "system-lead",
+      sessionStorageId: "871a194b-8879-40f7-a1fe-656e48e722af",
+      eventIndex: 1000 + sequence,
+    },
     topicRef: { topicId: "auto-a7daa4cc660639337d144d93" },
     state: "open",
   }, extra || {});
@@ -140,6 +205,19 @@ test("the oldest unanswered owner request leads", function () {
   });
   assert.strictEqual(d[0].action, "answer_owner");
   assert.deepStrictEqual(d[0].requests.map(function (r) { return r.ingressSequence; }), [182, 185, 190]);
+  assert.deepStrictEqual(d[0].responseLink, {
+    version: 1,
+    requests: [182, 185, 190].map(function (sequence) {
+      return {
+        ingressId: "coop:871a194b-8879-40f7-a1fe-656e48e722af:" + sequence,
+        requestRef: {
+          projectId: "system-lead",
+          sessionStorageId: "871a194b-8879-40f7-a1fe-656e48e722af",
+          eventIndex: 1000 + sequence,
+        },
+      };
+    }),
+  });
 });
 
 // A request blocked on the OWNER is not Coop's to answer. Letting those preempt

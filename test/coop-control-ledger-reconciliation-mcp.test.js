@@ -32,6 +32,14 @@ function smFor(session) {
   return { sessions: new Map([[1, session]]), getProjectId: function () { return CLAY; } };
 }
 
+function leadSmFor(session, saveSessionFile) {
+  return {
+    sessions: new Map([[1, session]]),
+    getProjectId: function () { return LEAD; },
+    saveSessionFile: saveSessionFile || function () {},
+  };
+}
+
 function auth(extra) {
   return Object.assign({ sessionId: WORKER, portfolioTaskId: TASK, bindingRevision: 1 }, extra || {});
 }
@@ -120,4 +128,40 @@ test("ledger reconciliation rejects unbound callers and stale record preconditio
   assert.equal(stale.isError, true);
   assert.equal(parsed(stale).code, "stale_response");
   assert.equal(ledger.get(ingressId).response.state, "unanswered");
+});
+
+test("canonical Coop can stage exact answer_owner refs without changing response state", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-answer-link-mcp-"));
+  var ledger = ownerRequests.attachCoopOwnerRequests({ file: path.join(dir, "owner.json") });
+  var ingressId = "coop:" + COOP + ":292";
+  var requestRef = { projectId: LEAD, sessionStorageId: COOP, eventIndex: 20 };
+  ledger.record({
+    ingressId: ingressId,
+    ingressSequence: 292,
+    sessionRef: { projectId: LEAD, sessionStorageId: COOP },
+    requestRef: requestRef,
+  });
+  var session = {
+    coopHome: true,
+    storageId: COOP,
+    isProcessing: true,
+    history: [{ type: "user_message", text: "↻ Lead tick",
+      autoAction: true, synthetic: true }],
+    coopConversationIngress: { nextSequence: 293, recent: [], activeIngressId: null },
+  };
+  var saves = 0;
+  var linked = parsed(control.linkOwnerResponse({
+    sm: leadSmFor(session, function () { saves++; }),
+    ownerRequests: ledger,
+  }, { sessionId: COOP, requests: [{ ingressId: ingressId, requestRef: requestRef }] }));
+
+  assert.equal(linked.ok, true);
+  assert.equal(linked.link.requests[0].ingressId, ingressId);
+  assert.equal(ledger.get(ingressId).response.state, "unanswered");
+  assert.equal(session.coopConversationIngress.pendingOwnerResponse.turnRef.eventIndex, 0);
+  assert.equal(saves, 1);
+  var denied = control.linkOwnerResponse({ sm: smFor(worker()), ownerRequests: ledger },
+    auth({ requests: [{ ingressId: ingressId, requestRef: requestRef }] }));
+  assert.equal(denied.isError, true);
+  assert.equal(parsed(denied).code, "not_authorized");
 });

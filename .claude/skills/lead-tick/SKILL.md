@@ -50,8 +50,14 @@ above in every staffing/spend-class exchange before applying the gates below.
 
 - **Loose items** (boss directives, carry-over): `~/.clay/lead/items.json`
   — array of `{title, body, labels, state}` items. Missing file = empty.
-- **Ledger**: `lib/lead-ledger` — `inFlight()`, `failureCount(id)` per
-  candidate, last `standup_composed` event's `at`.
+- **In-flight work**: pass both legacy `lib/lead-ledger.inFlight()` entries
+  and `require("./lib/portfolio-execution-bindings")
+  .createPortfolioExecutionBindings({ reconcileOnLoad: false }).list()`
+  as `portfolioBindings`. Typed, non-terminal ProjectRef bindings are the
+  authoritative post-cutover in-flight state: they consume capacity and make a
+  queued premise stale even when the legacy ledger is empty. Completed and
+  unrouted bindings free the slot. Continue to read `failureCount(id)` and the
+  last `standup_composed` event's `at` from the ledger.
 - **Portfolio**: `lib/lead-backlog.buildPortfolio` over the loose items
   plus any GitHub sources from project task configs
   (`resolveGithubSources` + `collectGithubIssues`; wrap exec with
@@ -90,7 +96,8 @@ above in every staffing/spend-class exchange before applying the gates below.
 
 Run `lib/lead-loop.leadTick` with the gathered state (capacity 1 unless
 the boss raised it; inject `routeFn` from `lib/lead-routing`, real clock,
-and pass the unanswered owner requests as `unansweredRequests`).
+the legacy ledger's `inFlight`, typed binding history as `portfolioBindings`,
+and the unanswered owner requests as `unansweredRequests`).
 The decisions array is your work order for this tick.
 
 `leadTick` returns a single `answer_owner` decision and NOTHING else when the
@@ -110,8 +117,13 @@ stall the backlog behind something only the boss can clear.
   owner requests went unanswered for up to six days (audit 2026-08-12). If a
   request genuinely needs implementation, say so plainly AND answer it, then
   staff the work; the answer and the staffing are two separate obligations.
-  Marking answered is automatic - it happens when this turn completes with a
-  real reply - so never write to the ledger by hand.
+  Before writing the owner-facing answer, call
+  `clay-coop-control/link_owner_response` with the canonical Coop `sessionId`
+  and the decision's exact `responseLink.requests` unchanged. This durably
+  binds the current response turn to those ingress/request refs without
+  changing their answer state. Finalization marks only that exact set after
+  the turn completes with visible output. If linkage is rejected, fail closed
+  and report the typed error; never write to or reconcile the ledger by hand.
 
 - **staff, needsApproval: false** — apply judgment to pick the MINIMAL
   `ownedPaths` for the item; compose the brief with
@@ -131,10 +143,10 @@ stall the backlog behind something only the boss can clear.
   keep the needsApproval flag's meaning.
 - **STALE-PREMISE RULE (binding)**: never execute against stale state.
   Before staffing or acting on a boss command, re-derive current state
-  (this tick's fresh portfolio, in-flight ledger entries, provider
-  health). If the premise expired — item already done, superseded,
-  blocked, or in flight — refuse and re-confirm with the boss in one
-  line instead of executing.
+  (this tick's fresh portfolio, unified `inFlightForTick` state including
+  typed ProjectRef bindings, provider health). If the premise expired — item
+  already done, superseded, blocked, or in flight — refuse and re-confirm with
+  the boss in one line instead of executing.
 - **SELF-MODIFICATION RULE (absolute)**: any item whose ownedPaths touch
   the Lead's own machinery — `lib/lead-*.js`, `test/lead-*.test.js`,
   `.claude/skills/lead-tick/`, or the leadMode setting plumbing — is
