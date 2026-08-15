@@ -167,6 +167,82 @@ test("external coordinator tasks load persisted screenshot references for worker
   }]);
 });
 
+test("resident project tasks continue exact cross-project coordinators without a local worker", function () {
+  var calls = [];
+  var dismissals = [];
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var rootId = "lead-clay-root";
+  var liveBinding = {
+    portfolioTaskId: "watchdog-task", bindingRevision: 1,
+    mode: "project_coordinator", targetProject: { projectId: projectId },
+    projectCoordinator: { projectId: "system-lead", sessionStorageId: rootId },
+    coordinator: { projectId: projectId, sessionStorageId: "watchdog-session" },
+  };
+  var ctx = testContext(new Map(), {
+    projectId: "system-lead",
+    slug: "lead",
+    crossProject: {
+      getExecutionBinding: function () {
+        return liveBinding;
+      },
+      messageProjectExecution: function (input) {
+        calls.push(input);
+        return { ok: true };
+      },
+      dismissProjectExecution: function (input) {
+        dismissals.push(input);
+        return { ok: true };
+      },
+      registerProjectResolver: function () { return function () {}; },
+      reconcileStrandedCompletions: function () {},
+    },
+  });
+  var root = coordinator(ctx);
+  root.storageId = rootId;
+  root.orchestrationTasks.push({
+    taskId: "task-watchdog", clientRef: "portfolio:watchdog-task:1",
+    externalTaskCoordinator: true, status: "needs_input",
+    coopProjectRef: { projectId: projectId },
+    workerSessionRef: { projectId: projectId, sessionStorageId: "watchdog-session" },
+    workerStorageId: "watchdog-session",
+  });
+
+  liveBinding.coordinator.sessionStorageId = "different-session";
+  var refused = ctx.api.messageFromTool({
+    coordinatorSessionId: rootId,
+    taskId: "task-watchdog",
+    message: "This must not route through a mismatched worker reference.",
+  });
+  assert.equal(refused.isError, true);
+  assert.equal(calls.length, 0);
+  liveBinding.coordinator.sessionStorageId = "watchdog-session";
+
+  var sent = ctx.api.messageFromTool({
+    coordinatorSessionId: rootId,
+    taskId: "task-watchdog",
+    message: "Poll and reconcile the exact five sessions.",
+  });
+
+  assert.equal(sent.isError, undefined);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].targetCoordinator,
+    { projectId: "system-lead", sessionStorageId: rootId });
+  assert.equal(calls[0].portfolioTaskId, "watchdog-task");
+  assert.equal(root.orchestrationTasks[0].status, "running");
+  assert.equal(root.orchestrationTasks[0].currentActivity,
+    "Project task coordinator is continuing");
+
+  var dismissed = ctx.api.dismissFromTool({
+    coordinatorSessionId: rootId,
+    taskId: "task-watchdog",
+    reason: "The watchdog was replaced by the permanent invariant.",
+  });
+  assert.equal(dismissed.isError, undefined);
+  assert.equal(dismissals.length, 1);
+  assert.equal(dismissals[0].portfolioTaskId, "watchdog-task");
+  assert.equal(root.orchestrationTasks[0].status, "dismissed");
+});
+
 test("plans independent work in parallel and releases a dependent task", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
@@ -482,6 +558,20 @@ test("Coop creates one direct leaf in the target project and promotes it without
   });
   assert.equal(rejectedSteer.isError, true);
   assert.match(rejectedSteer.content[0].text, /requires attention: coordinator_ref_mismatch/);
+  assert.equal(router.getExecutionBinding("portfolio-slice-7", 2).attentionAt > 0, true);
+  var recoveredSteer = lead.api.steerProjectCoordinatorFromTool({
+    coordinatorSessionId: coop.storageId,
+    targetProject: { projectId: targetProjectId },
+    targetCoordinator: { projectId: targetProjectId, sessionStorageId: projectCoordinator.storageId },
+    portfolioTaskId: "portfolio-slice-7",
+    bindingRevision: 2,
+    idempotencyKey: "coop-steer-project-coordinator-3",
+    message: "Continue after rejecting the stale coordinator reference.",
+  });
+  assert.equal(recoveredSteer.isError, undefined);
+  assert.equal(router.getExecutionBinding("portfolio-slice-7", 2).status, "active");
+  assert.equal(router.getExecutionBinding("portfolio-slice-7", 2).attentionAt, undefined,
+    "accepted steering clears obsolete attention so running state is truthful");
   var localDelegation = target.api.delegateFromTool(Object.assign(brief(projectCoordinator), {
     coordinatorSessionId: projectCoordinator.storageId,
   }));

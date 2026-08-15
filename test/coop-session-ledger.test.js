@@ -460,6 +460,34 @@ test("terminal child bindings outrank stale task-coordinator runtime state", fun
   assert.equal(persistent.workState, "working");
 });
 
+test("an exact completed legacy project-coordinator binding outranks stale running metadata", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-completed-root-"));
+  var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
+  var session = {
+    storageId: "legacy-bound-root",
+    title: "Project coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+    orchestrationPolicy: { portfolioExecution: execution(
+      "legacy-bound-work", "project_coordinator", "running"
+    ) },
+    orchestrationTasks: [{ taskId: "done", status: "completed", updatedAt: 250 }],
+  };
+  var completed = binding("legacy-bound-work", CLAY_ID, session.storageId,
+    "project_coordinator", "completed");
+  completed.completedAt = 300;
+  completed.updatedAt = 300;
+
+  assert.equal(ledger.reconcile({
+    bindings: [completed], projects: [project(CLAY_ID, [session])],
+  }).ok, true);
+  var projected = ledger.get({ projectId: CLAY_ID, sessionStorageId: session.storageId });
+  assert.equal(projected.lifecycleState, "completed");
+  assert.equal(projected.workState, "done");
+  assert.equal(projected.closedAt, 300);
+});
+
 test("a compacted continuation inherits the exact source binding and topic", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-compaction-"));
   var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });

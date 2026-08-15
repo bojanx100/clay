@@ -190,6 +190,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-task-orchestrator-project-completion-transport.js` | (called by completion gate) | Typed, idempotent project-coordinator completion or read-only attention delivery that closes the source binding without direct file mutation |
 | `project-task-orchestrator-cross-project.js` | (called by task orchestrator) | Source-side completion closure, delivery acknowledgement, and suppression of late completed-leaf updates |
 | `project-task-orchestrator-followup.js` | (called by task orchestrator) | Existing-worker follow-ups, retries, direct task messages, and cross-project coordinator update delivery |
+| `project-task-orchestrator-input.js` | (called by task orchestrator) | Shared typed transition from running work to durable owner-input attention |
 | `project-coordinate-queued.js` | `coordinate_queued_message` helper | Converts an explicit Coordinate action into a context-rich owned worker task |
 | `project-session-adoption.js` | `list_orchestration_coordinators`, `propose_session_adoption`; MCP `adopt_session` | Recommends coordinators, builds compact existing-session handoffs, records classification, and binds adopted conversations as task executors |
 | `orchestration-task-graph.js` | (shared graph engine) | Durable task/event schema, dependency readiness, concurrency ownership, retries, and revocable project-completion records |

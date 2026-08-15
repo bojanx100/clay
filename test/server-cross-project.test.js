@@ -1088,6 +1088,47 @@ test("coordinator replay fails closed when canonical claim lookup throws", funct
   assert.notEqual(harness.router.getExecutionBinding("portfolio-claim-throws").status, "active");
 });
 
+test("resident coordinator dismissal supersedes the exact active project execution", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-dismiss-execution-"));
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var source = { projectId: "system-lead", sessionStorageId: "clay-root" };
+  var delivered = [];
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function (envelope) {
+      delivered.push(envelope);
+      return { ok: true, terminal: true };
+    },
+  });
+  var request = {
+    portfolioTaskId: "obsolete-verifier", bindingRevision: 11,
+    idempotencyKey: "obsolete-verifier-r11", mode: "project_coordinator",
+    targetProject: { projectId: projectId }, source: source,
+  };
+  assert.equal(router.bindingStore.reserve(request).ok, true);
+  assert.equal(router.bindingStore.commit(request.portfolioTaskId, request.bindingRevision,
+    { projectId: projectId, sessionStorageId: "verifier-session" },
+    { projectCoordinatorRef: source }).ok, true);
+
+  var result = router.dismissProjectExecution({
+    source: source, targetProject: { projectId: projectId },
+    portfolioTaskId: request.portfolioTaskId, bindingRevision: request.bindingRevision,
+    idempotencyKey: "dismiss-obsolete-verifier", reason: "source_task_dismissed",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision).status,
+    "superseded");
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0].payload.type, "portfolio_execution_stop");
+  assert.deepEqual(delivered[0].destination,
+    { projectId: projectId, sessionStorageId: "verifier-session" });
+});
+
 test("migrated coordinator retry re-claims after claim and cleanup failures", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-migrated-claim-retry-"));
   var realStore = require("../lib/portfolio-execution-bindings")
