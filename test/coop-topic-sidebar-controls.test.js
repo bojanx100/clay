@@ -139,11 +139,11 @@ test("all open topics render in one Threads group without legacy categories", as
   var ui = await loadTopicControls();
   ui.projection.setGlobalCoopProjection(projectionMessage({
     projects: [
-      { projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", icon: "C",
+      { projectRef: { projectId: CLAY }, slug: "clay", title: "clay", icon: "C",
         summary: { coordinatorTree: [{ sessionRef: { projectId: "system-lead", sessionStorageId: "clay-coordinator" },
           title: "Project coordinator", role: "project_coordinator", children: [] }] },
         topics: [topic("clay-one", { projectRef: { projectId: CLAY } })] },
-      { projectRef: { projectId: WEBAPP }, slug: "webapp", title: "Webapp",
+      { projectRef: { projectId: WEBAPP }, slug: "webapp", title: "webapp",
         summary: { coordinatorTree: [{ sessionRef: { projectId: "system-lead", sessionStorageId: "webapp-coordinator" },
           title: "webapp coordinator", role: "project_coordinator", children: [] }] }, topics: [] },
     ],
