@@ -144,8 +144,10 @@ test("a restored terminal task rollup does not restamp or replay fan-in", functi
     occurredAt: task.updatedAt, summary: task.resultSummary });
 
   assert.equal(hierarchy.rollUpTaskCoordinator(sm, child, "completed", "Verified."), false);
+  assert.equal(hierarchy.rollUpTaskCoordinator(sm, child, "needs_input", "Late recovery."), false);
   var afterRestart = buildFanInEvent(child, task, { status: task.status,
     occurredAt: task.updatedAt, summary: task.resultSummary });
+  assert.equal(task.status, "completed");
   assert.equal(task.updatedAt, updatedAt);
   assert.equal(root.orchestrationEvents.length, eventCount);
   assert.equal(afterRestart.eventId, beforeRestart.eventId);

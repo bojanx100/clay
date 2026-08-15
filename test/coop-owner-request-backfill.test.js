@@ -295,7 +295,28 @@ test("startup response migration fails closed when canonical evidence changed", 
 
   assert.equal(result.ok, false);
   assert.equal(result.migrations[0].reason, "response_evidence_changed");
-  assert.equal(ledger.get(request.coopIngressId).response.state, "unanswered");
+  assert.equal(ledger.get(request.coopIngressId), null);
+});
+
+test("startup migration validates request evidence before recording approval facts", function () {
+  var approval = ingress(281, { text: "ok set it to implement..." });
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-startup-backfill-invalid-"));
+  var file = path.join(dir, "r.json");
+  var ledger = ownerRequests.attachCoopOwnerRequests({ file: file });
+  var before = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
+  var result = backfill.migrateOwnerRequestHistory(ledger,
+    { sessions: new Map([[1, { storageId: COOP, coopHome: true, history: [approval] }]]) },
+    { migrations: [{
+      migrationId: "changed-request-evidence",
+      sessionStorageId: COOP,
+      requests: [{ sequence: 281, eventIndex: 0, digest: "not-the-canonical-digest" }],
+      evidence: {},
+    }] });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.migrations[0].reason, "request_evidence_changed");
+  assert.equal(ledger.get(approval.coopIngressId), null);
+  assert.equal(fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null, before);
 });
 
 test("backfilled requests carry the canonical event reference, not the text", function () {

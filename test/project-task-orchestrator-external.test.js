@@ -186,7 +186,7 @@ test("completed Coop direct leaves deliver their result before terminal archival
       sessions.get(id).hidden = true;
     },
   };
-  attachPortfolioExecutionTarget({
+  var target = attachPortfolioExecutionTarget({
     slug: "webapp",
     sm: sm,
     sdk: {},
@@ -213,6 +213,7 @@ test("completed Coop direct leaves deliver their result before terminal archival
       },
     },
   });
+  target.reconcilePersistedSessions();
 
   session.history.push({
     type: "delta",
@@ -262,7 +263,7 @@ test("needs-input Coop direct leaves deliver terminal attention without hiding e
       sessions.get(id).hidden = true;
     },
   };
-  attachPortfolioExecutionTarget({
+  var target = attachPortfolioExecutionTarget({
     slug: "webapp",
     sm: sm,
     sdk: {},
@@ -285,6 +286,7 @@ test("needs-input Coop direct leaves deliver terminal attention without hiding e
       },
     },
   });
+  target.reconcilePersistedSessions();
 
   session.history.push({
     type: "delta",
