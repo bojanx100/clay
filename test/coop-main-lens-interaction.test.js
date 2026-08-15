@@ -1,5 +1,6 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("node:fs");
 var path = require("node:path");
 var pathToFileURL = require("node:url").pathToFileURL;
 
@@ -108,6 +109,27 @@ async function harness() {
     }],
   });
   return { store: storeModule.store, projection: projection };
+}
+
+async function controlGroupHarness() {
+  var ctx = await harness();
+  var source = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules",
+    "sidebar-coop-topics.js"), "utf8");
+  var controlSource = source.slice(source.indexOf("function appendProjectSection("),
+    source.indexOf("// Renders the ordered sections"));
+  var hierarchy = await import(modulePath("sidebar-coop-hierarchy.js"));
+  var factory = new Function("document", "renderCoopProjectHierarchy", "requestCanonicalSession",
+    "finishNavigation", "text", controlSource +
+    "\nreturn { appendControlGroup: appendControlGroup };");
+  ctx.model = await import(modulePath("sidebar-coop-topic-model.js"));
+  ctx.controlGroups = factory(globalThis.document, hierarchy.renderCoopProjectHierarchy,
+    ctx.projection.requestCanonicalSession, function (options) {
+      if (options && typeof options.onNavigate === "function") options.onNavigate();
+    }, function (value, fallback) {
+      var valueText = typeof value === "string" ? value.trim() : "";
+      return valueText || fallback || "";
+    });
+  return ctx;
 }
 
 // The transport the real buttons use, plus the server ack they wait for.
@@ -303,4 +325,97 @@ test("entering Coop with no lens in the URL selects Main", async function () {
   assert.equal(ctx.projection.syncCoopLensFromUrl(wiredSend(ctx, sent)), true);
   assert.equal(sent[0].historyScope, "main");
   assert.equal(ctx.projection.activeCoopLensScope(), "main");
+});
+
+test("desktop and mobile render the same non-empty Coop control groups and navigation", async function () {
+  var ctx = await controlGroupHarness();
+  var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var councilRef = { projectId: "system-lead", sessionStorageId: "council" };
+  var triageRef = { projectId: "system-lead", sessionStorageId: "triage" };
+  ctx.projection.setGlobalCoopProjection({
+    type: "global_coop_projection",
+    coop: { localId: 7 },
+    projects: [{
+      projectRef: { projectId: clayId }, title: "Clay", topics: [],
+      summary: { coordinatorTree: [{
+        sessionRef: { projectId: "system-lead", sessionStorageId: "clay-coordinator" },
+        title: "Clay coordinator", role: "project_coordinator", status: "persistent", children: [],
+      }] },
+    }],
+    topics: [{
+      topicRef: { topicId: "conditional-groups" }, title: "Conditional control groups",
+      group: "uncategorised", threadState: "exploring", status: "open",
+    }],
+    controlPlaneSessions: [
+      { role: "council", title: "Council", sessionRef: councilRef },
+      { role: "triage", title: "Triage", sessionRef: triageRef },
+    ],
+  });
+  var model = ctx.projection.buildGlobalCoopDisplayModel("");
+  var sections = ctx.model.coopTopicSections(model);
+  assert.deepEqual(sections.map(function (section) { return section.label; }),
+    ["Threads", "Project coordinators", "Council", "Triage"]);
+  var sent = [];
+  var desktop = element("div");
+  for (var i = 1; i < sections.length; i++) {
+    ctx.controlGroups.appendControlGroup(desktop, sections[i], {
+      mobile: false,
+      send: function (message) { sent.push(message); return true; },
+    });
+  }
+  assert.deepEqual(byClass(desktop, "coop-topic-group-heading").map(function (heading) {
+    return heading.textContent;
+  }), ["Project coordinators", "Council", "Triage"]);
+  assert.deepEqual(byClass(desktop, "coop-project-coordinator-title").map(function (title) {
+    return title.textContent;
+  }), ["Clay coordinator"]);
+  var desktopControlRows = byClass(desktop, "coop-control-plane-row");
+  assert.equal(desktopControlRows.length, 2);
+  desktopControlRows[0].click();
+  assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: councilRef });
+
+  var navigated = 0;
+  var mobile = element("div");
+  for (var si = 1; si < sections.length; si++) {
+    ctx.controlGroups.appendControlGroup(mobile, sections[si], {
+      mobile: true,
+      send: function (message) { sent.push(message); return true; },
+      onNavigate: function () { navigated++; },
+    });
+  }
+  assert.deepEqual(byClass(mobile, "mobile-coop-topic-group-heading").map(function (heading) {
+    return heading.textContent;
+  }), ["Project coordinators", "Council", "Triage"]);
+  var mobileControlRows = byClass(mobile, "mobile-coop-control-plane-row");
+  assert.equal(mobileControlRows.length, 2);
+  mobileControlRows[1].click();
+  assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: triageRef });
+  assert.equal(navigated, 1);
+});
+
+test("desktop and mobile render no control wrapper when every group is empty", async function () {
+  var ctx = await controlGroupHarness();
+  ctx.projection.setGlobalCoopProjection({
+    type: "global_coop_projection", coop: { localId: 7 }, projects: [], topics: [],
+    controlPlaneSessions: [],
+  });
+  var model = ctx.projection.buildGlobalCoopDisplayModel("");
+  var sections = ctx.model.coopTopicSections(model);
+  assert.deepEqual(sections, []);
+  var desktop = element("div");
+  var mobile = element("div");
+  for (var i = 0; i < sections.length; i++) {
+    ctx.controlGroups.appendControlGroup(desktop, sections[i], {
+      mobile: false, send: function () { return true; },
+    });
+    ctx.controlGroups.appendControlGroup(mobile, sections[i], {
+      mobile: true, send: function () { return true; },
+    });
+  }
+  assert.equal(byClass(desktop, "coop-topic-group").length, 0);
+  assert.equal(byClass(desktop, "coop-topic-group-heading").length, 0);
+  assert.equal(byClass(mobile, "mobile-coop-topic-group").length, 0);
+  assert.equal(byClass(mobile, "mobile-coop-topic-group-heading").length, 0);
+  assert.equal(byClass(desktop, "global-coop-empty").length, 0);
+  assert.equal(byClass(mobile, "mobile-global-coop-empty").length, 0);
 });

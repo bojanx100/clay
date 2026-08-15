@@ -351,7 +351,7 @@ test("a successful handoff moves the same refined Thread beneath its project coo
     projects: after.projects,
     controlPlaneSessions: after.controlPlaneSessions,
   });
-  assert.equal(afterSections[0].topics.length, 0,
+  assert.equal(afterSections.some(function (section) { return section.kind === "threads"; }), false,
     "only successful handoff removes the Thread from the top-level list");
   var projectRoot = after.projects[0].summary.coordinatorTree[0];
   var thread = projectRoot.children[0];

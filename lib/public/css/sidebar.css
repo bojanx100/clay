@@ -1228,6 +1228,8 @@
   letter-spacing: .05em;
   text-transform: uppercase;
 }
+.coop-control-group .coop-project-control-plane { margin: 2px 0; }
+.coop-control-group .coop-control-plane-row { width: 100%; margin: 2px 0; }
 
 /* Status dot is now inline within the row, providing visual feedback without
    a separate secondary line. The accessible name still includes the state via

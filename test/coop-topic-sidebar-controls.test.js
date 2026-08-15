@@ -154,10 +154,13 @@ test("all open topics render in one Threads group without legacy categories", as
     ],
   }));
   var sections = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
-  assert.deepEqual(sectionShape(sections), ["threads:Threads", "project_coordinator:Clay",
-    "project_coordinator:Webapp", "control_plane:Council", "control_plane:Triage"]);
+  assert.deepEqual(sectionShape(sections), ["threads:Threads",
+    "project_coordinators:Project coordinators", "council:Council", "triage:Triage"]);
   assert.deepEqual(sections[0].topics.map(function (item) { return item.topicRef.topicId; }),
     ["clay-one", "cross-one", "uncat-one"]);
+  assert.deepEqual(sections[1].coordinators.map(function (item) {
+    return item.hierarchy[0].title;
+  }), ["Clay coordinator", "Webapp coordinator"]);
 });
 
 test("a project-classified open topic still lives in Threads", async function () {
@@ -172,16 +175,48 @@ test("a project-classified open topic still lives in Threads", async function ()
   );
 });
 
-test("Threads remains visible when there are no open records", async function () {
+test("all empty Coop control groups are omitted without headings or placeholders", async function () {
   var ui = await loadTopicControls();
-  assert.deepEqual(sectionShape(ui.model.coopTopicSections({})), ["threads:Threads"]);
-  assert.deepEqual(sectionShape(ui.model.coopTopicSections(null)), ["threads:Threads"]);
+  assert.deepEqual(sectionShape(ui.model.coopTopicSections({})), []);
+  assert.deepEqual(sectionShape(ui.model.coopTopicSections(null)), []);
   ui.projection.setGlobalCoopProjection(projectionMessage({
     projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [] }],
     topics: [],
   }));
   assert.deepEqual(sectionShape(ui.model.coopTopicSections(
-    ui.projection.buildGlobalCoopDisplayModel(""))), ["threads:Threads"]);
+    ui.projection.buildGlobalCoopDisplayModel(""))), []);
+});
+
+test("each Coop control group can appear alone and invalid control sessions stay hidden", async function () {
+  var ui = await loadTopicControls();
+  var threadOnly = ui.model.coopTopicSections({ allTopics: [topic("only-thread")] });
+  assert.deepEqual(sectionShape(threadOnly), ["threads:Threads"]);
+
+  var coordinatorOnly = ui.model.coopTopicSections({
+    projects: [{ title: "Clay", summary: { coordinatorTree: [{
+      title: "Clay coordinator", role: "project_coordinator",
+      sessionRef: { projectId: "system-lead", sessionStorageId: "clay-coordinator" },
+    }] } }],
+  });
+  assert.deepEqual(sectionShape(coordinatorOnly), ["project_coordinators:Project coordinators"]);
+
+  var councilOnly = ui.model.coopTopicSections({ controlPlaneSessions: [
+    { role: "council", title: "Council", sessionRef: {
+      projectId: "system-lead", sessionStorageId: "council",
+    } },
+    { role: "triage", title: "Hidden Triage" },
+    { role: "unknown", title: "Unknown", sessionRef: {
+      projectId: "system-lead", sessionStorageId: "unknown",
+    } },
+  ] });
+  assert.deepEqual(sectionShape(councilOnly), ["council:Council"]);
+
+  var triageOnly = ui.model.coopTopicSections({ controlPlaneSessions: [{
+    role: "triage", title: "Triage", sessionRef: {
+      projectId: "system-lead", sessionStorageId: "triage",
+    },
+  }] });
+  assert.deepEqual(sectionShape(triageOnly), ["triage:Triage"]);
 });
 
 test("search filtering can empty a category and it then renders no wrapper", async function () {
@@ -254,10 +289,12 @@ test("admitted work leaves Threads while unadmitted discussion remains", async f
   }));
 
   var sections = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
-  assert.deepEqual(sectionShape(sections), ["threads:Threads", "project_coordinator:Clay"]);
+  assert.deepEqual(sectionShape(sections), ["threads:Threads",
+    "project_coordinators:Project coordinators"]);
   assert.deepEqual(sections[0].topics.map(function (item) { return item.topicRef.topicId; }),
     ["intake", "foreground-intake"]);
-  assert.equal(sections[1].hierarchy.length, 1, "the persistent coordinator stays visible");
+  assert.equal(sections[1].coordinators[0].hierarchy.length, 1,
+    "the persistent coordinator stays visible");
   assert.equal(sections.some(function (section) { return section.kind === "done"; }), false,
     "admitted completed work does not reappear as a duplicate Done topic");
 });
@@ -304,8 +341,7 @@ test("closed records leave navigation and an open payload returns to Threads", a
   ui.projection.setGlobalCoopProjection(payload("closed", "closed", "implemented_resolved"));
   var closedModel = ui.projection.buildGlobalCoopDisplayModel("");
   var closedSections = ui.model.coopTopicSections(closedModel);
-  assert.deepEqual(sectionShape(closedSections), ["threads:Threads"]);
-  assert.equal(closedSections[0].topics.length, 0);
+  assert.deepEqual(sectionShape(closedSections), []);
 
   // The post-reopen payload restores the topic to its open section with its
   // membership intact: nothing about the history was lost in the round trip.

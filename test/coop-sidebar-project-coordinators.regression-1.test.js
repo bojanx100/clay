@@ -523,8 +523,11 @@ test("shared Coop renderer places project coordinator rows in desktop and mobile
     crossProjectTopics: [],
   };
   var sections = modelModule.coopTopicSections(model);
-  assert.deepEqual(sections.map(function (section) { return section.label; }), ["Threads", "Clay", "Webapp"],
-    "project roots create global Coop groups even when no topic row exists");
+  assert.deepEqual(sections.map(function (section) { return section.label; }), ["Project coordinators"],
+    "project roots share one global Coop group even when no Thread row exists");
+  assert.deepEqual(sections[0].coordinators.map(function (coordinator) {
+    return coordinator.label;
+  }), ["Clay", "Webapp"]);
 
   var normalized = hierarchyModel.cloneCoopProjectHierarchy(model.projects[0].summary.coordinatorTree);
   assert.equal(normalized[0].children[0].children[0].role, "worker");
@@ -533,11 +536,11 @@ test("shared Coop renderer places project coordinator rows in desktop and mobile
   var sent = [];
   var desktop = createElement("div");
   var mobile = createElement("div");
-  for (var i = 0; i < sections.length; i++) {
-    renderer.renderCoopProjectHierarchy(desktop, sections[i].hierarchy, {
+  for (var i = 0; i < sections[0].coordinators.length; i++) {
+    renderer.renderCoopProjectHierarchy(desktop, sections[0].coordinators[i].hierarchy, {
       mobile: false, send: function (message) { sent.push(message); return true; },
     });
-    renderer.renderCoopProjectHierarchy(mobile, sections[i].hierarchy, {
+    renderer.renderCoopProjectHierarchy(mobile, sections[0].coordinators[i].hierarchy, {
       mobile: true, send: function () { return true; },
     });
   }

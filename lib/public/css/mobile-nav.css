@@ -889,6 +889,8 @@
   .mobile-coop-topic-row.active { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
   .mobile-coop-topic-group { margin: 6px 8px 14px 12px; }
   .mobile-coop-topic-group-heading { padding: 7px 8px 5px; color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+  .mobile-coop-control-group .mobile-coop-project-control-plane { margin: 2px 0; }
+  .mobile-coop-control-group .mobile-coop-control-plane-row { width: 100%; margin: 2px 0; }
   /* Status dot is now inline within the row for compact single-row design.
      The accessible name still includes the state, and tooltip provides full text. */
   .mobile-coop-topic-title { overflow: hidden; flex: 1 1 auto; text-overflow: ellipsis; white-space: nowrap; }

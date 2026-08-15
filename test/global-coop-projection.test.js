@@ -33,6 +33,35 @@ function project(projectId, slug, sessions, extra) {
   }, extra || {});
 }
 
+function controlSession(id, role, title, extra) {
+  return session(id, Object.assign({
+    title: title,
+    coordinationRole: "coop_control_plane",
+    orchestrationPolicy: {
+      coopControlPlane: { version: 1, role: role, projectRef: null, createdAt: 1 },
+    },
+  }, extra || {}));
+}
+
+test("Coop projects only visible Council and Triage roles in stable order", function () {
+  var home = session(1, { storageId: "coop-home", coopHome: true });
+  var hiddenCouncil = controlSession(2, "council", "Hidden Council", { hidden: true });
+  var visibleCouncil = controlSession(3, "council", "Council");
+  var visibleTriage = controlSession(4, "triage", "Triage");
+  var unknown = controlSession(5, "observer", "Observer");
+  var ordinary = session(6, { title: "Owner session", coordinationRole: "coop_control_plane" });
+  var lead = project("system-lead", "lead",
+    [home, hiddenCouncil, visibleTriage, unknown, ordinary, visibleCouncil], { isLead: true });
+
+  var projection = buildGlobalCoopProjection({ projects: [lead] });
+  assert.deepEqual(projection.controlPlaneSessions.map(function (item) {
+    return [item.role, item.title, item.sessionRef.sessionStorageId];
+  }), [
+    ["council", "Council", visibleCouncil.storageId],
+    ["triage", "Triage", visibleTriage.storageId],
+  ]);
+});
+
 test("Coop projects each accessible configured project into a main-lane lens with canonical nested sessions", function () {
   var home = session(1, { storageId: "coop-home", coopHome: true });
   var lead = project("system-lead", "lead", [home], { isLead: true });

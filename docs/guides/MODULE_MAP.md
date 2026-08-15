@@ -410,13 +410,13 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-misc.js` | Image/paste/confirm modals, force PIN overlay, PWA install, Chrome extension bridge |
 | `sidebar.js` | Sidebar coordinator: init, open/close, page title, panel switching, collapse/expand, resize handle, dust particles |
 | `sidebar-sessions.js` | Session list rendering, search/filter, loop groups, inline rename, context menus, presence avatars, countdown timers, unread badges, and Coop project/topic lenses with canonical worker trees |
-| `sidebar-coop-topic-model.js` | Pure shared desktop/mobile Thread grouping: Exploring by group, Parked, hidden Handed off, and collapsed Closed |
+| `sidebar-coop-topic-model.js` | Pure shared desktop/mobile Coop section model: conditional Threads, Project coordinators, Council, and Triage groups with handed-off/closed Threads omitted from the top level |
 | `coop-thread-controls.js` | Selected-Thread lifecycle controls and custom dialogs for park/resume, reassign, merge, explicit-outcome close, and undo |
 | `coop-thread-route.js` | Owner-turn chip that surfaces the automatically or explicitly selected durable Thread |
 | `sidebar-coop-topic-close.js` | Compatibility overflow menu that opens the explicit-outcome Thread dialog or restores a Closed Thread |
 | `sidebar-coop-topic-links.js` | Collapsed, accessible per-topic expander listing related top-level canonical project sessions. Titles only; navigates by exact ProjectRef/SessionRef held in closures, never in DOM attributes |
 | `confirm-modal.js` | The shared confirmation modal (`showConfirm`/`hideConfirm`/`initConfirmModal`). Dependency-free so any module can confirm without pulling in the app graph. Never uses browser-native `confirm()` |
-| `sidebar-coop-topics.js` | Shared desktop/mobile Thread rows with visible lifecycle labels, project coordinator hierarchy, Parked, and collapsed Closed sections |
+| `sidebar-coop-topics.js` | Shared desktop/mobile conditional Coop group renderer, Thread rows with visible lifecycle labels, project coordinator hierarchy, and Council/Triage session navigation |
 | `sidebar-sessions-activity.js` | Auto-launch activity popover rendering, clear action, and session navigation from activity items |
 | `sidebar-sessions-context-menu.js` | Session and loop context menus, provider handoff entries, visibility toggle, and shared menu state |
 | `sidebar-sessions-orchestration.js` | Existing-session “Add to coordinator” picker, recommendation rows, and adoption acknowledgement |
