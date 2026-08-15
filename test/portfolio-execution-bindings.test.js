@@ -192,6 +192,26 @@ test("typed task-coordinator completion preserves its child and durable project-
     completed.binding.projectCoordinator);
 });
 
+test("active target-local bindings rebind durably to the Lead control-plane coordinator", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-control-plane-rebind-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 225; } });
+  var targetRoot = { projectId: PROJECT_ID, sessionStorageId: "target-local-root" };
+  var coopRoot = { projectId: "system-lead", sessionStorageId: "clay-coordinator" };
+  store.reserve(request(1, "project_coordinator"));
+  store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "bounded-task-coordinator",
+  }, { projectCoordinatorRef: targetRoot });
+
+  var moved = store.rebindProjectCoordinator({ projectId: PROJECT_ID }, targetRoot, coopRoot);
+
+  assert.deepEqual(moved, { ok: true, changed: 1 });
+  assert.deepEqual(store.get("portfolio-task", 1).projectCoordinator, coopRoot);
+  assert.deepEqual(createBindings({ file: file }).get("portfolio-task", 1).projectCoordinator,
+    coopRoot);
+});
+
 test("stranded project-coordinator bindings reconcile from durable completed session evidence", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-reconcile-project-"));
   var file = path.join(dir, "bindings.json");

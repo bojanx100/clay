@@ -143,8 +143,8 @@ test("the chip is rendered from the message's own topic and never from raw HTML"
     "the topic title must be set as text, never interpolated into innerHTML");
   assert.match(source, /findGlobalCoopTopic\(\{ topicId: anchor\.topicId \}\)/,
     "the title is resolved from the projection by the anchor's own topic id");
-  assert.match(source, /var FALLBACK_TITLE = "Reply in topic"/,
-    "an unknown topic still renders an honest chip rather than an empty one");
+  assert.match(source, /var FALLBACK_TITLE = "Reply in Thread"/,
+    "an unknown Thread still renders an honest chip rather than an empty one");
   assert.match(source, /el\.querySelector\(".coop-reply-anchor"\)/,
     "applying the chip twice to the same element must not duplicate it");
 });

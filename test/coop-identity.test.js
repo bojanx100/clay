@@ -223,11 +223,11 @@ test("a projection-only rename repaints the lens caption", function () {
   assert.match(state, /state\.coopProjectionVersion !== previous\.coopProjectionVersion/);
 });
 
-test("the topic close confirmation cannot expose an internal identifier", function () {
+test("the Thread action cannot expose an internal identifier", function () {
   var close = source("sidebar-coop-topic-close.js");
   assert.match(close, /import \{ canonicalTopicTitle \} from '\.\/coop-identity\.js'/);
-  assert.match(close, /var title = topic \? canonicalTopicTitle\(topic, ""\) : "this topic"/);
-  assert.doesNotMatch(close, /var title = topic && topic\.title \|\| "this topic"/);
+  assert.match(close, /var title = topic \? canonicalTopicTitle\(topic, "Thread"\) : "Thread"/);
+  assert.doesNotMatch(close, /var title = topic && topic\.title \|\| "Thread"/);
 });
 
 test("topic rows render the canonical title rather than the raw projection field", function () {
@@ -239,11 +239,11 @@ test("topic rows render the canonical title rather than the raw projection field
   assert.doesNotMatch(topics, /text\(topic\.title, "Untitled topic"\)/);
 });
 
-test("the composer lens names a topic as a topic, resolved canonically", function () {
+test("the composer lens names a Thread as a Thread, resolved canonically", function () {
   var state = source("coop-conversation-state.js");
   assert.match(state, /import \{ activeCoopLensDisplay \} from '\.\/global-coop-projection\.js'/);
   assert.match(state, /lens: activeCoopLensDisplay\(\)/);
-  assert.match(state, /lens\.kind === "topic" \? "Topic: " : "Project: "/);
+  assert.match(state, /lens\.kind === "topic" \? "Thread: " : "Project: "/);
   // A topic used to be captioned as a project, from a stale snapshot.
   assert.doesNotMatch(state, /"Project: " \+ model\.projectTitle/);
   assert.doesNotMatch(state, /projectTitle: store\.get\("activeCoopLens"\)/);

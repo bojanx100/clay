@@ -8,7 +8,7 @@ function loadModel() {
   return import(pathToFileURL(modulePath).href);
 }
 
-test("ordinary project sidebar shows one persistent Coop root and preserves only non-terminal work", async function () {
+test("ordinary project sidebar omits the Coop root and is invariant across Lead mode", async function () {
   var m = await loadModel();
   var ownerDirect = { id: 1, title: "Owner direct" };
   var ownerCoordinator = { id: 2, title: "Owner coordinator", coordinationMode: true };
@@ -16,6 +16,7 @@ test("ordinary project sidebar shows one persistent Coop root and preserves only
   var projectRoot = {
     id: 4, title: "Project coordinator", leadOwned: true, coordinationMode: true,
     coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "canonical-coop" },
   };
   var taskCoordinator = {
     id: 5, title: "Task coordinator", leadOwned: true, coordinationMode: true,
@@ -24,7 +25,7 @@ test("ordinary project sidebar shows one persistent Coop root and preserves only
   };
   var taskWorker = {
     id: 6, title: "Task worker", leadOwned: true,
-    orchestrationParent: { sessionId: 5, taskStatus: "completed" },
+    orchestrationParent: { sessionId: 5, taskStatus: "running" },
   };
   var needsInput = { id: 7, title: "Needs input", leadOwned: true,
     coopExecutionStatus: "needs_input" };
@@ -42,7 +43,7 @@ test("ordinary project sidebar shows one persistent Coop root and preserves only
     needsInput, superseded, cancelled, dismissed, contradictoryAttention,
   ]);
   assert.deepEqual(visible.map(function (item) { return item.id; }),
-    [1, 2, 3, 4, 5, 7, 9, 10, 11]);
+    [1, 2, 3, 5, 6, 7, 9, 10, 11]);
 
   var model = m.buildSessionListModel([
     ownerDirect, ownerCoordinator, coopDirectLeaf, projectRoot, taskCoordinator, taskWorker,
@@ -55,10 +56,23 @@ test("ordinary project sidebar shows one persistent Coop root and preserves only
     getDateGroup: function () { return "Today"; },
   });
   assert.deepEqual(model.regularItems.map(function (item) { return item.data.id; }),
-    [1, 2, 3, 4, 7, 9, 10, 11]);
-  var rootItem = model.regularItems.find(function (item) { return item.data.id === 4; });
-  assert.equal(rootItem.type, "coordinator");
-  assert.deepEqual(rootItem.children.map(function (item) { return item.id; }), [5]);
+    [1, 2, 3, 5, 7, 9, 10, 11]);
+  var taskItem = model.regularItems.find(function (item) { return item.data.id === 5; });
+  assert.equal(taskItem.type, "coordinator");
+  assert.deepEqual(taskItem.children.map(function (item) { return item.id; }), [6]);
+
+  var leadOn = visible.map(function (item) { return Object.assign({}, item, { leadModeEnabled: true }); });
+  var leadOff = visible.map(function (item) { return Object.assign({}, item, { leadModeEnabled: false }); });
+  assert.deepEqual(m.sessionsForOrdinaryProjectSidebar(leadOn).map(function (item) { return item.id; }),
+    m.sessionsForOrdinaryProjectSidebar(leadOff).map(function (item) { return item.id; }));
+  var invariantOptions = {
+    frozenOrder: null, frozenOrderSlug: null, currentSlug: "clay",
+    searchMatchIds: null, getDateGroup: function () { return "Today"; },
+  };
+  assert.equal(JSON.stringify(m.buildSessionListModel(visible,
+    Object.assign({}, invariantOptions, { leadModeEnabled: true }))),
+  JSON.stringify(m.buildSessionListModel(visible,
+    Object.assign({}, invariantOptions, { leadModeEnabled: false }))));
 });
 
 test("compareSessionListItems: bookmarked sessions sort before unbookmarked, then by favoriteOrder, then recency", async function () {

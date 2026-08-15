@@ -63,6 +63,21 @@ test("the first claim for a topic and project becomes the canonical coordinator"
   assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), COORD_A);
 });
 
+test("a Lead-resident coordinator can hold durable authority for an explicit ProjectRef", function () {
+  var file = tempFile();
+  var ledger = makeLedger(file);
+  var id = open(ledger, 184, TOPIC, [{ projectId: CLAY }]);
+  var coopRoot = { projectId: "system-lead", sessionStorageId: "clay-coordinator" };
+
+  var claim = ledger.claimCoordinator({
+    topicRef: TOPIC, projectRef: { projectId: CLAY }, coordinator: coopRoot, ingressId: id,
+  });
+
+  assert.equal(claim.ok, true);
+  assert.deepEqual(ledger.canonicalCoordinator(TOPIC, { projectId: CLAY }), coopRoot);
+  assert.deepEqual(makeLedger(file).canonicalProjectCoordinator({ projectId: CLAY }), coopRoot);
+});
+
 test("a follow-up on the same topic and project reuses the existing coordinator", function () {
   var ledger = makeLedger();
   var first = open(ledger, 182, TOPIC, [{ projectId: CLAY }]);

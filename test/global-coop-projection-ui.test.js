@@ -92,12 +92,12 @@ test("desktop and mobile Coop renderers share the persistent project coordinator
   var desktopCss = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
   var mobileCss = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"), "utf8");
 
-  // Both surfaces render through the one shared section builder, so category
-  // order and the project heading markup cannot drift between them.
+  // Both surfaces render through the one shared section builder, so the flat
+  // control-plane order cannot drift between them.
   assert.match(desktop, /renderCoopTopicSections/);
   assert.match(mobile, /renderCoopTopicSections/);
-  assert.match(topics, /prefix \+ "global-coop-project-heading"/);
-  assert.match(topics, /renderCoopProjectTopics/);
+  assert.doesNotMatch(topics, /global-coop-project-heading/);
+  assert.match(topics, /appendControlPlaneSession/);
   assert.match(topics, /renderCoopProjectHierarchy/);
   assert.match(hierarchy, /coop-project-coordinator-row/);
   assert.match(hierarchy, /var prefix = opts\.mobile \? "mobile-" : ""/);

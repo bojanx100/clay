@@ -451,29 +451,23 @@ dialog surface. Results return as typed `coop_incarnation_result` messages.
 ## Durable project and task coordinator hierarchy
 
 Each canonical `ProjectRef` owns one durable reusable project coordinator
-`SessionRef`. It is a runtimeless hierarchy root, not a bounded execution
-attempt. Startup or a new portfolio task reuses that ref even when the prior
-runtime session was archived, hidden, or carried a completed legacy binding;
-reactivation clears archive-only state and removes the obsolete per-task
-binding from the root. The owner-request ledger converges legacy per-topic roots
-onto the earliest durable root transactionally and idempotently.
+`SessionRef` in the Lead/Coop project. Its control-plane policy carries the
+explicit target `ProjectRef`; it is a persistent hierarchy root, not a bounded
+target-project execution attempt. Council and Triage are persistent peer
+sessions in the same control plane.
 
-Every admitted project-coordinator portfolio binding creates or reuses a child
-task coordinator for that bounded workstream. Multiple task coordinators may be
-running concurrently beneath the project root. Workers and reviewers are owned
-by their task coordinator, and their task graph is isolated from sibling
-workstreams. A terminal task-coordinator result updates the matching
-reference-only external task on the project root before its typed completion is
-delivered to the portfolio binding. The binding stores both the child task
-coordinator ref and the stable project coordinator ref, so restart/recovery can
-reconstruct task→project→Coop ownership without a `coordinator_exists` dead
-end.
+Every admitted project binding creates or reuses a top-level task coordinator
+in the target project. The create envelope is sourced by the matching
+Lead-resident project coordinator, never by canonical Coop or a synthetic
+target-local root. Workers and reviewers are owned by that task coordinator.
+The binding stores the target task-coordinator ref and the stable Lead
+project-coordinator ref so restart/recovery reconstructs the authority chain.
 
-Coop projects this as ProjectRef → project coordinator → task coordinators →
-workers/reviewers. Nodes contain canonical SessionRefs and bounded lifecycle
-facts only. Selecting a node performs the existing ACL-checked canonical
-SessionRef resolution; it never copies a project transcript into Coop, creates
-a Lead-local executor, or changes the ordinary project chat list.
+Coop projects this as project coordinator → task coordinators → workers and
+reviewers. Actual project sidebars omit the persistent root and show the same
+task coordinators and sessions whether Lead mode is on or off. Selecting a node
+performs ACL-checked SessionRef resolution; it never copies transcripts,
+creates a Lead-local project executor, or adopts owner-direct sessions.
 
 ## Deterministic shadow comparison
 

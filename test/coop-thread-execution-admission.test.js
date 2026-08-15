@@ -44,6 +44,17 @@ function executionRouter(entries, delivered, handedOff, options) {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-thread-admission-"));
   var claimed = null;
   var classifications = 0;
+  var leadSessions = new Map([[1, { coopHome: true, storageId: "canonical-coop",
+    history: options.history || [] }]]);
+  var leadManager = {
+    sessions: leadSessions,
+    createSessionRaw: function (input) {
+      var session = Object.assign({ localId: leadSessions.size + 1, history: [] }, input || {});
+      leadSessions.set(session.localId, session);
+      return session;
+    },
+    saveSessionFile: function () {},
+  };
   var router = createCrossProjectRouter({
     bindingFile: path.join(dir, "bindings.json"),
     ownerRequests: {
@@ -70,17 +81,15 @@ function executionRouter(entries, delivered, handedOff, options) {
   });
   router.registerProjectResolver({
     getProjectId: function () { return "system-lead"; },
-    getSessionManager: function () {
-      return { sessions: new Map([[1, { coopHome: true, storageId: "canonical-coop",
-        history: options.history || [] }]]) };
-    },
+    getSessionManager: function () { return leadManager; },
   });
   router.registerProjectResolver({
     getProjectId: function () { return PROJECT; },
-    deliverCrossProjectEnvelope: function () {
-      delivered.push(true);
+    deliverCrossProjectEnvelope: function (envelope) {
+      delivered.push(envelope);
       return { ok: true, created: true,
-        sessionRef: { projectId: PROJECT, sessionStorageId: "thread-worker" } };
+        sessionRef: { projectId: PROJECT, sessionStorageId: "thread-worker" },
+        projectCoordinatorRef: envelope.payload.targetProjectCoordinator };
     },
   });
   return { router: router, dir: dir,
@@ -110,6 +119,26 @@ test("typed project execution fails closed until the current owner ingress has a
     assert.equal(delivered.length, 0);
     assert.equal(handedOff.length, 0);
   } finally { fs.rmSync(discussion.dir, { recursive: true, force: true }); }
+});
+
+test("production admission rejects direct project leaves instead of falling back around the coordinator", function () {
+  var delivered = [];
+  var handedOff = [];
+  var approved = executionRouter([{ ingressId: INGRESS, topicRef: TOPIC,
+    projectRefs: [{ projectId: PROJECT }], expectsExecution: true,
+    implementationDecision: { intent: "implement", source: "explicit_owner_turn" } }],
+  delivered, handedOff);
+  try {
+    var result = approved.router.createProjectExecution({
+      source: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+      portfolioTaskId: "no-direct-leaf", bindingRevision: 1,
+      idempotencyKey: "no-direct-leaf-r1", mode: "direct_leaf",
+      targetProject: { projectId: PROJECT }, coopTopicRef: TOPIC,
+      coopIngressId: INGRESS, objective: "Do not bypass the project coordinator.",
+    });
+    assert.deepEqual(result, { ok: false, reason: "persistent_project_coordinator_required" });
+    assert.equal(delivered.length, 0);
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
 });
 
 test("owner text approval is replayed from the exact canonical event and persisted once", function () {
@@ -174,8 +203,16 @@ test("an explicit decision creates typed ProjectRef execution and marks the Thre
     var result = execute(approved.router);
     assert.equal(result.ok, true);
     assert.equal(delivered.length, 1);
+    assert.equal(delivered[0].source.projectId, "system-lead");
+    assert.notEqual(delivered[0].source.sessionStorageId, "canonical-coop",
+      "Coop dispatch must target the ProjectRef-bound coordinator, never the project session");
+    assert.deepEqual(delivered[0].payload.targetProjectCoordinator, delivered[0].source);
+    assert.match(delivered[0].payload.controlPlaneTaskId, /^task-/);
     assert.deepEqual(result.binding.targetProject, { projectId: PROJECT });
     assert.deepEqual(result.binding.coopTopicRef, TOPIC);
+    assert.deepEqual(result.binding.projectCoordinator, delivered[0].source);
+    assert.deepEqual(result.binding.coordinator,
+      { projectId: PROJECT, sessionStorageId: "thread-worker" });
     assert.equal(handedOff.length, 1);
     assert.deepEqual(handedOff[0].topicRef, TOPIC);
     assert.deepEqual(handedOff[0].projectRef, { projectId: PROJECT });

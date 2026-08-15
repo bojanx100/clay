@@ -4,6 +4,14 @@ Status: **SHIPPED** (Slices 1–9; final controlled cutover landed 2026-08-05)
 Approved scope: project-owned canonical sessions referenced from Coop's global task tree
 Relates to: [CTO-ORCHESTRATOR-ROADMAP.md](CTO-ORCHESTRATOR-ROADMAP.md)
 
+> Revision note (2026-08-15): owner ingresses 299–305 supersede this document's
+> target-local project-coordinator residence, direct-leaf Coop routing, and
+> project-grouped sidebar layout. The binding revision 6 authority is
+> [COOP-CONTROL-PLANE-HIERARCHY.md](../../ongoing/COOP-CONTROL-PLANE-HIERARCHY.md):
+> project coordinators live in Coop with explicit ProjectRefs; target projects
+> contain top-level task coordinators and workers only; Coop has no direct-leaf
+> project fallback.
+
 ## Decision
 
 Coop is the global control plane, not the default execution home. The global

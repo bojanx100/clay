@@ -92,7 +92,7 @@ test("a lens restored from history before the projection arrives never shows an 
   });
   var display = ctx.projection.activeCoopLensDisplay();
   assert.equal(display.kind, "topic");
-  assert.equal(display.title, "Untitled topic");
+  assert.equal(display.title, "Untitled Thread");
 });
 
 test("a snapshot bridges the gap until the canonical record resolves", async function () {

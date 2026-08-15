@@ -265,7 +265,7 @@ test("a row opens its canonical topic and nothing else", async function () {
   });
   var row = nowRowFor(out.container, "topic-attn");
   assert.equal(row.tagName, "BUTTON");
-  assert.match(row.getAttribute("aria-label"), /opens the topic$/);
+  assert.match(row.getAttribute("aria-label"), /opens the Thread$/);
   row.click();
   assert.deepEqual(openedTopics, ["topic-attn"], "navigates by canonical TopicRef");
 });

@@ -523,7 +523,7 @@ test("shared Coop renderer places project coordinator rows in desktop and mobile
     crossProjectTopics: [],
   };
   var sections = modelModule.coopTopicSections(model);
-  assert.deepEqual(sections.map(function (section) { return section.label; }), ["Clay", "Webapp"],
+  assert.deepEqual(sections.map(function (section) { return section.label; }), ["Threads", "Clay", "Webapp"],
     "project roots create global Coop groups even when no topic row exists");
 
   var normalized = hierarchyModel.cloneCoopProjectHierarchy(model.projects[0].summary.coordinatorTree);

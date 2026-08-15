@@ -135,27 +135,32 @@ function sectionShape(sections) {
 
 // --- Ordering and empty categories (pure model) ---
 
-test("Uncategorised renders first and every empty category wrapper is omitted", async function () {
+test("all open topics render in one Threads group without legacy categories", async function () {
   var ui = await loadTopicControls();
   ui.projection.setGlobalCoopProjection(projectionMessage({
     projects: [
-      { projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", icon: "C", topics: [topic("clay-one", { projectRef: { projectId: CLAY } })] },
-      // Accessible but with nothing classified to it: must yield no section.
-      { projectRef: { projectId: WEBAPP }, slug: "webapp", title: "Webapp", topics: [] },
+      { projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", icon: "C",
+        summary: { coordinatorTree: [{ sessionRef: { projectId: "system-lead", sessionStorageId: "clay-coordinator" },
+          title: "Clay coordinator", role: "project_coordinator", children: [] }] },
+        topics: [topic("clay-one", { projectRef: { projectId: CLAY } })] },
+      { projectRef: { projectId: WEBAPP }, slug: "webapp", title: "Webapp",
+        summary: { coordinatorTree: [{ sessionRef: { projectId: "system-lead", sessionStorageId: "webapp-coordinator" },
+          title: "Webapp coordinator", role: "project_coordinator", children: [] }] }, topics: [] },
     ],
     topics: [topic("cross-one", { group: "cross_project" }), topic("uncat-one", { group: "uncategorised" })],
+    controlPlaneSessions: [
+      { role: "council", title: "Council", sessionRef: { projectId: "system-lead", sessionStorageId: "council" } },
+      { role: "triage", title: "Triage", sessionRef: { projectId: "system-lead", sessionStorageId: "triage" } },
+    ],
   }));
   var sections = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
-  assert.deepEqual(sectionShape(sections), [
-    "uncategorised:Uncategorised",
-    "project:Clay",
-    "cross_project:Cross-project",
-  ]);
-  assert.equal(sections[1].icon, "C");
-  assert.deepEqual(sections[1].projectRef, { projectId: CLAY });
+  assert.deepEqual(sectionShape(sections), ["threads:Threads", "project_coordinator:Clay",
+    "project_coordinator:Webapp", "control_plane:Council", "control_plane:Triage"]);
+  assert.deepEqual(sections[0].topics.map(function (item) { return item.topicRef.topicId; }),
+    ["clay-one", "cross-one", "uncat-one"]);
 });
 
-test("an empty Uncategorised category leaves no descriptor behind", async function () {
+test("a project-classified open topic still lives in Threads", async function () {
   var ui = await loadTopicControls();
   ui.projection.setGlobalCoopProjection(projectionMessage({
     projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [topic("clay-one", { projectRef: { projectId: CLAY } })] }],
@@ -163,19 +168,20 @@ test("an empty Uncategorised category leaves no descriptor behind", async functi
   }));
   assert.deepEqual(
     sectionShape(ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""))),
-    ["project:Clay"]
+    ["threads:Threads"]
   );
 });
 
-test("every category empty yields no sections at all", async function () {
+test("Threads remains visible when there are no open records", async function () {
   var ui = await loadTopicControls();
-  assert.deepEqual(ui.model.coopTopicSections({}), []);
-  assert.deepEqual(ui.model.coopTopicSections(null), []);
+  assert.deepEqual(sectionShape(ui.model.coopTopicSections({})), ["threads:Threads"]);
+  assert.deepEqual(sectionShape(ui.model.coopTopicSections(null)), ["threads:Threads"]);
   ui.projection.setGlobalCoopProjection(projectionMessage({
     projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [] }],
     topics: [],
   }));
-  assert.deepEqual(ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel("")), []);
+  assert.deepEqual(sectionShape(ui.model.coopTopicSections(
+    ui.projection.buildGlobalCoopDisplayModel(""))), ["threads:Threads"]);
 });
 
 test("search filtering can empty a category and it then renders no wrapper", async function () {
@@ -185,7 +191,7 @@ test("search filtering can empty a category and it then renders no wrapper", asy
     topics: [topic("uncat-one", { group: "uncategorised", title: "Unrelated" })],
   }));
   var filtered = ui.projection.buildGlobalCoopDisplayModel("sidebar");
-  assert.deepEqual(sectionShape(ui.model.coopTopicSections(filtered)), ["project:Clay"]);
+  assert.deepEqual(sectionShape(ui.model.coopTopicSections(filtered)), ["threads:Threads"]);
 });
 
 test("both surfaces read section order from the one shared model function", function () {
@@ -232,31 +238,31 @@ test("admitted work leaves Threads while unadmitted discussion remains", async f
       },
       topics: [
         topic("intake", { projectRef: { projectId: CLAY }, workState: "needs_input", stateSource: "unlinked_default" }),
-        topic("working", { projectRef: { projectId: CLAY }, workState: "working", stateSource: "task_working" }),
-        topic("attention", { projectRef: { projectId: CLAY }, workState: "needs_input", stateSource: "task_attention" }),
-        topic("accepted", { projectRef: { projectId: CLAY }, workState: "done", stateSource: "task_accepted" }),
+        topic("working", { projectRef: { projectId: CLAY }, threadState: "handed_off", workState: "working", stateSource: "task_working" }),
+        topic("attention", { projectRef: { projectId: CLAY }, threadState: "handed_off", workState: "needs_input", stateSource: "task_attention" }),
+        topic("accepted", { projectRef: { projectId: CLAY }, threadState: "handed_off", workState: "done", stateSource: "task_accepted" }),
         topic("legacy-linked", {
-          projectRef: { projectId: CLAY }, workState: "needs_input", stateSource: "unlinked_default",
+          projectRef: { projectId: CLAY }, threadState: "handed_off", workState: "needs_input", stateSource: "unlinked_default",
           relatedSessions: [{ sessionRef: coordinatorRef, projectRef: { projectId: CLAY }, title: "Project coordinator" }],
         }),
       ],
     }],
     topics: [
       topic("foreground-intake", { group: "uncategorised", workState: "working", stateSource: "foreground" }),
-      topic("cross-admitted", { group: "cross_project", workState: "done", stateSource: "execution_completed" }),
+      topic("cross-admitted", { group: "cross_project", threadState: "handed_off", workState: "done", stateSource: "execution_completed" }),
     ],
   }));
 
   var sections = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
-  assert.deepEqual(sectionShape(sections), ["uncategorised:Uncategorised", "project:Clay"]);
-  assert.deepEqual(sections[0].topics.map(function (item) { return item.topicRef.topicId; }), ["foreground-intake"]);
-  assert.deepEqual(sections[1].topics.map(function (item) { return item.topicRef.topicId; }), ["intake"]);
+  assert.deepEqual(sectionShape(sections), ["threads:Threads", "project_coordinator:Clay"]);
+  assert.deepEqual(sections[0].topics.map(function (item) { return item.topicRef.topicId; }),
+    ["intake", "foreground-intake"]);
   assert.equal(sections[1].hierarchy.length, 1, "the persistent coordinator stays visible");
   assert.equal(sections.some(function (section) { return section.kind === "done"; }), false,
     "admitted completed work does not reappear as a duplicate Done topic");
 });
 
-test("the shared desktop/mobile model separates Exploring, Parked, Handed off, and Closed", async function () {
+test("Exploring and Parked remain in Threads while Handed off and Closed are omitted", async function () {
   var ui = await loadTopicControls();
   ui.projection.setGlobalCoopProjection(projectionMessage({
     projects: [{ projectRef: { projectId: CLAY }, slug: "clay", title: "Clay", topics: [
@@ -268,15 +274,14 @@ test("the shared desktop/mobile model separates Exploring, Parked, Handed off, a
     ] }],
   }));
   var sections = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
-  assert.deepEqual(sectionShape(sections), ["project:Clay", "parked:Parked", "closed:Closed"]);
-  assert.deepEqual(sections[0].topics.map(function (item) { return item.topicRef.topicId; }), ["exploring"]);
-  assert.deepEqual(sections[1].topics.map(function (item) { return item.topicRef.topicId; }), ["parked"]);
-  assert.deepEqual(sections[2].topics.map(function (item) { return item.topicRef.topicId; }), ["closed"]);
+  assert.deepEqual(sectionShape(sections), ["threads:Threads"]);
+  assert.deepEqual(sections[0].topics.map(function (item) { return item.topicRef.topicId; }),
+    ["exploring", "parked"]);
   assert.equal(JSON.stringify(sections).indexOf("handed-off"), -1,
     "Handed-off execution appears only beneath the persistent project coordinator");
 });
 
-test("Close moves a Thread to collapsed Closed and Resume restores it without loss", async function () {
+test("closed records leave navigation and an open payload returns to Threads", async function () {
   var ui = await loadTopicControls();
   function payload(status, threadState, closeOutcome) {
     return projectionMessage({
@@ -293,47 +298,27 @@ test("Close moves a Thread to collapsed Closed and Resume restores it without lo
   }
   ui.projection.setGlobalCoopProjection(payload("open", "exploring", null));
   assert.deepEqual(sectionShape(ui.model.coopTopicSections(
-    ui.projection.buildGlobalCoopDisplayModel(""))), ["project:Clay"]);
+    ui.projection.buildGlobalCoopDisplayModel(""))), ["threads:Threads"]);
 
-  // Closed Threads remain projectable as provenance in one compact section.
+  // Closed provenance remains durable server-side but has no navigation group.
   ui.projection.setGlobalCoopProjection(payload("closed", "closed", "implemented_resolved"));
   var closedModel = ui.projection.buildGlobalCoopDisplayModel("");
   var closedSections = ui.model.coopTopicSections(closedModel);
-  assert.deepEqual(sectionShape(closedSections), ["closed:Closed"]);
-  var closedTopic = closedSections[0].topics[0];
-  assert.equal(closedTopic.status, "closed");
-  assert.equal(closedTopic.closeOutcome, "implemented_resolved");
-
-  // A closed row's overflow menu offers Reopen, not a dead second Close, and
-  // activating it sends exactly the reopen message for the live topic.
-  var sent = [];
-  var menu = ui.close.createTopicMenu(closedTopic, {
-    send: function (message) { sent.push(message); return true; },
-  });
-  var toggle = byClass(menu, "coop-topic-menu-toggle")[0];
-  var item = byClass(menu, "coop-topic-menu-item")[0];
-  assert.equal(item.textContent, "Reopen Thread");
-  assert.equal(item.getAttribute("aria-label"), "Reopen Thread Close refresh");
-  toggle.click();
-  item.click();
-  assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0], {
-    type: "coop_thread_state", state: "exploring", closeOutcome: null,
-    topicRef: { topicId: "close-refresh" }, threadRef: { threadId: "close-refresh" },
-  });
+  assert.deepEqual(sectionShape(closedSections), ["threads:Threads"]);
+  assert.equal(closedSections[0].topics.length, 0);
 
   // The post-reopen payload restores the topic to its open section with its
   // membership intact: nothing about the history was lost in the round trip.
   ui.projection.setGlobalCoopProjection(payload("open", "exploring", null));
   var reopened = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
-  assert.deepEqual(sectionShape(reopened), ["project:Clay"]);
+  assert.deepEqual(sectionShape(reopened), ["threads:Threads"]);
   assert.equal(reopened[0].topics[0].title, "Close refresh");
 
   // An open row offers the explicit-outcome Close dialog.
   var openMenu = ui.close.createTopicMenu(reopened[0].topics[0], { send: function () { return true; } });
-  assert.equal(byClass(openMenu, "coop-topic-menu-item")[0].textContent, "Close Thread…");
-  assert.match(source("coop-thread-controls.js"), /Implemented \/ resolved/);
-  assert.match(source("coop-thread-controls.js"), /Not pursuing/);
+  assert.equal(byClass(openMenu, "coop-topic-menu-item")[0].textContent, "Do not implement…");
+  assert.doesNotMatch(source("coop-thread-controls.js"), /Implemented \/ resolved/);
+  assert.match(source("coop-thread-controls.js"), /Do not implement/);
 
   var messages = source("app-messages-sessions.js");
   var handler = messages.slice(messages.indexOf("function handleGlobalCoopProjection"));
@@ -361,18 +346,18 @@ test("cancelling Close is a strict no-op and choosing an outcome closes exactly 
   var firstDialog = byClass(document.body, "coop-thread-dialog")[0];
   var firstButtons = byClass(firstDialog, "coop-thread-dialog-button");
   assert.deepEqual(firstButtons.map(function (button) { return button.textContent; }),
-    ["Implemented / resolved", "Not pursuing", "Cancel"]);
-  firstButtons[2].click();
+    ["Do not implement", "Cancel"]);
+  firstButtons[1].click();
   assert.equal(sent.length, 0, "Cancel does not mutate durable state");
 
   assert.equal(ui.close.requestTopicClose(known, { send: send }), true);
   var secondDialog = byClass(document.body, "coop-thread-dialog")[0];
-  var implemented = byClass(secondDialog, "coop-thread-dialog-button")[0];
-  implemented.click();
-  implemented.click();
+  var discard = byClass(secondDialog, "coop-thread-dialog-button")[0];
+  discard.click();
+  discard.click();
   assert.equal(sent.length, 1, "a repeated confirmation must not close twice");
   assert.deepEqual(sent[0], {
-    type: "coop_thread_state", state: "closed", closeOutcome: "implemented_resolved",
+    type: "coop_thread_state", state: "closed", closeOutcome: "not_pursuing",
     topicRef: { topicId: "close-me" },
     threadRef: { threadId: "close-me" },
   });
@@ -448,7 +433,7 @@ test("the overflow menu is a keyboard-usable menu whose item never navigates the
   assert.equal(list.getAttribute("role"), "menu");
   assert.equal(list.hidden, true, "the menu starts collapsed");
   assert.equal(item.getAttribute("role"), "menuitem");
-  assert.equal(item.getAttribute("aria-label"), "Close Thread Row topic");
+  assert.equal(item.getAttribute("aria-label"), "Do not implement Row topic");
 
   // Opening reflects into aria-expanded; the menu stays in the DOM either way.
   toggle.click();
@@ -721,9 +706,9 @@ test("no forbidden Coop sidebar affordance reappears", function () {
   assert.doesNotMatch(closeSource, /from '\.\/app-connection\.js'/);
 });
 
-// --- ARIA wiring for the decision panel and Closed disclosure ---
+// --- ARIA wiring for the decision panel and omitted Closed navigation ---
 
-test("the decision panel and Closed disclosure keep their accessible wiring", function () {
+test("the decision panel stays accessible and Closed navigation is absent", function () {
   // The review panel moved into the topic decision surface: it renders as a
   // labelled group, always open, and never as a sidebar disclosure toggle.
   var review = source("sidebar-coop-topic-review.js");
@@ -737,14 +722,7 @@ test("the decision panel and Closed disclosure keep their accessible wiring", fu
     "the sidebar Review toggle is gone");
 
   var topics = source("sidebar-coop-topics.js");
-  assert.match(topics, /var panelId = prefix \+ "coop-topic-done-panel"/,
-    "the legacy protocol id is stable while the owner-facing section is Closed");
-  assert.match(topics, /"Closed \(" \+ topics\.length \+ "\)"/);
-  assert.match(topics, /toggle\.setAttribute\("aria-controls", panelId\)/);
-  assert.match(topics, /toggle\.setAttribute\("aria-expanded", open \? "true" : "false"\)/);
-  assert.match(topics, /panel\.hidden = !open/);
-  // The Closed toggle is a real button, so Enter/Space activation is native.
-  assert.match(topics, /toggle = document\.createElement\("button"\)/);
+  assert.doesNotMatch(topics, /coop-topic-done-panel|coopClosedSectionOpen|Closed \(/);
 });
 
 // --- Topic-row layout contract (title primary, quiet meta line, one overflow) ---

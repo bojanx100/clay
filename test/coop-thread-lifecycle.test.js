@@ -93,7 +93,7 @@ test("three distinct owner themes become durable Threads and a related turn reat
   } finally { h.cleanup(); }
 });
 
-test("migration preserves legacy records, parks owner reminders and test decisions, and keeps closed outcomes distinct", function () {
+test("migration parks owner reminders and deleting a not-pursuing Thread removes it", function () {
   var h = harness();
   try {
     var state = h.index.load();
@@ -116,11 +116,13 @@ test("migration preserves legacy records, parks owner reminders and test decisio
     }), { ok: true });
     assert.equal(h.index.resolve({ topicId: "legacy-resolved" }, true).thread.closeOutcome,
       lifecycle.CLOSE_OUTCOMES.IMPLEMENTED_RESOLVED);
-    assert.deepEqual(h.index.setThreadState({ threadId: "legacy-resolved" }, lifecycle.THREAD_STATES.CLOSED, {
+    var discarded = h.index.setThreadState({ threadId: "legacy-resolved" }, lifecycle.THREAD_STATES.CLOSED, {
       closeOutcome: lifecycle.CLOSE_OUTCOMES.NOT_PURSUING,
-    }), { ok: true });
-    assert.equal(h.index.resolve({ threadId: "legacy-resolved" }, true).thread.closeOutcome,
-      lifecycle.CLOSE_OUTCOMES.NOT_PURSUING);
+    });
+    assert.equal(discarded.ok, true);
+    assert.equal(discarded.deleted, true);
+    assert.equal(discarded.thread.closeOutcome, lifecycle.CLOSE_OUTCOMES.NOT_PURSUING);
+    assert.equal(h.index.resolve({ threadId: "legacy-resolved" }, true).code, "topic_not_found");
   } finally { h.cleanup(); }
 });
 

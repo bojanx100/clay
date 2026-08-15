@@ -157,11 +157,12 @@ test("the compact project-grouped topic list and its controls are preserved", fu
   assert.match(topics, /requestMainCoopLens\)/);
   assert.match(topics, /onSelect\(sendUserAction\)/);
   assert.match(topics, /requestCoopTopic\(topic, sendUserAction\)/);
-  // Close + related-links expander on every row, and no empty wrappers.
+  // Do-not-implement + related-links expander on every row. Threads remains
+  // visible while other empty wrappers stay omitted.
   assert.match(topics, /main\.appendChild\(createTopicMenu\(topic, options\)\)/);
   assert.match(topics, /createTopicLinksExpander\(topic, options\)/);
-  assert.match(topics, /if \(!topics \|\| topics\.length === 0\) return 0/);
-  // Project grouping still renders a heading per project section.
+  assert.match(topics, /if \(items\.length === 0 && opts\.allowEmpty !== true\) return 0/);
+  // The project coordinator hierarchy uses the same shared render path.
   assert.match(topics, /function appendProjectSection\(container, section, options\)/);
 });
 
