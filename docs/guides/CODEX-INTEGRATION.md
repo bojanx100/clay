@@ -239,9 +239,9 @@ When changing Codex adapter code:
 
 - [ ] Text response streams in real time (`item/agentMessage/delta`)
 - [ ] Thinking indicator shows and clears
-- [ ] Bash command with `approval: on-failure` shows approval UI, responds correctly to Sure/Always/No
+- [ ] Bash command with `approval: on-request` shows approval UI, responds correctly to Sure/Always/No
 - [ ] File change outside workspace shows approval UI
-- [ ] MCP tool (filesystem) with `approval: on-failure` shows approval UI, executes after approval
+- [ ] MCP tool (filesystem) with `approval: on-request` shows approval UI, executes after approval
 - [ ] Multi-turn conversation works (2nd message sends to same thread)
 - [ ] Session resume works after server restart
 - [ ] Switching between Codex and Claude sessions shows correct slash commands for each

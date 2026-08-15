@@ -325,6 +325,7 @@ YOKE is the vendor-agnostic interface layer. Each adapter implements the same co
 |--------|---------|
 | `yoke/index.js` | Adapter factory, wraps createQuery with project instructions |
 | `yoke/interface.js` | YOKE interface contract definition |
+| `yoke/vendor-registry.js` | Init-free vendor names, binaries, session modes, isolation support, usage links, and rate-limit capabilities |
 | `yoke/adapters/claude.js` | Claude adapter using `@anthropic-ai/claude-agent-sdk`. In-process + worker (OS user isolation) paths |
 | `yoke/adapters/claude-events.js` | Claude SDK event flattening into adapter-neutral YOKE event objects |
 | `yoke/adapters/codex.js` | Codex adapter using `codex app-server` JSON-RPC protocol. Handles approval events, skill injection, MCP bridge config |
@@ -434,10 +435,12 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `sidebar-sessions-move.js` | Move-session-to-project picker overlay and move action dispatch |
 | `sidebar-sessions-presence.js` | Session presence avatar rendering, presence updates, and unread badge updates |
 | `sidebar-sessions-rename.js` | Inline rename controls for session rows and loop groups |
-| `sidebar-sessions-top-actions.js` | Sidebar session top action buttons and Claude/Codex launch option menus |
+| `sidebar-sessions-top-actions.js` | Last-used-vendor session launcher, all-vendor picker, coordinator launch options, and CLI import actions |
 | `queued-messages.js` | Client-side queued/steer message indicators and orchestration preview coordination |
 | `orchestration-task-preview.js` | Compact worker metric strip, expandable worker detail rows, worker navigation, and close controls |
 | `sidebar-projects.js` | Project icon strip, context menus, emoji picker, drag-and-drop reorder, worktree modal, project access popover, project rename, project badges |
+| `branch-switcher.js` | Title-bar branch picker, worktree navigation, new-worktree launch, and worktree removal actions |
+| `worktree-family.js` | Pure parent/worktree family lookup and aggregate display-state helpers |
 | `sidebar-lead.js` | Lead pseudo-project detection and pinned desktop/mobile sidebar row creation |
 | `sidebar-mates.js` | User/mate icon strip, DM picker, user/mate context menus, icon strip tooltips, sidebar presence, DM badges, DM user state |
 | `sidebar-mobile.js` | Mobile sheet overlays (projects, sessions, mate profile, search, tools, settings), mobile tab bar, drag-to-dismiss, mobile loop groups, local session rendering, and the Coop project/topic hierarchy |

@@ -160,6 +160,10 @@
     background: rgba(var(--overlay-rgb), 0.06);
   }
 
+  .mobile-project-item.has-pending-perm {
+    animation: permShake 2s ease-in-out infinite;
+  }
+
   .mobile-project-abbrev {
     width: 32px;
     height: 32px;
@@ -433,18 +437,16 @@
     background: rgba(var(--overlay-rgb), 0.06);
   }
 
-  /* Vendor-split row: Claude + Codex side-by-side. Used inside
-     renderMobileSessionsInto so users can pick the vendor on mobile, the
-     same way the desktop sidebar already does. */
+  /* Split "New session" row: main action on the last-used vendor + a chevron
+     that expands .mobile-vendor-list below it. Mirrors the desktop sidebar. */
   .mobile-session-new-row {
     display: flex;
     gap: 6px;
     padding: 6px 8px 8px;
-    border-bottom: 1px solid var(--border-subtle);
   }
 
-  .mobile-session-new-row .mobile-session-new-vendor {
-    flex: 1 1 0;
+  .mobile-session-new-row .mobile-session-new-main {
+    flex: 1 1 auto;
     width: auto;
     margin-bottom: 0;
     padding: 10px 12px;
@@ -452,13 +454,25 @@
     border-radius: 8px;
     background: rgba(var(--overlay-rgb), 0.03);
     color: var(--text);
-    justify-content: center;
     gap: 8px;
   }
-  .mobile-session-new-row .mobile-session-new-vendor:last-of-type {
-    border-bottom: 1px solid var(--border-subtle);
+  .mobile-session-new-row .mobile-session-new-chevron {
+    flex: 0 0 auto;
+    width: 44px;
+    margin-bottom: 0;
+    padding: 10px 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: rgba(var(--overlay-rgb), 0.03);
+    color: var(--text-muted);
+    justify-content: center;
+    gap: 0;
   }
-  .mobile-session-new-row .mobile-session-new-vendor:active {
+  .mobile-session-new-row .mobile-session-new-chevron.expanded svg {
+    transform: rotate(180deg);
+  }
+  .mobile-session-new-row .mobile-session-new-main:active,
+  .mobile-session-new-row .mobile-session-new-chevron:active {
     background: rgba(var(--overlay-rgb), 0.1);
   }
 
@@ -484,12 +498,61 @@
     background: rgba(var(--accent-rgb, 88, 87, 252), 0.16);
   }
 
+  .mobile-vendor-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 8px 8px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .mobile-vendor-list.hidden { display: none; }
+
+  .mobile-vendor-list .mobile-session-new-vendor {
+    width: 100%;
+    margin-bottom: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: rgba(var(--overlay-rgb), 0.03);
+    color: var(--text);
+    font-weight: 500;
+    gap: 8px;
+  }
+  .mobile-vendor-list .mobile-session-new-vendor.active { font-weight: 700; }
+  /* Uninstalled vendors stay tappable: the tap opens the vendor's homepage. */
+  .mobile-vendor-list .mobile-session-new-vendor.disabled { opacity: 0.45; }
+  .mobile-vendor-list .mobile-session-new-vendor:active {
+    background: rgba(var(--overlay-rgb), 0.1);
+  }
+  .mobile-vendor-note {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dimmer);
+  }
+
   .mobile-session-new-icon {
     width: 18px;
     height: 18px;
     flex-shrink: 0;
     border-radius: 4px;
     object-fit: cover;
+  }
+
+  /* No hover on touch: rest state stays dimmed, the active session shows color. */
+  .mobile-session-vendor-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    border-radius: 3px;
+    object-fit: cover;
+    margin-right: 8px;
+    opacity: 0.5;
+    filter: grayscale(0.9) brightness(0.9);
+  }
+  .mobile-session-item.active .mobile-session-vendor-icon {
+    opacity: 1;
+    filter: none;
   }
 
   /* --- Chat filter bar (horizontal scroll chips) --- */

@@ -204,7 +204,8 @@ test("no other writer can repaint a Lead identity after connect", function () {
   // server sends.
   var projects = source("app-projects.js");
   assert.match(projects, /import \{ coopHeaderTitle \} from '\.\/coop-identity\.js'/);
-  assert.match(projects, /updatedName = coopHeaderTitle\(st\.currentSlug/);
+  assert.match(projects, /name = coopHeaderTitle\(store\.get\('currentSlug'\)/);
+  assert.match(projects, /updateTitleBarProjectIdentity\(store\.get\('projectName'\), null\)/);
   assert.doesNotMatch(projects, /var updatedName = cachedProjects\[pi\]\.title \|\| cachedProjects\[pi\]\.project;/);
 
   // The rename control writes arbitrary text straight into the header, and would

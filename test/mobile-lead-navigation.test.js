@@ -51,7 +51,7 @@ test("Coop is pinned first in the one surface that switches projects", function 
   );
   assert.ok(sheet.length > 0);
   assert.match(sheet, /var leadProject = findLeadProject\(projects\)/);
-  assert.ok(sheet.indexOf("createMobileLeadProjectItem") < sheet.indexOf("groupProjects(filterLeadProjects(projects))"));
+  assert.ok(sheet.indexOf("createMobileLeadProjectItem") < sheet.indexOf("parentProjects(visibleProjects)"));
 
   var lead = source("sidebar-lead.js");
   assert.match(lead, /mobile-project-item mobile-lead-project-item/);

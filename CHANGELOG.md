@@ -1,3 +1,58 @@
+# [2.47.0-beta.6](https://github.com/chadbyte/clay/compare/v2.47.0-beta.5...v2.47.0-beta.6) (2026-08-15)
+
+> **bojan fork integration:** The Kiro ACP adapter and generic `spawn_sessions`
+> tool are intentionally excluded. This fork retains its durable coordinator/
+> worker orchestration and Mate datastore, while integrating the compatible
+> vendor-registry, picker, worktree, dependency, and bug-fix changes.
+
+
+### Features
+
+* **ui:** present worktrees as branches inside their project ([2bb8915](https://github.com/chadbyte/clay/commit/2bb89153e7600baf464aab7692655a2fa5c3d001))
+
+# [2.47.0-beta.5](https://github.com/chadbyte/clay/compare/v2.47.0-beta.4...v2.47.0-beta.5) (2026-08-15)
+
+
+### Bug Fixes
+
+* **sessions:** use the shared session mapper for the connect-time list ([60642b1](https://github.com/chadbyte/clay/commit/60642b1fa30e4f8cfc45ac6ebac6cd2e388b9db7))
+
+
+### Features
+
+* **sidebar:** show which vendor each session ran on ([daa8437](https://github.com/chadbyte/clay/commit/daa84373c9f5b084dc324cd0c62d90a3797d9b1a))
+
+# [2.47.0-beta.4](https://github.com/chadbyte/clay/compare/v2.47.0-beta.3...v2.47.0-beta.4) (2026-08-15)
+
+
+### Features
+
+* **sessions:** inherit parent context in spawned sessions via fork ([cd18b49](https://github.com/chadbyte/clay/commit/cd18b49c37e0c03bfe7a1a138ec131bb45b26d12))
+* **sessions:** let an agent spawn sibling work sessions ([#358](https://github.com/chadbyte/clay/issues/358)) ([5fc36eb](https://github.com/chadbyte/clay/commit/5fc36eb2d2f1117428e5abfd1cddf20908f9c5f6))
+
+# [2.47.0-beta.3](https://github.com/chadbyte/clay/compare/v2.47.0-beta.2...v2.47.0-beta.3) (2026-08-15)
+
+
+### Features
+
+* **yoke:** add static vendor registry and extend capability map ([df18132](https://github.com/chadbyte/clay/commit/df1813253c1172cf7bf6e8b34062d841789b32f8))
+
+# [2.47.0-beta.2](https://github.com/chadbyte/clay/compare/v2.47.0-beta.1...v2.47.0-beta.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **ui:** bind new sessions to selected vendor ([9511f4c](https://github.com/chadbyte/clay/commit/9511f4c0d51906d04e106668b5c08017a3689551))
+* **yoke:** populate Kiro tool_result content from split ACP updates ([fb1d8b2](https://github.com/chadbyte/clay/commit/fb1d8b243da2686098053f30878952c3bb7a8ac0))
+* **yoke:** route Kiro ACP events per session ([9bffa51](https://github.com/chadbyte/clay/commit/9bffa5102cf23871c270a772f67b81d386c1e149))
+
+
+### Features
+
+* **sidebar:** replace vendor buttons with a New session picker ([5a1b34a](https://github.com/chadbyte/clay/commit/5a1b34a4bdc76502bb4fbf820a346f402b71b074))
+* **yoke:** add Kiro CLI adapter via Agent Client Protocol ([3d00286](https://github.com/chadbyte/clay/commit/3d002866de6ba2dc755232de60296e236df91d9e))
+* **yoke:** complete Kiro v3 adapter support ([bfa082a](https://github.com/chadbyte/clay/commit/bfa082a9e12460646baa942e0abe831da49b86a0))
+
 # [2.47.0-beta.1](https://github.com/chadbyte/clay/compare/v2.46.0...v2.47.0-beta.1) (2026-07-20)
 
 

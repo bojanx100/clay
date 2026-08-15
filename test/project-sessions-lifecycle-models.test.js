@@ -10,6 +10,8 @@ var gatekeeping = require("../lib/lead-gatekeeping-eval");
 
 function makeLifecycle(modelsByVendor, serverDefaults) {
   var created = [];
+  var sent = [];
+  var remembered = [];
   var sm = {
     defaultVendor: "claude",
     modelsByVendor: modelsByVendor,
@@ -27,6 +29,8 @@ function makeLifecycle(modelsByVendor, serverDefaults) {
     sm: sm,
     tm: null,
     sendTo: function () {},
+    send: function (msg) { sent.push(msg); },
+    onSetProjectLastVendor: function (slug, vendor) { remembered.push({ slug: slug, vendor: vendor }); },
     usersModule: { isMultiUser: function () { return false; } },
     userPresence: { setPresence: function () {} },
     getSessionForWs: function () { return null; },
@@ -40,7 +44,7 @@ function makeLifecycle(modelsByVendor, serverDefaults) {
     tuiHandlers: {},
     email: { getEmailDefaults: function () { return []; } },
   });
-  return { lifecycle: lifecycle, created: created };
+  return { lifecycle: lifecycle, created: created, sent: sent, remembered: remembered, sm: sm };
 }
 
 test("ordinary new sessions use the strongest provider model by default", function () {
@@ -63,6 +67,17 @@ test("ordinary new sessions preserve a configured model default", function () {
   h.lifecycle.handleLifecycleMessage({}, { type: "new_session", vendor: "claude" });
 
   assert.strictEqual(h.created[0].model, "claude-opus-4-8");
+});
+
+test("explicit new-session vendors persist and broadcast the project default", function () {
+  var h = makeLifecycle({}, {});
+
+  h.lifecycle.handleLifecycleMessage({}, { type: "new_session", vendor: "codex" });
+  h.lifecycle.handleLifecycleMessage({}, { type: "new_session" });
+
+  assert.strictEqual(h.sm.lastVendor, "codex");
+  assert.deepStrictEqual(h.remembered, [{ slug: "test-project", vendor: "codex" }]);
+  assert.deepStrictEqual(h.sent, [{ type: "last_vendor", vendor: "codex" }]);
 });
 
 function traceLifecycleHarness(session, store, canAccess) {

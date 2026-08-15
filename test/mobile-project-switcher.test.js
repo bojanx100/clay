@@ -86,7 +86,7 @@ test("mobile Coop home, a selected topic, and a selected project share one sheet
   assert.match(MOBILE_JS, /openMobileSheet\("sessions"\)/);
 });
 
-test("the projects sheet lists Coop and every accessible project, and says so while loading", function () {
+test("the projects sheet lists Coop and project families, and says so while loading", function () {
   var sheet = MOBILE_JS.slice(
     MOBILE_JS.indexOf("function renderSheetProjects(listEl)"),
     MOBILE_JS.indexOf("function renderSheetSessions(listEl)")
@@ -95,15 +95,19 @@ test("the projects sheet lists Coop and every accessible project, and says so wh
   // Empty list is "not loaded yet", not "you have no projects".
   assert.match(sheet, /if \(!projects \|\| projects\.length === 0\)/);
   assert.match(sheet, /Loading projects…/);
-  // Coop is pinned first, then ordinary projects with their worktrees.
-  assert.ok(sheet.indexOf("createMobileLeadProjectItem") < sheet.indexOf("groupProjects(filterLeadProjects(projects))"));
+  // Coop is pinned first, then each ordinary project family is represented by
+  // its parent. Worktrees are branches in the title-bar switcher, not duplicate
+  // project rows in this sheet.
+  assert.ok(sheet.indexOf("createMobileLeadProjectItem") < sheet.indexOf("filterLeadProjects(projects)"));
+  assert.match(sheet, /parentProjects\(visibleProjects\)/);
+  assert.match(sheet, /aggregateFamily\(p, family\.worktrees\)/);
   // Tapping Coop switches and dismisses, same as any project row.
   assert.match(sheet, /if \(switchProject\) switchProject\(slug\)/);
-  assert.match(sheet, /buildMobileProjectRow\(p, false\)/);
-  assert.match(sheet, /buildMobileProjectRow\(worktrees\[w\], true\)/);
+  assert.match(sheet, /buildMobileProjectRow\(display, false\)/);
+  assert.doesNotMatch(sheet, /buildMobileProjectRow\([^\n]+, true\)/);
 });
 
-test("the projects sheet renders only the ACL-filtered list and disables unreachable worktrees", function () {
+test("the projects sheet renders only the ACL-filtered family list", function () {
   // getCachedProjectList() is the server's per-user filtered list, the same one
   // the desktop icon strip renders; the sheet must not widen it.
   var sheet = MOBILE_JS.slice(
@@ -113,14 +117,9 @@ test("the projects sheet renders only the ACL-filtered list and disables unreach
   assert.match(sheet, /var projects = getCachedProjectList\(\)/);
   assert.doesNotMatch(sheet, /getCachedProjects\(\)/);
 
-  var row = MOBILE_JS.slice(
-    MOBILE_JS.indexOf("function buildMobileProjectRow(p, isWorktree)"),
-    MOBILE_JS.indexOf("function renderSheetProjects(listEl)")
-  );
-  assert.match(row, /var isAccessible = !isWorktree \|\| p\.worktreeAccessible !== false/);
-  assert.match(row, /el\.disabled = true/);
-  // A disabled row must not carry a switch handler.
-  assert.ok(row.indexOf("if (isAccessible) {") < row.indexOf("switchProject(p.slug)"));
+  assert.match(sheet, /filterLeadProjects\(projects\)/);
+  assert.match(sheet, /familyOf\(visibleProjects, getCachedCurrentSlug\(\)\)/);
+  assert.doesNotMatch(sheet, /localStorage/);
 });
 
 // --- 3. Visible and touch-sized at a phone viewport -------------------------

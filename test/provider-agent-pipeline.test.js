@@ -168,3 +168,37 @@ test("fallback provider readiness discovers models before failover selection", a
   assert.strictEqual(modelCalls, 1, "concurrent fallback sessions share model discovery");
   assert.deepStrictEqual(sm.modelsByVendor.codex, [{ value: "gpt-5.6-sol" }]);
 });
+
+test("session provider readiness targets model metadata to the requesting session", async function() {
+  var targetSession = { localId: "session-model-target" };
+  var sends = [];
+  var codexAdapter = {
+    vendor: "codex",
+    init: async function () {
+      return { capabilities: {}, models: [{ value: "gpt-5.6-sol" }] };
+    },
+  };
+  var sm = { modelsByVendor: {}, capabilitiesByVendor: {} };
+  var bridge = attachBridgeQueryStart({
+    adapters: { codex: codexAdapter },
+    adapter: codexAdapter,
+    cwd: "/tmp/clay-provider-readiness-target-test",
+    dangerouslySkipPermissions: false,
+    clayPort: 2633,
+    clayTls: false,
+    clayAuthToken: "",
+    slug: "provider-readiness-target-test",
+    sm: sm,
+    sendModelInfoForVendor: function (vendor, model, session) {
+      sends.push({ vendor: vendor, model: model, session: session });
+    },
+  });
+
+  await bridge.ensureVendorReady("codex", null, targetSession);
+
+  assert.deepStrictEqual(sends, [{
+    vendor: "codex",
+    model: "gpt-5.6-sol",
+    session: targetSession,
+  }]);
+});
