@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "node bin/cli.js --dev",
-    "test": "node --test --test-force-exit test/*.test.js",
+    "test": "node scripts/run-tests.js",
     "prepack": "npm pkg delete bin.clay-dev",
     "postpack": "npm pkg set bin.clay-dev=./bin/cli.js",
     "semantic-release": "semantic-release"

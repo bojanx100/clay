@@ -248,6 +248,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-permissions.js` | SDK bridge tool whitelist, permission request, AskUserQuestion denial contract, and permission notification text helpers |
 | `sdk-bridge-processes.js` | SDK bridge Linux-user project prep, conflicting Claude process detection, and process verification helpers |
 | `sdk-bridge-query-start.js` | SDK bridge query-start coordinator and provider-start fence boundary |
+| `sdk-bridge-vendor-readiness.js` | Shared adapter creation, initialization, model/capability discovery, refresh, and in-flight readiness deduplication |
 | `sdk-bridge-query-vendor.js` + `sdk-bridge-query-options.js` | Vendor readiness/auth resolution and provider-specific query option assembly |
 | `sdk-bridge-query-launch.js` | Fenced provider construction, durable start acknowledgement, and initial message dispatch |
 | `sdk-bridge-query-start-failure.js` | Shared fail-closed cleanup when provider construction or initial message dispatch fails |
@@ -290,7 +291,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `users.js` | User CRUD, invites, profile/PIN update, storage, Linux user integration |
 | `users-auth.js` | Authentication, PIN hashing, auth tokens, multi-user mode, setup codes |
 | `users-permissions.js` | RBAC permissions, project/session access control |
-| `users-preferences.js` | DM favorites/hidden, auto-continue, chat layout, deleted builtin keys, mate onboarding, and migration-only legacy Lead mode reads |
+| `users-preferences.js` | Per-user UI preferences, including per-project last-vendor choices, plus deleted builtin keys, mate onboarding, and migration-only legacy Lead mode reads |
 | `daemon-projects.js` | Worktree tracking (scan, rescan, cleanup), removed project filtering |
 | `ws-schema.js` | WebSocket message type registry (328 message types, informational) |
 
@@ -316,6 +317,7 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 | `scripts/lead-metrics-nightly.js` | Nightly structural metrics runner: measures coverage (c8 over the suite) and complexity (ESLint, `scripts/lead-complexity.eslint.config.js`) on files changed since the last report, persists the baseline, appends `metrics_report`, and separately appends the non-gating `gatekeeping_eval` runtime-trace trend; exit status remains the structural gate |
 | `scripts/lead-gatekeeping-eval.js` | Deterministic runtime-trace adapter for the connect-never-gatekeep evaluator; reads the privacy-safe `~/.clay/lead/gatekeeping-eval-traces.json` artifact (or `--traces`), prints/appends `gatekeeping_eval`, and records an unmeasurable baseline when no trace exists |
 | `scripts/lead-backtest.js` | Backtest runner: fetches closed issues + merged PRs (per-repo gh credentials), joins on branch/title issue refs, prints the scored comparison, appends `backtest_report` summary to the lead ledger |
+| `scripts/run-tests.js` | Deterministic Node test runner that strips live Coop control-kernel activation flags before loading the test suite |
 | `.claude/skills/lead-tick` | The Lead's operating procedure as a skill: one tick = scan portfolio, staff/propose, verify against the gate, report via typed events |
 
 ### YOKE Adapters (lib/yoke/)
@@ -326,7 +328,7 @@ YOKE is the vendor-agnostic interface layer. Each adapter implements the same co
 |--------|---------|
 | `yoke/index.js` | Adapter factory, wraps createQuery with project instructions |
 | `yoke/interface.js` | YOKE interface contract definition |
-| `yoke/vendor-registry.js` | Init-free vendor names, binaries, session modes, isolation support, usage links, and rate-limit capabilities |
+| `yoke/vendor-registry.js` | Init-free vendor names, avatars, homepages, binaries, session modes, isolation support, usage links, and rate-limit capabilities |
 | `yoke/adapters/claude.js` | Claude adapter using `@anthropic-ai/claude-agent-sdk`. In-process + worker (OS user isolation) paths |
 | `yoke/adapters/claude-events.js` | Claude SDK event flattening into adapter-neutral YOKE event objects |
 | `yoke/adapters/codex.js` | Codex adapter using `codex app-server` JSON-RPC protocol. Handles approval events, skill injection, MCP bridge config |
@@ -397,6 +399,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-rate-limit.js` | Rate limit UI, countdown timers, scheduled message bubbles, fast mode indicator |
 | `app-cursors.js` | Remote cursor presence, text selection sharing, cursor toggle UI |
 | `app-rendering.js` | Message rendering, streaming, scroll management, pre-thinking dots, suggestion chips, system messages |
+| `vendor-ui.js` | Browser-side live vendor presentation maps hydrated from the server-authoritative YOKE registry |
 | `message-reply.js` | Shared quoted-reply composition for assistant and user transcript messages, including attachment-only user messages |
 | `app-projects.js` | Project list, switching (including resolved global SessionRef navigation), add/remove project modals, update available pill, topbar presence |
 | `app-panels.js` | Config chip (model/mode/effort/thinking/beta), usage panel, status panel, context panel, context popover |

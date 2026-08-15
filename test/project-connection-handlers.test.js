@@ -269,6 +269,32 @@ test("initial session lists are typed with their source project slug", function 
   }
 });
 
+test("initial last vendor is resolved for the connecting user and project", function () {
+  var sent = [];
+  var events = [];
+  var calls = [];
+  var options = { storedPresence: null, multiUser: false, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var ctx = makeContext(makeSession(7), sent, events);
+    ctx.opts = {
+      onGetProjectLastVendor: function (slug, userId) {
+        calls.push({ slug: slug, userId: userId });
+        return { vendor: userId === "owner-a" ? "codex" : "claude" };
+      },
+    };
+    handlers.attachConnectionHandlers(ctx).handleConnection(
+      new FakeWebSocket(), { id: "owner-a" }, function () {}, function () {});
+
+    assert.deepStrictEqual(calls, [{ slug: "project", userId: "owner-a" }]);
+    assert.deepStrictEqual(sent.find(function (message) {
+      return message.type === "last_vendor";
+    }), { type: "last_vendor", vendor: "codex" });
+  } finally {
+    restore();
+  }
+});
+
 test("Lead connection restores Coop home instead of a remembered worker", function () {
   var sent = [];
   var events = [];

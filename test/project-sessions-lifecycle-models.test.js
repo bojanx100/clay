@@ -12,6 +12,7 @@ function makeLifecycle(modelsByVendor, serverDefaults) {
   var created = [];
   var sent = [];
   var remembered = [];
+  var clients = new Set();
   var sm = {
     defaultVendor: "claude",
     modelsByVendor: modelsByVendor,
@@ -28,9 +29,12 @@ function makeLifecycle(modelsByVendor, serverDefaults) {
     slug: "test-project",
     sm: sm,
     tm: null,
-    sendTo: function () {},
+    sendTo: function (ws, msg) { sent.push({ ws: ws, msg: msg }); },
     send: function (msg) { sent.push(msg); },
-    onSetProjectLastVendor: function (slug, vendor) { remembered.push({ slug: slug, vendor: vendor }); },
+    clients: clients,
+    onSetProjectLastVendor: function (slug, vendor, userId) {
+      remembered.push({ slug: slug, vendor: vendor, userId: userId });
+    },
     usersModule: { isMultiUser: function () { return false; } },
     userPresence: { setPresence: function () {} },
     getSessionForWs: function () { return null; },
@@ -44,7 +48,14 @@ function makeLifecycle(modelsByVendor, serverDefaults) {
     tuiHandlers: {},
     email: { getEmailDefaults: function () { return []; } },
   });
-  return { lifecycle: lifecycle, created: created, sent: sent, remembered: remembered, sm: sm };
+  return {
+    lifecycle: lifecycle,
+    created: created,
+    sent: sent,
+    remembered: remembered,
+    clients: clients,
+    sm: sm,
+  };
 }
 
 test("ordinary new sessions use the strongest provider model by default", function () {
@@ -61,6 +72,34 @@ test("ordinary new sessions use the strongest provider model by default", functi
   assert.strictEqual(h.created[1].model, "gpt-5.6-sol");
 });
 
+test("last vendor updates reach only the selecting user's project clients", function () {
+  var h = makeLifecycle({}, {});
+  var first = { _clayUser: { id: "owner-a" } };
+  var second = { _clayUser: { id: "owner-a" } };
+  var other = { _clayUser: { id: "owner-b" } };
+  h.clients.add(first);
+  h.clients.add(second);
+  h.clients.add(other);
+
+  h.lifecycle.handleLifecycleMessage(first, { type: "new_session", vendor: "codex" });
+
+  assert.deepStrictEqual(h.sent, [
+    { ws: first, msg: { type: "last_vendor", vendor: "codex" } },
+    { ws: second, msg: { type: "last_vendor", vendor: "codex" } },
+  ]);
+});
+
+test("unknown vendor input cannot become a stored project preference", function () {
+  var h = makeLifecycle({}, {});
+  var ws = { _clayUser: { id: "owner-a" } };
+
+  h.lifecycle.handleLifecycleMessage(ws, { type: "new_session", vendor: "unknown" });
+
+  assert.strictEqual(h.created[0].vendor, "claude");
+  assert.deepStrictEqual(h.remembered, []);
+  assert.deepStrictEqual(h.sent, []);
+});
+
 test("ordinary new sessions preserve a configured model default", function () {
   var h = makeLifecycle({}, { claude: "claude-opus-4-8" });
 
@@ -69,15 +108,21 @@ test("ordinary new sessions preserve a configured model default", function () {
   assert.strictEqual(h.created[0].model, "claude-opus-4-8");
 });
 
-test("explicit new-session vendors persist and broadcast the project default", function () {
+test("explicit new-session vendors persist and reply per user and project", function () {
   var h = makeLifecycle({}, {});
+  var ws = { _clayUser: { id: "owner-a" } };
 
-  h.lifecycle.handleLifecycleMessage({}, { type: "new_session", vendor: "codex" });
-  h.lifecycle.handleLifecycleMessage({}, { type: "new_session" });
+  h.lifecycle.handleLifecycleMessage(ws, { type: "new_session", vendor: "codex" });
+  h.lifecycle.handleLifecycleMessage(ws, { type: "new_session" });
 
-  assert.strictEqual(h.sm.lastVendor, "codex");
-  assert.deepStrictEqual(h.remembered, [{ slug: "test-project", vendor: "codex" }]);
-  assert.deepStrictEqual(h.sent, [{ type: "last_vendor", vendor: "codex" }]);
+  assert.strictEqual(h.sm.lastVendor, undefined);
+  assert.deepStrictEqual(h.remembered, [{
+    slug: "test-project", vendor: "codex", userId: "owner-a",
+  }]);
+  assert.deepStrictEqual(h.sent, [{
+    ws: ws,
+    msg: { type: "last_vendor", vendor: "codex" },
+  }]);
 });
 
 function traceLifecycleHarness(session, store, canAccess) {

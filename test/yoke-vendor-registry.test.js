@@ -11,6 +11,8 @@ test("YOKE registry covers every supported adapter vendor", function() {
     assert.ok(info);
     assert.strictEqual(typeof info.displayName, "string");
     assert.strictEqual(typeof info.loginCommand, "string");
+    assert.strictEqual(typeof info.avatar, "string");
+    assert.match(info.homepage, /^https:\/\//);
     assert.ok(Array.isArray(info.sessionModes));
     assert.ok(info.sessionModes.length > 0);
     assert.strictEqual(typeof info.osUserIsolation, "boolean");

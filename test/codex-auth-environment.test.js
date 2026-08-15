@@ -166,22 +166,21 @@ test("fresh auth checks are cached separately for each credential home", functio
   }
 });
 
-test("remote device-login completion refreshes the matching Codex credential home", async function() {
+test("remote device-login completion delegates refresh with the matching credential owner", async function() {
   var yoke = require("../lib/yoke");
   var originalCheckInstalled = yoke.checkInstalled;
-  var originalInvalidateAuthCache = yoke.invalidateAuthCache;
   var calls = [];
   yoke.checkInstalled = function() { return { codex: true }; };
-  yoke.invalidateAuthCache = function() { calls.push({ type: "invalidate" }); };
   try {
-    var codex = {
-      refreshCredential: async function(opts) { calls.push({ type: "refresh", linuxUser: opts.linuxUser }); },
-      init: async function(opts) { calls.push({ type: "init", linuxUser: opts.linuxUser }); },
-    };
     var handoff = attachProjectSessionsHandoff({
       cwd: "/tmp/codex-device-login",
       slug: "codex-device-login",
-      adapters: { codex: codex },
+      adapters: { codex: {} },
+      sdk: {
+        refreshVendor: async function(vendor, linuxUser) {
+          calls.push({ type: "refresh", vendor: vendor, linuxUser: linuxUser });
+        },
+      },
       sm: { defaultVendor: "codex", modelsByVendor: {}, sessions: new Map() },
       sendTo: function() {},
       sendToSession: function() {},
@@ -194,13 +193,10 @@ test("remote device-login completion refreshes the matching Codex credential hom
     handoff.handleHandoffMessage({ _clayUser: { linuxUser: "owner-a" } }, { type: "refresh_vendors" });
     await new Promise(function(resolve) { setImmediate(resolve); });
     assert.deepEqual(calls, [
-      { type: "invalidate" },
-      { type: "refresh", linuxUser: "owner-a" },
-      { type: "init", linuxUser: "owner-a" },
+      { type: "refresh", vendor: "codex", linuxUser: "owner-a" },
     ]);
   } finally {
     yoke.checkInstalled = originalCheckInstalled;
-    yoke.invalidateAuthCache = originalInvalidateAuthCache;
   }
 });
 
