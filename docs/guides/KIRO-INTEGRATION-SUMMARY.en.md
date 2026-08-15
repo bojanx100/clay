@@ -23,14 +23,16 @@ Clay session (vendor=kiro)
     -> kiro-cli binary     (JSON-RPC 2.0 over stdio)
 ```
 
-### Protocol lifecycle (verified against kiro-cli 2.7.0)
+### Protocol lifecycle (verified against kiro-cli 2.18.1 with the v3 engine)
 
 | Step | Method | Notes |
 |------|--------|-------|
 | Handshake | `initialize` | negotiates `agentCapabilities` |
+| Token refresh | `_kiro/auth/getAccessToken` | Clay returns a host-refreshed KAS token |
 | Create | `session/new` | returns `{ sessionId, modes, models }` |
 | Resume | `session/load` | replays history |
-| Model | `session/set_model` | `{ sessionId, modelId }` |
+| Model | `session/set_config_option` | `{ sessionId, configId: "model", value }` |
+| Permissions | `session/set_config_option` | forces `autopilot: "off"` before prompting |
 | Prompt | `session/prompt` | field is **`prompt`** (array of blocks); resolves with `{ stopReason }` |
 | Stream | `session/update` | discriminated by `update.sessionUpdate` |
 | Approve | `session/request_permission` | server→client request; reply `{ outcome: { outcome: "selected", optionId } }` |
@@ -66,21 +68,28 @@ Clay session (vendor=kiro)
   whitelist matching would break.
 - **GUI-only**: kiro sessions always run in GUI mode, same as Codex.
 - **Per-project adapter**: the ACP process is scoped to a project cwd/slug.
+- **v3 engine by default**: Clay spawns
+  `kiro-cli acp --agent-engine v3`; `CLAY_KIRO_AGENT_ENGINE` can override it.
+- **Kiro-native MCP configuration**: Kiro reads
+  `~/.kiro/settings/mcp.json`; Clay-managed MCP servers are not forwarded yet.
+- **OS-isolation guard**: Kiro is hidden and rejected for OS-isolated Linux
+  users until the ACP process supports per-user spawning.
 
-## Verified end-to-end (against the live binary)
+## Verified end-to-end (against CLI 2.18.1, v3 engine / KAS 0.38.7)
 
 - Init discovers 15 curated models; default `auto`
 - Text streams in real time; `result` emitted with usage
-- Model selection works (`session/set_model`)
+- Model selection works (`session/set_config_option`)
 - Bash tool shows approval with canonical name `Bash` + `{command}`; approve/deny routes through `canUseTool`
 - Abort interrupts the turn cleanly
 - Registers alongside claude/codex in the daemon adapter path
+- Host-mediated token refresh, supervised tool execution, image prompts,
+  session resume, cancel recovery, and two concurrent Kiro sessions
 
 ## Known gaps
 
-- Bash `tool_result` content came through empty in the probe (output likely
-  arrives via a later `tool_call_update` shape); Codex behaves similarly — worth
-  confirming in the live UI.
+- The public "CLI 3.0" release is not yet offered by the local updater; live
+  verification used the shipping 2.18.1 binary's v3 engine.
 - Validated via adapter/daemon-path harnesses, not a live browser session (the
-  first-run consent wizard requires a TTY). The WebSocket UI paths are wired but
-  not exercised in a browser.
+  browser test is currently waiting for a Clay login). The WebSocket UI paths
+  are wired but not yet fully exercised in a browser.

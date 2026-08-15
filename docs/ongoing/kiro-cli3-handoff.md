@@ -35,7 +35,7 @@ remain.
 - In-repo protocol reference (2.7.0-era, to be updated by you):
   `docs/guides/KIRO-INTEGRATION.md`
 - Integration summary (partially stale, to be updated by you):
-  `docs/guides/KIRO-INTEGRATION-SUMMARY.en.md` and `.ko.md`
+  `docs/guides/KIRO-INTEGRATION-SUMMARY.en.md`
 - Repo conventions: root `CLAUDE.md`. Highlights that apply here: `var` only,
   no arrow functions, CommonJS on the server side, English-only comments and
   commit messages, Angular commit convention, modules under 500 lines,
@@ -298,7 +298,7 @@ list of places where the code encodes 2.7.0 protocol assumptions.
 
 When the trace is done, update `docs/guides/KIRO-INTEGRATION.md` (change the
 "verified against kiro-cli 2.7.0" headers to the actual 3.x version and fix
-every changed shape) and both `KIRO-INTEGRATION-SUMMARY` files. Known stale
+every changed shape) and `KIRO-INTEGRATION-SUMMARY.en.md`. Known stale
 item already: `KIRO-INTEGRATION-SUMMARY.en.md:79-83` lists "Bash tool_result
 content came through empty" as a known gap — that was fixed in commit
 `fb1d8b2` (the accumulate/rawOutput logic); delete or rewrite that bullet.
@@ -444,7 +444,7 @@ Keep the existing checks job untouched.
 ### 3d. Docs refresh
 
 Covered in 1d; additionally add kiro rows to `docs/guides/MODULE_MAP.md` if
-missing, and make sure `.ko.md` mirrors the `.en.md` summary.
+missing.
 
 ---
 
@@ -544,4 +544,27 @@ Record the results (pass/fail + notes) at the bottom of this file when done.
 
 ## Verification log
 
-(append dated results here as you complete phase 4)
+### 2026-08-15 — static and live adapter verification
+
+- Step 0 landed as `9bffa51`, `66fecfb`, `f08aae7`, and `60afc03`.
+- Fixed poisoned/half-initialized init recovery; added retry, child cleanup,
+  half-init, idle reclaim, v3 auth callback, and replay-suppression tests.
+- The official updater reports Kiro CLI 2.18.1 as current. Live v3 verification
+  therefore used `kiro-cli acp --agent-engine v3` (KAS 0.38.7).
+- Confirmed live: initialize, host token callback, session/new, prompt field,
+  session/update streaming, `vibe` mode, model config option, supervised
+  permission approve/deny, non-empty Bash result, context usage, cancel and
+  next-turn recovery, resume without replay duplication, images, title
+  generation, and two concurrent sessions with correctly routed approvals.
+- Kiro-native MCP configuration selected for now; Clay-managed MCP forwarding
+  remains intentionally disabled and documented.
+- OS-isolated users are blocked at adapter creation, lazy creation, vendor
+  discovery, and query start until per-user ACP spawning exists.
+- `npm ci --ignore-scripts && npm test` passed in a clean temporary copy.
+- Browser E2E passed fresh Kiro session creation, dynamic model rendering,
+  streaming text, non-empty Bash output, permission denial, mid-turn stop, and
+  next-turn recovery. It also exposed and fixed a client race where a new
+  Codex/Kiro session could retain the previous session's Claude vendor state.
+- The browser was bootstrapped with an existing dev auth token rather than a
+  manual PIN. Logged-out Kiro recovery was not exercised because it would alter
+  the user's current Kiro credentials.

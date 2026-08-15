@@ -16,7 +16,7 @@ YOKE Kiro Adapter   (lib/yoke/adapters/kiro.js)
     |
     v
 KiroAcpServer       (lib/yoke/kiro-acp-server.js)
-    |  spawn `kiro-cli acp`
+    |  spawn `kiro-cli acp --agent-engine v3`
     v  stdin/stdout JSON-RPC 2.0 (bidirectional)
 kiro-cli binary     (~/.local/bin/kiro-cli)
     |
@@ -28,6 +28,11 @@ Kiro CLI implements **ACP** — the same open, editor-agnostic agent protocol
 used by Zed. This is structurally the same transport strategy as the Codex
 `app-server` path: line-delimited JSON-RPC where the child both answers our
 requests and initiates its own (streaming updates + permission requests).
+
+> **Version status:** verified on 2026-08-15 against the latest CLI offered by
+> the built-in updater, Kiro CLI 2.18.1, using its v3 engine (KAS 0.38.7).
+> Kiro's public docs label the product generation "CLI 3.0", while the shipping
+> binary still reports 2.18.1 and exposes v3 through `--agent-engine v3`.
 
 ---
 
@@ -54,7 +59,7 @@ requests we can route through Clay's `canUseTool`. Always use ACP mode.
 
 ---
 
-## ACP Protocol (verified against kiro-cli 2.7.0)
+## ACP Protocol (verified against kiro-cli 2.18.1, v3 engine)
 
 ### Handshake
 ```
@@ -62,12 +67,19 @@ initialize { protocolVersion: 1, clientCapabilities: { fs: {...} } }
   -> { protocolVersion, agentCapabilities, agentInfo }
 ```
 
+The v3 engine sends `_kiro/auth/getAccessToken` requests before and during
+session work. Clay answers them by running
+`kiro-cli chat _ get-kas-token` and returning its `data` object. This request
+is process-wide and is handled by the ACP transport even when no query handler
+has been registered yet.
+
 ### Session lifecycle
 ```
 session/new  { cwd, mcpServers: [] }   -> { sessionId, modes, models }
 session/load { sessionId, cwd, mcpServers } -> replays history, then {}   (resume)
-session/set_model { sessionId, modelId }    -> {}
+session/set_config_option { sessionId, configId:"model", value:modelId } -> {}
 session/set_mode  { sessionId, modeId }     -> {}
+session/set_config_option { sessionId, configId:"autopilot", value:"off" } -> {}
 session/prompt { sessionId, prompt: [{ type:"text", text }] }
   ...streams session/update notifications...
   -> { stopReason: "end_turn" | "cancelled" | ... }   (request resolves at turn end)
@@ -86,6 +98,7 @@ session/cancel { sessionId }   (notification; in-flight prompt resolves "cancell
 | `tool_call_update` | tool progress/completion | `tool_result` |
 | `plan` | plan entries | `plan_updated` |
 | `usage_update` | token usage (`used`, `size`) | (tracked for context bar) |
+| `session_info_update` | v3 context percentage under `_meta.kiro` | (converted to estimated tokens for context bar) |
 
 ### Permission requests (server -> client, has an `id`)
 ```
@@ -130,6 +143,10 @@ itself. This mirrors the Claude/Codex abort pattern.
 `[Internal]` / `[Deprecated]` entries for a clean picker. The `auto` router
 model is the default. If the CLI call fails, a minimal fallback set is used.
 
+Kiro v3 removed `session/set_model`; model changes use
+`session/set_config_option` with `configId: "model"`. The adapter keeps the v2
+method only when `CLAY_KIRO_AGENT_ENGINE` explicitly selects an older engine.
+
 ### 6. No TUI adapter
 Kiro sessions are always GUI mode (`project-sessions.js` forces `gui`), same as
 Codex. There is no `kiro --session-id` TUI shell path.
@@ -139,6 +156,29 @@ Codex. There is no `kiro --session-id` TUI shell path.
 `yoke/index.js` and `sdk-bridge.detectInstalledVendors`. The login command is
 `kiro-cli login`. Auth failures on stderr (401 / expired token) are mapped to
 the neutral `auth_required` yokeType.
+
+### 8. MCP configuration
+
+Kiro sessions currently use Kiro's native MCP configuration from
+`~/.kiro/settings/mcp.json`. Clay-managed MCP servers are intentionally not
+forwarded through `session/new` or `session/load` yet. Forwarding them requires
+verifying the CLI 3.x ACP entry shape and preventing duplicate registration
+with servers already loaded by Kiro.
+
+### 9. OS-user isolation
+
+Kiro is hidden and rejected when Clay runs a session under an isolated Linux
+user. The ACP child currently spawns as the daemon user, so enabling it in that
+mode would expose the daemon user's home directory and Kiro credentials. A
+future per-user spawn path is required before this restriction can be removed.
+
+### 10. Supervised tool execution is mandatory
+
+New v3 sessions report `autopilot: "on"` by default, which would execute tools
+without Clay's approval UI. Before selecting the model or prompting, the
+adapter sets `autopilot` to `"off"`. Failure is fatal for the query; it is never
+silently ignored. Permission requests then retain the existing nested outcome
+shape and include allow/reject once/always options.
 
 ---
 
@@ -166,7 +206,7 @@ When changing the Kiro adapter:
 
 - [ ] `init()` returns a filtered model list (no `[Internal]`/`[Deprecated]`)
 - [ ] Text response streams in real time (`agent_message_chunk`)
-- [ ] Model selection works (`session/set_model`)
+- [ ] Model selection works (`session/set_config_option`, `configId: "model"`)
 - [ ] Bash tool shows approval UI with canonical name `Bash` + `{command}`
 - [ ] Approve/deny routes through `canUseTool` correctly
 - [ ] Stop button interrupts the turn and clears the typing indicator
