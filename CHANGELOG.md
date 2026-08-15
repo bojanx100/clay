@@ -1,3 +1,11 @@
+# [2.47.0-beta.4](https://github.com/chadbyte/clay/compare/v2.47.0-beta.3...v2.47.0-beta.4) (2026-08-15)
+
+
+### Features
+
+* **sessions:** inherit parent context in spawned sessions via fork ([cd18b49](https://github.com/chadbyte/clay/commit/cd18b49c37e0c03bfe7a1a138ec131bb45b26d12))
+* **sessions:** let an agent spawn sibling work sessions ([#358](https://github.com/chadbyte/clay/issues/358)) ([5fc36eb](https://github.com/chadbyte/clay/commit/5fc36eb2d2f1117428e5abfd1cddf20908f9c5f6))
+
 # [2.47.0-beta.3](https://github.com/chadbyte/clay/compare/v2.47.0-beta.2...v2.47.0-beta.3) (2026-08-15)
 
 
