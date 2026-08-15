@@ -257,3 +257,157 @@ test("an owner-direct Lead session cannot adopt the canonical Thread handoff", f
     assert.equal(delivered.length, 0);
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
 });
+
+// --- owner-approved read-only planning/review admission ------------------------
+//
+// Production incident: after the owner explicitly authorized with "do them"
+// (Coop ingress 332, recorded as a conversational turn with no implementation
+// decision), dispatching the read-only Threads V2 Council and Triage review
+// coordinators still failed with owner_implementation_decision_required. The
+// gate exists to stop unapproved MUTATING work; a worker whose ownership
+// boundary is read-only and whose brief is explicitly review-framed carries no
+// such risk, so the cited owner turn is sufficient authorization for it.
+
+var THREADS_TOPIC = { topicId: "auto-61f5ae911c79deab7fa6b255" };
+var INGRESS_332 = "coop:871a194b-8879-40f7-a1fe-656e48e722af:332";
+
+function ownerApprovedConversationalEntry(overrides) {
+  return Object.assign({
+    ingressId: INGRESS_332,
+    ingressSequence: 332,
+    sessionRef: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+    response: { state: "answered", answeredAt: 1786809937639, responseRef: null,
+      supersededAt: null, supersededBy: "" },
+    classification: { kind: "conversational", source: "ingress_route" },
+    implementationDecision: null,
+    topicRef: THREADS_TOPIC,
+    projectRefs: [],
+    expectsExecution: false,
+  }, overrides || {});
+}
+
+function ownerTurnHistory() {
+  return [{ type: "user_message", text: "do them", coopIngressId: INGRESS_332,
+    coopTopicRef: THREADS_TOPIC, _ts: 1786809874802 }];
+}
+
+function reviewDispatch(router, spec) {
+  return router.createProjectExecution(Object.assign({
+    source: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+    mode: "project_coordinator",
+    targetProject: { projectId: PROJECT },
+    coopTopicRef: THREADS_TOPIC,
+    coopIngressId: INGRESS_332,
+  }, spec));
+}
+
+function councilDispatch(router, overrides) {
+  return reviewDispatch(router, Object.assign({
+    portfolioTaskId: "clay-threads-v2-council-review-2026-08-15",
+    bindingRevision: 2,
+    idempotencyKey: "clay-threads-v2-council-review-20260815-r2-owner-approved",
+    title: "Threads V2 Council review",
+    objective: "Run the Council design review of Threads V2 and report findings. No source edits.",
+    ownedPaths: "read-only: entire repository",
+  }, overrides || {}));
+}
+
+test("an explicit owner turn admits read-only Council and Triage review workers without an implementation decision", function () {
+  var delivered = [];
+  var handedOff = [];
+  var approved = executionRouter([ownerApprovedConversationalEntry()], delivered, handedOff,
+    { history: ownerTurnHistory() });
+  try {
+    var council = councilDispatch(approved.router);
+    assert.equal(council.ok, true);
+    assert.equal(council.created, true);
+    assert.equal(delivered.length, 1);
+
+    var triage = reviewDispatch(approved.router, {
+      portfolioTaskId: "clay-threads-v2-triage-review-2026-08-15",
+      bindingRevision: 1,
+      idempotencyKey: "clay-threads-v2-triage-review-20260815-r1-owner-approved",
+      title: "Threads V2 Triage review",
+      objective: "Triage the open Threads V2 review findings and rank them. Read-only.",
+      ownedPaths: "read-only: entire repository",
+    });
+    assert.equal(triage.ok, true);
+    assert.equal(delivered.length, 2);
+
+    assert.equal(approved.classificationCount(), 0,
+      "a conversational owner turn must never be restamped as an implementation decision");
+
+    var replay = councilDispatch(approved.router);
+    assert.equal(replay.ok, true);
+    assert.equal(replay.reused, true);
+    assert.equal(delivered.length, 2, "idempotent replay starts no second review worker");
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("owner authorization without a decision still blocks anything that is not provably read-only review work", function () {
+  var delivered = [];
+  var approved = executionRouter([ownerApprovedConversationalEntry()], delivered, [],
+    { history: ownerTurnHistory() });
+  try {
+    assert.deepEqual(councilDispatch(approved.router, {
+      ownedPaths: "lib/",
+      idempotencyKey: "clay-threads-v2-council-review-20260815-r2-write-boundary",
+    }), { ok: false, reason: "owner_implementation_decision_required" },
+    "review framing with a writable boundary stays behind the implementation gate");
+
+    assert.deepEqual(councilDispatch(approved.router, {
+      title: "Threads V2 rollout",
+      objective: "Implement the Threads V2 changes across the client.",
+      idempotencyKey: "clay-threads-v2-council-review-20260815-r2-implementation-framed",
+    }), { ok: false, reason: "owner_implementation_decision_required" },
+    "a read-only boundary without review framing stays behind the implementation gate");
+
+    assert.deepEqual(councilDispatch(approved.router, {
+      coopIngressId: "coop:871a194b-8879-40f7-a1fe-656e48e722af:999",
+    }), { ok: false, reason: "owner_implementation_decision_required" },
+    "an owner turn that was never recorded authorizes nothing");
+
+    assert.equal(delivered.length, 0);
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("a matching conversational ingress without explicit owner authorization admits nothing", function () {
+  var delivered = [];
+  var discussion = executionRouter([ownerApprovedConversationalEntry()], delivered, [],
+    { history: [{ type: "user_message", text: "Let's discuss both reviews first",
+      coopIngressId: INGRESS_332, coopTopicRef: THREADS_TOPIC, _ts: 1786809874802 }] });
+  try {
+    assert.deepEqual(councilDispatch(discussion.router), {
+      ok: false, reason: "owner_implementation_decision_required",
+    });
+    assert.equal(delivered.length, 0);
+  } finally { fs.rmSync(discussion.dir, { recursive: true, force: true }); }
+});
+
+test("a withdrawn owner turn authorizes no review worker", function () {
+  var delivered = [];
+  var withdrawn = executionRouter([ownerApprovedConversationalEntry({
+    response: { state: "superseded", answeredAt: null, responseRef: null,
+      supersededAt: 1786809880000, supersededBy: "owner_interrupt" },
+  })], delivered, [], { history: ownerTurnHistory() });
+  try {
+    assert.deepEqual(councilDispatch(withdrawn.router), {
+      ok: false, reason: "owner_implementation_decision_required",
+    });
+    assert.equal(delivered.length, 0);
+  } finally { fs.rmSync(withdrawn.dir, { recursive: true, force: true }); }
+});
+
+test("review admission preserves exact owner project scoping", function () {
+  var delivered = [];
+  var scoped = executionRouter([ownerApprovedConversationalEntry({
+    projectRefs: [{ projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" }],
+  })], delivered, [], { history: ownerTurnHistory() });
+  try {
+    assert.deepEqual(councilDispatch(scoped.router), {
+      ok: false, reason: "owner_implementation_project_mismatch",
+    });
+    assert.equal(delivered.length, 0);
+  } finally { fs.rmSync(scoped.dir, { recursive: true, force: true }); }
+});
