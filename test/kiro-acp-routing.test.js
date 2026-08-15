@@ -237,3 +237,26 @@ test("a response is matched to its pending request and not treated as an event",
   assert.deepStrictEqual(resolved, { sessionId: "sess-a" });
   assert.strictEqual(srv.pendingRequests[11], undefined, "pending entry should be cleared");
 });
+
+test("a process request handler answers a v3 auth callback exactly once", async function () {
+  var srv = makeServer();
+  srv.addRequestHandler("_kiro/auth/getAccessToken", function(params) {
+    assert.deepStrictEqual(params, { reason: "expired" });
+    return { accessToken: "secret", expiresAt: "later" };
+  });
+
+  srv._handleMessage({
+    jsonrpc: "2.0",
+    id: 17,
+    method: "_kiro/auth/getAccessToken",
+    params: { reason: "expired" },
+  });
+  await new Promise(function(resolve) { setImmediate(resolve); });
+
+  assert.strictEqual(srv.written.length, 1);
+  assert.deepStrictEqual(srv.written[0], {
+    jsonrpc: "2.0",
+    id: 17,
+    result: { accessToken: "secret", expiresAt: "later" },
+  });
+});
