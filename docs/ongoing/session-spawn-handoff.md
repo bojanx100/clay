@@ -307,3 +307,26 @@ awkward) and test:
    new suite; all static sweeps green.
 5. No auto-approve entries added anywhere for `mcp__clay-sessions__*`.
 6. `docs/guides/MODULE_MAP.md` gains rows for the two new files.
+
+---
+
+## Verification log
+
+### 2026-08-16 — phase 2 verified
+
+- 78/78 tests (6 new fork tests), syntax sweeps and import check green.
+- Code-verified the fork semantics the implementation relies on: Claude SDK
+  `ForkSessionOptions.upToMessageId` "If omitted, full copy" (sdk.d.ts:708),
+  Codex `thread/fork` ignores the uuid option (codex.js:1567),
+  `readCliSessionHistory` resolves [] on errors (no spurious fork failures).
+- Live E2E on the dev daemon: context planted in a parent ("Spiderman"
+  codename + three rules), two forkFromCurrent children spawned via the
+  spawn_sessions permission card; both children knew the codename and rules
+  without them appearing in their task prompts. Depth guard and permission
+  prompt behaved as designed.
+- Known cosmetic limitation: codex forkFromCurrent children resume with full
+  context but their Clay transcript shows only the task prompt (codex fork
+  reads no local JSONL); same behavior as the existing UI fork on codex.
+- Gotcha reconfirmed: server-side changes need a daemon restart; a stale
+  daemon leaves the tools unmounted and the agent improvises with
+  `claude --fork-session` in Bash.

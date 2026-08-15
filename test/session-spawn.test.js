@@ -4,6 +4,89 @@ var assert = require("node:assert");
 var spawnModule = require("../lib/project-session-spawn");
 var yoke = require("../lib/yoke");
 
+function createForkFixture(options) {
+  options = options || {};
+  var parent = Object.assign({
+    localId: 1,
+    ownerId: "owner-1",
+    sessionVisibility: "private",
+    vendor: "claude",
+    cliSessionId: "cli-parent",
+    history: [
+      { type: "user_message", text: "The plan is Project Pine." },
+      { type: "message_uuid", uuid: "uuid-user", messageType: "user" },
+      { type: "assistant_message", text: "I understand the plan." },
+      { type: "message_uuid", uuid: "uuid-assistant", messageType: "assistant" },
+    ],
+    messageUUIDs: [
+      { uuid: "uuid-user", type: "user", historyIndex: 1 },
+      { uuid: "uuid-assistant", type: "assistant", historyIndex: 3 },
+    ],
+  }, options.parent || {});
+  var sessions = new Map([[parent.localId, parent]]);
+  var nextId = 2;
+  var starts = [];
+  var forks = [];
+  var broadcasts = 0;
+  var forkCount = 0;
+  var sm = {
+    sessions: sessions,
+    defaultVendor: "claude",
+    capabilitiesByVendor: options.capabilitiesByVendor || { claude: { fork: true } },
+    createSessionRaw: function(sessionOptions) {
+      var session = Object.assign({
+        localId: nextId++,
+        history: [],
+        messageUUIDs: [],
+        sentToolResults: {},
+        isProcessing: false,
+        createdAt: Date.now(),
+      }, sessionOptions);
+      sessions.set(session.localId, session);
+      return session;
+    },
+    saveSessionFile: function() {},
+    appendToSessionFile: function() {},
+    broadcastSessionList: function() { broadcasts++; },
+  };
+  var sdk = {
+    forkSession: function(session, uuid) {
+      forkCount++;
+      forks.push({ session: session, uuid: uuid, count: forkCount });
+      if (options.forkSession) return options.forkSession(session, uuid, forkCount);
+      return Promise.resolve({ sessionId: "cli-fork-" + forkCount, useLocalHistory: true });
+    },
+    startQuery: function(session, prompt, images, linuxUser) {
+      starts.push({ session: session, prompt: prompt, linuxUser: linuxUser });
+      session.queryInstance = {};
+      return Promise.resolve();
+    },
+  };
+  var fakeAdapter = {
+    createToolServer: function(def) { return { name: def.name, tools: def.tools }; },
+  };
+  var adapters = options.adapters || { claude: fakeAdapter };
+  var attached = spawnModule.attachSessionSpawn({
+    cwd: process.cwd(),
+    sm: sm,
+    getSdk: function() { return sdk; },
+    isMate: false,
+    adapters: adapters,
+    getLinuxUserForSession: function() { return null; },
+    readCliSessionHistory: options.readCliSessionHistory,
+  });
+  var server = attached.createMcpServer(fakeAdapter, parent);
+  var spawnTool = server.tools.filter(function(tool) { return tool.name === "spawn_sessions"; })[0];
+  return {
+    parent: parent,
+    sessions: sessions,
+    starts: starts,
+    forks: forks,
+    get broadcasts() { return broadcasts; },
+    spawn: function(args) { return spawnTool.handler(args); },
+  };
+}
+
 test("session spawn parses a valid batch", function() {
   var batch = spawnModule.parseBatch(JSON.stringify([
     { title: " First ", prompt: " Do the first task " },
@@ -191,6 +274,116 @@ test("a bound child session is depth-guarded even while another session is viewe
   var response = await spawnTool.handler({ sessions: '[{"prompt":"x"}]' });
   assert.strictEqual(response.isError, true);
   assert.ok(response.content[0].text.indexOf("cannot spawn further") !== -1);
+});
+
+test("forkFromCurrent gives each child its own inherited history", async function() {
+  var fixture = createForkFixture();
+  var response = await fixture.spawn({
+    sessions: JSON.stringify([
+      { title: "Pine A", prompt: "Analyze area A" },
+      { title: "Pine B", prompt: "Analyze area B" },
+    ]),
+    forkFromCurrent: true,
+  });
+  var result = JSON.parse(response.content[0].text);
+  var first = fixture.sessions.get(result.spawned[0].localId);
+  var second = fixture.sessions.get(result.spawned[1].localId);
+
+  assert.strictEqual(first.cliSessionId, "cli-fork-1");
+  assert.strictEqual(second.cliSessionId, "cli-fork-2");
+  assert.notStrictEqual(first.history, fixture.parent.history);
+  assert.notStrictEqual(second.history, fixture.parent.history);
+  assert.deepStrictEqual(first.history.slice(0, -1), fixture.parent.history);
+  assert.deepStrictEqual(second.history.slice(0, -1), fixture.parent.history);
+  assert.deepStrictEqual(first.history[first.history.length - 1], { type: "user_message", text: "Analyze area A" });
+  assert.deepStrictEqual(second.history[second.history.length - 1], { type: "user_message", text: "Analyze area B" });
+  assert.deepStrictEqual(first.messageUUIDs, fixture.parent.messageUUIDs);
+  assert.deepStrictEqual(fixture.forks.map(function(call) { return call.uuid; }), ["uuid-assistant", "uuid-assistant"]);
+});
+
+test("forkFromCurrent restores Claude CLI history before the task prompt", async function() {
+  var cliHistory = [
+    { type: "user_message", text: "Inherited from CLI" },
+    { type: "message_uuid", uuid: "cli-uuid", messageType: "user" },
+  ];
+  var fixture = createForkFixture({
+    forkSession: function() {
+      return Promise.resolve({ sessionId: "cli-fork-1", useLocalHistory: false });
+    },
+    readCliSessionHistory: function(home, cwd, sessionId) {
+      assert.strictEqual(cwd, process.cwd());
+      assert.strictEqual(sessionId, "cli-fork-1");
+      return Promise.resolve(cliHistory);
+    },
+  });
+  var response = await fixture.spawn({
+    sessions: '[{"title":"CLI fork","prompt":"New task"}]',
+    forkFromCurrent: true,
+  });
+  var result = JSON.parse(response.content[0].text);
+  var child = fixture.sessions.get(result.spawned[0].localId);
+  assert.notStrictEqual(child.history, cliHistory);
+  assert.deepStrictEqual(child.history, cliHistory.concat([{ type: "user_message", text: "New task" }]));
+  assert.deepStrictEqual(child.messageUUIDs, [{ uuid: "cli-uuid", type: "user", historyIndex: 1 }]);
+});
+
+test("forkFromCurrent rejects a parent without a completed turn", async function() {
+  var fixture = createForkFixture({ parent: { cliSessionId: null } });
+  var response = await fixture.spawn({ sessions: '[{"prompt":"Task"}]', forkFromCurrent: true });
+  assert.strictEqual(response.isError, true);
+  assert.strictEqual(response.content[0].text, "Error: forkFromCurrent requires the calling session to have at least one completed turn");
+  assert.strictEqual(fixture.sessions.size, 1);
+  assert.strictEqual(fixture.forks.length, 0);
+});
+
+test("forkFromCurrent requires a fork-capable vendor", async function() {
+  var fixture = createForkFixture({ capabilitiesByVendor: { claude: { fork: false } } });
+  var response = await fixture.spawn({ sessions: '[{"prompt":"Task"}]', forkFromCurrent: true });
+  assert.strictEqual(response.isError, true);
+  assert.strictEqual(response.content[0].text, "Error: forkFromCurrent is not supported by vendor: claude");
+  assert.strictEqual(fixture.sessions.size, 1);
+  assert.strictEqual(fixture.forks.length, 0);
+});
+
+test("forkFromCurrent locks children to the parent vendor", async function() {
+  var fixture = createForkFixture({
+    capabilitiesByVendor: { claude: { fork: true }, codex: { fork: true } },
+    adapters: { claude: {}, codex: {} },
+  });
+  var response = await fixture.spawn({
+    sessions: '[{"prompt":"Task"}]',
+    vendor: "codex",
+    forkFromCurrent: true,
+  });
+  assert.strictEqual(response.isError, true);
+  assert.strictEqual(response.content[0].text, "Error: forkFromCurrent children must use the parent's vendor");
+  assert.strictEqual(fixture.sessions.size, 1);
+  assert.strictEqual(fixture.forks.length, 0);
+});
+
+test("forkFromCurrent reports a partial result and queues only successful forks", async function() {
+  var fixture = createForkFixture({
+    forkSession: function(session, uuid, count) {
+      if (count === 2) return Promise.reject(new Error("fork two failed"));
+      return Promise.resolve({ sessionId: "cli-fork-" + count, useLocalHistory: true });
+    },
+  });
+  var response = await fixture.spawn({
+    sessions: JSON.stringify([
+      { title: "One", prompt: "Task one" },
+      { title: "Two", prompt: "Task two" },
+      { title: "Three", prompt: "Task three" },
+    ]),
+    forkFromCurrent: true,
+  });
+  var result = JSON.parse(response.content[0].text);
+  assert.strictEqual(result.spawned.length, 1);
+  assert.deepStrictEqual(result.failed, { index: 1, error: "fork two failed" });
+  assert.strictEqual(result.running, 1);
+  assert.strictEqual(result.queued, 0);
+  assert.strictEqual(fixture.starts.length, 1);
+  assert.strictEqual(fixture.sessions.size, 2);
+  assert.strictEqual(fixture.broadcasts, 1);
 });
 
 test("session spawn rejects an unknown vendor", function() {
