@@ -1,3 +1,10 @@
+# [2.47.0-beta.3](https://github.com/chadbyte/clay/compare/v2.47.0-beta.2...v2.47.0-beta.3) (2026-08-15)
+
+
+### Features
+
+* **yoke:** add static vendor registry and extend capability map ([df18132](https://github.com/chadbyte/clay/commit/df1813253c1172cf7bf6e8b34062d841789b32f8))
+
 # [2.47.0-beta.2](https://github.com/chadbyte/clay/compare/v2.47.0-beta.1...v2.47.0-beta.2) (2026-08-15)
 
 
