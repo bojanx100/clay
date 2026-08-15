@@ -21,7 +21,11 @@ test("ordinary project sidebar omits the Coop root and is invariant across Lead 
   var taskCoordinator = {
     id: 5, title: "Task coordinator", leadOwned: true, coordinationMode: true,
     coordinationRole: "task_coordinator",
-    orchestrationParent: { sessionId: 4, taskStatus: "running" },
+    projectCoordinatorRef: { projectId: "system-lead", sessionStorageId: "project-root" },
+    controlPlaneParent: {
+      taskId: "project-task",
+      projectCoordinatorRef: { projectId: "system-lead", sessionStorageId: "project-root" },
+    },
   };
   var taskWorker = {
     id: 6, title: "Task worker", leadOwned: true,
@@ -60,6 +64,9 @@ test("ordinary project sidebar omits the Coop root and is invariant across Lead 
   var taskItem = model.regularItems.find(function (item) { return item.data.id === 5; });
   assert.equal(taskItem.type, "coordinator");
   assert.deepEqual(taskItem.children.map(function (item) { return item.id; }), [6]);
+  assert.equal(model.regularItems.some(function (item) {
+    return item.data && item.data.id === 5;
+  }), true, "the actual project sidebar keeps the cross-project task coordinator top-level");
 
   var leadOn = visible.map(function (item) { return Object.assign({}, item, { leadModeEnabled: true }); });
   var leadOff = visible.map(function (item) { return Object.assign({}, item, { leadModeEnabled: false }); });

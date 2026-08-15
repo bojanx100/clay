@@ -1,6 +1,6 @@
 # Coop control-plane hierarchy
 
-This note records the owner decisions recovered for binding revision 6. The
+This note records the owner decisions recovered through binding revision 7. The
 requested handoff Markdown file was absent; the same canonical conversation is
 preserved in
 `~/.clay/sessions/-Users-bojansubotic--clay-lead-workspace/871a194b-8879-40f7-a1fe-656e48e722af.jsonl`.
@@ -46,6 +46,20 @@ The ingress sequence and timestamps below are the durable anchors.
   Lead mode on or off. Only the control path changes.
 - Ingress 305, 2026-08-15 09:21:03 UTC: notify the owner only when the complete
   change has landed and is ready to test.
+- Ingress 309: execution projects as `Project coordinator -> handed-off or
+  implemented Thread -> one or more task coordinators/sessions`. The undecided
+  Thread stays in top-level Threads; after a successful handoff, that same
+  durable Thread becomes the container under the relevant project coordinator.
+  Children may run independently, in parallel, or through explicit TaskRef
+  dependencies. Actual project sidebars keep the target sessions in their
+  ordinary top-level project structure.
+- Ingress 310: Thread identity and classification are stable while automatic
+  titles may improve from accumulated, proven owner conversation. Related and
+  ambiguous follow-ups enrich the same Thread; unrelated named subjects mint a
+  separate Thread. Manual titles are authoritative. Internal worker/fan-in
+  records never supply title evidence, replay is idempotent, and handoff keeps
+  the current refined title without changing ThreadRef, group, lifecycle, or
+  execution bindings.
 
 The supplied screenshot at
 `~/.clay/images/-Users-bojansubotic--clay-lead-workspace/1786785237007-b52f226bbd5bf6e4.png`
@@ -55,6 +69,24 @@ generic `Project coordinator` labels, and `Closed`. The screenshot at
 captures the rejected project layout with a generic persistent coordinator
 above the ordinary task coordinator. These are before-state evidence, not
 alternate requirements.
+
+## Revision 6 audit for ingresses 309–310
+
+Commit `6f4cf56e5edf23c54b109e5e0b9dc98a73f6ee31` was reviewed clause by
+clause rather than accepted from its revision report:
+
+| Clause | Revision 6 evidence | Finding at 6f4 |
+| --- | --- | --- |
+| Undecided Thread stays top-level; successful handoff removes it | `coop-topic-management.js`, `coop-thread-lifecycle.js`, and `sidebar-coop-topic-model.js` already gated removal on `handed_off` | Implemented |
+| Same Thread becomes a durable container beneath its project coordinator | `global-coop-coordinator-tree.js` projected coordinator → task coordinator → worker with no TopicRef node | Missing |
+| Several independent/parallel/dependency-linked child coordinators with rollup and navigation | Multiple active children and exact SessionRef navigation existed, but dependency metadata, the Thread layer, and child execution-state rollup did not | Partial |
+| Actual project sidebar remains ordinary/top-level and Lead-mode invariant | `sidebar-sessions-model.js` omitted the persistent root and did not branch on Lead mode | Implemented |
+| Stable Thread identity | `coop-topic-classification.js` derived deterministic IDs and lifecycle mutations retained TopicRef/ThreadRef | Implemented |
+| Related vs unrelated vs ambiguous classification | Reuse/mint/follow-up ladders existed, but the weak match treated inflected request verbs such as `needs` as subject evidence | Partial |
+| Titles improve from accumulated proven owner conversation | `coop-topic-retrofit.js` was an exactly-once repair and could not evolve a live title | Missing |
+| No first-turn freeze/latest-turn overfit/raw-prefix truncation/minor churn | Automatic titles stayed at the first bounded excerpt after the one-time retrofit | Missing |
+| Manual-title authority and worker/fan-in exclusion | Manual protection and owner-relevance predicates existed, but no progressive title path consumed them | Partial |
+| Restart/replay idempotence and handoff title preservation as the container | Index replay was idempotent, but there was no progressive audit and no Thread container to carry its refined title | Partial |
 
 ## Reconciliation
 
@@ -67,12 +99,34 @@ Thread record from the index while canonical conversation history remains.
 Ingress 303 resolves the earlier ambiguity about persistence home: project
 coordinator sessions live in the Lead/Coop project with an explicit target
 `ProjectRef`. Task coordinators and workers live in the target project. The
-observable hierarchy is:
+observable execution hierarchy is:
 
-`Coop project coordinator -> target-project task coordinator -> target-project workers`
+`Coop project coordinator -> handed-off Thread -> target-project task coordinators -> target-project workers`
+
+The Thread container is not a copied project record. Placement follows its
+ACL-filtered durable execution `ProjectRef`s, so a cross-project or initially
+uncategorised Thread can appear beneath each coordinator actually executing it
+while its canonical ThreadRef and classification remain unchanged. A legacy
+active task without a ThreadRef remains directly beneath the coordinator rather
+than disappearing during migration.
 
 The target project omits the control-plane root, so its task coordinator is an
 ordinary top-level project session. Owner-direct sessions are never reparented.
+
+## Progressive title invariant
+
+Automatic titles are machine-managed only while their creation fingerprint or
+prior machine-retitle audit proves that the owner has not renamed them. A title
+change requires at least two proven owner turns and material multi-turn support;
+minor acknowledgements, the latest unrelated turn, injected prompts, automation,
+and task-notification fan-in are excluded. The selected title is a complete
+owner clause within the title bound rather than an ellipsis-clipped prefix.
+
+Retitling mutates only `title`, `updatedAt`, and bounded title-refinement audit
+metadata. `TopicRef`/`ThreadRef`, grouping, membership, lifecycle state,
+disposition, and related execution links remain byte-for-byte stable. The audit
+stores a deterministic evidence digest and score, so replaying the same history
+after restart is a no-op and weaker subsequent evidence cannot churn the title.
 
 ## Authority invariant
 

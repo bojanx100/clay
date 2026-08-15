@@ -1039,9 +1039,11 @@
 .coop-project-control-plane .coop-project-hierarchy { margin: 0; }
 .coop-project-coordinator-node { min-width: 0; }
 .coop-project-coordinator-node.child,
-.coop-project-coordinator-node.grandchild { position: relative; }
+.coop-project-coordinator-node.grandchild,
+.coop-project-coordinator-node.greatgrandchild { position: relative; }
 .coop-project-coordinator-node.child::before,
-.coop-project-coordinator-node.grandchild::before {
+.coop-project-coordinator-node.grandchild::before,
+.coop-project-coordinator-node.greatgrandchild::before {
   content: "";
   position: absolute;
   top: 15px;
@@ -1073,7 +1075,8 @@
 .coop-project-coordinator-row:focus-visible { background: var(--sidebar-hover); color: var(--text); }
 .coop-project-coordinator-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .coop-project-coordinator-row.root { font-weight: 650; }
-.coop-project-coordinator-row.grandchild { min-height: 28px; color: var(--text-muted); font-size: 12px; }
+.coop-project-coordinator-row.grandchild,
+.coop-project-coordinator-row.greatgrandchild { min-height: 28px; color: var(--text-muted); font-size: 12px; }
 .coop-project-coordinator-marker {
   width: 7px;
   height: 7px;

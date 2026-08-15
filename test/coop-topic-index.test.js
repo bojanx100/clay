@@ -220,6 +220,10 @@ test("ACL projection revokes project topic metadata while retaining safe shared 
       projectRef: { projectId: WEBAPP },
       children: [{ sessionRef: { projectId: WEBAPP, sessionStorageId: "webapp-worker" } }],
     });
+    h.index.linkExecution({ topicId: "coop-conversation-architecture" }, {
+      projectRef: { projectId: CLAY },
+      sessionRef: { projectId: CLAY, sessionStorageId: "clay-task-coordinator" },
+    });
     var visible = h.index.project({
       actor: { id: "owner" },
       canAccessProject: function (_, ref) { return ref.projectId === CLAY; },
@@ -227,9 +231,37 @@ test("ACL projection revokes project topic metadata while retaining safe shared 
     assert.ok(visible.groups.some(function (group) { return group.kind === "project" && group.projectRef.projectId === CLAY; }));
     assert.ok(visible.groups.some(function (group) { return group.kind === "cross_project"; }));
     assert.ok(visible.groups.some(function (group) { return group.kind === "uncategorised"; }));
+    var shared = visible.groups.find(function (group) { return group.kind === "cross_project"; });
+    var architecture = shared.topics.find(function (topic) {
+      return topic.topicRef.topicId === "coop-conversation-architecture";
+    });
+    assert.deepEqual(architecture.executionProjectRefs, [{ projectId: CLAY }],
+      "Thread-container targets are durable, deduplicated, and ACL-filtered");
     assert.equal(JSON.stringify(visible).includes(WEBAPP), false);
     var revoked = h.index.project({ canAccessProject: function () { return false; } });
     assert.equal(revoked.groups.some(function (group) { return group.kind === "project"; }), false);
+  } finally { h.cleanup(); }
+});
+
+test("handoff projection retains every accessible execution project", function () {
+  var h = harness();
+  try {
+    h.index.ensureRetro(canonicalSession(), retroOptions());
+    var topicRef = { topicId: "coop-conversation-architecture" };
+    for (var i = 0; i < 13; i++) {
+      assert.equal(h.index.linkExecution(topicRef, {
+        projectRef: { projectId: "system-execution-" + i },
+      }).ok, true);
+    }
+
+    var visible = h.index.project({ canAccessProject: function () { return true; } });
+    var shared = visible.groups.find(function (group) { return group.kind === "cross_project"; });
+    var architecture = shared.topics.find(function (topic) {
+      return topic.topicRef.topicId === topicRef.topicId;
+    });
+    assert.equal(architecture.executionProjectRefs.length, 13,
+      "a Thread container is not silently dropped after twelve execution projects");
+    assert.equal(architecture.executionProjectRefs[12].projectId, "system-execution-12");
   } finally { h.cleanup(); }
 });
 
@@ -404,7 +436,8 @@ test("automatic classification reuses durable topics and infers a bounded projec
     assert.equal(first.created, true);
     assert.match(first.topicRef.topicId, /^auto-[a-f0-9]{24}$/);
     assert.deepEqual(first.projectRef, { projectId: CLAY });
-    assert.equal(h.index.resolve(first.topicRef).topic.title, "Renderer caching regression details in Workbench Alpha must…");
+    assert.equal(h.index.resolve(first.topicRef).topic.title,
+      "Renderer caching regression details in Workbench Alpha");
     assert.deepEqual(h.index.resolve(first.topicRef).topic.keywords, ["renderer", "caching", "regression", "details", "workbench"]);
     assert.equal(fs.readFileSync(h.index.file, "utf8").includes(firstText), false);
 
@@ -467,8 +500,8 @@ test("automatic titles preserve the owner's word order instead of keyword salad"
     }, options);
     assert.equal(result.ok, true);
     var title = h.index.resolve(result.topicRef).topic.title;
-    // A readable clause in the owner's own order, bounded at 8 words.
-    assert.equal(title, "What do you mean by checking whether it…");
+    // A complete initial clause in the owner's own order, not a raw prefix.
+    assert.equal(title, "Checking whether it should be delegated");
   } finally { h.cleanup(); }
 });
 

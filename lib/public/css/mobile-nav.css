@@ -835,16 +835,19 @@
   .mobile-coop-project-control-plane .mobile-coop-project-hierarchy { margin: 0; }
   .mobile-coop-project-coordinator-node { min-width: 0; }
   .mobile-coop-project-coordinator-node.child,
-  .mobile-coop-project-coordinator-node.grandchild { position: relative; }
+  .mobile-coop-project-coordinator-node.grandchild,
+  .mobile-coop-project-coordinator-node.greatgrandchild { position: relative; }
   .mobile-coop-project-coordinator-node.child::before,
-  .mobile-coop-project-coordinator-node.grandchild::before { content: ""; position: absolute; top: 21px; left: -8px; width: 8px; border-top: 1px solid var(--border-subtle); }
+  .mobile-coop-project-coordinator-node.grandchild::before,
+  .mobile-coop-project-coordinator-node.greatgrandchild::before { content: ""; position: absolute; top: 21px; left: -8px; width: 8px; border-top: 1px solid var(--border-subtle); }
   .mobile-coop-project-coordinator-children { margin-left: 10px; padding-left: 8px; border-left: 1px solid var(--border-subtle); }
   .mobile-coop-project-coordinator-row { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 42px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; text-align: left; }
   .mobile-coop-project-coordinator-row:active,
   .mobile-coop-project-coordinator-row:focus-visible { background: rgba(var(--overlay-rgb), .08); color: var(--text); }
   .mobile-coop-project-coordinator-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .mobile-coop-project-coordinator-row.root { font-weight: 650; }
-  .mobile-coop-project-coordinator-row.grandchild { min-height: 44px; color: var(--text-muted); }
+  .mobile-coop-project-coordinator-row.grandchild,
+  .mobile-coop-project-coordinator-row.greatgrandchild { min-height: 44px; color: var(--text-muted); }
   .mobile-coop-control-plane-row { display: flex; align-items: center; width: calc(100% - 24px); min-height: 44px; margin: 2px 12px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; font-weight: 650; text-align: left; }
   .mobile-coop-control-plane-row:active,
   .mobile-coop-control-plane-row:focus-visible { background: rgba(var(--overlay-rgb), .08); color: var(--text); }

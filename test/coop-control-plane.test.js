@@ -1,5 +1,7 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var path = require("node:path");
+var pathToFileURL = require("node:url").pathToFileURL;
 var controlPlane = require("../lib/coop-control-plane");
 var projectIdentity = require("../lib/project-identity");
 var globalProjection = require("../lib/global-coop-projection");
@@ -197,4 +199,202 @@ test("owner hierarchy navigation authorizes only refs present in the global Coop
   assert.equal(topicConnection.globalHierarchyContainsSession(projection, workerRef), true);
   assert.equal(topicConnection.globalHierarchyContainsSession(projection,
     { projectId: CLAY, sessionStorageId: "unprojected-worker" }), false);
+});
+
+test("a successful handoff moves the same refined Thread beneath its project coordinator with parallel and dependent children", async function () {
+  var leadManager = manager();
+  var ensured = controlPlane.ensureControlPlane(leadManager, [
+    { projectRef: { projectId: CLAY }, title: "Clay" },
+  ]);
+  var root = ensured.coordinators[0];
+  var rootRef = projectIdentity.sessionRef({ projectId: projectIdentity.LEAD_PROJECT_ID }, root);
+  var topicRef = { topicId: "auto-309310309310309310309310" };
+  var title = "Complete Thread containers and evolving titles";
+
+  function prepare(portfolioTaskId, taskTitle, dependencies) {
+    var request = {
+      portfolioTaskId: portfolioTaskId,
+      bindingRevision: 7,
+      targetProject: { projectId: CLAY },
+      coopTopicRef: topicRef,
+    };
+    var task = controlPlane.prepareTask(leadManager, root, request, {
+      title: taskTitle,
+      objective: taskTitle,
+      dependencies: dependencies,
+    });
+    return { request: request, task: task };
+  }
+
+  function child(id, task, status) {
+    return {
+      localId: id,
+      storageId: "task-coordinator-" + id,
+      title: task.title,
+      coordinationMode: true,
+      coordinationRole: "task_coordinator",
+      projectCoordinatorRef: rootRef,
+      controlPlaneParent: { taskId: task.taskId, projectCoordinatorRef: rootRef },
+      coopControlledBy: { coopSessionStorageId: root.storageId, since: 1 },
+      orchestrationPolicy: { portfolioExecution: { status: status || "running" } },
+      orchestrationTasks: [],
+      lastActivity: id * 10,
+    };
+  }
+
+  var independentA = prepare("thread-independent-a", "Implement hierarchy", []);
+  var independentB = prepare("thread-independent-b", "Verify mobile navigation", []);
+  var dependent = prepare("thread-dependent", "Run integrated verification",
+    [{
+      projectId: projectIdentity.LEAD_PROJECT_ID,
+      coordinatorSessionStorageId: root.storageId,
+      taskId: independentA.task.taskId,
+    }]);
+  var childA = child(21, independentA.task, "running");
+  var childB = child(22, independentB.task, "needs_input");
+  var childC = child(23, dependent.task, "running");
+  controlPlane.bindTask(leadManager, root, independentA.task,
+    { projectId: CLAY, sessionStorageId: childA.storageId });
+  controlPlane.bindTask(leadManager, root, independentB.task,
+    { projectId: CLAY, sessionStorageId: childB.storageId });
+  controlPlane.bindTask(leadManager, root, dependent.task,
+    { projectId: CLAY, sessionStorageId: childC.storageId });
+  childA.orchestrationTasks = [{
+    taskId: "desktop-check",
+    title: "Desktop hierarchy check",
+    status: "running",
+    workerStorageId: "desktop-worker",
+    dependencies: [],
+  }, {
+    taskId: "mobile-check",
+    title: "Mobile hierarchy check",
+    status: "running",
+    workerStorageId: "mobile-worker",
+    dependencies: [],
+  }];
+  var desktopWorker = {
+    localId: 31,
+    storageId: "desktop-worker",
+    title: "Desktop hierarchy check",
+    orchestrationParent: { sessionStorageId: childA.storageId, taskId: "desktop-check" },
+    coopControlledBy: { coopSessionStorageId: root.storageId, since: 1 },
+  };
+  var mobileWorker = {
+    localId: 32,
+    storageId: "mobile-worker",
+    title: "Mobile hierarchy check",
+    orchestrationParent: { sessionStorageId: childA.storageId, taskId: "mobile-check" },
+    coopControlledBy: { coopSessionStorageId: root.storageId, since: 1 },
+  };
+  var targetManager = {
+    sessions: new Map([
+      [21, childA], [22, childB], [23, childC],
+      [31, desktopWorker], [32, mobileWorker],
+    ]),
+  };
+  var threadState = "exploring";
+  var topicIndex = {
+    ensureRetro: function () { return { ok: true }; },
+    ensureTitleRetrofit: function () {},
+    ensureTopicConsolidation: function () {},
+    ensureDispositionBackfill: function () {},
+    project: function () {
+      return { groups: [{
+        kind: "cross_project",
+        projectRef: null,
+        topics: [{
+          topicRef: topicRef,
+          threadRef: { threadId: topicRef.topicId },
+          threadState: threadState,
+          title: title,
+          status: "open",
+          workState: "working",
+          executionProjectRefs: [{ projectId: CLAY }],
+          eventRefs: [],
+          turnRefs: [],
+        }],
+      }] };
+    },
+  };
+  var options = {
+    projects: [{
+      projectId: projectIdentity.LEAD_PROJECT_ID,
+      getStatus: function () {
+        return { projectId: projectIdentity.LEAD_PROJECT_ID, slug: "lead" };
+      },
+      getSessionManager: function () { return leadManager; },
+    }, {
+      projectId: CLAY,
+      getStatus: function () { return { projectId: CLAY, slug: "clay", title: "Clay" }; },
+      getSessionManager: function () { return targetManager; },
+    }],
+    coopTopicIndex: topicIndex,
+    canAccessProject: function () { return true; },
+    canAccessSession: function () { return true; },
+  };
+  var topicModel = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public",
+    "modules", "sidebar-coop-topic-model.js")).href);
+
+  var before = globalProjection.buildGlobalCoopProjection(options);
+  var beforeSections = topicModel.coopTopicSections({
+    allTopics: before.topics,
+    projects: before.projects,
+    controlPlaneSessions: before.controlPlaneSessions,
+  });
+  assert.deepEqual(beforeSections[0].topics.map(function (topic) { return topic.topicRef; }),
+    [topicRef], "before handoff the undecided Thread remains top-level");
+
+  threadState = "handed_off";
+  var after = globalProjection.buildGlobalCoopProjection(options);
+  var afterSections = topicModel.coopTopicSections({
+    allTopics: after.topics,
+    projects: after.projects,
+    controlPlaneSessions: after.controlPlaneSessions,
+  });
+  assert.equal(afterSections[0].topics.length, 0,
+    "only successful handoff removes the Thread from the top-level list");
+  var projectRoot = after.projects[0].summary.coordinatorTree[0];
+  var thread = projectRoot.children[0];
+  assert.equal(thread.role, "thread");
+  assert.deepEqual(thread.topicRef, topicRef);
+  assert.deepEqual(thread.threadRef, { threadId: topicRef.topicId });
+  assert.equal(thread.title, title, "handoff preserves the latest refined title");
+  assert.equal(thread.status, "needs_input", "attention rolls up from any child");
+  assert.equal(thread.children.length, 3, "independent children may execute in parallel");
+  var dependencyChild = thread.children.find(function (node) {
+    return node.title === "Run integrated verification";
+  });
+  assert.ok(dependencyChild);
+  assert.equal(dependencyChild.dependencyState, "ready");
+  assert.deepEqual(dependencyChild.dependencies, [{
+    projectId: projectIdentity.LEAD_PROJECT_ID,
+    coordinatorSessionStorageId: root.storageId,
+    taskId: independentA.task.taskId,
+  }], "dependency-linked task coordinators retain exact durable TaskRefs");
+  var implementationChild = thread.children.find(function (node) {
+    return node.title === "Implement hierarchy";
+  });
+  assert.deepEqual(implementationChild.children.map(function (node) { return node.title; }).sort(),
+    ["Desktop hierarchy check", "Mobile hierarchy check"]);
+  assert.equal(topicConnection.globalHierarchyContainsSession(after,
+    implementationChild.children[0].sessionRef), true,
+  "deep session navigation accepts descendants below the Thread container");
+  assert.equal(after.projects[0].summary.metrics.activeWorkers, 3);
+  assert.equal(after.projects[0].summary.metrics.activeTaskWorkers, 2);
+
+  var invalid = controlPlane.prepareTask(leadManager, root, {
+    portfolioTaskId: "thread-cross-root-dependency",
+    bindingRevision: 7,
+    targetProject: { projectId: CLAY },
+    coopTopicRef: topicRef,
+  }, {
+    title: "Invalid cross-root dependency",
+    objective: "Must fail closed.",
+    dependencies: [{
+      projectId: projectIdentity.LEAD_PROJECT_ID,
+      coordinatorSessionStorageId: "another-project-coordinator",
+      taskId: independentA.task.taskId,
+    }],
+  });
+  assert.equal(invalid, null, "a dependency outside this project coordinator is rejected");
 });

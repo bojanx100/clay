@@ -563,3 +563,112 @@ test("shared Coop renderer places project coordinator rows in desktop and mobile
     scope: "owner_request_hierarchy",
   }, "clicking a worker opens its exact canonical SessionRef");
 });
+
+test("desktop and mobile render a navigable Thread container above task coordinators", async function () {
+  globalThis.document = { createElement: createElement };
+  var projectionClient = await import(moduleUrl("global-coop-projection.js"));
+  var renderer = await import(moduleUrl("sidebar-coop-hierarchy.js") + "?thread=" + Date.now());
+  var topicRef = { topicId: "auto-309310309310309310309310" };
+  var hierarchy = [{
+    sessionRef: { projectId: "system-lead", sessionStorageId: "clay-project-coordinator" },
+    title: "Clay coordinator",
+    role: "project_coordinator",
+    status: "persistent",
+    children: [{
+      sessionRef: null,
+      topicRef: topicRef,
+      threadRef: { threadId: topicRef.topicId },
+      projectRef: null,
+      title: "Complete Thread containers and evolving titles",
+      role: "thread",
+      status: "needs_input",
+      threadState: "handed_off",
+      children: [{
+        sessionRef: { projectId: CLAY, sessionStorageId: "implementation-coordinator" },
+        title: "Implementation coordinator",
+        role: "task_coordinator",
+        status: "running",
+        dependencyState: "independent",
+        children: [{
+          sessionRef: { projectId: CLAY, sessionStorageId: "desktop-worker" },
+          title: "Desktop verification",
+          role: "worker",
+          status: "running",
+          children: [],
+        }],
+      }, {
+        sessionRef: { projectId: CLAY, sessionStorageId: "mobile-coordinator" },
+        title: "Mobile verification coordinator",
+        role: "task_coordinator",
+        status: "running",
+        dependencyState: "independent",
+        children: [],
+      }, {
+        sessionRef: { projectId: CLAY, sessionStorageId: "integration-coordinator" },
+        title: "Integrated verification coordinator",
+        role: "task_coordinator",
+        status: "queued",
+        dependencyState: "waiting",
+        dependencies: [{
+          projectId: "system-lead",
+          coordinatorSessionStorageId: "clay-project-coordinator",
+          taskId: "implementation-task",
+        }],
+        children: [],
+      }],
+    }],
+  }];
+  projectionClient.setGlobalCoopProjection({
+    type: "global_coop_projection",
+    coop: { localId: 1 },
+    projects: [{
+      projectRef: { projectId: CLAY },
+      slug: "clay",
+      title: "Clay",
+      summary: { coordinatorTree: hierarchy },
+    }],
+    topics: [{
+      topicRef: topicRef,
+      threadRef: { threadId: topicRef.topicId },
+      projectRef: null,
+      title: "Complete Thread containers and evolving titles",
+      threadState: "handed_off",
+      status: "open",
+    }],
+  });
+  var sent = [];
+  var desktop = createElement("div");
+  var mobile = createElement("div");
+  renderer.renderCoopProjectHierarchy(desktop, hierarchy, {
+    mobile: false,
+    send: function (message) { sent.push(message); return true; },
+  });
+  renderer.renderCoopProjectHierarchy(mobile, hierarchy, {
+    mobile: true,
+    send: function () { return true; },
+  });
+
+  var desktopRows = byClass(desktop, "coop-project-coordinator-row");
+  var mobileRows = byClass(mobile, "mobile-coop-project-coordinator-row");
+  assert.equal(desktopRows.filter(function (row) { return row.classList.contains("child"); }).length, 1);
+  assert.equal(desktopRows.filter(function (row) { return row.classList.contains("grandchild"); }).length, 3);
+  assert.equal(desktopRows.filter(function (row) { return row.classList.contains("greatgrandchild"); }).length, 1);
+  assert.equal(mobileRows.filter(function (row) { return row.classList.contains("child"); }).length, 1);
+  assert.equal(mobileRows.filter(function (row) { return row.classList.contains("grandchild"); }).length, 3);
+  assert.equal(mobileRows.filter(function (row) { return row.classList.contains("greatgrandchild"); }).length, 1);
+  var threadRow = desktopRows.filter(function (row) { return row.classList.contains("child"); })[0];
+  assert.equal(threadRow.children[1].textContent,
+    "Complete Thread containers and evolving titles");
+  assert.equal(threadRow.children[0].attributes.title, "Needs input");
+  var dependencyRow = desktopRows.filter(function (row) {
+    return row.children[1].textContent === "Integrated verification coordinator";
+  })[0];
+  assert.equal(dependencyRow.children[0].attributes.title, "Waiting on dependencies");
+  threadRow.listeners.click();
+  assert.deepEqual(sent[sent.length - 1], {
+    type: "coop_topic_select",
+    topicRef: topicRef,
+    projectRef: null,
+    historyScope: "topic",
+  }, "clicking the nested container opens the same canonical Thread lens");
+});
