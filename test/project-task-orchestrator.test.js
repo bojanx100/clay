@@ -572,8 +572,29 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.equal(router.getExecutionBinding("portfolio-slice-7", 2).status, "active");
   assert.equal(router.getExecutionBinding("portfolio-slice-7", 2).attentionAt, undefined,
     "accepted steering clears obsolete attention so running state is truthful");
+  target.sm.availableVendors = ["codex"];
+  target.sm.installedVendors = ["codex"];
+  target.sm.providerRoutes = [{
+    id: "codex-openai",
+    vendor: "codex",
+    label: "Codex",
+    enabled: true,
+    health: "healthy",
+    catalogVerified: true,
+    catalogSource: "live",
+  }];
+  target.sm.modelsByVendor = { codex: ["gpt-5.6-sol", "gpt-5.6-terra"] };
   var localDelegation = target.api.delegateFromTool(Object.assign(brief(projectCoordinator), {
     coordinatorSessionId: projectCoordinator.storageId,
+    targetProject: { projectId: targetProjectId },
+    portfolioTaskId: "portfolio-slice-7",
+    bindingRevision: 2,
+    idempotencyKey: "project-review-one",
+    provider: "codex",
+    difficulty: "strong",
+    title: "Independent Codex project review",
+    objective: "Review the target project and report only actionable findings.",
+    ownedPaths: "read-only: current target project",
   }));
   assert.equal(localDelegation.isError, undefined);
   var localWorker = Array.from(target.sessions.values()).find(function (session) {
@@ -583,6 +604,55 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.ok(localWorker);
   assert.equal(target.sessions.size, 4);
   assert.equal(lead.sessions.size, 1);
+  var localTask = projectCoordinator.orchestrationTasks.find(function (task) {
+    return task.clientRef === "project-review-one";
+  });
+  assert.ok(localTask);
+  assert.equal(localTask.routingTier, "pinned");
+  assert.equal(localTask.routingCapabilityFloor, 3);
+  assert.equal(localTask.provider, "codex");
+  assert.equal(localTask.model, "gpt-5.6-terra");
+  var reviewStart = target.starts.find(function (entry) {
+    return entry.session === localWorker;
+  });
+  assert.match(reviewStart.prompt, /read-only: current target project/);
+  assert.match(reviewStart.prompt, /do not modify files or external state/);
+
+  var parallelPlan = target.api.planFromTool({
+    coordinatorSessionId: projectCoordinator.storageId,
+    maxParallel: 3,
+    tasks: [{
+      ref: "parallel-review-a",
+      title: "Review bootstrap persistence",
+      objective: "Review bootstrap persistence and report findings only.",
+      ownedPaths: "read-only: bootstrap persistence",
+      provider: "codex",
+      difficulty: "strong",
+    }, {
+      ref: "parallel-review-b",
+      title: "Review typed routing",
+      objective: "Review typed routing and report findings only.",
+      ownedPaths: "read-only: typed routing",
+      provider: "codex",
+      difficulty: "strong",
+    }],
+  });
+  assert.equal(parallelPlan.isError, undefined);
+  var parallelTasks = projectCoordinator.orchestrationTasks.filter(function (task) {
+    return task.clientRef === "parallel-review-a" || task.clientRef === "parallel-review-b";
+  });
+  assert.equal(parallelTasks.length, 2);
+  assert.deepEqual(parallelTasks.map(function (task) { return task.status; }), ["running", "running"]);
+  assert.deepEqual(parallelTasks.map(function (task) { return task.routingCapabilityFloor; }), [3, 3]);
+  var parallelStarts = target.starts.filter(function (entry) {
+    return entry.session.orchestrationParent &&
+      parallelTasks.some(function (task) {
+        return task.taskId === entry.session.orchestrationParent.taskId;
+      });
+  });
+  assert.equal(parallelStarts.length, 2);
+  assert.match(parallelStarts[0].prompt, /do not modify files or external state/);
+  assert.match(parallelStarts[1].prompt, /do not modify files or external state/);
 
   var afterRestart = createCrossProjectRouter({
     bindingFile: path.join(dir, "bindings.json"),
@@ -605,7 +675,7 @@ test("Coop creates one direct leaf in the target project and promotes it without
   });
   assert.equal(restartedReplay.ok, true);
   assert.equal(restartedReplay.reused, true);
-  assert.equal(target.sessions.size, 4);
+  assert.equal(target.sessions.size, 6);
 });
 
 test("direct-leaf delegation routes advertised Fable aliases and leaves future versions unrouted", function () {

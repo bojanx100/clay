@@ -1,6 +1,7 @@
 var test = require("node:test");
 var assert = require("node:assert");
 var fs = require("fs");
+require("./helpers/isolated-clay-home");
 
 var pipeline = require("../lib/provider-agent-pipeline");
 var { attachBridgeQueryStart } = require("../lib/sdk-bridge-query-start");

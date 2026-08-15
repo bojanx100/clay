@@ -341,6 +341,27 @@ test("production revision 10 replay: dispatch and steering fail closed until the
   assert.deepEqual(repaired.controlPlaneMigration.from, PRIOR_ROOT_REF);
   assert.equal(repaired.status, "unrouted", "migration repairs authority, not lifecycle");
 
+  // A typed steer can race the first post-migration dispatch. The exact
+  // control-plane root is valid authority even though the target child does
+  // not exist yet, so the caller should retry instead of poisoning the
+  // repaired binding with coordinator_ref_mismatch attention.
+  var pendingSteer = h.router.messageProjectExecution({
+    source: COOP_REF,
+    targetProject: { projectId: TARGET_ID },
+    targetCoordinator: PRIOR_ROOT_REF,
+    portfolioTaskId: CLEANUP_TASK,
+    bindingRevision: 10,
+    idempotencyKey: "steer-while-child-pending",
+    text: "Continue the cleanup work.",
+  });
+  assert.equal(pendingSteer.ok, false);
+  assert.equal(pendingSteer.reason, "binding_pending");
+  assert.equal(pendingSteer.retryable, true);
+  var pendingBinding = h.router.getExecutionBinding(CLEANUP_TASK, 10);
+  assert.equal(pendingBinding.status, "unrouted");
+  assert.equal(pendingBinding.attentionAt, undefined);
+  assert.equal(pendingBinding.statusReason, "pre_task_failure: delivery_error");
+
   // Byte-stable retry: the identical operation returns the identical result
   // and rewrites nothing; a different key for the same conversion conflicts.
   var migratedBytes = fs.readFileSync(h.bindingFile, "utf8");

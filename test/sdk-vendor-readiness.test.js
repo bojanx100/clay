@@ -1,5 +1,6 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+require("./helpers/isolated-clay-home");
 
 var attachVendorReadiness = require("../lib/sdk-bridge-vendor-readiness").attachVendorReadiness;
 
