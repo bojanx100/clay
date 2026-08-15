@@ -1,3 +1,15 @@
+# [2.47.0-beta.5](https://github.com/chadbyte/clay/compare/v2.47.0-beta.4...v2.47.0-beta.5) (2026-08-15)
+
+
+### Bug Fixes
+
+* **sessions:** use the shared session mapper for the connect-time list ([60642b1](https://github.com/chadbyte/clay/commit/60642b1fa30e4f8cfc45ac6ebac6cd2e388b9db7))
+
+
+### Features
+
+* **sidebar:** show which vendor each session ran on ([daa8437](https://github.com/chadbyte/clay/commit/daa84373c9f5b084dc324cd0c62d90a3797d9b1a))
+
 # [2.47.0-beta.4](https://github.com/chadbyte/clay/compare/v2.47.0-beta.3...v2.47.0-beta.4) (2026-08-15)
 
 
