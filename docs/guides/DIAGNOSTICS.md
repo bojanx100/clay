@@ -18,8 +18,8 @@ took (watchdog aborts, auto-resumes). Fields:
 ```
 
 - `case`: `first-event` (no event within 45s of turn start), `mid-generation`
-  (silence between events, no tool active — 30s budget for Claude, **120s for
-  Codex**, which reasons silently between items), `tool-active` (10min budget).
+  (silence between events, no tool active — **120s by default, 240s for GPT-5.6
+  Sol**), `tool-active` (10min budget).
 - **Healthy:** rare entries; `silentMs` far past `timeoutMs` (a genuinely dead
   stream that was correctly reaped).
 - **Sick:** repeated `mid-generation` entries on the same session minutes apart

@@ -34,6 +34,20 @@ test("codex gets a mid-stream watchdog budget that tolerates silent reasoning", 
     "codex mid-stream timeout must exceed normal silent-reasoning gaps (got " + codexMs + "ms)");
 });
 
+// Regression for the 2026-08-15 watchdog abort (session 397): GPT-5.6 Sol was
+// still reasoning when the generic Codex budget expired at 122.9s. Sol needs
+// more first-turn headroom without slowing the faster Codex model families.
+test("GPT-5.6 Sol gets a longer first-turn watchdog budget", function () {
+  var terraMs = midstreamTimeoutFor("codex", 0, "gpt-5.6-terra");
+  var solMs = midstreamTimeoutFor("codex", 0, "gpt-5.6-sol");
+  assert.strictEqual(terraMs, 120 * 1000);
+  assert.strictEqual(solMs, 240 * 1000);
+  assert.strictEqual(watchdogTimeoutFor({ model: "gpt-5.6-sol" }, 0, true, "codex"), solMs);
+  assert.strictEqual(midstreamTimeoutFor("codex", 1, "gpt-5.6-sol"), 480 * 1000);
+  assert.strictEqual(midstreamTimeoutFor("codex", 2, "gpt-5.6-sol"), 10 * 60 * 1000,
+    "Sol escalation must still cap at the tool-active budget");
+});
+
 test("claude gets a mid-stream watchdog budget that tolerates silent reasoning (Opus 4.8 extended thinking)", function () {
   assert.ok(midstreamTimeoutFor("claude") >= 90 * 1000,
     "claude mid-stream timeout must exceed normal silent-reasoning gaps");
