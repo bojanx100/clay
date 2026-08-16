@@ -1454,6 +1454,13 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     };
     var router = serverCrossProject.createCrossProjectRouter({
       bindingFile: bindingFile,
+      ownerRequests: {
+        claimCoordinator: function (input) {
+          this.claimed = input.coordinator;
+          return { ok: true };
+        },
+        canonicalCoordinator: function () { return this.claimed || null; },
+      },
       getProjectContextById: function (projectId) {
         if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
         if (projectId === CUTOVER_PROJECT) return targetContext;
@@ -1549,6 +1556,13 @@ test("end to end: a delivery that starts no coordinator strands no binding", asy
     };
     var router = serverCrossProject.createCrossProjectRouter({
       bindingFile: bindingFile,
+      ownerRequests: {
+        claimCoordinator: function (input) {
+          this.claimed = input.coordinator;
+          return { ok: true };
+        },
+        canonicalCoordinator: function () { return this.claimed || null; },
+      },
       getProjectContextById: function (projectId) {
         if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
         if (projectId === CUTOVER_PROJECT) return targetContext;
@@ -1637,6 +1651,13 @@ test("end to end: a broken route makes at most maxConcurrent attempts per scan",
     };
     var router = serverCrossProject.createCrossProjectRouter({
       bindingFile: bindingFile,
+      ownerRequests: {
+        claimCoordinator: function (input) {
+          this.claimed = input.coordinator;
+          return { ok: true };
+        },
+        canonicalCoordinator: function () { return this.claimed || null; },
+      },
       getProjectContextById: function (projectId) {
         if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
         if (projectId === CUTOVER_PROJECT) return targetContext;

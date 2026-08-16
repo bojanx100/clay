@@ -34,6 +34,11 @@ function candidate(overrides) {
     policyDigest: "digest-1",
     recipeId: "assigned-to-me",
     eligibilityPass: TEST_PASS,
+    eligibility: {
+      assignedToOwner: true,
+      recipeAllowsUnassigned: false,
+      reason: "assigned_to_owner",
+    },
     intent: { recipeId: "assigned-to-me", number: 2517, url: "u", title: "t", autoKind: "issue" },
   }, overrides || {});
 }
@@ -126,12 +131,20 @@ test("#2517: a pending auto candidate becomes one typed binding and is marked ad
       "admission is Coop's action, attributed to the Lead workspace");
     assert.strictEqual(call.source.sessionStorageId, "coop-home-live",
       "and to the LIVE canonical Coop session, not a fabricated one");
+    assert.strictEqual(call.automationAuthorization.schema,
+      "clay.project_automation_execution_authorization");
+    assert.strictEqual(call.automationAuthorization.kind, "project_policy_autonomous");
+    assert.deepStrictEqual(call.coopTopicRef, {
+      topicId: call.automationAuthorization.threadRef.threadId,
+    }, "autonomous work receives its deterministic canonical Thread identity");
     assert.ok(call.portfolioTaskId.indexOf("2517") !== -1);
     assert.ok(call.text.indexOf("trialview/v2#2517") !== -1, "the brief names the item");
 
     var stored = h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517");
     assert.strictEqual(stored.status, "admitted");
     assert.strictEqual(stored.binding.portfolioTaskId, call.portfolioTaskId);
+    assert.deepStrictEqual(stored.binding.coopThreadRef,
+      call.automationAuthorization.threadRef);
     assert.strictEqual(h.store.list({ status: "pending" }).length, 0);
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
@@ -808,6 +821,13 @@ test("#2517: admission verifies replays against the real router surface", functi
     var router = createCrossProjectRouter({
       bindingFile: path.join(dir, "bindings.json"),
       deliveryFile: path.join(dir, "delivery.json"),
+      ownerRequests: {
+        claimCoordinator: function (input) {
+          this.claimed = input.coordinator;
+          return { ok: true };
+        },
+        canonicalCoordinator: function () { return this.claimed || null; },
+      },
       // The router's real option name. Getting this wrong is exactly the class
       // of wiring error an injected fake cannot catch.
       getProjectContextById: function (projectId) {

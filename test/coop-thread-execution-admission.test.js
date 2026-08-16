@@ -8,6 +8,12 @@ var lifecycle = require("../lib/coop-thread-lifecycle");
 var mainIngressRecovery = require("../lib/coop-main-ingress-recovery");
 var threadsRecovery = require("../lib/coop-threads-implementation-recovery");
 var queueAuthorization = require("../lib/coop-queue-authorization");
+var automationAuthorization = require("../lib/project-automation-execution-authorization");
+var automationCandidates = require("../lib/project-automation-candidates");
+var automationIdentity = require("../lib/project-automation-identity");
+var createTopicIndex = require("../lib/coop-topic-index").createTopicIndex;
+var activeExecutionMetadata =
+  require("../lib/coop-control-execution-target").activeExecutionMetadata;
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 
 var PROJECT = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
@@ -111,7 +117,7 @@ test("queue-wide authorization language and task snapshots stay narrow and bound
 
 function executionRouter(entries, delivered, handedOff, options) {
   options = options || {};
-  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-thread-admission-"));
+  var dir = options.dir || fs.mkdtempSync(path.join(os.tmpdir(), "clay-thread-admission-"));
   var claimed = null;
   var classifications = 0;
   var leadSessions = new Map([[1, { coopHome: true,
@@ -172,8 +178,12 @@ function executionRouter(entries, delivered, handedOff, options) {
     },
     readLeadEvents: options.readLeadEvents || function () { return options.leadEvents || []; },
     requireOwnerImplementationDecision: true,
+    automationThreadIndex: options.automationThreadIndex,
     onThreadHandedOff: function (input) {
       handedOff.push(input);
+      if (typeof options.onThreadHandedOff === "function") {
+        return options.onThreadHandedOff(input);
+      }
       return handedOff.fail ? { ok: false, code: "persistence_failed" } : { ok: true };
     },
   });
@@ -183,6 +193,7 @@ function executionRouter(entries, delivered, handedOff, options) {
   });
   router.registerProjectResolver({
     getProjectId: function () { return PROJECT; },
+    validateAutomationAuthorization: options.validateAutomationAuthorization,
     deliverCrossProjectEnvelope: function (envelope) {
       delivered.push(envelope);
       return { ok: true, created: true,
@@ -229,6 +240,193 @@ test("typed project execution fails closed until the current owner ingress has a
     assert.equal(delivered.length, 0);
     assert.equal(handedOff.length, 0);
   } finally { fs.rmSync(discussion.dir, { recursive: true, force: true }); }
+});
+
+function autonomousCandidate() {
+  var candidate = {
+    candidateKey: "launch:bojanx100/urban-stay-web#198",
+    itemKey: "bojanx100/urban-stay-web#198",
+    itemClass: "ambiguous",
+    admission: "auto",
+    status: "pending",
+    projectRef: { projectId: PROJECT },
+    policyDigest: "policy-current",
+    recipeId: "all-issues",
+    eligibilityPass: "scan-current",
+    eligibility: {
+      assignedToOwner: false,
+      recipeAllowsUnassigned: true,
+      reason: "recipe_allows_unassigned",
+    },
+    intent: { recipeId: "all-issues", number: 198, title: "Stuck until refresh" },
+  };
+  candidate.digest = automationCandidates.contentDigest(candidate);
+  return candidate;
+}
+
+function autonomousDispatch(router, overrides) {
+  var candidate = autonomousCandidate();
+  var portfolioTaskId = automationIdentity.portfolioTaskIdFor(candidate);
+  var request = {
+    source: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+    portfolioTaskId: portfolioTaskId,
+    bindingRevision: 1,
+    idempotencyKey: automationIdentity.idempotencyKeyFor(portfolioTaskId, 1),
+    mode: "project_coordinator",
+    targetProject: { projectId: PROJECT },
+    title: "#198 Stuck until refresh",
+    objective: "Resolve Urban Stay issue #198.",
+  };
+  request.automationAuthorization = automationAuthorization.createAuthorization(candidate, request);
+  request.coopTopicRef = {
+    topicId: request.automationAuthorization.threadRef.threadId,
+  };
+  return router.createProjectExecution(Object.assign(request, overrides || {}));
+}
+
+test("current autonomous evidence creates one deterministic visible Thread and binding across restart", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-auto-thread-admission-"));
+  var topicFile = path.join(dir, "threads.json");
+  var topicIndex = createTopicIndex({ file: topicFile, now: function () { return 1000; } });
+  var delivered = [];
+  var handedOff = [];
+  var currentCandidate = autonomousCandidate();
+  var validator = automationAuthorization.createAuthorizationValidator({
+    candidates: {
+      pending: function () { return { ok: true, candidates: [currentCandidate] }; },
+    },
+    getLeadMode: function () { return true; },
+    loadPolicy: function () {
+      return { ok: true, policy: {
+        projectRef: { projectId: PROJECT },
+        digest: "policy-current",
+        autonomy: {
+          bug: "propose", feature: "propose", ambiguous: "autonomous",
+          pr_review: "propose", default: "propose",
+        },
+        externalActions: {
+          comment: "approval", done_workflow: "approval", merge: "approval", close: "approval",
+        },
+      } };
+    },
+    now: function () { return 1000; },
+  });
+  function validate(input) {
+    return validator.validate(input);
+  }
+  var first = executionRouter([], delivered, handedOff, {
+    dir: dir,
+    automationThreadIndex: topicIndex,
+    validateAutomationAuthorization: validate,
+    onThreadHandedOff: function (input) {
+      return topicIndex.linkExecution(input.topicRef, {
+        projectRef: input.projectRef,
+        sessionRef: input.sessionRef,
+      });
+    },
+  });
+  try {
+    var created = autonomousDispatch(first.router);
+    assert.equal(created.ok, true);
+    assert.equal(created.created, true);
+    assert.equal(delivered.length, 1);
+    assert.equal(created.binding.targetProject.projectId, PROJECT);
+    assert.equal(created.binding.automationAuthorization.kind, "project_policy_autonomous");
+
+    var ref = created.binding.coopTopicRef;
+    var resolved = topicIndex.resolve(ref, true);
+    assert.equal(resolved.ok, true);
+    assert.equal(resolved.thread.source, "project_automation");
+    assert.equal(resolved.thread.group.projectRef.projectId, PROJECT);
+    assert.equal(resolved.thread.threadState, "handed_off");
+    assert.equal(resolved.thread.relatedExecutions.length, 1);
+
+    var replay = autonomousDispatch(first.router);
+    assert.equal(replay.ok, true);
+    assert.equal(replay.reused, true);
+    assert.equal(delivered.length, 1, "a second tick starts no duplicate session");
+    assert.equal(topicIndex.resolve(ref, true).thread.relatedExecutions.length, 1,
+      "a second tick adds no duplicate execution link");
+
+    var restartedIndex = createTopicIndex({ file: topicFile, now: function () { return 2000; } });
+    var restartDelivered = [];
+    var restartHandedOff = [];
+    var restarted = executionRouter([], restartDelivered, restartHandedOff, {
+      dir: dir,
+      automationThreadIndex: restartedIndex,
+      validateAutomationAuthorization: validate,
+      onThreadHandedOff: function (input) {
+        return restartedIndex.linkExecution(input.topicRef, {
+          projectRef: input.projectRef,
+          sessionRef: input.sessionRef,
+        });
+      },
+    });
+    var afterRestart = autonomousDispatch(restarted.router);
+    assert.equal(afterRestart.ok, true);
+    assert.equal(afterRestart.reused, true);
+    assert.equal(restartDelivered.length, 0, "restart reuses the canonical binding/session");
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(topicFile, "utf8")).topics)
+      .filter(function (id) { return id === ref.topicId; }).length, 1);
+
+    var metadata = activeExecutionMetadata(null, created.binding,
+      { projectId: "system-lead", sessionStorageId: "canonical-coop" });
+    assert.equal(metadata.automationAuthorization.kind, "project_policy_autonomous",
+      "the target session keeps typed automation provenance");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("autonomous admission rejects unavailable, stale, owner-shaped, and foreign Thread evidence", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-auto-thread-deny-"));
+  var topicIndex = createTopicIndex({ file: path.join(dir, "threads.json") });
+  var delivered = [];
+  var handedOff = [];
+  try {
+    var unavailable = executionRouter([], delivered, handedOff, {
+      dir: path.join(dir, "unavailable"), automationThreadIndex: topicIndex,
+    });
+    assert.equal(autonomousDispatch(unavailable.router).reason,
+      "automation_authorization_unavailable");
+
+    var stale = executionRouter([], delivered, handedOff, {
+      dir: path.join(dir, "stale"), automationThreadIndex: topicIndex,
+      validateAutomationAuthorization: function () {
+        return { ok: false, reason: "automation_policy_stale" };
+      },
+    });
+    assert.equal(autonomousDispatch(stale.router).reason, "automation_policy_stale");
+
+    var valid = function (input) {
+      return { ok: true,
+        authorization: automationAuthorization.normalizeAuthorization(input.authorization) };
+    };
+    var ownerShaped = executionRouter([], delivered, handedOff, {
+      dir: path.join(dir, "owner-shaped"), automationThreadIndex: topicIndex,
+      validateAutomationAuthorization: valid,
+    });
+    assert.equal(autonomousDispatch(ownerShaped.router, {
+      coopIngressId: "coop:fake-owner:1",
+    }).reason, "automation_owner_ingress_forbidden");
+
+    var candidate = autonomousCandidate();
+    var foreignRef = automationIdentity.threadRefFor(candidate);
+    topicIndex.createTopic({
+      topicId: foreignRef.threadId,
+      title: "Foreign Thread",
+      group: { kind: "project", projectRef: { projectId: PROJECT } },
+    });
+    var foreign = executionRouter([], delivered, handedOff, {
+      dir: path.join(dir, "foreign"), automationThreadIndex: topicIndex,
+      validateAutomationAuthorization: valid,
+    });
+    assert.equal(autonomousDispatch(foreign.router).reason,
+      "automation_thread_identity_conflict");
+    assert.equal(delivered.length, 0, "no rejected evidence reaches a target project");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("production admission rejects direct project leaves instead of falling back around the coordinator", function () {

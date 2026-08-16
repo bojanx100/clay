@@ -31,6 +31,11 @@ function candidate(overrides) {
     policyDigest: "digest-1",
     recipeId: "assigned-to-me",
     eligibilityPass: TEST_PASS,
+    eligibility: {
+      assignedToOwner: true,
+      recipeAllowsUnassigned: false,
+      reason: "assigned_to_owner",
+    },
     intent: { recipeId: "assigned-to-me", number: 2517 },
   }, overrides || {});
 }
