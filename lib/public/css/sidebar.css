@@ -881,9 +881,15 @@
 .split-group-glyph {
   width: 14px;
   margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
   color: var(--text-dimmer);
-  font-size: 12px;
   flex-shrink: 0;
+}
+
+.split-group-glyph svg {
+  width: 13px;
+  height: 13px;
 }
 
 .split-group-vendors {

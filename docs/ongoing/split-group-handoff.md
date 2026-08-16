@@ -39,7 +39,7 @@ clicking it reopens the split.
 | A member session is deleted | Server dissolves the group automatically; clients are re-broadcast |
 | Reload / daemon restart | Group rows come back from persistence; clicking restores the split |
 
-Auto-name at creation: `"<title A> ⫿ <title B>"` (truncate each side to ~20
+Auto-name at creation: `"<title A> | <title B>"` (truncate each side to ~20
 chars). Renaming overwrites it; member-title changes later do NOT rewrite a
 custom name (track `nameCustomized`).
 
@@ -142,7 +142,7 @@ In `renderSessionList`:
   ids when rendering ordinary session rows.
 - Render one `.session-item.split-group-item` row per group, positioned by
   the newest member `lastActivity` (so groups sort naturally with sessions).
-  Row content: a split glyph (`iconHtml("columns-2")` or the ⫿ character),
+  Row content: a split glyph (`iconHtml("columns-2")`),
   both members' vendor icons (13px, same dimming rules as
   `.session-vendor-icon`), the group name, summed unread badge, processing
   dot if either member `isProcessing`.

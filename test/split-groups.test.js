@@ -45,7 +45,7 @@ test("create persists a valid two-session split group", function (t) {
   var result = f.store.create(f.ws1, { members: [1, 2] });
   assert.strictEqual(result.ok, true);
   assert.deepStrictEqual(result.group.members, [1, 2]);
-  assert.strictEqual(result.group.name, "First session ⫿ Second session");
+  assert.strictEqual(result.group.name, "First session | Second session");
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(f.dir, "split-groups.json"))).length, 1);
   assert.strictEqual(f.broadcasts(), 1);
 });
@@ -79,7 +79,7 @@ test("an uncustomized group name follows member session renames", function (t) {
   var group = f.store.create(f.ws1, { members: [1, 2] }).group;
   f.sessions.get(1).title = "Renamed first";
   assert.strictEqual(f.store.refreshAutoName(1), true);
-  assert.strictEqual(group.name, "Renamed first ⫿ Second session");
+  assert.strictEqual(group.name, "Renamed first | Second session");
 });
 
 test("dissolve removes a group and a second dissolve is an error", function (t) {
@@ -109,9 +109,9 @@ test("load prunes and rewrites groups whose member session is missing", function
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(f.dir, "split-groups.json"))).length, 1);
 });
 
-test("autoGroupName truncates both titles and joins them with the split glyph", function () {
+test("autoGroupName truncates both titles and joins them with the separator", function () {
   assert.strictEqual(autoGroupName("123456789012345678901", "abcdefghijklmnopqrstu"),
-    "1234567890123456789… ⫿ abcdefghijklmnopqrs…");
+    "1234567890123456789… | abcdefghijklmnopqrs…");
 });
 
 test("client helpers derive grouped ids and preserve stored member order", async function () {
