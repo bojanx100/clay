@@ -82,7 +82,7 @@ test("unknown and prototype message types fall through, while empty message is c
   assert.equal(h.sdkCalls.length, 0);
 });
 
-test("canonical topic ingress rejects stale refs and records a newly inferred route", function () {
+test("canonical topic ingress rejects stale Thread refs and Main records a newly inferred route", function () {
   var seen = null;
   var session = {
     localId: 14, vendor: "codex", coopHome: true, history: [],
@@ -100,6 +100,7 @@ test("canonical topic ingress rejects stale refs and records a newly inferred ro
   });
   h.context.handleUserMessage({ _clayUser: { id: "owner" } }, {
     type: "message", text: "must not be written",
+    coopComposerScope: "topic",
     coopTopicRef: { topicId: "selected-topic" }, coopProjectRef: { projectId: "system-lead" },
   });
   assert.deepEqual(seen, {
@@ -110,7 +111,10 @@ test("canonical topic ingress rejects stale refs and records a newly inferred ro
   assert.equal(h.sent.some(function (message) { return message.type === "error"; }), true);
 
   seen = "not called";
-  h.context.handleUserMessage({ _clayUser: { id: "owner" } }, { type: "message", text: "All receives a new route" });
+  h.context.handleUserMessage({ _clayUser: { id: "owner" } }, {
+    type: "message", text: "Main receives a new route", coopComposerScope: "main",
+    coopTopicRef: { topicId: "selected-topic" }, coopProjectRef: { projectId: "system-lead" },
+  });
   assert.deepEqual(seen, { topicRef: undefined, projectRef: undefined });
   assert.equal(session.history.length, 1);
   assert.deepEqual(session.history[0].coopTopicRef, { topicId: "automatic-route" });

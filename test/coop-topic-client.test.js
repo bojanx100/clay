@@ -313,6 +313,7 @@ test("Coop navigation renders only compact topic chat rows", function () {
   var mobileCss = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"), "utf8");
   var projection = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "global-coop-projection.js"), "utf8");
   var input = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "input.js"), "utf8");
+  var composerScope = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "coop-composer-scope.js"), "utf8");
   var stt = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "stt.js"), "utf8");
   assert.match(desktop, /renderCoopTopicSections/);
   assert.match(mobile, /renderCoopTopicSections/);
@@ -350,6 +351,8 @@ test("Coop navigation renders only compact topic chat rows", function () {
   assert.match(topics, /showHeading: false/);
   assert.match(input, /coopTopicRef/);
   assert.match(input, /coopProjectRef/);
-  assert.match(input, /isActiveCoopTopicStale/);
+  assert.match(input, /captureCoopComposerScope/);
+  assert.doesNotMatch(input, /isActiveCoopTopicStale/);
+  assert.match(composerScope, /isActiveCoopTopicStale/);
   assert.match(stt, /getSTTCoopRouting/);
 });
