@@ -46,7 +46,7 @@ test("ordinary project sidebar omits the Coop root and is invariant across Lead 
     needsInput, superseded, cancelled, dismissed, contradictoryAttention,
   ]);
   assert.deepEqual(visible.map(function (item) { return item.id; }),
-    [1, 2, 3, 5, 6, 7, 9, 10, 11]);
+    [1, 2, 3, 5, 6, 7, 9, 11]);
 
   var model = m.buildSessionListModel([
     ownerDirect, ownerCoordinator, coopDirectLeaf, projectRoot, taskCoordinator, taskWorker,
@@ -59,7 +59,7 @@ test("ordinary project sidebar omits the Coop root and is invariant across Lead 
     getDateGroup: function () { return "Today"; },
   });
   assert.deepEqual(model.regularItems.map(function (item) { return item.data.id; }),
-    [1, 2, 3, 5, 7, 9, 10, 11]);
+    [1, 2, 3, 5, 7, 9, 11]);
   var taskItem = model.regularItems.find(function (item) { return item.data.id === 5; });
   assert.equal(taskItem.type, "coordinator");
   assert.deepEqual(taskItem.children.map(function (item) { return item.id; }), [6]);

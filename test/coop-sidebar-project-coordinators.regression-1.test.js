@@ -441,7 +441,14 @@ test("a durable task dismissal overrides its failed historical child execution",
   var lead = project("system-lead", "lead", "Coop", [coopHome, root], { isLead: true });
   var clay = project(CLAY, "clay", "Clay", sessions);
 
-  var projection = buildGlobalCoopProjection({ projects: [lead, clay] });
+  var reconciled = [];
+  var projection = buildGlobalCoopProjection({
+    projects: [lead, clay],
+    reconcileDismissedSession: function (projectRef, sessionRef, taskRef) {
+      reconciled.push([projectRef.projectId, sessionRef.storageId, taskRef.taskId]);
+      sessionRef.hidden = true;
+    },
+  });
   var tree = projection.projects[0].summary.coordinatorTree;
 
   assert.equal(tree.length, 1);
@@ -454,6 +461,9 @@ test("a durable task dismissal overrides its failed historical child execution",
   assert.equal(JSON.stringify(tree).includes("905f2146-ee64-4f21-bc74-60b3f406404e"), false);
   assert.equal(JSON.stringify(tree).includes("e43eeac8-c25f-4905-b54c-1e95718a5740"), false);
   assert.equal(JSON.stringify(tree).includes("ee3df56a-8494-473f-9b01-0c7967759131"), false);
+  assert.deepEqual(reconciled.map(function (item) { return item[1]; }), legacy.map(function (item) { return item.id; }));
+  assert.equal(sessions.every(function (item) { return item.hidden === true; }), true,
+    "only the exact dismissed task bindings are reconciled into hidden history");
 });
 
 test("global Coop hierarchy fails closed on ambiguous storage records regardless of order", function () {
@@ -747,6 +757,12 @@ test("desktop and mobile render a navigable Thread container above task coordina
       role: "thread",
       status: "needs_input",
       threadState: "handed_off",
+      controlResults: [{
+        role: "triage",
+        title: "Triage Threads V2 routing",
+        summary: "Main remains the safe fallback.",
+        topicRef: topicRef,
+      }],
       children: [{
         sessionRef: { projectId: CLAY, sessionStorageId: "implementation-coordinator" },
         title: "Implementation coordinator",
@@ -814,6 +830,10 @@ test("desktop and mobile render a navigable Thread container above task coordina
 
   var desktopRows = byClass(desktop, "coop-project-coordinator-row");
   var mobileRows = byClass(mobile, "mobile-coop-project-coordinator-row");
+  assert.equal(byClass(desktop, "coop-control-result").length, 0,
+    "control evidence is rendered only in the dedicated role section");
+  assert.equal(byClass(mobile, "mobile-coop-control-result").length, 0,
+    "mobile control evidence is rendered only in the dedicated role section");
   assert.equal(desktopRows.filter(function (row) { return row.classList.contains("child"); }).length, 1);
   assert.equal(desktopRows.filter(function (row) { return row.classList.contains("grandchild"); }).length, 3);
   assert.equal(desktopRows.filter(function (row) { return row.classList.contains("greatgrandchild"); }).length, 1);

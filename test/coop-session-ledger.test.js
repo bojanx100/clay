@@ -488,6 +488,38 @@ test("an exact completed legacy project-coordinator binding outranks stale runni
   assert.equal(projected.closedAt, 300);
 });
 
+test("verified completion evidence survives supersession without rewriting lifecycle history", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-superseded-completion-"));
+  var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
+  var session = {
+    storageId: "superseded-completed-root",
+    title: "Build Coop owner control sidebar",
+    hidden: true,
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+    orchestrationPolicy: { portfolioExecution: execution(
+      "clay-coop-owner-control-sidebar-2026-08-15", "project_coordinator", "failed"
+    ) },
+  };
+  var superseded = binding("clay-coop-owner-control-sidebar-2026-08-15", CLAY_ID,
+    session.storageId, "project_coordinator", "superseded", "session-context");
+  superseded.statusReason = "Implementation is already complete, pushed as 809665952a, and independently verified twice.";
+  superseded.updatedAt = 300;
+
+  assert.equal(ledger.reconcile({
+    bindings: [superseded], projects: [project(CLAY_ID, [session])],
+  }).ok, true);
+  var projected = ledger.get({ projectId: CLAY_ID, sessionStorageId: session.storageId });
+  assert.equal(projected.lifecycleState, "superseded");
+  assert.equal(projected.workState, "done");
+  assert.equal(projected.terminalOutcome.status, "superseded");
+  assert.equal(ledger.topicEvidence({ topicId: "session-context" })[0].workState, "done");
+  var restarted = attachCoopSessionLedger({ file: ledger.file });
+  assert.equal(restarted.get({ projectId: CLAY_ID, sessionStorageId: session.storageId }).workState, "done");
+  assert.equal(restarted.topicEvidence({ topicId: "session-context" })[0].workState, "done");
+});
+
 test("a terminal historical child cannot reactivate a restored completed project root", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-restored-root-"));
   var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });

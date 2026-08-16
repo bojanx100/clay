@@ -119,11 +119,13 @@ async function controlGroupHarness() {
     source.indexOf("// Renders the ordered sections"));
   var hierarchy = await import(modulePath("sidebar-coop-hierarchy.js"));
   var factory = new Function("document", "renderCoopProjectHierarchy", "requestCanonicalSession",
-    "finishNavigation", "text", controlSource +
+    "requestCoopTopic", "sendUserAction", "finishNavigation", "text", controlSource +
     "\nreturn { appendControlGroup: appendControlGroup };");
   ctx.model = await import(modulePath("sidebar-coop-topic-model.js"));
   ctx.controlGroups = factory(globalThis.document, hierarchy.renderCoopProjectHierarchy,
-    ctx.projection.requestCanonicalSession, function (options) {
+    ctx.projection.requestCanonicalSession, ctx.projection.requestCoopTopic,
+    function (message) { return ctx.projection.requestCoopTopic(message, function () { return true; }); },
+    function (options) {
       if (options && typeof options.onNavigate === "function") options.onNavigate();
     }, function (value, fallback) {
       var valueText = typeof value === "string" ? value.trim() : "";
@@ -388,6 +390,12 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   assert.deepEqual(byClass(desktop, "coop-control-result-summary").map(function (item) {
     return item.textContent;
   }), ["Main remains the safe fallback."]);
+  assert.equal(byClass(desktop, "coop-control-result")[0].tagName, "BUTTON");
+  byClass(desktop, "coop-control-result")[0].click();
+  assert.deepEqual(sent.pop(), {
+    type: "coop_topic_select", topicRef: { topicId: "conditional-groups" },
+    projectRef: null, historyScope: "topic",
+  }, "archived control evidence links to its canonical Thread");
   desktopControlRows[0].click();
   assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: councilRef });
 
@@ -410,6 +418,7 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   assert.deepEqual(byClass(mobile, "mobile-coop-control-result-summary").map(function (item) {
     return item.textContent;
   }), ["Main remains the safe fallback."]);
+  assert.equal(byClass(mobile, "mobile-coop-control-result")[0].tagName, "BUTTON");
   mobileControlRows[1].click();
   assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: triageRef });
   assert.equal(navigated, 1);

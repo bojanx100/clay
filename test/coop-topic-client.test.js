@@ -325,6 +325,10 @@ test("Coop navigation renders only compact topic chat rows", function () {
   assert.doesNotMatch(mobileCss, /coop-topic-create/);
   assert.match(topics, /topicActivity\(topic\)/);
   assert.match(topics, /topic\.unread > 0/);
+  assert.doesNotMatch(topics, /topic\.controlResults/,
+    "control results are not rendered beneath historical Thread rows");
+  assert.match(topics, /requestCoopTopic\(\{ topicRef: result\.topicRef, projectRef: null \}, send\)/,
+    "dedicated control results navigate through their canonical ThreadRef");
   assert.match(topics, /requestCoopTopic\(topic, sendUserAction\).*finishNavigation\(options\)/s);
   // All and Main are now two mutually exclusive lens buttons built by one
   // helper, so the routing assertion follows the helper rather than a direct

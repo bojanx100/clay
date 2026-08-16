@@ -1153,6 +1153,8 @@
   border-left: 2px solid var(--border-subtle);
   color: var(--text-muted);
 }
+button.coop-control-result { width: calc(100% - 16px); border-top: 0; border-right: 0; border-bottom: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
+button.coop-control-result:hover { color: var(--text-primary); }
 .coop-control-result-title { font-size: 10px; font-weight: 700; }
 .coop-control-result-summary { font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
 
