@@ -1,5 +1,7 @@
 var test = require("node:test");
 var assert = require("node:assert");
+var fs = require("node:fs");
+var path = require("node:path");
 
 var yoke = require("../lib/yoke");
 
@@ -12,6 +14,7 @@ test("YOKE registry covers every supported adapter vendor", function() {
     assert.strictEqual(typeof info.displayName, "string");
     assert.strictEqual(typeof info.loginCommand, "string");
     assert.strictEqual(typeof info.avatar, "string");
+    assert.ok(fs.existsSync(path.join(__dirname, "..", "lib", "public", info.avatar.slice(1))));
     assert.match(info.homepage, /^https:\/\//);
     assert.ok(Array.isArray(info.sessionModes));
     assert.ok(info.sessionModes.length > 0);
@@ -31,4 +34,12 @@ test("every YOKE vendor supports GUI sessions", function() {
   for (var i = 0; i < SUPPORTED_VENDORS.length; i++) {
     assert.notStrictEqual(yoke.getVendorInfo(SUPPORTED_VENDORS[i]).sessionModes.indexOf("gui"), -1);
   }
+});
+
+test("each YOKE vendor has a distinct identity avatar", function() {
+  var avatars = [];
+  for (var i = 0; i < SUPPORTED_VENDORS.length; i++) {
+    avatars.push(yoke.getVendorInfo(SUPPORTED_VENDORS[i]).avatar);
+  }
+  assert.strictEqual(new Set(avatars).size, SUPPORTED_VENDORS.length);
 });
