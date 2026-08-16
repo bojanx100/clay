@@ -153,3 +153,93 @@
 .stt-lang-option:last-child {
   border-radius: 0 0 14px 14px;
 }
+
+/* Dedicated Voice conversation -- a separate controller from dictation. */
+#voice-conversation-btn {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+#voice-conversation-btn:hover,
+#voice-conversation-btn.voice-conversation-active {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .12);
+}
+
+#voice-conversation-btn:focus-visible,
+.voice-conversation-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.voice-conversation-panel {
+  display: grid;
+  gap: 7px;
+  margin: 0 8px 8px;
+  max-width: 720px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+  box-shadow: 0 3px 14px rgba(var(--shadow-rgb), .12);
+}
+
+.voice-conversation-heading,
+.voice-conversation-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-conversation-title { font-weight: 650; }
+.voice-conversation-thread,
+.voice-conversation-device { color: var(--text-dimmer); font-size: 12px; }
+.voice-conversation-thread { margin-left: auto; text-align: right; }
+.voice-conversation-status { min-height: 18px; font-size: 13px; color: var(--text-secondary); }
+.voice-conversation-status.voice-conversation-error { color: var(--danger, #d64545); }
+
+.voice-conversation-transcript {
+  display: grid;
+  gap: 3px;
+  max-height: 108px;
+  overflow: auto;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: rgba(var(--overlay-rgb), .035);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.voice-conversation-transcript:empty { display: none; }
+.voice-conversation-assistant { color: var(--accent); }
+.voice-conversation-user { color: var(--text-secondary); }
+.voice-conversation-transcript-row.provisional { opacity: .62; font-style: italic; }
+
+.voice-conversation-actions button {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.voice-conversation-actions button:first-child { border-color: var(--accent); color: var(--accent); }
+.voice-conversation-actions button:disabled { opacity: .48; cursor: not-allowed; }
+
+@media (max-width: 768px) {
+  .voice-conversation-panel { margin: 0 4px 7px; padding: 9px; }
+  .voice-conversation-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .voice-conversation-actions button { min-width: 0; padding: 6px 4px; font-size: 12px; }
+  .voice-conversation-thread { max-width: 48%; }
+}
