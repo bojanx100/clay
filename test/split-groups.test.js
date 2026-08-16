@@ -174,6 +174,21 @@ test("setPair clears roles with a null driverId", function (t) {
   assert.strictEqual(persisted[0].pair, undefined);
 });
 
+test("pair changes notify the runtime for both assignment and clearing", function (t) {
+  var f = fixture(t, false);
+  var changed = [];
+  var store = createSplitGroupStore({
+    sessions: f.sessions,
+    sessionsDir: f.dir,
+    usersModule: null,
+    onPairChanged: function (group) { changed.push(group.pair ? group.pair.driverId : null); },
+  });
+  var group = store.create(f.ws1, { members: [1, 2] }).group;
+  store.setPair(f.ws1, { id: group.id, driverId: 1 });
+  store.setPair(f.ws1, { id: group.id, driverId: null });
+  assert.deepStrictEqual(changed, [1, null]);
+});
+
 test("setPair rejects non-members, unknown groups, and non-owners", function (t) {
   var f = fixture(t, true);
   var group = f.store.create(f.ws1, { members: [1, 2] }).group;
