@@ -14,6 +14,7 @@ var automationAudit = require("../lib/project-automation-audit");
 var leadBacklog = require("../lib/lead-backlog");
 
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+var URBAN_STAY = "51e67388-cea0-52b7-8e01-cde68cae713c";
 var TEST_PASS = "current-test-scan";
 
 function tempDir() {
@@ -197,6 +198,28 @@ test("approving already-admitted work does not create a second admission", funct
     assert.strictEqual(again.alreadyAdmitted, true);
     assert.strictEqual(h.admission.admitPending().admitted, 0);
     assert.strictEqual(router.calls.length, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an admitted Urban Stay candidate binds only Urban Stay's canonical ProjectRef", function () {
+  var dir = tempDir();
+  var router = fakeRouter();
+  try {
+    var h = admissionFor(dir, router);
+    h.store.upsert(candidate({
+      candidateKey: "launch:bojanx100/urban-stay-web#41",
+      itemKey: "bojanx100/urban-stay-web#41",
+      projectRef: { projectId: URBAN_STAY },
+      admission: "auto",
+      itemClass: "bug",
+      policyDigest: "urban-stay-any-policy",
+      intent: { recipeId: "all-issues", number: 41, title: "Auto-launch regression" },
+    }));
+    assert.strictEqual(h.admission.admitPending().admitted, 1);
+    assert.strictEqual(router.calls.length, 1);
+    assert.deepStrictEqual(router.calls[0].targetProject, { projectId: URBAN_STAY });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -422,6 +445,17 @@ test("assigned parity across every form the launcher accepts", function () {
     "a real login is still filtered server-side");
   assert.strictEqual(args("").indexOf("--assignee"), -1);
   assert.strictEqual(args(null).indexOf("--assignee"), -1);
+});
+
+test("Urban Stay's any policy does not change Webapp's assigned-to-me query", function () {
+  var urbanStay = leadBacklog.ghIssueArgs({
+    repo: "bojanx100/urban-stay-web", filters: { assigned: "any" },
+  });
+  var webapp = leadBacklog.ghIssueArgs({
+    repo: "trialview/v2", filters: { assigned: "me" },
+  });
+  assert.strictEqual(urbanStay.indexOf("--assignee"), -1);
+  assert.deepEqual(webapp.slice(-2), ["--assignee", "@me"]);
 });
 
 test("assigned:any does not weaken the other filters", function () {

@@ -146,6 +146,26 @@ test("two live topic-index instances preserve disjoint topic mutations", functio
   } finally { h.cleanup(); }
 });
 
+test("an explicit implementation Thread route promotes its automatic project topic", function () {
+  var h = harness();
+  try {
+    var session = canonicalSession();
+    h.index.ensureRetro(session, retroOptions());
+    var result = h.index.classifyCanonicalIngress(session, {
+      text: "Urban Stay auto-launch regression", coopProjectRef: { projectId: CLAY },
+    }, {
+      projects: [{ projectId: CLAY, slug: "clay", title: "Clay" }],
+      isProjectAvailable: function (ref) { return ref && ref.projectId === CLAY; },
+      recordExplicitRoute: true,
+    });
+    var topic = h.index.resolve(result.topicRef, true).topic;
+    assert.equal(result.ok, true);
+    assert.equal(topic.group.projectRef.projectId, CLAY);
+    assert.equal(topic.explicitlyRouted, true,
+      "a strict owner request is not hidden as a passing automatic remark");
+  } finally { h.cleanup(); }
+});
+
 test("a stale direct topic snapshot is rejected by revision and digest CAS", function () {
   var h = harness();
   try {

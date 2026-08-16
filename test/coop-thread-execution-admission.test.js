@@ -41,6 +41,11 @@ test("explicit owner implementation decisions are recognized separately from the
     intent: "implement", projectName: "",
   });
   assert.deepEqual(lifecycle.explicitImplementationDecision(
+    "If you know to instruct me why cant you just do it?\n\n" +
+    "Start a Clay implementation Thread for the Urban Stay auto-launch regression."), {
+    intent: "implement", projectName: "Clay",
+  });
+  assert.deepEqual(lifecycle.explicitImplementationDecision(
     "Create a dedicated Voice conversational mode Thread for Clay, detach Voice work from Webapp, " +
     "use session 18104cdc-5aff-4328-9afc-88bb709dd21d as read-only context, and implement it."), {
     intent: "implement", projectName: "",
