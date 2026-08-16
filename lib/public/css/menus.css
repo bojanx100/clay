@@ -43,6 +43,27 @@
 #header-rename-btn:hover { color: var(--text-secondary); background: rgba(var(--overlay-rgb),0.04); border-color: var(--border); }
 #header-rename-btn .lucide { width: 13px; height: 13px; }
 
+#header-add-worker-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-dimmer);
+  cursor: pointer;
+  border-radius: 8px;
+  flex-shrink: 0;
+  padding: 0;
+  margin-left: 4px;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+#header-add-worker-btn:hover { color: var(--text-secondary); background: rgba(var(--overlay-rgb),0.04); border-color: var(--border); }
+#header-add-worker-btn .lucide { width: 13px; height: 13px; }
+#header-add-worker-btn.hidden { display: none; }
+body.dm-mode #header-add-worker-btn { display: none; }
+
 /* "Close terminal" button: sits just left of the rename pencil during a live
    TUI session. Matches the rename button's chrome; reds out on hover since it
    stops the running claude (the session stays resumable). */

@@ -141,6 +141,58 @@ test("a session model survives a manager restart", function (t) {
   assert.strictEqual(restored.model, "gpt-5.6-sol");
 });
 
+test("a session effort survives a manager restart", function (t) {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-effort-"));
+  t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });
+
+  var sessionsBase = path.join(root, "sessions");
+  var cliSessionsDir = path.join(root, "claude-sessions");
+  var cwd = path.join(root, "project");
+  var first = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: cliSessionsDir,
+    send: function () {},
+  });
+  var session = first.createSessionRaw({
+    cliSessionId: "77777777-6666-4555-8444-333333333333",
+    vendor: "codex",
+    model: "gpt-5.6-sol",
+    effort: "xhigh",
+  });
+  first.saveSessionFile(session);
+
+  var second = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: cliSessionsDir,
+    send: function () {},
+  });
+  var restored = Array.from(second.sessions.values())[0];
+  assert.strictEqual(restored.effort, "xhigh");
+  assert.strictEqual(second.mapSessionForClient(restored).effort, "xhigh");
+});
+
+test("session switching emits each session's own effort", function (t) {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-effort-switch-"));
+  t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });
+  var messages = [];
+  var manager = createSessionManager({
+    cwd: path.join(root, "project"),
+    sessionsBase: path.join(root, "sessions"),
+    cliSessionsDir: path.join(root, "claude-sessions"),
+    send: function (message) { messages.push(message); },
+  });
+  var claude = manager.createSessionRaw({ vendor: "claude", effort: "max" });
+  var codex = manager.createSessionRaw({ vendor: "codex", effort: "minimal" });
+  manager.switchSession(claude.localId);
+  manager.switchSession(codex.localId);
+  var switched = messages.filter(function (message) {
+    return message.type === "session_switched" && (message.id === claude.localId || message.id === codex.localId);
+  });
+  assert.deepStrictEqual(switched.map(function (message) { return message.effort; }), ["max", "minimal"]);
+});
+
 test("a session permission mode survives a manager restart", function (t) {
   var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-permission-"));
   t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });

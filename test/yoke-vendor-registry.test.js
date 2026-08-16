@@ -70,3 +70,18 @@ test("Kiro capabilities do not promise stubbed controls", async function() {
   assert.deepStrictEqual(result.capabilities.toolPolicy, ["ask"]);
   await adapter.shutdown();
 });
+
+test("clampEffort keeps supported levels and maps unsupported ones to the nearest", function() {
+  assert.strictEqual(yoke.clampEffort("claude", "max"), "max");
+  assert.strictEqual(yoke.clampEffort("claude", "minimal"), "low");
+  assert.strictEqual(yoke.clampEffort("codex", "minimal"), "minimal");
+  assert.strictEqual(yoke.clampEffort("codex", "max"), "xhigh");
+  assert.strictEqual(yoke.clampEffort("codex", "medium"), "medium");
+});
+
+test("clampEffort returns undefined for no-effort vendors and junk input", function() {
+  assert.strictEqual(yoke.clampEffort("kiro", "high"), undefined);
+  assert.strictEqual(yoke.clampEffort("claude", "turbo"), undefined);
+  assert.strictEqual(yoke.clampEffort("claude", ""), undefined);
+  assert.strictEqual(yoke.clampEffort("unknown-vendor", "high"), undefined);
+});

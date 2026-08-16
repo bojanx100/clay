@@ -60,6 +60,12 @@ test("pane session pin waits until the current websocket marks it pending", asyn
   });
 });
 
+test("session switches replace the previous vendor for model menu routing", async function () {
+  var helpers = await loadPaneHelpers();
+  assert.strictEqual(helpers.resolveSwitchedVendor("codex", "claude"), "claude");
+  assert.strictEqual(helpers.resolveSwitchedVendor("claude", "codex"), "codex");
+});
+
 test("split view promotes one sticky-note canvas above both panes", function () {
   var splitSource = fs.readFileSync(path.join(__dirname, "../lib/public/modules/split-view.js"), "utf8");
   var notesSource = fs.readFileSync(path.join(__dirname, "../lib/public/modules/sticky-notes.js"), "utf8");

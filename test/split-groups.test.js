@@ -119,6 +119,69 @@ test("a group survives a restart that renumbers member localIds", function (t) {
   assert.deepStrictEqual(persisted[0].members, [11, 12]);
 });
 
+test("configured pair roles survive member renumbering", function (t) {
+  var f = fixture(t, false);
+  f.sessions.get(1).cliSessionId = "cli-driver";
+  f.sessions.get(2).cliSessionId = "cli-worker";
+  var created = f.store.create(f.ws1, {
+    members: [1, 2],
+    pair: { driverId: 1, workerId: 2 },
+  });
+  assert.strictEqual(created.ok, true);
+  assert.deepStrictEqual(created.group.pairCliIds, ["cli-driver", "cli-worker"]);
+
+  var renumbered = new Map([
+    [21, { localId: 21, title: "Driver", cliSessionId: "cli-driver" }],
+    [22, { localId: 22, title: "Worker", cliSessionId: "cli-worker" }],
+  ]);
+  var reloaded = createSplitGroupStore({ sessions: renumbered, sessionsDir: f.dir, usersModule: null });
+  assert.deepStrictEqual(reloaded.groups[0].members, [21, 22]);
+  assert.deepStrictEqual(reloaded.groups[0].pair, { driverId: 21, workerId: 22 });
+});
+
+test("configured pair roles must reference both members", function (t) {
+  var f = fixture(t, false);
+  var result = f.store.create(f.ws1, {
+    members: [1, 2],
+    pair: { driverId: 1, workerId: 3 },
+  });
+  assert.strictEqual(result.ok, false);
+});
+
+test("setPair assigns roles on an existing group and derives the worker", function (t) {
+  var f = fixture(t, false);
+  f.sessions.get(1).cliSessionId = "cli-a";
+  f.sessions.get(2).cliSessionId = "cli-b";
+  var group = f.store.create(f.ws1, { members: [1, 2] }).group;
+  assert.strictEqual(group.pair, undefined);
+
+  var set = f.store.setPair(f.ws1, { id: group.id, driverId: 2 });
+  assert.strictEqual(set.ok, true);
+  assert.deepStrictEqual(set.group.pair, { driverId: 2, workerId: 1 });
+  assert.deepStrictEqual(set.group.pairCliIds, ["cli-b", "cli-a"]);
+  var persisted = JSON.parse(fs.readFileSync(path.join(f.dir, "split-groups.json")));
+  assert.deepStrictEqual(persisted[0].pair, { driverId: 2, workerId: 1 });
+});
+
+test("setPair clears roles with a null driverId", function (t) {
+  var f = fixture(t, false);
+  var group = f.store.create(f.ws1, { members: [1, 2], pair: { driverId: 1, workerId: 2 } }).group;
+  var cleared = f.store.setPair(f.ws1, { id: group.id, driverId: null });
+  assert.strictEqual(cleared.ok, true);
+  assert.strictEqual(cleared.group.pair, undefined);
+  assert.strictEqual(cleared.group.pairCliIds, undefined);
+  var persisted = JSON.parse(fs.readFileSync(path.join(f.dir, "split-groups.json")));
+  assert.strictEqual(persisted[0].pair, undefined);
+});
+
+test("setPair rejects non-members, unknown groups, and non-owners", function (t) {
+  var f = fixture(t, true);
+  var group = f.store.create(f.ws1, { members: [1, 2] }).group;
+  assert.strictEqual(f.store.setPair(f.ws1, { id: group.id, driverId: 3 }).ok, false);
+  assert.strictEqual(f.store.setPair(f.ws1, { id: "sg_missing", driverId: 1 }).ok, false);
+  assert.strictEqual(f.store.setPair(f.ws2, { id: group.id, driverId: 1 }).ok, false);
+});
+
 test("a group anchored to a vanished cliSessionId is pruned on load", function (t) {
   var f = fixture(t, false);
   f.sessions.get(1).cliSessionId = "cli-aaa";
