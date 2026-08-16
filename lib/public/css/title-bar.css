@@ -272,6 +272,175 @@
   transform: rotate(180deg);
 }
 
+.branch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 132px;
+  /* Optical alignment: the pill reads slightly high next to the 17px/800
+     project name, so nudge it down within the centered flex row. */
+  margin-top: 2px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  font: 600 11px/1.2 "Pretendard", system-ui, sans-serif;
+  cursor: pointer;
+  flex-shrink: 1;
+}
+
+.branch-chip.hidden,
+.branch-chip-menu.hidden {
+  display: none;
+}
+
+.branch-chip:hover,
+.branch-chip.open {
+  border-color: var(--text-dimmer);
+  color: var(--text);
+}
+
+.branch-chip > svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+#branch-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-chip-chevron {
+  transition: transform 0.15s;
+}
+
+.branch-chip.open .branch-chip-chevron {
+  transform: rotate(180deg);
+}
+
+.branch-chip-menu {
+  position: fixed;
+  z-index: 10020;
+  width: 250px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.branch-chip-row {
+  display: flex;
+  align-items: center;
+  border-radius: 7px;
+}
+
+.branch-chip-row:hover {
+  background: var(--bg-alt);
+}
+
+.branch-chip-row-main,
+.branch-chip-row-action,
+.branch-chip-new {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.branch-chip-row-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  text-align: left;
+}
+
+.branch-chip-row-main:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.branch-chip-row-main svg,
+.branch-chip-row-action svg,
+.branch-chip-new svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.branch-chip-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-chip-row.current .branch-chip-row-label {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.branch-chip-row-main > .lucide-check {
+  margin-left: auto;
+  color: var(--accent);
+}
+
+.branch-chip-processing {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success, #23a55a);
+  flex-shrink: 0;
+}
+
+.branch-chip-pending {
+  min-width: 17px;
+  padding: 1px 4px;
+  border-radius: 8px;
+  background: var(--danger, #e74c3c);
+  color: #fff;
+  font-size: 9px;
+  text-align: center;
+}
+
+.branch-chip-row-action {
+  display: flex;
+  padding: 7px;
+  opacity: 0;
+}
+
+.branch-chip-row:hover .branch-chip-row-action,
+.branch-chip-row-action:focus-visible {
+  opacity: 0.7;
+}
+
+.branch-chip-row-action:hover {
+  color: var(--danger, #e74c3c);
+  opacity: 1;
+}
+
+.branch-chip-new {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+  padding: 9px 8px 7px;
+  border-top: 1px solid var(--border-subtle);
+  text-align: left;
+}
+
+.branch-chip-new:hover {
+  color: var(--text);
+}
+
 .project-rename-input {
   width: 100%;
   font-family: "Pretendard", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;

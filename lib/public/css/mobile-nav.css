@@ -160,6 +160,10 @@
     background: rgba(var(--overlay-rgb), 0.06);
   }
 
+  .mobile-project-item.has-pending-perm {
+    animation: permShake 2s ease-in-out infinite;
+  }
+
   .mobile-project-abbrev {
     width: 32px;
     height: 32px;
@@ -436,6 +440,22 @@
     flex-shrink: 0;
     border-radius: 4px;
     object-fit: cover;
+  }
+
+  /* No hover on touch: rest state stays dimmed, the active session shows color. */
+  .mobile-session-vendor-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    border-radius: 3px;
+    object-fit: cover;
+    margin-right: 8px;
+    opacity: 0.5;
+    filter: grayscale(0.9) brightness(0.9);
+  }
+  .mobile-session-item.active .mobile-session-vendor-icon {
+    opacity: 1;
+    filter: none;
   }
 
   /* --- Chat filter bar (horizontal scroll chips) --- */

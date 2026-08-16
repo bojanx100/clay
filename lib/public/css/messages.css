@@ -165,6 +165,20 @@
   display: flex;
 }
 
+.msg-user-delegated .bubble {
+  background: color-mix(in srgb, var(--accent) 11%, var(--bg-elevated, var(--bg-hover)));
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.msg-user-delegated .dm-bubble-avatar-other {
+  border-radius: 7px;
+}
+
+.msg-user-delegated .dm-bubble-name {
+  color: var(--accent);
+  font-weight: 650;
+}
+
 /* --- User message action bar --- */
 .msg-actions {
   display: flex;

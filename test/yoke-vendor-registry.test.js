@@ -1,0 +1,87 @@
+var test = require("node:test");
+var assert = require("node:assert");
+
+var yoke = require("../lib/yoke");
+var createKiroAdapter = require("../lib/yoke/adapters/kiro").createKiroAdapter;
+
+var SUPPORTED_VENDORS = ["claude", "codex", "kiro"];
+
+function FakeAcpServer() {
+  this.started = false;
+  this.requestHandlers = {};
+}
+
+FakeAcpServer.prototype.addRequestHandler = function(method, handler) {
+  this.requestHandlers[method] = handler;
+};
+FakeAcpServer.prototype.start = function() {
+  this.started = true;
+  return Promise.resolve();
+};
+FakeAcpServer.prototype.send = function(method) {
+  if (method === "initialize") return Promise.resolve({ protocolVersion: 1 });
+  return Promise.resolve({});
+};
+FakeAcpServer.prototype.stop = function() {
+  this.started = false;
+};
+
+test("YOKE registry covers every supported adapter vendor", function() {
+  for (var i = 0; i < SUPPORTED_VENDORS.length; i++) {
+    var info = yoke.getVendorInfo(SUPPORTED_VENDORS[i]);
+    assert.ok(info);
+    assert.strictEqual(typeof info.displayName, "string");
+    assert.strictEqual(typeof info.loginCommand, "string");
+    assert.ok(Array.isArray(info.sessionModes));
+    assert.ok(info.sessionModes.length > 0);
+    assert.strictEqual(typeof info.osUserIsolation, "boolean");
+    assert.strictEqual(typeof info.rateLimitTracking, "boolean");
+    for (var j = 0; j < info.sessionModes.length; j++) {
+      assert.ok(info.sessionModes[j] === "gui" || info.sessionModes[j] === "tui");
+    }
+  }
+});
+
+test("YOKE registry returns null for an unknown vendor", function() {
+  assert.strictEqual(yoke.getVendorInfo("nope"), null);
+});
+
+test("every YOKE vendor supports GUI sessions", function() {
+  for (var i = 0; i < SUPPORTED_VENDORS.length; i++) {
+    assert.notStrictEqual(yoke.getVendorInfo(SUPPORTED_VENDORS[i]).sessionModes.indexOf("gui"), -1);
+  }
+});
+
+test("Kiro remains unavailable for OS-user isolation", function() {
+  assert.strictEqual(yoke.getVendorInfo("kiro").osUserIsolation, false);
+});
+
+test("Kiro capabilities do not promise stubbed controls", async function() {
+  var adapter = createKiroAdapter({
+    cwd: process.cwd(),
+    _binaryPath: "/contract/kiro-cli",
+    _AcpServerCtor: FakeAcpServer,
+    _fetchModels: function() {
+      return Promise.resolve({ models: ["auto"], defaultModel: "auto", contextWindows: {} });
+    },
+  });
+  var result = await adapter.init();
+  assert.strictEqual(result.capabilities.effort, false);
+  assert.deepStrictEqual(result.capabilities.toolPolicy, ["ask"]);
+  await adapter.shutdown();
+});
+
+test("clampEffort keeps supported levels and maps unsupported ones to the nearest", function() {
+  assert.strictEqual(yoke.clampEffort("claude", "max"), "max");
+  assert.strictEqual(yoke.clampEffort("claude", "minimal"), "low");
+  assert.strictEqual(yoke.clampEffort("codex", "minimal"), "minimal");
+  assert.strictEqual(yoke.clampEffort("codex", "max"), "xhigh");
+  assert.strictEqual(yoke.clampEffort("codex", "medium"), "medium");
+});
+
+test("clampEffort returns undefined for no-effort vendors and junk input", function() {
+  assert.strictEqual(yoke.clampEffort("kiro", "high"), undefined);
+  assert.strictEqual(yoke.clampEffort("claude", "turbo"), undefined);
+  assert.strictEqual(yoke.clampEffort("claude", ""), undefined);
+  assert.strictEqual(yoke.clampEffort("unknown-vendor", "high"), undefined);
+});

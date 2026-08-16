@@ -1,3 +1,75 @@
+# [3.0.0-beta.1](https://github.com/chadbyte/clay/compare/v2.47.0-beta.6...v3.0.0-beta.1) (2026-08-16)
+
+
+* feat(split-view)!: add driver and worker agent pairs ([a726fbc](https://github.com/chadbyte/clay/commit/a726fbcad5150b8622897fc0cfd953a672caed35))
+
+
+### Bug Fixes
+
+* **codex:** report real context window and per-turn usage ([b3da1c5](https://github.com/chadbyte/clay/commit/b3da1c58c0541b9184750124af604f4172e8c7ec))
+* **codex:** route app-server events by thread ([28c47d2](https://github.com/chadbyte/clay/commit/28c47d2348f164c0affb930d6495b083c892bdd8))
+* **notifications:** silence banners for adopted external CLI sessions ([38c53a1](https://github.com/chadbyte/clay/commit/38c53a16d774a153458a41af0f4d8f8557e366ec))
+* **sessions:** prevent deleted CLI sessions from returning ([bf35d78](https://github.com/chadbyte/clay/commit/bf35d78bc92874051f8d88cb6f642a0fef2fcd0a))
+* **sessions:** stop dropping user messages sent into a query gap ([40d537e](https://github.com/chadbyte/clay/commit/40d537e94b85505221a0266bf95dc4afecb9a949))
+* **split-view:** anchor split groups to cliSessionIds so they survive restarts ([a63c3c4](https://github.com/chadbyte/clay/commit/a63c3c43b8e5f8d4554575a8eb57f813c8ce44db))
+* **split-view:** hide the shell context gauge while a split is open ([76b2b30](https://github.com/chadbyte/clay/commit/76b2b30495bb3e62ee4731091ef368fbdcb4e100))
+* **split-view:** replace the U+2AFF glyph with a plain separator and icon ([caaeb3e](https://github.com/chadbyte/clay/commit/caaeb3e9001ee6d0e9d0db83b37866a77facab22))
+* **split-view:** stabilize shared sticky note dragging ([8a9ef5d](https://github.com/chadbyte/clay/commit/8a9ef5da17545ac9e4cbc17fc3763a7e824ae957))
+* **ui:** remove narrow split pane bottom gap ([5e2c57c](https://github.com/chadbyte/clay/commit/5e2c57c4103a9eaee149a96f36cc613f7757d5cd))
+* **yoke:** restore visible thinking streams on claude and codex ([5b04241](https://github.com/chadbyte/clay/commit/5b04241e079b4f6b836a39f8fbfbf55b47b9ff39))
+
+
+### Features
+
+* **permissions:** add per-session YOLO mode ([a408cf9](https://github.com/chadbyte/clay/commit/a408cf9dbbcd7ad790d3bed22dc9b0d1eee4b264))
+* **sessions:** make a split a first-class group (Arc-style) ([398f629](https://github.com/chadbyte/clay/commit/398f629d4bae6f742e9cc2f6fe7a7927378d344f))
+* **sessions:** persist the per-session model across daemon restarts ([c0552b0](https://github.com/chadbyte/clay/commit/c0552b04f8a0a9a8b3b990a2e34d2468610896be))
+* **sessions:** reuse blank sessions and sweep stale ones ([3262d35](https://github.com/chadbyte/clay/commit/3262d35e1c52824bfdad433411e2cdebb272039b))
+* **split-view:** arc-style drop preview and first-class pane headers ([09a195b](https://github.com/chadbyte/clay/commit/09a195ba2a4ed63bf844f89a9d78fd6247c04e09))
+* **ui:** two-pane split view via chrome-less iframe panes ([4f6d5a4](https://github.com/chadbyte/clay/commit/4f6d5a4dcc57328a20eff0dd711913092c848c1c))
+* **yoke:** allow mid-session model switching where the vendor supports it ([64bdd36](https://github.com/chadbyte/clay/commit/64bdd36eb8a8c5727533b1daef5149a3ba4d2932))
+* **yoke:** share skills across vendors ([4c0275d](https://github.com/chadbyte/clay/commit/4c0275db6edcfbc09640f3adfc5d411aa90b6080))
+
+
+### BREAKING CHANGES
+
+* establish the split pair workflow and persisted per-session
+agent configuration as the new major-version behavior.
+
+# [2.47.0-beta.6](https://github.com/chadbyte/clay/compare/v2.47.0-beta.5...v2.47.0-beta.6) (2026-08-15)
+
+
+### Features
+
+* **ui:** present worktrees as branches inside their project ([2bb8915](https://github.com/chadbyte/clay/commit/2bb89153e7600baf464aab7692655a2fa5c3d001))
+
+# [2.47.0-beta.5](https://github.com/chadbyte/clay/compare/v2.47.0-beta.4...v2.47.0-beta.5) (2026-08-15)
+
+
+### Bug Fixes
+
+* **sessions:** use the shared session mapper for the connect-time list ([60642b1](https://github.com/chadbyte/clay/commit/60642b1fa30e4f8cfc45ac6ebac6cd2e388b9db7))
+
+
+### Features
+
+* **sidebar:** show which vendor each session ran on ([daa8437](https://github.com/chadbyte/clay/commit/daa84373c9f5b084dc324cd0c62d90a3797d9b1a))
+
+# [2.47.0-beta.4](https://github.com/chadbyte/clay/compare/v2.47.0-beta.3...v2.47.0-beta.4) (2026-08-15)
+
+
+### Features
+
+* **sessions:** inherit parent context in spawned sessions via fork ([cd18b49](https://github.com/chadbyte/clay/commit/cd18b49c37e0c03bfe7a1a138ec131bb45b26d12))
+* **sessions:** let an agent spawn sibling work sessions ([#358](https://github.com/chadbyte/clay/issues/358)) ([5fc36eb](https://github.com/chadbyte/clay/commit/5fc36eb2d2f1117428e5abfd1cddf20908f9c5f6))
+
+# [2.47.0-beta.3](https://github.com/chadbyte/clay/compare/v2.47.0-beta.2...v2.47.0-beta.3) (2026-08-15)
+
+
+### Features
+
+* **yoke:** add static vendor registry and extend capability map ([df18132](https://github.com/chadbyte/clay/commit/df1813253c1172cf7bf6e8b34062d841789b32f8))
+
 # [2.47.0-beta.2](https://github.com/chadbyte/clay/compare/v2.47.0-beta.1...v2.47.0-beta.2) (2026-08-15)
 
 
