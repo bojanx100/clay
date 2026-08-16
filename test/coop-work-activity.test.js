@@ -79,6 +79,35 @@ test("the latest addressed route wins over earlier ones", function () {
   assert.equal(workActivity.coopWorkActivity(session, resolvers()).target, "Coop topic sidebar controls");
 });
 
+test("the active ingress target wins over a later queued Thread", function () {
+  var session = coopSession({
+    isProcessing: true,
+    coopConversationIngress: { activeIngressId: "coop:active" },
+    pendingCoopIngress: [{ ingressId: "coop:queued" }],
+    history: [
+      { type: "user_message", coopIngressId: "coop:active",
+        coopTopicRef: { topicId: "sidebar-controls" } },
+      { type: "user_message", coopIngressId: "coop:queued",
+        coopProjectRef: { projectId: CLAY } },
+    ],
+  });
+  assert.equal(workActivity.coopWorkActivity(session, resolvers()).target,
+    "Coop topic sidebar controls");
+});
+
+test("background processing never borrows the last foreground Thread target", function () {
+  var session = coopSession({
+    isProcessing: true,
+    history: [
+      { type: "user_message", coopTopicRef: { topicId: "sidebar-controls" } },
+      { type: "user_message", text: "background tick", synthetic: true, autoAction: true },
+    ],
+  });
+  var activity = workActivity.coopWorkActivity(session, resolvers());
+  assert.equal(activity.state, "working");
+  assert.equal(activity.target, "");
+});
+
 test("each work state is reachable and precedence is stable", function () {
   var reviewing = coopSession({ orchestrationTasks: [{ status: "reviewing" }] });
   assert.equal(workActivity.coopWorkActivity(reviewing, resolvers()).state, "reviewing");
@@ -134,7 +163,8 @@ test("undispatched owner ingress still names its topic after a restart", functio
   // pendingCoopIngress is persisted, so a foreground turn that had not been
   // dispatched yet keeps its target across the restart.
   var restarted = coopSession({
-    pendingCoopIngress: [{ ingressId: "coop:1" }],
+    pendingCoopIngress: [{ ingressId: "coop:1",
+      coopTopicRef: { topicId: "sidebar-controls" } }],
     history: [{ type: "user_message", coopTopicRef: { topicId: "sidebar-controls" } }],
   });
   var activity = workActivity.coopWorkActivity(restarted, resolvers());
@@ -577,16 +607,17 @@ test("the production user-message wiring supplies the work-target resolvers", fu
 });
 
 test("a dispatched Coop turn is republished once it is actually processing", function () {
-  // markDispatched publishes before sendPreparedToSdk sets isProcessing, so the
-  // flush must publish again afterwards or the owner reads "Idle" while Coop replies.
-  var queue = fs.readFileSync(path.join(__dirname, "..", "lib", "project-user-message-queue.js"), "utf8");
-  var flush = queue.slice(queue.indexOf("function flushCoopIngress("));
+  // markDispatched publishes before the injected dispatch sets isProcessing,
+  // so the flush must publish again afterwards or the owner reads "Idle"
+  // while Coop replies.
+  var queue = fs.readFileSync(path.join(__dirname, "..", "lib", "coop-ingress-queue.js"), "utf8");
+  var flush = queue.slice(queue.indexOf("function flush("));
   flush = flush.slice(0, flush.indexOf("\nfunction "));
   var dispatchAt = flush.indexOf("markDispatched");
-  var sdkAt = flush.indexOf("sendPreparedToSdk");
-  var publishAt = flush.indexOf("coopControl.publish", sdkAt);
-  assert.ok(dispatchAt !== -1 && sdkAt !== -1, "flush still dispatches through the SDK");
-  assert.ok(publishAt > sdkAt, "state is republished after the turn starts processing");
+  var sendAt = flush.indexOf("dispatch(session");
+  var publishAt = flush.indexOf("coopControl.publish", sendAt);
+  assert.ok(dispatchAt !== -1 && sendAt !== -1, "flush still invokes its SDK dispatch seam");
+  assert.ok(publishAt > sendAt, "state is republished after the turn starts processing");
 });
 
 test("a non-Coop session reports inactive state and no work target", function () {

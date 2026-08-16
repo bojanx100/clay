@@ -206,6 +206,22 @@ test("Working falls back to a bare label when no target resolved", async functio
   assert.equal(model.workLabel, "Working");
 });
 
+test("queued owner chat acknowledges the message while the current answer finishes", async function () {
+  var ui = await loadState();
+  var stored = ui.state.setCoopConversationState(serverState({
+    replying: true,
+    pendingIngressCount: 1,
+    activeThreadRefs: [{ threadId: "thread-a" }],
+    queuedThreadRefs: [{ threadId: "thread-b" }],
+  }));
+  assert.deepEqual(stored.activeThreadRefs, [{ threadId: "thread-a" }]);
+  assert.deepEqual(stored.queuedThreadRefs, [{ threadId: "thread-b" }]);
+  assert.deepEqual(textsOf(statusNode(ui), "coop-conversation-pending"),
+    ["1 message queued — finishing current answer"]);
+  assert.match(statusNode(ui).getAttribute("aria-label"),
+    /1 message queued — finishing current answer/);
+});
+
 test("an unknown or missing work state degrades to idle rather than blank", async function () {
   var ui = await loadState();
   assert.equal(ui.state.coopConversationDisplayModel(serverState({ workState: "sprinting" })).workState, "idle");

@@ -165,7 +165,7 @@ test("the projection seam is actually supplied now", function () {
 
 test("the client names the explicit Thread lifecycle states", function () {
   var topics = fs.readFileSync(
-    path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topics.js"), "utf8");
+    path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topic-row.js"), "utf8");
   assert.doesNotMatch(topics, /topic\.active \? "Active" : ""/);
   // No code path can produce the string as a label any more. Scoped to the
   // render helper so the comment explaining why it went does not match.
@@ -179,7 +179,7 @@ test("the client names the explicit Thread lifecycle states", function () {
   // No label at all when there is no derived state.
   // Evidence or nothing: no fallback label. A default made every row declare
   // the same unsupported state.
-  assert.match(topics, /return THREAD_STATE_LABELS\[state\] \|\| "";/);
+  assert.match(topics, /var lifecycle = THREAD_STATE_LABELS\[state\] \|\| "";/);
 
   // And the dead `active` field is no longer normalized or emitted.
   var model = fs.readFileSync(
@@ -190,12 +190,12 @@ test("the client names the explicit Thread lifecycle states", function () {
 
 test("the status dot and aria label only claim what is true", function () {
   var topics = fs.readFileSync(
-    path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topics.js"), "utf8");
+    path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topic-row.js"), "utf8");
   // The dot exists ONLY alongside a truthful label. No dot renders for a topic
   // without a derived state. The dot is now inline within the row (not on a
   // separate secondary line) for a single compact row per topic.
-  assert.match(topics, /if \(activity\) \{[\s\S]*?var marker = document\.createElement\("span"\);/);
-  assert.match(topics, /stateLabel\.textContent = activity;/);
+  assert.match(topics, /if \(activity\.label\) \{[\s\S]*?var marker = document\.createElement\("span"\);/);
+  assert.match(topics, /stateLabel\.textContent = activity\.label;/);
   assert.match(topics, /row\.appendChild\(marker\)/);
   assert.doesNotMatch(topics, /meta = document\.createElement\("div"\)/);
   assert.doesNotMatch(topics, /createTopicReviewControl/);

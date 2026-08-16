@@ -175,6 +175,39 @@ test("owner correction reassigns and merges canonical turn references, then undo
   } finally { h.cleanup(); }
 });
 
+test("retro replay consumes exact correction evidence and an undo restores negative membership evidence", function () {
+  var h = harness();
+  try {
+    var canonical = session();
+    h.index.ensureRetro(canonical, { clayProjectRef: { projectId: CLAY }, projects: [] });
+    var rows = durableThreads(h.index);
+    var renderer = threadForTurn(rows, 0);
+    var narrative = threadForTurn(rows, 2);
+    var turn = {
+      projectId: "system-lead", sessionStorageId: canonical.storageId,
+      startEventIndex: 2, endEventIndex: 3,
+    };
+    h.index.reassignTurn(narrative.threadRef, renderer.threadRef, turn);
+
+    var correctedState = h.index.load();
+    correctedState.retro.version = 0;
+    h.index.save();
+    h.index.ensureRetro(canonical, { clayProjectRef: { projectId: CLAY }, projects: [] });
+    assert.deepEqual(h.index.resolveCanonicalEvent(renderer.threadRef, { eventIndex: 2 }).turnRef, turn);
+    assert.equal(h.index.resolveCanonicalEvent(narrative.threadRef, { eventIndex: 2 }).code,
+      "event_not_in_thread");
+
+    h.index.undoLastCorrection();
+    var undoneState = h.index.load();
+    undoneState.retro.version = 0;
+    h.index.save();
+    h.index.ensureRetro(canonical, { clayProjectRef: { projectId: CLAY }, projects: [] });
+    assert.deepEqual(h.index.resolveCanonicalEvent(narrative.threadRef, { eventIndex: 2 }).turnRef, turn);
+    assert.equal(h.index.resolveCanonicalEvent(renderer.threadRef, { eventIndex: 2 }).code,
+      "event_not_in_thread");
+  } finally { h.cleanup(); }
+});
+
 function legacyRecord(topicId, title) {
   return {
     topicRef: { topicId: topicId }, title: title, keywords: [],

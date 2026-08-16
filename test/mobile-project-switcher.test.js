@@ -149,17 +149,18 @@ test("mobile still hides the desktop icon strip, so the sheet control is load-be
 
 test("the compact project-grouped topic list and its controls are preserved", function () {
   var topics = source("sidebar-coop-topics.js");
+  var topicRows = source("sidebar-coop-topic-row.js");
   // One shared render path for desktop and mobile.
   assert.match(topics, /export function renderCoopTopicSections\(container, model, options\)/);
   // All/topic routing.
   assert.match(topics, /requestAllCoopTopics\)/);
   assert.match(topics, /requestMainCoopLens\)/);
   assert.match(topics, /onSelect\(sendUserAction\)/);
-  assert.match(topics, /requestCoopTopic\(topic, sendUserAction\)/);
+  assert.match(topicRows, /requestCoopTopic\(topic, opts\.send\)/);
   // Thread rows remain navigation-only; lifecycle language is handled in the
   // selected Thread while other empty wrappers stay omitted.
-  assert.doesNotMatch(topics, /createTopicMenu|sidebar-coop-topic-close/);
-  assert.match(topics, /createTopicLinksExpander\(topic, options\)/);
+  assert.doesNotMatch(topics + topicRows, /createTopicMenu|sidebar-coop-topic-close/);
+  assert.match(topicRows, /createTopicLinksExpander\(topic, opts\)/);
   assert.match(topics, /if \(items\.length === 0 && opts\.allowEmpty !== true\) return 0/);
   // The project coordinator hierarchy uses the same shared render path.
   assert.match(topics, /function appendProjectSection\(container, section, options\)/);

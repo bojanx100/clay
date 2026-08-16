@@ -1285,6 +1285,8 @@ button.coop-control-result:hover { color: var(--text-primary); }
 .coop-topic-status { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--text-dimmer); }
 .coop-topic-status-exploring { background: var(--accent); }
 .coop-topic-status-parked { background: var(--warning, #d99824); }
+.coop-topic-status-working { background: var(--accent); animation: vendor-dot-pulse 1.1s ease-in-out infinite; }
+.coop-topic-status-queued { background: var(--accent); opacity: .48; }
 .coop-topic-status-closed,
 .coop-topic-status-archived { background: var(--text-dimmer); }
 .coop-topic-wrapper.attention .coop-topic-status { box-shadow: 0 0 0 2px rgba(var(--warning-rgb, 217, 152, 36), .17); }

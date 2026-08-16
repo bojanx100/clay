@@ -211,6 +211,18 @@ test("each Coop control group can appear alone and invalid control sessions stay
   ] });
   assert.deepEqual(sectionShape(councilOnly), ["council:Council"]);
 
+  ui.projection.setGlobalCoopProjection(projectionMessage({ controlPlaneSessions: [
+    { role: "council", title: "Council stale", status: "idle", sessionRef: {
+      projectId: "system-lead", sessionStorageId: "council",
+    } },
+    { role: "council", title: "Council current", status: "running", processing: true,
+      sessionRef: { projectId: "system-lead", sessionStorageId: "council" } },
+  ] }));
+  var normalizedCouncil = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
+  assert.equal(normalizedCouncil[0].sessions.length, 1,
+    "duplicate control-plane records normalize to one stable session row");
+  assert.equal(normalizedCouncil[0].sessions[0].status, "running");
+
   var triageOnly = ui.model.coopTopicSections({ controlPlaneSessions: [{
     role: "triage", title: "Triage", sessionRef: {
       projectId: "system-lead", sessionStorageId: "triage",
@@ -318,6 +330,31 @@ test("Exploring and Parked remain in Threads while Handed off and Closed are omi
     "Handed-off execution appears only beneath the persistent project coordinator");
 });
 
+test("the shared mobile DOM renders every active membership and keeps Parked as lifecycle context", async function () {
+  var ui = await loadTopicControls();
+  var rowModule = await import(modulePath("sidebar-coop-topic-row.js"));
+  ui.store.set({ coopConversationState: {
+    activeThreadRefs: [{ threadId: "exploring" }, { threadId: "parked" }],
+    queuedThreadRefs: [],
+  } });
+  var container = createElement("div");
+  var exploring = rowModule.createCoopTopicRow(topic("exploring", {
+    threadRef: { threadId: "exploring" }, threadState: "exploring",
+  }), { mobile: true, send: function () { return true; } });
+  var parked = rowModule.createCoopTopicRow(topic("parked", {
+    threadRef: { threadId: "parked" }, threadState: "parked",
+  }), { mobile: true, send: function () { return true; } });
+  container.appendChild(exploring);
+  container.appendChild(parked);
+
+  assert.equal(byClass(container, "mobile-coop-topic-status-working").length, 2,
+    "one foreground ingress can pulse every exact Thread membership");
+  assert.equal(byClass(parked, "mobile-coop-topic-state-label")[0].textContent, "Working");
+  assert.match(byClass(parked, "mobile-coop-topic-row")[0].getAttribute("aria-label"),
+    /Working, Parked/);
+  assert.equal(parked.classList.contains("foreground-working"), true);
+});
+
 test("closed records leave navigation and an open payload returns to Threads", async function () {
   var ui = await loadTopicControls();
   function payload(status, threadState, closeOutcome) {
@@ -359,7 +396,7 @@ test("closed records leave navigation and an open payload returns to Threads", a
   var messages = source("app-messages-sessions.js");
   var handler = messages.slice(messages.indexOf("function handleGlobalCoopProjection"));
   handler = handler.slice(0, handler.indexOf("\nfunction ", 1));
-  assert.match(handler, /setGlobalCoopProjection\(msg\)/);
+  assert.match(handler, /setGlobalCoopProjection\(msg, sendCoopTopicMessage\)/);
   assert.match(handler, /renderSessionList\(null\)/);
   assert.match(source("sidebar-sessions.js"), /if \(refreshMobileChatSheet\) refreshMobileChatSheet\(\)/);
 });
@@ -633,8 +670,9 @@ test("the row builder appends the expander only when one was produced", function
   // an unguarded appendChild would throw and a truthy-guard regression would
   // reintroduce an empty expander row.
   var topics = source("sidebar-coop-topics.js");
-  assert.match(topics, /var expander = createTopicLinksExpander\(topic, options\);/);
-  assert.match(topics, /if \(expander\) wrapper\.appendChild\(expander\);/);
+  var row = source("sidebar-coop-topic-row.js");
+  assert.match(row, /var expander = createTopicLinksExpander\(topic, opts\);/);
+  assert.match(row, /if \(expander\) wrapper\.appendChild\(expander\);/);
   // No empty-state affordance survives anywhere.
   assert.doesNotMatch(topics, /No related project sessions|coop-topic-links-empty/);
   assert.doesNotMatch(source("sidebar-coop-topic-links.js"), /No related project sessions|coop-topic-links-empty/);
@@ -724,11 +762,12 @@ test("legacy worker-shaped payloads are ignored rather than translated", async f
 
 test("no forbidden Coop sidebar affordance reappears", function () {
   var topics = source("sidebar-coop-topics.js");
+  var topicRows = source("sidebar-coop-topic-row.js");
   var links = source("sidebar-coop-topic-links.js");
   var closeSource = source("sidebar-coop-topic-close.js");
   var controls = source("coop-thread-controls.js");
   var model = source("sidebar-coop-topic-model.js");
-  var all = topics + links + closeSource + controls + model;
+  var all = topics + topicRows + links + closeSource + controls + model;
   assert.doesNotMatch(all, /New topic|coop-topic-create|coop_topic_create/);
   assert.doesNotMatch(all, /report-card|reportCard|coop-topic-diagnostics/);
   assert.doesNotMatch(all, /coop-topic-actions|coop-topic-drawer|coop-topic-details/);
@@ -764,10 +803,10 @@ test("the decision panel stays accessible and Closed navigation is absent", func
 // --- Topic-row layout contract (title primary, quiet meta line, one overflow) ---
 
 test("the Thread row keeps the title primary and shows lifecycle text plus an inline dot", function () {
-  var topics = source("sidebar-coop-topics.js");
+  var topics = source("sidebar-coop-topic-row.js");
   // The title is the primary content; the status dot is now inline within the
   // row button for a single compact row. No secondary meta line is created.
-  var rowBuilder = topics.slice(topics.indexOf("function createTopicRow("));
+  var rowBuilder = topics.slice(topics.indexOf("export function createCoopTopicRow("));
   rowBuilder = rowBuilder.slice(0, rowBuilder.indexOf("\nfunction ", 1));
   assert.ok(rowBuilder.indexOf("row.appendChild(title)") !== -1);
   assert.ok(rowBuilder.indexOf("row.appendChild(marker)") !== -1,
@@ -781,8 +820,8 @@ test("the Thread row keeps the title primary and shows lifecycle text plus an in
   // dot is visible.
   assert.ok(rowBuilder.indexOf("topicAriaLabel(topic, activity)") !== -1);
   // The dot has a title attribute and uses the explicit lifecycle state class.
-  assert.match(rowBuilder, /marker\.setAttribute\("title", activity\)/);
-  assert.match(rowBuilder, /topicStatusClass\(topic\.threadState\)/);
+  assert.match(rowBuilder, /marker\.setAttribute\("title", activity\.label\)/);
+  assert.match(rowBuilder, /topicStatusClass\(activity\.status\)/);
   assert.doesNotMatch(rowBuilder, /data-animating/);
   // No status text appears anywhere in the row.
   assert.doesNotMatch(topics, /\.coop-topic-activity {/);
@@ -794,6 +833,8 @@ test("the Thread row keeps the title primary and shows lifecycle text plus an in
   var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
   assert.match(css, /\.coop-topic-status-exploring \{ background: var\(--accent\)/);
   assert.match(css, /\.coop-topic-status-parked \{ background: var\(--warning/);
+  assert.match(css, /\.coop-topic-status-working .*animation: vendor-dot-pulse/);
+  assert.match(css, /\.coop-topic-status-queued .*opacity: \.48/);
   assert.match(css, /\.coop-topic-status-closed,/);
 });
 
@@ -812,7 +853,7 @@ test("Thread rows expose no lifecycle control menu", function () {
   assert.match(closeSource, /toggle\.focus\(\)/);
   assert.match(closeSource, /addEventListener\("focusout"/);
   // No lifecycle affordance survives on the live row.
-  var topics = source("sidebar-coop-topics.js");
+  var topics = source("sidebar-coop-topics.js") + source("sidebar-coop-topic-row.js");
   assert.doesNotMatch(topics, /createTopicMenu|sidebar-coop-topic-close/);
   assert.doesNotMatch(topics, /createTopicCloseButton/);
 });

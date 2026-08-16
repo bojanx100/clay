@@ -78,6 +78,22 @@ test("a turn cut short by the owner's next message did not answer the owner", fu
   assert.notEqual(ledger.get(INGRESS).response.state, "answered");
 });
 
+test("a checkpoint-gated interrupt preserves a coherent active owner answer", function () {
+  var ledger = tempLedger();
+  recordIngress(ledger);
+  var session = coopSession([
+    { type: "user_message" },
+    { type: "delta", text: "A complete answer." },
+    { type: "done", code: 0 },
+  ]);
+  session.coopPriorityInterruptRequested = true;
+  session.coopCheckpointInterruptRequested = true;
+
+  assert.equal(conversationControl.markIngressAnswered(session, ledger), true);
+  assert.equal(ledger.get(INGRESS).response.state, "answered");
+  assert.equal(session.coopCheckpointInterruptRequested, false);
+});
+
 test("a turn still in flight has not answered anyone", function () {
   var ledger = tempLedger();
   recordIngress(ledger);

@@ -6,10 +6,18 @@ var queueModule = require("../lib/project-user-message-queue");
 
 function makeHarness(session) {
   var events = [];
+  var subscribers = [];
   var sm = {
     saveSessionFile: function () { events.push("save"); },
     broadcastSessionList: function () { events.push("broadcast"); },
     queuedUserMessagesForClient: function () { return []; },
+    subscribeSession: function (_, callback) {
+      subscribers.push(callback);
+      return function () {
+        var index = subscribers.indexOf(callback);
+        if (index !== -1) subscribers.splice(index, 1);
+      };
+    },
   };
   var control = controlModule.attachCoopConversationControl({
     sm: sm,
@@ -27,7 +35,15 @@ function makeHarness(session) {
     onUserMessageDispatched: function () { return ""; },
     ensureProjectAccessForSession: function () { return null; },
   });
-  return { control: control, events: events, queue: queue };
+  return {
+    control: control,
+    emit: function (event) {
+      subscribers.slice().forEach(function (callback) { callback(event); });
+    },
+    events: events,
+    queue: queue,
+    subscriberCount: function () { return subscribers.length; },
+  };
 }
 
 test("Coop ingress has stable FIFO text and voice ids and rejects reconnect duplicates", function () {
@@ -91,6 +107,131 @@ test("active Coop turns prioritize later ingress without using the normal queue"
   assert.equal(h.events.includes("start:first"), true);
   assert.equal(session.history[0].coopIngressPending, undefined);
   assert.equal(session.history[0].coopIngressDispatchedAt > 0, true);
+});
+
+test("a later Coop ingress queues without aborting the active owner answer", function () {
+  var activeIngressId = "coop:coop-active-owner:1";
+  var session = {
+    localId: 81,
+    storageId: "coop-active-owner",
+    coopHome: true,
+    history: [
+      { type: "user_message", coopIngressId: activeIngressId,
+        coopThreadRef: { threadId: "thread-a" }, coopTopicRef: { topicId: "thread-a" } },
+      { type: "user_message", coopIngressId: "coop:coop-active-owner:2", coopIngressPending: true,
+        coopThreadRef: { threadId: "thread-b" }, coopTopicRef: { topicId: "thread-b" } },
+    ],
+    coopConversationIngress: { activeIngressId: activeIngressId, nextSequence: 3, recent: [] },
+    isProcessing: true,
+    pendingUserMessageQueue: [],
+  };
+  var aborted = 0;
+  session.abortController = { abort: function () { aborted++; } };
+  var h = makeHarness(session);
+
+  h.queue.dispatchPreparedToSdk(session, {
+    coopIngress: true, ingressId: "coop:coop-active-owner:2", ingressSequence: 2,
+    finalText: "second", displayText: "second", images: null, pastes: null,
+    imageCount: 0, clientMessageId: "two", intent: "chat",
+    coopThreadRef: { threadId: "thread-b" }, coopTopicRef: { topicId: "thread-b" },
+  });
+
+  assert.equal(aborted, 0);
+  assert.equal(session.taskStopRequested, undefined);
+  assert.equal(session.coopPriorityInterruptRequested, undefined);
+  assert.deepEqual(session.pendingCoopIngress.map(function (item) { return item.ingressId; }),
+    ["coop:coop-active-owner:2"]);
+  var state = h.control.clientState(session);
+  assert.deepEqual(state.activeThreadRefs, [{ threadId: "thread-a" }]);
+  assert.deepEqual(state.queuedThreadRefs, [{ threadId: "thread-b" }]);
+});
+
+test("a queued owner ingress interrupts only after the active answer reaches a semantic checkpoint", function () {
+  var activeIngressId = "coop:coop-checkpoint:1";
+  var session = {
+    localId: 82,
+    storageId: "coop-checkpoint",
+    coopHome: true,
+    history: [{ type: "user_message", coopIngressId: activeIngressId }],
+    coopConversationIngress: {
+      activeIngressId: activeIngressId, activeResponseStartIndex: 1,
+      nextSequence: 3, recent: [],
+    },
+    isProcessing: true,
+    pendingUserMessageQueue: [],
+  };
+  var aborted = 0;
+  session.abortController = { abort: function () { aborted++; } };
+  var h = makeHarness(session);
+
+  h.queue.dispatchPreparedToSdk(session, {
+    coopIngress: true, ingressId: "coop:coop-checkpoint:2", ingressSequence: 2,
+    finalText: "second", displayText: "second", intent: "chat",
+  });
+  assert.equal(aborted, 0, "the current sentence is never cut in half");
+  assert.equal(h.subscriberCount(), 1, "the deferred interrupt watches the live turn");
+
+  var partial = { type: "delta", text: "The first answer is still" };
+  session.history.push(partial);
+  h.emit(partial);
+  assert.equal(aborted, 0);
+
+  var checkpoint = { type: "delta", text: " coherent." };
+  session.history.push(checkpoint);
+  h.emit(checkpoint);
+  assert.equal(aborted, 1);
+  assert.equal(session.coopPriorityInterruptRequested, true);
+  assert.equal(session.coopCheckpointInterruptRequested, true);
+  assert.equal(h.subscriberCount(), 0);
+});
+
+test("a naturally completed active answer cancels its deferred interrupt", function () {
+  var session = {
+    localId: 83,
+    storageId: "coop-natural-completion",
+    coopHome: true,
+    history: [{ type: "user_message", coopIngressId: "coop:coop-natural-completion:1" }],
+    coopConversationIngress: {
+      activeIngressId: "coop:coop-natural-completion:1", activeResponseStartIndex: 1,
+      nextSequence: 3, recent: [],
+    },
+    isProcessing: true,
+    pendingUserMessageQueue: [],
+  };
+  var aborted = 0;
+  session.abortController = { abort: function () { aborted++; } };
+  var h = makeHarness(session);
+  h.queue.dispatchPreparedToSdk(session, {
+    coopIngress: true, ingressId: "coop:coop-natural-completion:2", ingressSequence: 2,
+    finalText: "second", displayText: "second", intent: "chat",
+  });
+
+  session.isProcessing = false;
+  var done = { type: "done", code: 0 };
+  session.history.push(done);
+  h.emit(done);
+  assert.equal(aborted, 0);
+  assert.equal(h.subscriberCount(), 0);
+});
+
+test("client state attributes one active ingress to every exact Thread membership", function () {
+  var storageId = "coop-multi-membership";
+  var session = {
+    localId: 84,
+    storageId: storageId,
+    coopHome: true,
+    history: [{ type: "user_message", coopIngressId: "coop:multi:1" }],
+    coopConversationIngress: { activeIngressId: "coop:multi:1", activeResponseStartIndex: 1 },
+    isProcessing: true,
+  };
+  var topicIndex = { load: function () { return { topics: {
+    alpha: { threadRef: { threadId: "alpha" }, status: "open",
+      eventRefs: [{ sessionStorageId: storageId, eventIndex: 0 }], turnRefs: [] },
+    beta: { threadRef: { threadId: "beta" }, status: "open",
+      eventRefs: [{ sessionStorageId: storageId, eventIndex: 0 }], turnRefs: [] },
+  } }; } };
+  var state = controlModule.clientState(session, { topicIndex: topicIndex });
+  assert.deepEqual(state.activeThreadRefs, [{ threadId: "alpha" }, { threadId: "beta" }]);
 });
 
 test("restart recovery rebuilds only undispatched Coop ingress and preserves foreground priority", function () {

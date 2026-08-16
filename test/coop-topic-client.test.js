@@ -142,11 +142,55 @@ test("topic selection forces a filtered replay even when canonical Coop is alrea
   assert.equal(sent.length, 1);
 });
 
+test("a stale selection acknowledgement cannot clear a newer pending Thread", async function () {
+  var ui = await loadProjectionUi();
+  var storeModule = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "store.js")).href);
+  storeModule.createStore({ activeCoopHome: true, activeSessionId: 7 });
+  var first = topic("topic-first");
+  var second = topic("topic-second");
+  ui.setGlobalCoopProjection({ type: "global_coop_projection", coop: { localId: 7 },
+    projects: [], topics: [first, second] });
+  var sent = [];
+  ui.requestCoopTopic(first, function (message) { sent.push(message); return true; });
+  ui.requestCoopTopic(second, function (message) { sent.push(message); return true; });
+
+  ui.handleCoopTopicSelected({ type: "coop_topic_selected", ok: true,
+    topicRef: first.topicRef, projectRef: null });
+  assert.deepEqual(storeModule.store.get("pendingCoopSelection").topicRef, second.topicRef);
+  assert.equal(storeModule.store.get("activeCoopTopicRef"), undefined);
+
+  ui.handleCoopTopicSelected({ type: "coop_topic_selected", ok: true,
+    topicRef: second.topicRef, projectRef: null });
+  assert.deepEqual(storeModule.store.get("activeCoopTopicRef"), second.topicRef);
+  assert.equal(storeModule.store.get("pendingCoopSelection"), null);
+});
+
+test("a removed active Thread requests a safe fallback to Main", async function () {
+  var ui = await loadProjectionUi();
+  var storeModule = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "store.js")).href);
+  var selected = topic("topic-removed");
+  storeModule.createStore({ activeCoopHome: true, activeSessionId: 7,
+    activeCoopLens: { topicRef: selected.topicRef, projectRef: null, title: selected.title },
+    activeCoopTopicRef: selected.topicRef, activeCoopProjectRef: null,
+    activeCoopLensScope: "topic" });
+  ui.setGlobalCoopProjection({ type: "global_coop_projection", coop: { localId: 7 },
+    projects: [], topics: [selected] });
+  var sent = [];
+  ui.setGlobalCoopProjection({ type: "global_coop_projection", coop: { localId: 7 },
+    projects: [], topics: [] }, function (message) { sent.push(message); return true; });
+
+  assert.equal(storeModule.store.get("activeCoopTopicRef"), null);
+  assert.equal(storeModule.store.get("activeCoopLensScope"), "main");
+  assert.deepEqual(sent, [{ type: "coop_topic_select", topicRef: null,
+    projectRef: null, historyScope: "main" }]);
+});
+
 test("All restores the unfiltered canonical replay contract", async function () {
   var ui = await loadProjectionUi();
   var storeModule = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "store.js")).href);
-  storeModule.createStore({ activeCoopHome: true, activeSessionId: 7, activeCoopTopicRef: { topicId: "topic-active" } });
-  ui.setGlobalCoopProjection({ type: "global_coop_projection", coop: { localId: 7 }, projects: [], topics: [] });
+  var active = topic("topic-active");
+  storeModule.createStore({ activeCoopHome: true, activeSessionId: 7, activeCoopTopicRef: active.topicRef });
+  ui.setGlobalCoopProjection({ type: "global_coop_projection", coop: { localId: 7 }, projects: [], topics: [active] });
   var sent = [];
   assert.equal(ui.requestAllCoopTopics(function (message) { sent.push(message); return true; }), true);
   assert.equal(storeModule.store.get("activeCoopTopicRef").topicId, "topic-active");
@@ -267,13 +311,14 @@ test("durable topic actions use explicit WS types and exact references", async f
   }
 });
 
-test("topic URL history and stale selection fail closed", async function () {
+test("topic URL history and removed selection fall back closed", async function () {
   var ui = await loadProjectionUi();
   var storeModule = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "store.js")).href);
   assert.equal(ui.projectLensPath("/p/lead/", "?keep=1", { projectId: "p1" }, { topicId: "t1" }), "/p/lead/?keep=1&coopProject=p1&coopTopic=t1");
   storeModule.createStore({ activeCoopHome: true, activeCoopTopicRef: { topicId: "removed" } });
   ui.setGlobalCoopProjection({ type: "global_coop_projection", coop: { localId: 7 }, projects: [], topics: [] });
-  assert.equal(ui.isActiveCoopTopicStale(), true);
+  assert.equal(ui.isActiveCoopTopicStale(), false);
+  assert.equal(ui.activeCoopLensScope(), "main");
   assert.equal(ui.getActiveCoopSelection(), null);
 });
 
@@ -308,6 +353,7 @@ test("Coop navigation renders only compact topic chat rows", function () {
   var desktop = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-sessions.js"), "utf8");
   var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-mobile.js"), "utf8");
   var topics = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topics.js"), "utf8");
+  var topicRows = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topic-row.js"), "utf8");
   var topicModel = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topic-model.js"), "utf8");
   var desktopCss = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
   var mobileCss = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"), "utf8");
@@ -323,13 +369,13 @@ test("Coop navigation renders only compact topic chat rows", function () {
   assert.doesNotMatch(topicModel, /coop_topic_create/);
   assert.doesNotMatch(desktopCss, /coop-topic-create/);
   assert.doesNotMatch(mobileCss, /coop-topic-create/);
-  assert.match(topics, /topicActivity\(topic\)/);
-  assert.match(topics, /topic\.unread > 0/);
+  assert.match(topicRows, /topicActivity\(topic\)/);
+  assert.match(topicRows, /topic\.unread > 0/);
   assert.doesNotMatch(topics, /topic\.controlResults/,
     "control results are not rendered beneath historical Thread rows");
   assert.match(topics, /requestCoopTopic\(\{ topicRef: result\.topicRef, projectRef: null \}, send\)/,
     "dedicated control results navigate through their canonical ThreadRef");
-  assert.match(topics, /requestCoopTopic\(topic, sendUserAction\).*finishNavigation\(options\)/s);
+  assert.match(topicRows, /requestCoopTopic\(topic, opts\.send\).*finishNavigation\(opts\)/s);
   // All and Main are now two mutually exclusive lens buttons built by one
   // helper, so the routing assertion follows the helper rather than a direct
   // call. Both still route through sendUserAction and finish navigation.

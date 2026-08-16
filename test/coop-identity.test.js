@@ -232,7 +232,7 @@ test("the Thread action cannot expose an internal identifier", function () {
 });
 
 test("topic rows render the canonical title rather than the raw projection field", function () {
-  var topics = source("sidebar-coop-topics.js");
+  var topics = source("sidebar-coop-topic-row.js");
   assert.match(topics, /import \{ canonicalTopicTitle \} from '\.\/coop-identity\.js'/);
   assert.match(topics, /title\.textContent = canonicalTopicTitle\(topic, ""\)/);
   assert.match(topics, /var parts = \[canonicalTopicTitle\(topic, ""\)/);
