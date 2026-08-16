@@ -1,7 +1,9 @@
 var test = require("node:test");
 var assert = require("node:assert");
 var crypto = require("crypto");
+var childProcess = require("child_process");
 var fs = require("fs");
+var net = require("net");
 var os = require("os");
 var path = require("path");
 
@@ -181,6 +183,52 @@ availableTest("multi-project preparation is a barrier and refuses partial checkp
   }
 });
 
+test("restart CLI reports a typed IPC checkpoint refusal as failure", async function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-restart-ipc-refusal-"));
+  var socket = path.join(dir, "daemon-dev.sock");
+  var server = net.createServer(function (connection) {
+    var buffer = "";
+    connection.setEncoding("utf8");
+    connection.on("data", function (chunk) {
+      buffer += chunk;
+      if (buffer.indexOf("\n") === -1) return;
+      connection.write(JSON.stringify({ ok: false,
+        code: "COOP_CONTROL_RESTART_CHECKPOINT_REQUIRED",
+        error: "Controlled execution checkpoint is unavailable." }) + "\n");
+    });
+  });
+  try {
+    fs.writeFileSync(path.join(dir, "daemon-dev.json"),
+      JSON.stringify({ pid: process.pid, projects: [] }));
+    await new Promise(function (resolve, reject) {
+      server.once("error", reject);
+      server.listen(socket, resolve);
+    });
+    var result = await new Promise(function (resolve, reject) {
+      var child = childProcess.spawn(process.execPath,
+        [path.join(__dirname, "..", "bin", "cli.js"), "--dev", "--restart"], {
+          cwd: path.join(__dirname, ".."),
+          env: Object.assign({}, process.env, { CLAY_DEV: "1", CLAY_HOME: dir }),
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      var stdout = "";
+      var stderr = "";
+      child.stdout.on("data", function (chunk) { stdout += chunk.toString(); });
+      child.stderr.on("data", function (chunk) { stderr += chunk.toString(); });
+      child.once("error", reject);
+      child.once("exit", function (code) {
+        resolve({ code: code, stderr: stderr, stdout: stdout });
+      });
+    });
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /Restart failed: Controlled execution checkpoint is unavailable\./);
+    assert.doesNotMatch(result.stdout, /Server restarted\./);
+  } finally {
+    await new Promise(function (resolve) { server.close(resolve); });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 availableTest("abrupt restart without a complete checkpoint stays explicit and fail-closed", function () {
   var h = harness();
   try {
@@ -200,6 +248,70 @@ availableTest("abrupt restart without a complete checkpoint stays explicit and f
     assert.equal(h.control.inspect(active.token.executionId).leases.length, 1);
     startup.close();
   } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("a terminal failed execution safely reconciles its prepared restart handoff once", function () {
+  var h = harness();
+  var storeTwo = null;
+  var controlTwo = null;
+  var handoffTwo = null;
+  var startupTwo = null;
+  try {
+    var active = h.addExecution({ taskId: "terminal-before-restart-recovery",
+      projectId: PROJECT_A, sessionStorageId: "terminal-before-restart-recovery" });
+    h.router.completeControlledStartup();
+    assert.equal(h.router.prepareControlledRestart().preparedHandoffs, 1);
+    var prepared = h.store.listHandoffs()[0];
+
+    active.session._coopExecutionFence.abandon("provider_start_failed");
+    var terminal = h.control.inspect(active.token.executionId);
+    assert.equal(terminal.execution.status, "failed");
+    assert.equal(terminal.current.failureCode, "provider_start_failed");
+    assert.equal(terminal.leases.length, 0);
+    assert.equal(h.store.listHandoffs()[0].state, "prepared");
+    assert.equal(h.router.bindingStore.list().length, 1);
+    assert.equal(h.manager(PROJECT_A).sessions.size, 1);
+
+    h.control.close();
+    h.store.close();
+    storeTwo = storeModule.openControlStore({ dbPath: h.dbPath });
+    controlTwo = executions.createExecutionControl({ enabled: true, store: storeTwo });
+    handoffTwo = handoffs.createHandoffControl({ enabled: true, store: storeTwo,
+      executionControl: controlTwo });
+    startupTwo = startupModule.createStartupRecovery({ enabled: true, store: storeTwo,
+      executionControl: controlTwo, handoffControl: handoffTwo });
+
+    var recovered = startupTwo.recover({});
+    assert.equal(recovered.abortedHandoffs, 1);
+    assert.equal(startupTwo.isReady(), true);
+    assert.equal(handoffTwo.inspect(prepared.handoff_id).state, "aborted");
+    assert.equal(handoffTwo.inspect(prepared.handoff_id).failureCode,
+      "terminal_execution_reconciled");
+    assert.equal(controlTwo.inspect(active.token.executionId).execution.status, "failed");
+    assert.equal(controlTwo.inspect(active.token.executionId).leases.length, 0);
+    assert.equal(startupTwo.recover({}).abortedHandoffs, 1,
+      "repeated recovery returns the completed fixed point");
+
+    var routerTwo = createCrossProjectRouter({ bindingFile: h.bindingFile,
+      coopExecutionControl: controlTwo, coopStartupRecovery: startupTwo });
+    routerTwo.registerProjectResolver({
+      getProjectId: function () { return PROJECT_A; },
+      getSessionManager: function () { return h.manager(PROJECT_A); },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    });
+    routerTwo.completeControlledStartup();
+    assert.equal(routerTwo.controlledIngressState(), "open");
+    assert.equal(routerTwo.prepareControlledRestart().preparedHandoffs, 0);
+    assert.equal(storeTwo.listHandoffs().length, 1);
+    assert.equal(routerTwo.bindingStore.list().length, 1);
+    assert.equal(h.manager(PROJECT_A).sessions.size, 1);
+  } finally {
+    try { if (startupTwo) startupTwo.close(); } catch (error) {}
+    try { if (handoffTwo) handoffTwo.close(); } catch (error) {}
+    try { if (controlTwo) controlTwo.close(); } catch (error) {}
+    try { if (storeTwo) storeTwo.close(); } catch (error) {}
     h.cleanup();
   }
 });

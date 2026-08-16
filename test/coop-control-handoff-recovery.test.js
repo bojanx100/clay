@@ -430,6 +430,58 @@ availableTest("startup recovery refuses non-handoff incarnations without stampin
   }
 });
 
+availableTest("terminal cutover and replaying handoffs remain fail-closed", function () {
+  ["cutover", "replaying"].forEach(function (state) {
+    var h = harness();
+    try {
+      var predecessor = started(h.control);
+      var prepared = h.handoff.prepare({ class: "A", reason: "provider_unhealthy",
+        predecessor: predecessor, from: OLD, continuity: continuityPacket(predecessor) });
+      var successor = h.handoff.cutover(prepared.handoffId);
+      if (state === "replaying") successor = h.handoff.recover(prepared.handoffId);
+      h.control.abandon(successor.token, "provider_start_failed");
+      var startup = startupModule.createStartupRecovery({ enabled: true, store: h.store,
+        executionControl: h.control, handoffControl: h.handoff });
+      assert.throws(function () { startup.recover({}); }, function (error) {
+        return error && error.code === "COOP_CONTROL_RESTART_RECOVERY_REQUIRED";
+      }, state);
+      assert.equal(startup.state(), "recovery_required", state);
+      assert.equal(h.handoff.inspect(prepared.handoffId).state, state, state);
+      assert.equal(h.control.inspect(predecessor.executionId).execution.status, "failed", state);
+      assert.equal(h.control.inspect(predecessor.executionId).leases.length, 0, state);
+      startup.close();
+    } finally {
+      h.cleanup();
+    }
+  });
+});
+
+availableTest("a terminal prepared handoff with a created successor remains fail-closed", function () {
+  var h = harness();
+  try {
+    var predecessor = started(h.control);
+    var prepared = h.handoff.prepare({ class: "B", reason: "context_exhausted",
+      predecessor: predecessor, from: OLD, successor: NEW,
+      continuity: continuityPacket(predecessor) });
+    h.handoff.ensureSuccessor(prepared.handoffId, function () {
+      return successorEvidence(NEW, "receipt-terminal-conflict");
+    });
+    h.control.abandon(predecessor, "provider_start_failed");
+    var startup = startupModule.createStartupRecovery({ enabled: true, store: h.store,
+      executionControl: h.control, handoffControl: h.handoff });
+    assert.throws(function () { startup.recover({}); }, function (error) {
+      return error && error.code === "COOP_CONTROL_RESTART_RECOVERY_REQUIRED";
+    });
+    assert.equal(startup.state(), "recovery_required");
+    assert.equal(h.handoff.inspect(prepared.handoffId).state, "prepared");
+    assert.equal(h.handoff.inspect(prepared.handoffId).successorState, "created");
+    assert.equal(h.control.inspect(predecessor.executionId).leases.length, 0);
+    startup.close();
+  } finally {
+    h.cleanup();
+  }
+});
+
 availableTest("checkpoint corruption fails activation closed instead of appearing empty", function () {
   var h = harness();
   var handoffId;

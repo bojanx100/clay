@@ -228,7 +228,12 @@ if (restartMode) {
       console.error("No running daemon found.");
       process.exit(1);
     }
-    sendIPCCommand(socketPath(), { cmd: "restart" }).then(function () {
+    sendIPCCommand(socketPath(), { cmd: "restart" }).then(function (result) {
+      if (!result || result.ok !== true) {
+        console.error("Restart failed:", result && result.error || "daemon refused restart");
+        process.exit(1);
+        return;
+      }
       console.log("Server restarted.");
       process.exit(0);
     }).catch(function (err) {
