@@ -243,6 +243,187 @@ test("resident project tasks continue exact cross-project coordinators without a
   assert.equal(root.orchestrationTasks[0].status, "dismissed");
 });
 
+test("canonical Coop controls resident project tasks through exact provenance", function () {
+  var calls = [];
+  var dismissals = [];
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var canonicalId = "871a194b-8879-40f7-a1fe-656e48e722af";
+  var residentId = "457f9fa1-7024-40cc-acee-2cef6b2b8445";
+  var bindings = {
+    "canonical-control": {
+      portfolioTaskId: "canonical-control", bindingRevision: 1,
+      mode: "project_coordinator", targetProject: { projectId: projectId },
+      projectCoordinator: { projectId: "system-lead", sessionStorageId: residentId },
+      coordinator: { projectId: projectId, sessionStorageId: "target-control" },
+    },
+    "canonical-dismiss": {
+      portfolioTaskId: "canonical-dismiss", bindingRevision: 1,
+      mode: "project_coordinator", targetProject: { projectId: projectId },
+      projectCoordinator: { projectId: "system-lead", sessionStorageId: residentId },
+      coordinator: { projectId: projectId, sessionStorageId: "target-dismiss" },
+    },
+    "canonical-mismatch": {
+      portfolioTaskId: "canonical-mismatch", bindingRevision: 1,
+      mode: "project_coordinator", targetProject: { projectId: "other-project" },
+      projectCoordinator: { projectId: "system-lead", sessionStorageId: residentId },
+      coordinator: { projectId: projectId, sessionStorageId: "target-mismatch" },
+    },
+  };
+  var ctx = testContext(new Map(), {
+    projectId: "system-lead",
+    slug: "lead",
+    crossProject: {
+      getExecutionBinding: function (portfolioTaskId) {
+        return bindings[portfolioTaskId] || null;
+      },
+      messageProjectExecution: function (input) {
+        calls.push(input);
+        return { ok: true };
+      },
+      dismissProjectExecution: function (input) {
+        dismissals.push(input);
+        return { ok: true };
+      },
+      registerProjectResolver: function () { return function () {}; },
+      reconcileStrandedCompletions: function () {},
+    },
+  });
+  var canonical = coordinator(ctx);
+  canonical.storageId = canonicalId;
+  canonical.coopHome = true;
+  var resident = {
+    localId: 2,
+    storageId: residentId,
+    title: "Clay coordinator",
+    history: [],
+    isProcessing: false,
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: canonicalId, since: 1 },
+    orchestrationPolicy: { coopControlPlane: {
+      version: 1,
+      role: "project_coordinator",
+      projectRef: { projectId: projectId },
+      createdAt: 1,
+    } },
+    orchestrationTasks: [{
+      taskId: "task-canonical-control",
+      clientRef: "portfolio:canonical-control:1",
+      externalTaskCoordinator: true,
+      status: "needs_input",
+      coopProjectRef: { projectId: projectId },
+      workerSessionRef: { projectId: projectId, sessionStorageId: "target-control" },
+      workerStorageId: "target-control",
+    }, {
+      taskId: "task-canonical-dismiss",
+      clientRef: "portfolio:canonical-dismiss:1",
+      externalTaskCoordinator: true,
+      status: "needs_input",
+      coopProjectRef: { projectId: projectId },
+      workerSessionRef: { projectId: projectId, sessionStorageId: "target-dismiss" },
+      workerStorageId: "target-dismiss",
+    }, {
+      taskId: "task-canonical-mismatch",
+      clientRef: "portfolio:canonical-mismatch:1",
+      externalTaskCoordinator: true,
+      status: "needs_input",
+      coopProjectRef: { projectId: projectId },
+      workerSessionRef: { projectId: projectId, sessionStorageId: "target-mismatch" },
+      workerStorageId: "target-mismatch",
+    }],
+    orchestrationEvents: [],
+  };
+  var unrelated = {
+    localId: 3,
+    storageId: "unrelated-coordinator",
+    history: [],
+    coordinationMode: true,
+    orchestrationTasks: [],
+  };
+  ctx.sessions.set(resident.localId, resident);
+  ctx.sessions.set(unrelated.localId, unrelated);
+
+  var sent = ctx.api.messageFromTool({
+    coordinatorSessionId: canonicalId,
+    taskId: "task-canonical-control",
+    message: "Continue the exact resident-owned task.",
+  });
+  assert.equal(sent.isError, undefined);
+  assert.equal(resident.orchestrationTasks[0].status, "running");
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].source,
+    { projectId: "system-lead", sessionStorageId: residentId });
+  assert.deepEqual(calls[0].targetProject, { projectId: projectId });
+  assert.deepEqual(calls[0].targetCoordinator,
+    { projectId: "system-lead", sessionStorageId: residentId });
+
+  resident.orchestrationTasks[0].status = "completed";
+  var retried = ctx.api.retryFromTool({
+    coordinatorSessionId: canonicalId,
+    taskId: "task-canonical-control",
+  });
+  assert.equal(retried.isError, undefined);
+  assert.equal(resident.orchestrationTasks[0].status, "running");
+  assert.equal(calls.length, 2);
+
+  resident.orchestrationTasks[0].status = "needs_input";
+  var requested = ctx.api.requestInputFromTool({
+    coordinatorSessionId: canonicalId,
+    taskIds: ["task-canonical-control"],
+    question: "Should the exact project task continue?",
+    reason: "The owner must choose between two product outcomes.",
+  });
+  assert.equal(requested.isError, undefined);
+  assert.equal(resident.orchestrationTasks[0].status, "waiting_user");
+
+  var resolved = ctx.api.resolveFromTool({
+    coordinatorSessionId: canonicalId,
+    taskId: "task-canonical-control",
+    summary: "The resident-owned project task was integrated.",
+    verification: "Focused control-plane tests passed.",
+    escalationRequired: "no",
+  });
+  assert.equal(resolved.isError, undefined);
+  assert.equal(resident.orchestrationTasks[0].status, "completed");
+
+  var dismissed = ctx.api.dismissFromTool({
+    coordinatorSessionId: canonicalId,
+    taskId: "task-canonical-dismiss",
+    reason: "A newer exact project execution superseded this task.",
+  });
+  assert.equal(dismissed.isError, undefined);
+  assert.equal(resident.orchestrationTasks[1].status, "dismissed");
+  assert.equal(dismissals.length, 1);
+  assert.deepEqual(dismissals[0].source,
+    { projectId: "system-lead", sessionStorageId: residentId });
+
+  var mismatched = ctx.api.messageFromTool({
+    coordinatorSessionId: canonicalId,
+    taskId: "task-canonical-mismatch",
+    message: "This mismatched ProjectRef must fail closed.",
+  });
+  assert.equal(mismatched.isError, true);
+  assert.equal(calls.length, 2);
+
+  var stale = ctx.api.messageFromTool({
+    coordinatorSessionId: "stale-canonical-session",
+    taskId: "task-canonical-control",
+    message: "A stale identity must not control the task.",
+  });
+  assert.equal(stale.isError, true);
+  assert.match(stale.content[0].text, /invalid or non-coordinator session id/);
+
+  var unauthorized = ctx.api.messageFromTool({
+    coordinatorSessionId: unrelated.storageId,
+    taskId: "task-canonical-control",
+    message: "An unrelated coordinator must not control the task.",
+  });
+  assert.equal(unauthorized.isError, true);
+  assert.match(unauthorized.content[0].text, /task not found/);
+  assert.equal(ctx.sessions.size, 3, "task controls never create a Lead-local worker");
+  assert.equal(ctx.starts.length, 0, "task controls route to the exact target project only");
+});
+
 test("plans independent work in parallel and releases a dependent task", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
