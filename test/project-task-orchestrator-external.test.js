@@ -123,6 +123,55 @@ test("the next typed dispatch reuses explicit approval text restored from histor
   assert.deepEqual(delivered.coopTopicRef, topic);
 });
 
+test("queue-wide approval preserves the queued task's original ThreadRef and ingress", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var taskTopic = { topicId: "auto-session-context" };
+  var queueTopic = { topicId: "auto-run-everything-unblocked" };
+  var source = { localId: 1, storageId: "canonical-coop", history: [{
+    type: "user_message",
+    text: "Put Coop's owner controls in Session Context.",
+    coopIngressId: "coop:canonical-coop:323",
+    coopTopicRef: taskTopic,
+    _ts: 100,
+  }, {
+    type: "user_message",
+    text: "Let's run all that you possibly can, anything that is not blocked should run...",
+    coopIngressId: "coop:canonical-coop:339",
+    coopTopicRef: queueTopic,
+    _ts: 300,
+  }] };
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    readLeadEvents: function () { return [{
+      type: "staffing_attention",
+      attentionKey: "clay-coop-owner-control-sidebar-2026-08-15:1",
+      portfolioTaskId: "clay-coop-owner-control-sidebar-2026-08-15",
+      bindingRevision: 1,
+      seq: 40,
+      at: 200,
+    }]; },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+
+  var result = coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-coop-owner-control-sidebar-2026-08-15",
+    bindingRevision: 1,
+    idempotencyKey: "clay-coop-owner-control-sidebar-20260815-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+    coopTopicRef: taskTopic,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:323");
+  assert.equal(delivered.coopAuthorizationIngressId, "coop:canonical-coop:339");
+  assert.deepEqual(delivered.coopTopicRef, taskTopic);
+  assert.deepEqual(delivered.targetProject, { projectId: projectId });
+});
+
 function routedReadOnlyReview(input) {
   var topic = { topicId: "auto-61f5ae911c79deab7fa6b255" };
   var source = { localId: 1, storageId: "canonical-coop", history: [{

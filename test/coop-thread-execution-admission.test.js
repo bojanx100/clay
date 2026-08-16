@@ -5,6 +5,7 @@ var os = require("node:os");
 var path = require("node:path");
 
 var lifecycle = require("../lib/coop-thread-lifecycle");
+var queueAuthorization = require("../lib/coop-queue-authorization");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 
 var PROJECT = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
@@ -39,6 +40,50 @@ test("explicit owner implementation decisions are recognized separately from the
   });
 });
 
+test("queue-wide authorization language and task snapshots stay narrow and bounded", function () {
+  assert.equal(queueAuthorization.explicitQueueAuthorization(
+    "Let's run all that you possibly can, anything that is not blocked should run..."), true);
+  assert.equal(queueAuthorization.explicitQueueAuthorization("Run everything unblocked"), true);
+  assert.equal(queueAuthorization.explicitQueueAuthorization("Can you run everything?"), false);
+  assert.equal(queueAuthorization.explicitQueueAuthorization("Run all tests"), false);
+  assert.equal(queueAuthorization.explicitQueueAuthorization("Do not run everything unblocked"), false);
+
+  var events = [];
+  for (var i = 0; i <= queueAuthorization.MAX_AUTHORIZED_TASKS; i++) {
+    events.push({
+      type: "staffing_attention",
+      attentionKey: "queued-task-" + i + ":1",
+      portfolioTaskId: "queued-task-" + i,
+      bindingRevision: 1,
+      seq: i + 1,
+      at: 100 + i,
+    });
+  }
+  assert.deepEqual(queueAuthorization.snapshotAt(events, 1000), {
+    ok: false,
+    reason: "queue_authorization_scope_too_large",
+    tasks: [],
+  });
+
+  var gated = queueAuthorization.snapshotAt([{
+    type: "staffing_attention", attentionKey: "resolved-task:1",
+    portfolioTaskId: "resolved-task", bindingRevision: 1, seq: 1, at: 100,
+  }, {
+    type: "attention_resolved", attentionKey: "resolved-task:1", seq: 2, at: 120,
+  }, {
+    type: "staffing_attention", attentionKey: "blocked-task:1",
+    portfolioTaskId: "blocked-task", bindingRevision: 1, blocked: true, seq: 3, at: 130,
+  }, {
+    type: "staffing_attention", attentionKey: "eligible-task:1",
+    portfolioTaskId: "eligible-task", bindingRevision: 1, seq: 4, at: 140,
+  }], 200);
+  assert.deepEqual(gated.tasks.map(function (task) { return task.portfolioTaskId; }),
+    ["eligible-task"]);
+  assert.equal(queueAuthorization.taskInSnapshot(gated, {
+    portfolioTaskId: "eligible-task", bindingRevision: 1, budgetException: true,
+  }), null, "typed spend and approval exceptions never inherit a queue-wide grant");
+});
+
 function executionRouter(entries, delivered, handedOff, options) {
   options = options || {};
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-thread-admission-"));
@@ -58,7 +103,15 @@ function executionRouter(entries, delivered, handedOff, options) {
   var router = createCrossProjectRouter({
     bindingFile: path.join(dir, "bindings.json"),
     ownerRequests: {
-      forTopic: function () { return entries; },
+      forTopic: function (topicRef) {
+        return entries.filter(function (entry) {
+          return entry.topicRef && topicRef && entry.topicRef.topicId === topicRef.topicId;
+        });
+      },
+      get: function (ingressId) {
+        return entries.find(function (entry) { return entry.ingressId === ingressId; }) || null;
+      },
+      list: function () { return entries.slice(); },
       classify: function (ingressId, input) {
         classifications++;
         var entry = entries.find(function (candidate) {
@@ -73,6 +126,7 @@ function executionRouter(entries, delivered, handedOff, options) {
       canonicalCoordinator: function () { return claimed; },
       canonicalProjectCoordinator: function () { return null; },
     },
+    readLeadEvents: options.readLeadEvents || function () { return options.leadEvents || []; },
     requireOwnerImplementationDecision: true,
     onThreadHandedOff: function (input) {
       handedOff.push(input);
@@ -190,6 +244,148 @@ test("a generic explicit decision admits the next typed ProjectRef but an explic
       ok: false, reason: "owner_implementation_project_mismatch",
     });
   } finally { fs.rmSync(mismatch.dir, { recursive: true, force: true }); }
+});
+
+test("bounded queue-wide authorization admits an exact queued task without replacing its refs", function () {
+  var delivered = [];
+  var handedOff = [];
+  var queueTopic = { topicId: "auto-run-everything-unblocked" };
+  var authorizationIngress = "coop:canonical-coop:339";
+  var entries = [{
+    ingressId: INGRESS,
+    ingressSequence: 323,
+    receivedAt: 100,
+    topicRef: TOPIC,
+    projectRefs: [{ projectId: PROJECT }],
+    expectsExecution: false,
+    implementationDecision: null,
+    response: { state: "answered" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+  }, {
+    ingressId: authorizationIngress,
+    ingressSequence: 339,
+    receivedAt: 300,
+    topicRef: queueTopic,
+    projectRefs: [],
+    expectsExecution: false,
+    implementationDecision: null,
+    response: { state: "answered" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 1 },
+  }];
+  var approved = executionRouter(entries, delivered, handedOff, {
+    history: [{
+      type: "user_message",
+      text: "Put Coop's owner controls in Session Context.",
+      coopIngressId: INGRESS,
+      coopTopicRef: TOPIC,
+      coopProjectRef: { projectId: PROJECT },
+      _ts: 100,
+    }, {
+      type: "user_message",
+      text: "Let's run all that you possibly can, anything that is not blocked should run...",
+      coopIngressId: authorizationIngress,
+      coopTopicRef: queueTopic,
+      _ts: 300,
+    }],
+    leadEvents: [{
+      type: "staffing_attention",
+      attentionKey: "clay-coop-owner-control-sidebar-2026-08-15:1",
+      portfolioTaskId: "clay-coop-owner-control-sidebar-2026-08-15",
+      bindingRevision: 1,
+      seq: 40,
+      at: 200,
+    }],
+  });
+  try {
+    var request = {
+      source: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+      portfolioTaskId: "clay-coop-owner-control-sidebar-2026-08-15",
+      bindingRevision: 1,
+      idempotencyKey: "clay-coop-owner-control-sidebar-20260815-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT },
+      coopTopicRef: TOPIC,
+      coopIngressId: INGRESS,
+      coopAuthorizationIngressId: authorizationIngress,
+      objective: "Implement the queued owner control sidebar.",
+    };
+    var result = approved.router.createProjectExecution(request);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.binding.coopTopicRef, TOPIC);
+    assert.deepEqual(result.binding.targetProject, { projectId: PROJECT });
+    assert.equal(delivered.length, 1);
+    assert.deepEqual(delivered[0].payload.coopTopicRef, TOPIC);
+    assert.deepEqual(delivered[0].payload.targetProject, { projectId: PROJECT });
+    assert.equal(delivered[0].payload.coopIngressId, INGRESS);
+    assert.equal(delivered[0].payload.coopAuthorizationIngressId, authorizationIngress);
+    assert.deepEqual(handedOff[0].topicRef, TOPIC);
+    assert.deepEqual(handedOff[0].projectRef, { projectId: PROJECT });
+
+    var replay = approved.router.createProjectExecution(request);
+    assert.equal(replay.ok, true);
+    assert.equal(replay.reused, true);
+    assert.equal(delivered.length, 1, "the durable binding keeps retries idempotent");
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("queue-wide authorization rejects tasks added after the authorization snapshot", function () {
+  var queueTopic = { topicId: "auto-run-everything-unblocked" };
+  var authorizationIngress = "coop:canonical-coop:339";
+  var futureIngress = "coop:canonical-coop:340";
+  var entries = [{
+    ingressId: futureIngress,
+    ingressSequence: 340,
+    receivedAt: 400,
+    topicRef: TOPIC,
+    projectRefs: [{ projectId: PROJECT }],
+    response: { state: "answered" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 1 },
+  }, {
+    ingressId: authorizationIngress,
+    ingressSequence: 339,
+    receivedAt: 300,
+    topicRef: queueTopic,
+    projectRefs: [],
+    response: { state: "answered" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+  }];
+  var denied = executionRouter(entries, [], [], {
+    history: [{
+      type: "user_message",
+      text: "Run everything unblocked",
+      coopIngressId: authorizationIngress,
+      coopTopicRef: queueTopic,
+      _ts: 300,
+    }, {
+      type: "user_message",
+      text: "A later task must need a later decision.",
+      coopIngressId: futureIngress,
+      coopTopicRef: TOPIC,
+      coopProjectRef: { projectId: PROJECT },
+      _ts: 400,
+    }],
+    leadEvents: [{
+      type: "staffing_attention",
+      attentionKey: "future-task:1",
+      portfolioTaskId: "future-task",
+      bindingRevision: 1,
+      seq: 41,
+      at: 400,
+    }],
+  });
+  try {
+    assert.deepEqual(denied.router.createProjectExecution({
+      source: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+      portfolioTaskId: "future-task",
+      bindingRevision: 1,
+      idempotencyKey: "future-task-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT },
+      coopTopicRef: TOPIC,
+      coopIngressId: futureIngress,
+      coopAuthorizationIngressId: authorizationIngress,
+    }), { ok: false, reason: "owner_implementation_decision_required" });
+  } finally { fs.rmSync(denied.dir, { recursive: true, force: true }); }
 });
 
 test("an explicit decision creates typed ProjectRef execution and marks the Thread handed off", function () {

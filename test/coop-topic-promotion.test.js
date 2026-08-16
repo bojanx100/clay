@@ -100,6 +100,39 @@ test("a single-turn automatic topic is durable but not projected", function () {
   } finally { h.cleanup(); }
 });
 
+test("an interrupted queue-wide authorization still projects its owner-visible Thread", function () {
+  var h = harness();
+  try {
+    var history = [];
+    var canonical = session(history);
+    h.index.ensureRetro(canonical, {});
+    var text = "Let's run all that you possibly can, anything that is not blocked should run...";
+    var routed = h.index.classifyCanonicalIngress(canonical, { text: text }, {});
+    assert.equal(routed.ok, true);
+    history.push({
+      type: "user_message",
+      text: text,
+      from: "a66ce4a1-b807-46da-b9c3-e62686e4b28e",
+      fromName: "Admin",
+      coopIngressId: "coop:canonical-topic-home:339",
+      coopTopicRef: routed.topicRef,
+    });
+    h.index.addEventMembership(routed.topicRef, [{
+      projectId: "system-lead",
+      sessionStorageId: "canonical-topic-home",
+      eventIndex: 0,
+    }]);
+
+    var stored = h.index.load().topics[routed.topicRef.topicId];
+    assert.equal(stored.turnRefs.length, 0,
+      "the priority-interrupted turn has no completed turn span");
+    assert.equal(stored.eventRefs.length, 1,
+      "send-time binding still preserves its exact owner event");
+    assert.equal(isProjected(h.index, canonical, routed.topicRef.topicId), true,
+      "an actionable queue Thread must not disappear just because its reply was interrupted");
+  } finally { h.cleanup(); }
+});
+
 test("a second owner-relevant turn promotes the topic", function () {
   var h = harness();
   try {
