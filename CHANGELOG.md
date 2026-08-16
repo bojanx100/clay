@@ -1,3 +1,10 @@
+# [3.0.0-beta.2](https://github.com/chadbyte/clay/compare/v3.0.0-beta.1...v3.0.0-beta.2) (2026-08-16)
+
+
+### Bug Fixes
+
+* CVE-2025-14874 security vulnerability ([610b693](https://github.com/chadbyte/clay/commit/610b693b641ff337687b08a2f27f0e7204b7386d))
+
 # [3.0.0-beta.1](https://github.com/chadbyte/clay/compare/v2.47.0-beta.6...v3.0.0-beta.1) (2026-08-16)
 
 
