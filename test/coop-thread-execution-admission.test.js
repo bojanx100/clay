@@ -14,6 +14,9 @@ var automationIdentity = require("../lib/project-automation-identity");
 var createTopicIndex = require("../lib/coop-topic-index").createTopicIndex;
 var activeExecutionMetadata =
   require("../lib/coop-control-execution-target").activeExecutionMetadata;
+var executionBrief = require("../lib/coop-control-execution-target").executionBrief;
+var taskState = require("../lib/orchestration-task-state");
+var portfolioBindings = require("../lib/portfolio-execution-bindings");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 
 var PROJECT = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
@@ -196,6 +199,9 @@ function executionRouter(entries, delivered, handedOff, options) {
     validateAutomationAuthorization: options.validateAutomationAuthorization,
     deliverCrossProjectEnvelope: function (envelope) {
       delivered.push(envelope);
+      if (typeof options.deliverCrossProjectEnvelope === "function") {
+        return options.deliverCrossProjectEnvelope(envelope);
+      }
       return { ok: true, created: true,
         sessionRef: { projectId: PROJECT, sessionStorageId: "thread-worker" },
         projectCoordinatorRef: envelope.payload.targetProjectCoordinator };
@@ -378,6 +384,72 @@ test("current autonomous evidence creates one deterministic visible Thread and b
   }
 });
 
+test("autonomous coordinator instructions block approval-gated external actions at execution", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-auto-external-gate-"));
+  var topicIndex = createTopicIndex({ file: path.join(dir, "threads.json") });
+  var delivered = [];
+  var handedOff = [];
+  var currentCandidate = autonomousCandidate();
+  var prompt = "";
+  var validator = automationAuthorization.createAuthorizationValidator({
+    candidates: {
+      pending: function () { return { ok: true, candidates: [currentCandidate] }; },
+    },
+    getLeadMode: function () { return true; },
+    loadPolicy: function () {
+      return { ok: true, policy: {
+        projectRef: { projectId: PROJECT },
+        digest: "policy-current",
+        autonomy: {
+          bug: "propose", feature: "propose", ambiguous: "autonomous",
+          pr_review: "propose", default: "propose",
+        },
+        externalActions: {
+          comment: "approval", done_workflow: "approval",
+          merge: "approval", close: "approval",
+        },
+      } };
+    },
+    now: function () { return 1000; },
+  });
+  var h = executionRouter([], delivered, handedOff, {
+    dir: dir,
+    automationThreadIndex: topicIndex,
+    validateAutomationAuthorization: function (input) { return validator.validate(input); },
+    deliverCrossProjectEnvelope: function (envelope) {
+      var payload = envelope.payload || {};
+      var request = portfolioBindings.normalizeRequest(
+        Object.assign({}, payload, { source: envelope.source }));
+      prompt = taskState.portfolioExecutionPrompt(
+        executionBrief(payload), request, request.mode);
+      return { ok: true, created: true,
+        sessionRef: { projectId: PROJECT, sessionStorageId: "gated-coordinator" },
+        projectCoordinatorRef: payload.targetProjectCoordinator };
+    },
+    onThreadHandedOff: function (input) {
+      return topicIndex.linkExecution(input.topicRef, {
+        projectRef: input.projectRef,
+        sessionRef: input.sessionRef,
+      });
+    },
+  });
+  try {
+    assert.equal(autonomousDispatch(h.router).ok, true);
+    assert.equal(delivered.length, 1, "the autonomous assigned:any work still launches");
+    assert.match(prompt, /internal edits, tests, and local commits/i);
+    assert.match(prompt, /comment=approval/);
+    assert.match(prompt, /done_workflow=approval/);
+    assert.match(prompt, /merge=approval/);
+    assert.match(prompt, /close=approval/);
+    assert.match(prompt, /push, publish, release, or deploy/i);
+    assert.match(prompt, /WORKER_STATUS: needs_input/);
+    assert.doesNotMatch(prompt, /no further owner approval is pending on it/i);
+    assert.doesNotMatch(prompt, /committed and pushed/i);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("autonomous admission rejects unavailable, stale, owner-shaped, and foreign Thread evidence", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-auto-thread-deny-"));
   var topicIndex = createTopicIndex({ file: path.join(dir, "threads.json") });
@@ -398,9 +470,25 @@ test("autonomous admission rejects unavailable, stale, owner-shaped, and foreign
     });
     assert.equal(autonomousDispatch(stale.router).reason, "automation_policy_stale");
 
+    var policyUnavailable = executionRouter([], delivered, handedOff, {
+      dir: path.join(dir, "policy-unavailable"), automationThreadIndex: topicIndex,
+      validateAutomationAuthorization: function (input) {
+        return { ok: true,
+          authorization: automationAuthorization.normalizeAuthorization(input.authorization) };
+      },
+    });
+    assert.equal(autonomousDispatch(policyUnavailable.router).reason,
+      "automation_external_policy_unavailable");
+
     var valid = function (input) {
       return { ok: true,
-        authorization: automationAuthorization.normalizeAuthorization(input.authorization) };
+        authorization: automationAuthorization.normalizeAuthorization(input.authorization),
+        policy: {
+          externalActions: {
+            comment: "approval", done_workflow: "approval",
+            merge: "approval", close: "approval",
+          },
+        } };
     };
     var ownerShaped = executionRouter([], delivered, handedOff, {
       dir: path.join(dir, "owner-shaped"), automationThreadIndex: topicIndex,

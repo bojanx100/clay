@@ -139,6 +139,11 @@ test("#2517: a pending auto candidate becomes one typed binding and is marked ad
     }, "autonomous work receives its deterministic canonical Thread identity");
     assert.ok(call.portfolioTaskId.indexOf("2517") !== -1);
     assert.ok(call.text.indexOf("trialview/v2#2517") !== -1, "the brief names the item");
+    assert.match(call.context, /internal work as autonomous/i);
+    assert.match(call.context, /External actions keep their configured/i);
+    assert.match(call.acceptanceCriteria, /committed locally/i);
+    assert.doesNotMatch(call.context, /no further owner approval is pending/i);
+    assert.doesNotMatch(call.acceptanceCriteria, /committed and pushed/i);
 
     var stored = h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517");
     assert.strictEqual(stored.status, "admitted");
