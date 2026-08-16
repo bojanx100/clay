@@ -109,7 +109,8 @@ function productionHarness(options) {
     var itemTurn = { projectId: "system-lead",
       sessionStorageId: recovery.CANONICAL_SESSION_ID,
       startEventIndex: item.eventIndex, endEventIndex: item.eventIndex };
-    (opts.moved ? targetTurns : sourceTurns).push(itemTurn);
+    if (!opts.moved || opts.duplicate) sourceTurns.push(itemTurn);
+    if (opts.moved || opts.duplicate) targetTurns.push(Object.assign({}, itemTurn));
     records[history[item.eventIndex].coopIngressId] = {
       ingressId: history[item.eventIndex].coopIngressId,
       ingressSequence: item.sequence,
@@ -122,7 +123,7 @@ function productionHarness(options) {
       classification: { kind: item.sequence === 360 ? "existing_topic" : "conversational",
         source: "ingress_route", at: item.timestamp + 191 },
       implementationDecision: null,
-      topicRef: { topicId: opts.moved ? TARGET : SOURCE },
+      topicRef: { topicId: opts.moved || opts.duplicate ? TARGET : SOURCE },
       projectRefs: [],
       expectsExecution: opts.executionSequence === item.sequence,
       links: { tasks: opts.executionSequence === item.sequence ? [{ taskId: "unrelated" }] : [],
@@ -137,7 +138,7 @@ function productionHarness(options) {
     status: "open", threadState: "handed_off", turnRefs: sourceTurns,
     eventRefs: sourceTurns.map(function (item) { return item.startEventIndex; }),
   };
-  if (opts.moved) {
+  if (opts.moved || opts.duplicate) {
     topics[TARGET] = {
       topicRef: { topicId: TARGET }, threadRef: { threadId: TARGET }, title: "Voice",
       status: "open", threadState: "exploring", turnRefs: targetTurns,
@@ -168,8 +169,12 @@ function productionHarness(options) {
       fromTopic.eventRefs = fromTopic.eventRefs.filter(function (eventIndex) {
         return eventIndex !== movedTurn.startEventIndex;
       });
-      toTopic.turnRefs.push(movedTurn);
-      toTopic.eventRefs.push(movedTurn.startEventIndex);
+      if (!toTopic.turnRefs.some(function (candidate) {
+        return candidate.startEventIndex === movedTurn.startEventIndex;
+      })) toTopic.turnRefs.push(movedTurn);
+      if (toTopic.eventRefs.indexOf(movedTurn.startEventIndex) === -1) {
+        toTopic.eventRefs.push(movedTurn.startEventIndex);
+      }
       return { ok: true };
     },
   };
@@ -289,6 +294,45 @@ test("production migration backfills the already-recovered production Thread thr
     h.records["coop:" + recovery.CANONICAL_SESSION_ID + ":361"], h.session,
     "coop:" + recovery.CANONICAL_SESSION_ID + ":361", h.history[167058]), false,
     "only ingress 360 may use the recovered replay alias");
+});
+
+test("production migration removes exact retrofit duplicates from Main before admission", function () {
+  var h = productionHarness({ duplicate: true });
+  var result = recovery.migrateProduction(h.index, h.ledger, h.session);
+  assert.deepEqual(result, {
+    ok: true,
+    migrationId: recovery.PRODUCTION_RECOVERY_ID,
+    moved: 3,
+    created: false,
+    decisionBackfilled: true,
+    threadRef: { threadId: TARGET },
+  });
+  assert.deepEqual(h.topics[SOURCE].turnRefs, []);
+  assert.deepEqual(h.topics[TARGET].turnRefs.map(function (item) {
+    return item.startEventIndex;
+  }), [166989, 167058, 167144]);
+  assert.equal(h.records["coop:" + recovery.CANONICAL_SESSION_ID + ":360"].expectsExecution,
+    true);
+});
+
+test("an admitted Voice decision still permits exact duplicate membership cleanup", function () {
+  var h = productionHarness({ duplicate: true });
+  var record = h.records["coop:" + recovery.CANONICAL_SESSION_ID + ":360"];
+  record.implementationDecision = {
+    intent: "implement", source: "explicit_owner_turn", at: 1786840579387,
+  };
+  record.projectRefs = [{ projectId: recovery.CLAY_PROJECT_ID }];
+  record.expectsExecution = true;
+  assert.deepEqual(recovery.migrateProduction(h.index, h.ledger, h.session), {
+    ok: true,
+    migrationId: recovery.PRODUCTION_RECOVERY_ID,
+    moved: 3,
+    created: false,
+    decisionBackfilled: false,
+    threadRef: { threadId: TARGET },
+  });
+  assert.deepEqual(h.topics[SOURCE].turnRefs, []);
+  assert.equal(h.classificationCount(), 0);
 });
 
 test("production migration fails closed on changed, ambiguous, or unrelated evidence", function () {

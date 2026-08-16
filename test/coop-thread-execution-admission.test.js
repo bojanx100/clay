@@ -6,6 +6,7 @@ var path = require("node:path");
 
 var lifecycle = require("../lib/coop-thread-lifecycle");
 var mainIngressRecovery = require("../lib/coop-main-ingress-recovery");
+var threadsRecovery = require("../lib/coop-threads-implementation-recovery");
 var queueAuthorization = require("../lib/coop-queue-authorization");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 
@@ -368,6 +369,130 @@ test("recovered replay stays closed when verified production metadata changes", 
       portfolioTaskId: "changed-recovered-event",
       bindingRevision: 1,
       idempotencyKey: "changed-recovered-event-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT },
+      coopTopicRef: targetTopic,
+      coopIngressId: ingressId,
+    }), { ok: false, reason: "owner_implementation_decision_required" });
+  } finally { fs.rmSync(denied.dir, { recursive: true, force: true }); }
+});
+
+test("recovered ingress 371 admits the exact current Threads direction only to Clay", function () {
+  var ingressId = threadsRecovery.EXPECTED.ingressId;
+  var targetTopic = { topicId: threadsRecovery.THREAD_ID };
+  var history = [];
+  history[threadsRecovery.EXPECTED.eventIndex] = {
+    type: "user_message",
+    text: "Also when are we starting threads work?\n\n" +
+      "Concil is repeted several times in sidebar.\n\n" +
+      "Voce is a thread and should have started work by now. \n\n" +
+      "A bunch of issues there... move on it",
+    coopIngressId: ingressId,
+    coopIngressSequence: threadsRecovery.EXPECTED.sequence,
+    coopIngressKind: "text",
+    coopTopicRef: null,
+    coopThreadRef: null,
+    coopProjectRef: null,
+    coopImplementationDecision: null,
+    _ts: 1786877151125,
+  };
+  var entries = [{
+    ingressId: ingressId,
+    ingressSequence: threadsRecovery.EXPECTED.sequence,
+    topicRef: targetTopic,
+    projectRefs: [],
+    expectsExecution: false,
+    implementationDecision: null,
+    classification: { kind: "conversational", source: "ingress_route" },
+    sessionRef: { projectId: "system-lead",
+      sessionStorageId: threadsRecovery.CANONICAL_SESSION_ID },
+    requestRef: { projectId: "system-lead",
+      sessionStorageId: threadsRecovery.CANONICAL_SESSION_ID,
+      eventIndex: threadsRecovery.EXPECTED.eventIndex },
+  }];
+  var delivered = [];
+  var approved = executionRouter(entries, delivered, [], {
+    canonicalStorageId: threadsRecovery.CANONICAL_SESSION_ID,
+    history: history,
+    extraProjectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9",
+  });
+  try {
+    assert.deepEqual(approved.router.createProjectExecution({
+      source: { projectId: "system-lead",
+        sessionStorageId: threadsRecovery.CANONICAL_SESSION_ID },
+      portfolioTaskId: "threads-wrong-project",
+      bindingRevision: 1,
+      idempotencyKey: "threads-wrong-project-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" },
+      coopTopicRef: targetTopic,
+      coopIngressId: ingressId,
+    }), { ok: false, reason: "owner_implementation_project_mismatch" });
+
+    var result = approved.router.createProjectExecution({
+      source: { projectId: "system-lead",
+        sessionStorageId: threadsRecovery.CANONICAL_SESSION_ID },
+      portfolioTaskId: "clay-threads-v2-implementation-2026-08-16",
+      bindingRevision: 1,
+      idempotencyKey: "clay-threads-v2-implementation-20260816-r1-owner-directed",
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT },
+      coopTopicRef: targetTopic,
+      coopIngressId: ingressId,
+      objective: "Implement the accepted Threads V2 direction.",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(approved.classificationCount(), 1);
+    assert.deepEqual(entries[0].implementationDecision, {
+      intent: "implement", source: "explicit_owner_turn", at: 1786877151125,
+    });
+    assert.deepEqual(entries[0].projectRefs, [{ projectId: PROJECT }]);
+    assert.equal(entries[0].expectsExecution, true);
+    assert.equal(delivered.length, 1);
+    assert.deepEqual(delivered[0].payload.coopTopicRef, targetTopic);
+    assert.equal(delivered[0].payload.coopIngressId, ingressId);
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("recovered Threads replay rejects altered owner direction metadata", function () {
+  var ingressId = threadsRecovery.EXPECTED.ingressId;
+  var targetTopic = { topicId: threadsRecovery.THREAD_ID };
+  var history = [];
+  history[threadsRecovery.EXPECTED.eventIndex] = {
+    type: "user_message",
+    text: "Also when are we starting threads work? Move on it",
+    coopIngressId: ingressId,
+    coopIngressSequence: threadsRecovery.EXPECTED.sequence,
+    coopIngressKind: "text",
+    coopTopicRef: null,
+    coopThreadRef: null,
+    coopProjectRef: null,
+    coopImplementationDecision: null,
+    _ts: 1786877151125,
+  };
+  var denied = executionRouter([{
+    ingressId: ingressId,
+    ingressSequence: threadsRecovery.EXPECTED.sequence,
+    topicRef: targetTopic,
+    projectRefs: [],
+    expectsExecution: false,
+    implementationDecision: null,
+    sessionRef: { projectId: "system-lead",
+      sessionStorageId: threadsRecovery.CANONICAL_SESSION_ID },
+    requestRef: { projectId: "system-lead",
+      sessionStorageId: threadsRecovery.CANONICAL_SESSION_ID,
+      eventIndex: threadsRecovery.EXPECTED.eventIndex },
+  }], [], [], {
+    canonicalStorageId: threadsRecovery.CANONICAL_SESSION_ID,
+    history: history,
+  });
+  try {
+    assert.deepEqual(denied.router.createProjectExecution({
+      source: { projectId: "system-lead",
+        sessionStorageId: threadsRecovery.CANONICAL_SESSION_ID },
+      portfolioTaskId: "changed-threads-event",
+      bindingRevision: 1,
+      idempotencyKey: "changed-threads-event-r1",
       mode: "project_coordinator",
       targetProject: { projectId: PROJECT },
       coopTopicRef: targetTopic,
