@@ -871,6 +871,9 @@
 }
 #context-mini:hover { opacity: 0.8; }
 #context-mini.hidden { display: none; }
+/* Split view: per-pane chips replace the shell-level context gauge. */
+#context-mini.split-hidden { display: none; }
+.header-context.hidden { display: none; }
 .context-mini-bar {
   flex: 1;
   height: 4px;
