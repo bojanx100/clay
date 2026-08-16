@@ -24,13 +24,17 @@ vendor dropdown + per-project `lastVendor`; Anthropic billing-policy TUI
 banner removed; GUI confirmed default everywhere. Issues #382 and #358
 closed with comments.
 
-## 2. In flight: branch `spike/split-view-iframe` (3 commits, tree clean)
+## 2. In flight: branch `spike/split-view-iframe`
 
 ```
 38c53a1  fix(notifications): silence banners for adopted external CLI sessions
 398f629  feat(sessions): make a split a first-class group (Arc-style)
 4f6d5a4  feat(ui): two-pane split view via chrome-less iframe panes
 ```
+
+The three implementation commits above are followed by `dd7878c`, which adds
+this handoff. The tree was clean at that commit; the acceptance-status update
+below is the only subsequent working-tree change.
 
 Architecture decision (recorded in
 `docs/ongoing/split-view-spike-handoff.md`, verdict **PASS**): symmetric
@@ -60,18 +64,31 @@ adopted sessions carry a persisted `adopted` flag and both emitters
 silent until Clay attaches a PTY. Pre-fix adopted records lack the flag;
 deleting those sidebar entries silences them.
 
+### Split-group acceptance completed
+
+The eight manual items in `docs/ongoing/split-group-handoff.md` were completed
+against an isolated server and real browser after the implementation commit:
+
+- drag-created groups replaced both member rows and reopened in stored order;
+- reload and daemon-restart persistence passed using durable session records;
+- inline rename survived reload, and customized names survived member rename;
+- Separate and either pane X restored ordinary rows without deleting sessions;
+- deleting one member dissolved the group and restored the survivor;
+- clicking a third session closed only the visual split, and the group reopened;
+- normal clients received `split_groups`, pane clients did not;
+- browser console error collection was empty.
+
+The detailed dated result is appended to
+`docs/ongoing/split-group-handoff.md`. The isolated server, browser, and temp
+state were removed after verification.
+
 ### Immediate next steps (in order)
 
-1. **Live acceptance for split groups** — the 8 manual items in
-   `docs/ongoing/split-group-handoff.md` (reload survival, daemon-restart
-   survival, rename persistence, Separate, pane-X, member-deletion
-   dissolve, third-session click keeps group, reopen). Daemon restart
-   required first (server files changed).
-2. Verify the notification fix live (run `claude` in a project cwd,
+1. Verify the notification fix live (run `claude` in a project cwd,
    restart daemon, confirm no banners).
-3. **Cherry-pick 38c53a1 onto a fresh branch off main -> own PR -> merge
+2. **Cherry-pick 38c53a1 onto a fresh branch off main -> own PR -> merge
    first** (do not let the bugfix ride the bigger split PR).
-4. PR the split set (4f6d5a4 + 398f629, minus the cherry-picked fix) as ONE
+3. PR the split set (4f6d5a4 + 398f629, minus the cherry-picked fix) as ONE
    PR for issue #387; comment on #387 when it ships (draft first — see
    conventions).
 
