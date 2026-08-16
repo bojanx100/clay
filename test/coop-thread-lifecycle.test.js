@@ -93,7 +93,7 @@ test("three distinct owner themes become durable Threads and a related turn reat
   } finally { h.cleanup(); }
 });
 
-test("migration parks owner reminders and deleting a not-pursuing Thread removes it", function () {
+test("migration parks owner reminders and hiding a not-pursuing Thread retains its durable record", function () {
   var h = harness();
   try {
     var state = h.index.load();
@@ -120,9 +120,32 @@ test("migration parks owner reminders and deleting a not-pursuing Thread removes
       closeOutcome: lifecycle.CLOSE_OUTCOMES.NOT_PURSUING,
     });
     assert.equal(discarded.ok, true);
-    assert.equal(discarded.deleted, true);
-    assert.equal(discarded.thread.closeOutcome, lifecycle.CLOSE_OUTCOMES.NOT_PURSUING);
-    assert.equal(h.index.resolve({ threadId: "legacy-resolved" }, true).code, "topic_not_found");
+    assert.equal(h.index.resolve({ threadId: "legacy-resolved" }, true).thread.closeOutcome,
+      lifecycle.CLOSE_OUTCOMES.NOT_PURSUING);
+    assert.equal(h.index.resolve({ threadId: "legacy-resolved" }, true).thread.hidden, true);
+    assert.equal(h.index.resolve({ threadId: "legacy-resolved" }, true).thread.eventRefs.length, 0);
+    assert.equal(h.index.setThreadState({ threadId: "legacy-resolved" }, lifecycle.THREAD_STATES.EXPLORING).ok, true);
+    assert.equal(h.index.resolve({ threadId: "legacy-resolved" }, true).thread.hidden, false,
+      "reopen restores the retained Thread instead of recreating it");
+  } finally { h.cleanup(); }
+});
+
+test("lifecycle undo is exact-Thread and idempotent", function () {
+  var h = harness();
+  try {
+    var state = h.index.load();
+    state.topics.alpha = legacyRecord("alpha", "Alpha");
+    state.topics.beta = legacyRecord("beta", "Beta");
+    h.index.save();
+    lifecycle.ensureIndex(h.index, function () { return 2000; });
+    assert.equal(h.index.setThreadState({ threadId: "alpha" }, lifecycle.THREAD_STATES.CLOSED, {
+      closeOutcome: lifecycle.CLOSE_OUTCOMES.NOT_PURSUING,
+    }).ok, true);
+    assert.equal(h.index.setThreadState({ threadId: "beta" }, lifecycle.THREAD_STATES.PARKED).ok, true);
+    assert.equal(h.index.undoLastLifecycleAction({ threadId: "alpha" }).ok, true);
+    assert.equal(h.index.resolve({ threadId: "alpha" }, true).thread.hidden, false);
+    assert.equal(h.index.resolve({ threadId: "beta" }, true).thread.threadState, lifecycle.THREAD_STATES.PARKED);
+    assert.equal(h.index.undoLastLifecycleAction({ threadId: "alpha" }).unchanged, true);
   } finally { h.cleanup(); }
 });
 

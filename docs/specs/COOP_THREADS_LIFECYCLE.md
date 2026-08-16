@@ -43,6 +43,11 @@ secondary history/filter, labelled by their specific close outcome. A merged
 source is not independently displayable; it retains its immutable
 `mergedIntoThreadRef` and correction history for audit and transcript routing.
 
+`not_pursuing` is a reversible hide, not deletion. The durable record keeps its
+ThreadRef, ProjectRef/group, canonical event and turn references, and lifecycle
+history while it is absent from the primary discussion list. Reopen restores
+the same record and references.
+
 The migration maps legacy open records to `exploring` unless durable evidence
 marks an owner reminder or owner test decision as parked. In particular,
 `auto-57ea56ea9f9cc0a4e96cf0f3` and
@@ -121,14 +126,33 @@ duplicated under the Coop Thread.
 An invalid, unavailable, or unauthorized ProjectRef fails closed and leaves the
 Thread in its prior state. A handoff never creates a project from prose.
 
+## Natural-language lifecycle control
+
+The selected Thread is the command target captured at send time. Clear owner
+language such as “keep this open”, “continue the discussion”, “implement this”,
+“hand this to Clay”, “request changes: add coverage”, “hide this”, “reopen”, or
+“undo that” is admitted only with that exact ThreadRef. The command may resolve
+the retained closed projection, but it cannot retarget another Thread or infer a
+Thread from the Main lens. Main messages without an exact target remain open to
+ordinary conversation and ask which Thread the owner means when clarification
+is needed.
+
+The parser is deliberately narrow. Request-changes and implementation/handoff
+commands preserve the routed ProjectRef; a repeated reopen or undo is an
+idempotent no-op after the first durable application. Lifecycle changes are
+recorded as bounded reference-only before/after snapshots, never as a rendered
+decision card.
+
 ## Projection and UI requirements
 
 Thread projections use owner-facing names and expose at least `threadRef`,
 `threadState`, `closeOutcome`, and `lastTurnRef`, while also exposing legacy
 `topicRef` until migration consumers are retired. Desktop and mobile render
 Exploring and Parked as the primary discussion sections; handed-off and closed
-Threads are not duplicate active discussions. The owner can invoke correction,
-state, close, and handoff controls from either layout.
+Threads are not duplicate active discussions. Desktop and mobile use the same
+navigation-only Thread rows; lifecycle changes are issued in ordinary owner
+language from the selected Thread rather than through a resolution card or row
+menu.
 
 Ordinary project sidebars retain their existing behavior. Owner-direct sessions
 remain direct owner sessions: Coop neither adopts, reroutes, nor nests them
@@ -145,7 +169,8 @@ not mutate any live daemon ledger or transcript merely by reading/projection.
 Focused verification proves: three distinct themes create three Threads; a
 later related turn reattaches; legacy aliases survive migration; owner
 correction and undo retain canonical provenance; all lifecycle states and close
-outcomes project correctly; discussion does not admit execution; explicit
-handoff creates the expected typed project link and hides duplicate active
-discussion; parked reminder and #2539 decision records remain available; and
-ordinary sidebar and direct-session behavior does not regress.
+outcomes project correctly; natural-language lifecycle commands target exact
+ThreadRefs, hide reversibly, and remain idempotent; discussion does not admit
+execution; explicit handoff creates the expected typed project link and hides
+duplicate active discussion; parked reminder and #2539 decision records remain
+available; and ordinary sidebar and direct-session behavior does not regress.

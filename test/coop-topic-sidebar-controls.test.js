@@ -797,9 +797,10 @@ test("the Thread row keeps the title primary and shows lifecycle text plus an in
   assert.match(css, /\.coop-topic-status-closed,/);
 });
 
-test("Close and Reopen live behind one overflow menu with the confirm gate intact", function () {
+test("Thread rows expose no lifecycle control menu", function () {
   var closeSource = source("sidebar-coop-topic-close.js");
-  // One toggle, one role=menu list kept in the DOM, one menuitem.
+  // The legacy helper remains covered for compatibility, but the live row no
+  // longer mounts it; owner language is the lifecycle control.
   assert.match(closeSource, /toggle\.setAttribute\("aria-haspopup", "menu"\)/);
   assert.match(closeSource, /toggle\.setAttribute\("aria-controls", menuId\)/);
   assert.match(closeSource, /list\.setAttribute\("role", "menu"\)/);
@@ -810,28 +811,20 @@ test("Close and Reopen live behind one overflow menu with the confirm gate intac
   assert.match(closeSource, /event\.key !== "Escape"/);
   assert.match(closeSource, /toggle\.focus\(\)/);
   assert.match(closeSource, /addEventListener\("focusout"/);
-  // The menu is the only lifecycle affordance: no bare always-visible Close
-  // text button survives on the row.
+  // No lifecycle affordance survives on the live row.
   var topics = source("sidebar-coop-topics.js");
-  assert.match(topics, /createTopicMenu\(topic, options\)/);
+  assert.doesNotMatch(topics, /createTopicMenu|sidebar-coop-topic-close/);
   assert.doesNotMatch(topics, /createTopicCloseButton/);
 });
 
-test("both surfaces style the overflow menu; meta line is removed", function () {
+test("Thread rows keep lifecycle styling out of the live menu", function () {
   var desktop = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
   var mobile = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "mobile-nav.css"), "utf8");
-  // The overflow menu still exists and is styled on both surfaces.
-  ["coop-topic-menu-toggle", "coop-topic-menu-list", "coop-topic-menu-item"].forEach(function (name) {
-    assert.ok(desktop.indexOf("." + name) !== -1, "desktop styles ." + name);
-    assert.ok(mobile.indexOf(".mobile-" + name) !== -1, "mobile styles .mobile-" + name);
-  });
-  // The meta line and activity styles are removed (dot is now inline).
+  // The meta line and activity styles are removed (dot is now inline). The
+  // legacy menu CSS may remain for compatibility, but no row mounts it.
   assert.doesNotMatch(desktop, /\.coop-topic-meta/);
   assert.doesNotMatch(desktop, /\.coop-topic-activity/);
   assert.doesNotMatch(mobile, /\.mobile-coop-topic-meta/);
   assert.doesNotMatch(mobile, /\.mobile-coop-topic-activity/);
-  // Touch has no hover: the mobile toggle must not be hover-revealed and must
-  // keep a 42px target.
-  assert.match(mobile, /\.mobile-coop-topic-menu-toggle \{[^}]*min-height: 42px/);
-  assert.doesNotMatch(mobile, /\.mobile-coop-topic-menu-toggle \{[^}]*opacity: 0/);
+  assert.ok(mobile.indexOf("mobile-coop-topic") !== -1);
 });

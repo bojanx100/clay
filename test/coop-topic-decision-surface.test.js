@@ -1,9 +1,6 @@
-// The contextual decision surface: consequential owner decisions render above
-// the selected topic's conversation, anchored to canonical evidence -- never
-// in the sidebar. The surface module's import graph reaches app-connection.js
-// (the live socket), so like the other topic-surface tests this pins the
-// contract in source: what it imports, when it fails closed, where it mounts,
-// and what repaints it.
+// The explicit Thread decision surface is intentionally retired. These tests
+// pin the compatibility shim and the live app wiring so a card cannot return
+// through a stale import or an accidental DOM builder.
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var fs = require("node:fs");
@@ -15,102 +12,30 @@ function read(rel) {
 
 var surface = read("lib/public/modules/coop-topic-decision-surface.js");
 
-test("the surface composes the two real decision panels, not copies of them", function () {
-  assert.match(surface, /import \{ createActionDecisionPanel \} from '\.\/coop-action-decision-panel\.js';/);
-  assert.match(surface, /import \{ createTopicDecisionPanel \} from '\.\/sidebar-coop-topic-review\.js';/);
-  // One decision, one surface: no local re-implementation of verbs.
-  assert.doesNotMatch(surface, /coop-action-decide/);
-  assert.doesNotMatch(surface, /accept_done|keep_waiting|request_changes/);
+test("the retired surface is a no-op and creates no lifecycle card", function () {
+  assert.match(surface, /buildTopicDecisionSurface\(\)\s*\{\s*return null;/);
+  assert.match(surface, /renderCoopTopicDecisionSurface\(\)/);
+  assert.doesNotMatch(surface, /createActionDecisionPanel|createTopicDecisionPanel|createThreadControls/);
 });
 
-test("the surface never imports the navigation module", function () {
-  assert.doesNotMatch(surface, /app-projects\.js/);
-});
-
-test("task items are matched to the topic by canonical TopicRef only", function () {
-  assert.match(surface, /export function topicActionItems\(topic, items\)/);
-  assert.match(surface, /topicIdOf\(list\[i\] && list\[i\]\.topicRef\) === wanted/);
-  // Never by title or recency.
-  assert.doesNotMatch(surface, /\.title ===|updatedAt/);
-});
-
-test("the surface always renders lifecycle controls for a selected Thread", function () {
-  // No selected Thread -> nothing; lifecycle controls remain without decisions.
-  assert.match(surface, /if \(!topic\) return null;/);
-  assert.match(surface, /import \{ createThreadControls \} from '\.\/coop-thread-controls\.js';/);
-  assert.match(surface, /surface\.appendChild\(createThreadControls\(topic, opts\)\)/);
-  assert.match(surface, /host\.hidden = !surface;/);
-});
-
-test("a stale selection is re-resolved against the live projection", function () {
-  assert.match(surface, /findGlobalCoopTopic\(topicRef, projectRef\)/);
-  assert.match(surface, /isCoopProjectSlug\(store\.get\("currentSlug"\)\)/);
-});
-
-test("the surface mounts above the conversation, once", function () {
-  assert.match(surface, /getElementById\("messages"\)/);
-  assert.match(surface, /insertBefore\(host, messages\)/);
-  assert.match(surface, /getElementById\(SURFACE_ID\)/);
-});
-
-test("the heading names the Thread and is announced as a heading", function () {
-  assert.match(surface, /"Thread \u2014 " \+ canonicalTopicTitle\(topic, "this Thread"\)/);
-  assert.match(surface, /setAttribute\("role", "heading"\)/);
-  assert.match(surface, /setAttribute\("aria-level", "2"\)/);
-  assert.match(surface, /setAttribute\("aria-label", "Controls for "/);
-});
-
-test("the surface repaints on every store key it derives from", function () {
-  [
-    "currentSlug", "activeCoopLens", "activeCoopTopicRef", "activeCoopProjectRef",
-    "coopProjectionVersion", "coopActionQueue",
-    "coopActionPending", "coopActionError", "coopActionNote", "coopActionDone",
-    "coopTopicReviewPending", "coopTopicReviewErrors",
-  ].forEach(function (key) {
-    assert.match(surface, new RegExp("state\\." + key + " !== previous\\." + key),
-      key + " must trigger a repaint");
-  });
-});
-
-test("the surface is wired into the app by a side-effect import", function () {
+test("the app no longer imports the explicit decision surface", function () {
   var sessions = read("lib/public/modules/app-messages-sessions.js");
-  assert.match(sessions, /import '\.\/coop-topic-decision-surface\.js';/);
+  assert.doesNotMatch(sessions, /coop-topic-decision-surface/);
+  assert.doesNotMatch(sessions, /handleTopicDispositionResult/);
 });
 
-test("decisions go through the live socket, with the transport injected", function () {
-  assert.match(surface, /import \{ sendUserAction \} from '\.\/app-connection\.js';/);
-  assert.match(surface, /send: sendUserAction/);
+test("Thread rows are navigation-only on desktop and mobile", function () {
+  var desktop = read("lib/public/modules/sidebar-coop-topics.js");
+  var mobile = read("lib/public/modules/sidebar-mobile.js");
+  assert.doesNotMatch(desktop, /createTopicMenu|sidebar-coop-topic-close/);
+  assert.doesNotMatch(mobile, /createTopicMenu|sidebar-coop-topic-close/);
 });
 
-test("the sidebar injects topic navigation into the Now index", function () {
-  var topics = read("lib/public/modules/sidebar-coop-topics.js");
-  assert.match(topics, /renderCoopNowIndex\(container/);
-  assert.match(topics, /openTopic: function \(entry\)/);
-  assert.match(topics, /findGlobalCoopTopic\(entry\.topicRef, entry\.projectRef\)/);
-  assert.match(topics, /if \(!found\) return false;/,
-    "an unresolvable topic must fail closed instead of navigating nowhere");
-});
-
-test("the surface styles live with the conversation, desktop and phone alike", function () {
-  var css = read("lib/public/css/messages.css");
-  assert.match(css, /\.coop-topic-decision \{/);
-  assert.match(css, /\.coop-topic-decision-heading/);
-  assert.match(css, /\.coop-action-detail \{/);
-  assert.match(css, /\.coop-topic-review-panel/);
-  assert.match(css, /\.coop-action-state-withheld/);
-  // And the sidebar no longer carries the decision styles it lost.
-  var sidebar = read("lib/public/css/sidebar.css");
-  assert.doesNotMatch(sidebar, /coop-action-detail/);
-  assert.doesNotMatch(sidebar, /coop-topic-review/);
-  var mobile = read("lib/public/css/mobile-nav.css");
-  assert.doesNotMatch(mobile, /mobile-coop-action-detail/);
-  assert.doesNotMatch(mobile, /mobile-coop-topic-review/);
-});
-
-test("the server stamps each action item with its canonical topic link", function () {
-  var queue = read("lib/coop-action-queue.js");
-  assert.match(queue, /topicRef: topicRefOf\(task\)/);
-  assert.match(queue, /function topicRefOf\(task\)/);
-  // Dedup prefers the copy the owner can navigate from.
-  assert.match(queue, /item\.topicRef && !seen\.topicRef/);
+test("lifecycle intent is server-side and exact-target gated", function () {
+  var ingress = read("lib/coop-topic-ingress.js");
+  var intent = read("lib/coop-thread-intent.js");
+  assert.match(ingress, /explicitTarget/);
+  assert.match(ingress, /threadIntent\.parse/);
+  assert.match(intent, /Which Thread should I apply that to/);
+  assert.match(intent, /threadRef/);
 });

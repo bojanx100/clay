@@ -189,8 +189,8 @@ function nowRowFor(container, topicId, mobile) {
 }
 
 
-// The contextual decision panel, rendered where the topic decision surface
-// puts it -- never in the sidebar.
+// Compatibility helper for callers that still render an action panel outside
+// the primary sidebar. The live Thread UI no longer mounts a decision card.
 function renderedPanel(ctx, itemId, options) {
   var item = ctx.ui.getActionQueue().filter(function (i) { return i.itemId === itemId; })[0];
   var container = element("div");
@@ -387,8 +387,8 @@ test("a reconnect that resends the identical projection does not churn", async f
 
 test("decision interaction state stays out of the sidebar signature", async function () {
   // The sidebar rows are link-only, so pending/error/done state must not churn
-  // the session-list repaint; the topic decision surface subscribes to those
-  // keys itself.
+  // the session-list repaint. Thread lifecycle is controlled by owner language;
+  // there is no live decision surface subscriber.
   var ctx = await harness();
   ctx.ui.setActionQueue(ctx.ui.normalizeActionQueue(serverProjection()));
   var base = ctx.ui.actionQueueSignature();
@@ -400,9 +400,7 @@ test("decision interaction state stays out of the sidebar signature", async func
   var fs = require("node:fs");
   var surface = fs.readFileSync(
     path.join(__dirname, "..", "lib", "public", "modules", "coop-topic-decision-surface.js"), "utf8");
-  ["coopActionPending", "coopActionError", "coopActionDone", "coopActionQueue"].forEach(function (key) {
-    assert.ok(surface.indexOf(key) !== -1, "the decision surface repaints on " + key);
-  });
+  assert.doesNotMatch(surface, /coopActionPending|coopActionError|coopActionDone/);
 });
 
 test("a projection with no queue clears the previous one", async function () {

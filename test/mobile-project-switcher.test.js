@@ -156,9 +156,9 @@ test("the compact project-grouped topic list and its controls are preserved", fu
   assert.match(topics, /requestMainCoopLens\)/);
   assert.match(topics, /onSelect\(sendUserAction\)/);
   assert.match(topics, /requestCoopTopic\(topic, sendUserAction\)/);
-  // Do-not-implement + related-links expander on every row. Threads remains
-  // visible while other empty wrappers stay omitted.
-  assert.match(topics, /main\.appendChild\(createTopicMenu\(topic, options\)\)/);
+  // Thread rows remain navigation-only; lifecycle language is handled in the
+  // selected Thread while other empty wrappers stay omitted.
+  assert.doesNotMatch(topics, /createTopicMenu|sidebar-coop-topic-close/);
   assert.match(topics, /createTopicLinksExpander\(topic, options\)/);
   assert.match(topics, /if \(items\.length === 0 && opts\.allowEmpty !== true\) return 0/);
   // The project coordinator hierarchy uses the same shared render path.
