@@ -29,6 +29,12 @@ body.pane-mode #app {
   height: 100%;
 }
 
+/* Narrow panes cross the mobile breakpoint, but pane mode hides the mobile
+   tab bar. Keep the normal composer inset instead of reserving its 56px. */
+body.pane-mode #input-area {
+  padding-bottom: calc(var(--safe-bottom) + 8px);
+}
+
 #main-panels {
   position: relative;
 }
