@@ -98,6 +98,39 @@ test("dissolveBySession removes a group containing the deleted session", functio
   assert.deepStrictEqual(f.store.groups, []);
 });
 
+test("a group survives a restart that renumbers member localIds", function (t) {
+  var f = fixture(t, false);
+  f.sessions.get(1).cliSessionId = "cli-aaa";
+  f.sessions.get(2).cliSessionId = "cli-bbb";
+  var created = f.store.create(f.ws1, { members: [1, 2] });
+  assert.strictEqual(created.ok, true);
+  assert.deepStrictEqual(created.group.memberCliIds, ["cli-aaa", "cli-bbb"]);
+
+  // Simulated restart: same sessions, freshly renumbered localIds.
+  var renumbered = new Map([
+    [11, { localId: 11, title: "First session", cliSessionId: "cli-aaa" }],
+    [12, { localId: 12, title: "Second session", cliSessionId: "cli-bbb" }],
+  ]);
+  var reloaded = createSplitGroupStore({ sessions: renumbered, sessionsDir: f.dir, usersModule: null });
+  assert.strictEqual(reloaded.groups.length, 1);
+  assert.deepStrictEqual(reloaded.groups[0].members, [11, 12]);
+  // The rewritten file carries the remapped ids too.
+  var persisted = JSON.parse(fs.readFileSync(path.join(f.dir, "split-groups.json")));
+  assert.deepStrictEqual(persisted[0].members, [11, 12]);
+});
+
+test("a group anchored to a vanished cliSessionId is pruned on load", function (t) {
+  var f = fixture(t, false);
+  f.sessions.get(1).cliSessionId = "cli-aaa";
+  f.sessions.get(2).cliSessionId = "cli-bbb";
+  assert.strictEqual(f.store.create(f.ws1, { members: [1, 2] }).ok, true);
+  var renumbered = new Map([
+    [11, { localId: 11, title: "First session", cliSessionId: "cli-aaa" }],
+  ]);
+  var reloaded = createSplitGroupStore({ sessions: renumbered, sessionsDir: f.dir, usersModule: null });
+  assert.deepStrictEqual(reloaded.groups, []);
+});
+
 test("load prunes and rewrites groups whose member session is missing", function (t) {
   var f = fixture(t, false);
   fs.writeFileSync(path.join(f.dir, "split-groups.json"), JSON.stringify([
