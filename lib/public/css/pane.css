@@ -81,6 +81,13 @@ body.pane-mode #input-area {
   flex-shrink: 0;
 }
 
+.split-pane-vendor {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
 .split-pane-title {
   flex: 1;
   min-width: 0;
@@ -89,6 +96,76 @@ body.pane-mode #input-area {
   white-space: nowrap;
   font-size: 11px;
   font-weight: 600;
+  cursor: text;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin-left: -4px;
+}
+
+.split-pane-title:hover {
+  background: var(--bg-alt);
+}
+
+.split-pane-rename-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 4px;
+  margin-left: -4px;
+  outline: none;
+}
+
+.split-pane-context {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dimmer);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.split-pane-context.has-data {
+  display: inline-flex;
+}
+
+.split-pane-context:hover {
+  background: var(--bg-alt);
+  color: var(--text);
+}
+
+.split-pane-context-bar {
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.split-pane-context-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+.split-pane-context-fill.warn { background: var(--warning); }
+.split-pane-context-fill.danger { background: var(--error); }
+
+.split-pane-context-label {
+  font-family: "Roboto Mono", monospace;
+  font-size: 10px;
+  line-height: 1;
 }
 
 .split-pane-close {
@@ -122,38 +199,69 @@ body.pane-mode #input-area {
   background: var(--bg);
 }
 
+/* Arc-style drop preview: while a session is dragged over the app, hovering
+   one half folds the live app into the other half and a ghost pane marks
+   exactly where the dragged session will land. Drop keeps that layout, so
+   the preview and the result match 1:1. */
+
 .split-drop-overlay {
   position: absolute;
   inset: 0;
   z-index: 10050;
   display: none;
-  gap: 8px;
-  padding: 12px;
-  background: rgba(var(--overlay-rgb), 0.14);
+  background: rgba(var(--overlay-rgb), 0.05);
   pointer-events: none;
 }
 
 .split-drop-overlay.visible {
-  display: flex;
+  display: block;
   pointer-events: auto;
 }
 
-.split-drop-zone {
-  flex: 1;
+#main-panels.split-drag-active #app {
+  transition: margin 0.18s ease;
+}
+
+#main-panels.split-preview-left #app {
+  margin-left: 50%;
+}
+
+#main-panels.split-preview-right #app {
+  margin-right: 50%;
+}
+
+.split-drop-ghost {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 10px;
+  width: calc(50% - 16px);
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px dashed var(--text-dimmer);
+  border: 2px dashed var(--accent);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 700;
-  transition: border-color 0.12s, background 0.12s, color 0.12s;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  color: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transition: left 0.18s ease, opacity 0.12s ease;
 }
 
-.split-drop-zone.active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
-  color: var(--text);
+#main-panels.split-preview-left .split-drop-ghost {
+  opacity: 1;
+}
+
+#main-panels.split-preview-right .split-drop-ghost {
+  left: calc(50% + 6px);
+  opacity: 1;
+}
+
+.split-drop-ghost-title {
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
 }

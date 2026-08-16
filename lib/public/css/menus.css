@@ -110,6 +110,19 @@
   color: var(--text-secondary);
   line-height: 1.6;
 }
+.session-info-popover .info-section-title {
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+.session-info-popover .info-section-title:not(:first-child) {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
 .session-info-popover .info-row {
   display: flex;
   align-items: center;
