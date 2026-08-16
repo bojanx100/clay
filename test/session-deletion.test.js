@@ -141,6 +141,100 @@ test("a session model survives a manager restart", function (t) {
   assert.strictEqual(restored.model, "gpt-5.6-sol");
 });
 
+test("a session permission mode survives a manager restart", function (t) {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-permission-"));
+  t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });
+
+  var sessionsBase = path.join(root, "sessions");
+  var cliSessionsDir = path.join(root, "claude-sessions");
+  var cwd = path.join(root, "project");
+  var first = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: cliSessionsDir,
+    send: function () {},
+  });
+  var session = first.createSessionRaw({
+    cliSessionId: "12121212-3434-4567-8787-909090909090",
+    vendor: "claude",
+    permissionMode: "bypassPermissions",
+  });
+  session.permissionModeBeforeFullAccess = "acceptEdits";
+  first.saveSessionFile(session);
+
+  var second = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: cliSessionsDir,
+    send: function () {},
+  });
+  var restored = Array.from(second.sessions.values())[0];
+  assert.strictEqual(restored.permissionMode, "bypassPermissions");
+  assert.strictEqual(restored.permissionModeBeforeFullAccess, "acceptEdits");
+  assert.strictEqual(second.mapSessionForClient(restored).permissionMode, "bypassPermissions");
+});
+
+test("a GUI session permission mode survives a manager restart without a CLI bypass flag", function (t) {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-permission-"));
+  t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });
+
+  var sessionsBase = path.join(root, "sessions");
+  var cliSessionsDir = path.join(root, "claude-sessions");
+  var cwd = path.join(root, "project");
+  var first = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: cliSessionsDir,
+    send: function () {},
+  });
+  var session = first.createSessionRaw({
+    cliSessionId: "88888888-7777-4666-8555-444444444444",
+    vendor: "claude",
+    mode: "gui",
+    permissionMode: "bypassPermissions",
+  });
+  first.saveSessionFile(session);
+
+  var second = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: cliSessionsDir,
+    send: function () {},
+  });
+  var restored = Array.from(second.sessions.values())[0];
+  assert.strictEqual(restored.permissionMode, "bypassPermissions");
+  assert.strictEqual(restored.dangerouslySkipPermissions, false);
+});
+
+test("a legacy GUI bypass flag migrates to Clay-managed permission mode", function (t) {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-legacy-gui-permission-"));
+  t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });
+
+  var cwd = path.join(root, "project");
+  var sessionsBase = path.join(root, "sessions");
+  var sessionsDir = path.join(sessionsBase, require("../lib/utils").encodeCwd(cwd));
+  var cliSessionId = "66666666-5555-4444-8333-222222222222";
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionsDir, cliSessionId + ".jsonl"), JSON.stringify({
+    type: "meta",
+    cliSessionId: cliSessionId,
+    vendor: "claude",
+    mode: "gui",
+    dangerouslySkipPermissions: true,
+    createdAt: Date.now() - 60000,
+  }) + "\n");
+
+  var manager = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: path.join(root, "claude-sessions"),
+    send: function () {},
+  });
+  var restored = Array.from(manager.sessions.values())[0];
+  assert.strictEqual(restored.permissionMode, "bypassPermissions");
+  assert.strictEqual(restored.dangerouslySkipPermissions, false);
+});
+
 test("a legacy session recovers its model from saved result usage", function (t) {
   var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-legacy-model-"));
   t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });

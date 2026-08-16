@@ -96,6 +96,52 @@
   stroke-width: 2.5;
 }
 
+.session-full-access {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  margin-left: 7px;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(var(--overlay-rgb), 0.025);
+  color: var(--text-dimmer);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.session-full-access:hover { color: var(--text-secondary); background: rgba(var(--overlay-rgb), 0.05); }
+.session-full-access.hidden { display: none; }
+.session-full-access.active {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 38%, var(--border));
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+}
+.session-full-access-track {
+  position: relative;
+  width: 22px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+.session-full-access-track > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dimmer);
+  transition: transform 0.15s, background 0.15s;
+}
+.session-full-access.active .session-full-access-track { background: var(--error); }
+.session-full-access.active .session-full-access-track > span { background: var(--bg); transform: translateX(10px); }
+
 /* Session info popover */
 .session-info-popover {
   position: fixed;
@@ -913,5 +959,4 @@
   #config-chip .config-chip-icon { display: inline; width: 14px; height: 14px; }
   #config-chip-label { display: none; }
 }
-
 

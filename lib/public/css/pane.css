@@ -168,6 +168,33 @@ body.pane-mode #input-area {
   line-height: 1;
 }
 
+.split-pane-full-access {
+  height: 18px;
+  margin-left: 0;
+  padding: 0 4px 0 6px;
+  gap: 4px;
+  font-size: 9px;
+}
+
+.split-pane-full-access .session-full-access-track {
+  width: 18px;
+  height: 10px;
+}
+
+.split-pane-full-access .session-full-access-track > span {
+  top: 2px;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+}
+
+.split-pane-full-access.active .session-full-access-track > span { transform: translateX(8px); }
+
+@media (max-width: 900px) {
+  .split-pane-full-access .session-full-access-label { display: none; }
+  .split-pane-full-access { padding-left: 4px; }
+}
+
 .split-pane-close {
   width: 20px;
   height: 20px;
