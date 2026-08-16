@@ -110,3 +110,57 @@ test("an empty adopted row is removed after daemon cleanup deleted its source", 
   var ids = Array.from(manager.sessions.values()).map(function (session) { return session.cliSessionId; });
   assert.strictEqual(ids.indexOf(cliSessionId), -1);
 });
+
+test("a session model survives a manager restart", function (t) {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-model-"));
+  t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });
+
+  var sessionsBase = path.join(root, "sessions");
+  var cliSessionsDir = path.join(root, "claude-sessions");
+  var cwd = path.join(root, "project");
+  var first = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: cliSessionsDir,
+    send: function () {},
+  });
+  var session = first.createSessionRaw({
+    cliSessionId: "99999999-8888-4777-8666-555555555555",
+    vendor: "codex",
+    model: "gpt-5.6-sol",
+  });
+  first.saveSessionFile(session);
+
+  var second = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: cliSessionsDir,
+    send: function () {},
+  });
+  var restored = Array.from(second.sessions.values())[0];
+  assert.strictEqual(restored.model, "gpt-5.6-sol");
+});
+
+test("a legacy session recovers its model from saved result usage", function (t) {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-legacy-model-"));
+  t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });
+
+  var cwd = path.join(root, "project");
+  var sessionsBase = path.join(root, "sessions");
+  var sessionsDir = path.join(sessionsBase, require("../lib/utils").encodeCwd(cwd));
+  var cliSessionId = "77777777-6666-4555-8444-333333333333";
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionsDir, cliSessionId + ".jsonl"), [
+    JSON.stringify({ type: "meta", cliSessionId: cliSessionId, vendor: "codex", createdAt: Date.now() - 60000 }),
+    JSON.stringify({ type: "result", modelUsage: { "gpt-5.6-sol": { contextWindow: 272000 } } }),
+  ].join("\n") + "\n");
+
+  var manager = createSessionManager({
+    cwd: cwd,
+    sessionsBase: sessionsBase,
+    cliSessionsDir: path.join(root, "claude-sessions"),
+    send: function () {},
+  });
+  var restored = Array.from(manager.sessions.values())[0];
+  assert.strictEqual(restored.model, "gpt-5.6-sol");
+});
