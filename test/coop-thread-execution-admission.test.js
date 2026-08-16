@@ -5,6 +5,7 @@ var os = require("node:os");
 var path = require("node:path");
 
 var lifecycle = require("../lib/coop-thread-lifecycle");
+var mainIngressRecovery = require("../lib/coop-main-ingress-recovery");
 var queueAuthorization = require("../lib/coop-queue-authorization");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 
@@ -38,6 +39,24 @@ test("explicit owner implementation decisions are recognized separately from the
   assert.deepEqual(lifecycle.explicitImplementationDecision("ok set it to implement..."), {
     intent: "implement", projectName: "",
   });
+  assert.deepEqual(lifecycle.explicitImplementationDecision(
+    "Create a dedicated Voice conversational mode Thread for Clay, detach Voice work from Webapp, " +
+    "use session 18104cdc-5aff-4328-9afc-88bb709dd21d as read-only context, and implement it."), {
+    intent: "implement", projectName: "",
+  });
+});
+
+test("compound implementation decisions reject discussion, hypotheticals, and negation", function () {
+  assert.equal(lifecycle.explicitImplementationDecision(
+    "Discuss a dedicated Voice Thread, and implement it."), null);
+  assert.equal(lifecycle.explicitImplementationDecision(
+    "Should we create a dedicated Voice Thread, and implement it?"), null);
+  assert.equal(lifecycle.explicitImplementationDecision(
+    "If approved, create a dedicated Voice Thread, and implement it."), null);
+  assert.equal(lifecycle.explicitImplementationDecision(
+    "Create a dedicated Voice Thread, and do not implement it."), null);
+  assert.equal(lifecycle.explicitImplementationDecision(
+    "Create a dedicated Voice Thread and consider whether to implement it."), null);
 });
 
 test("queue-wide authorization language and task snapshots stay narrow and bounded", function () {
@@ -89,7 +108,8 @@ function executionRouter(entries, delivered, handedOff, options) {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-thread-admission-"));
   var claimed = null;
   var classifications = 0;
-  var leadSessions = new Map([[1, { coopHome: true, storageId: "canonical-coop",
+  var leadSessions = new Map([[1, { coopHome: true,
+    storageId: options.canonicalStorageId || "canonical-coop",
     history: options.history || [] }]]);
   var leadManager = {
     sessions: leadSessions,
@@ -119,6 +139,7 @@ function executionRouter(entries, delivered, handedOff, options) {
         });
         if (!entry) return null;
         entry.implementationDecision = input.implementationDecision;
+        entry.projectRefs = input.projectRefs;
         entry.expectsExecution = true;
         return entry;
       },
@@ -146,6 +167,18 @@ function executionRouter(entries, delivered, handedOff, options) {
         projectCoordinatorRef: envelope.payload.targetProjectCoordinator };
     },
   });
+  if (options.extraProjectId) {
+    router.registerProjectResolver({
+      getProjectId: function () { return options.extraProjectId; },
+      deliverCrossProjectEnvelope: function (envelope) {
+        delivered.push(envelope);
+        return { ok: true, created: true,
+          sessionRef: { projectId: options.extraProjectId,
+            sessionStorageId: "wrong-project-worker" },
+          projectCoordinatorRef: envelope.payload.targetProjectCoordinator };
+      },
+    });
+  }
   return { router: router, dir: dir,
     classificationCount: function () { return classifications; } };
 }
@@ -222,6 +255,125 @@ test("owner text approval is replayed from the exact canonical event and persist
     assert.equal(approved.classificationCount(), 1,
       "a replay must reuse the persisted decision instead of recording it again");
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("recovered ingress 360 replays from its exact canonical Main event into the Voice Thread", function () {
+  var targetTopic = { topicId: mainIngressRecovery.TARGET_THREAD_ID };
+  var ingressId = "coop:871a194b-8879-40f7-a1fe-656e48e722af:360";
+  var history = [];
+  history[166989] = {
+    type: "user_message",
+    text: "Create a dedicated Voice conversational mode Thread for Clay, detach Voice work from Webapp, " +
+      "use session 18104cdc-5aff-4328-9afc-88bb709dd21d as read-only context, and implement it.",
+    coopIngressId: ingressId,
+    coopIngressSequence: 360,
+    coopIngressKind: "text",
+    coopTopicRef: { topicId: mainIngressRecovery.SOURCE_THREAD_ID },
+    coopThreadRef: { threadId: mainIngressRecovery.SOURCE_THREAD_ID },
+    coopProjectRef: null,
+    coopImplementationDecision: null,
+    _ts: 1786840579387,
+  };
+  var entries = [{
+    ingressId: ingressId,
+    ingressSequence: 360,
+    topicRef: targetTopic,
+    projectRefs: [],
+    expectsExecution: false,
+    implementationDecision: null,
+    classification: { kind: "existing_topic", source: "ingress_route" },
+    sessionRef: { projectId: "system-lead",
+      sessionStorageId: mainIngressRecovery.CANONICAL_SESSION_ID },
+    requestRef: { projectId: "system-lead",
+      sessionStorageId: mainIngressRecovery.CANONICAL_SESSION_ID, eventIndex: 166989 },
+  }];
+  var delivered = [];
+  var handedOff = [];
+  var approved = executionRouter(entries, delivered, handedOff, {
+    canonicalStorageId: mainIngressRecovery.CANONICAL_SESSION_ID,
+    history: history,
+    extraProjectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9",
+  });
+  try {
+    assert.deepEqual(approved.router.createProjectExecution({
+      source: { projectId: "system-lead",
+        sessionStorageId: mainIngressRecovery.CANONICAL_SESSION_ID },
+      portfolioTaskId: "clay-voice-wrong-project-2026-08-16",
+      bindingRevision: 1,
+      idempotencyKey: "clay-voice-wrong-project-2026-08-16-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" },
+      coopTopicRef: targetTopic,
+      coopIngressId: ingressId,
+    }), { ok: false, reason: "owner_implementation_project_mismatch" });
+    var result = approved.router.createProjectExecution({
+      source: { projectId: "system-lead",
+        sessionStorageId: mainIngressRecovery.CANONICAL_SESSION_ID },
+      portfolioTaskId: "clay-voice-conversational-mode-2026-08-16",
+      bindingRevision: 1,
+      idempotencyKey: "clay-voice-conversational-mode-2026-08-16-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT },
+      coopTopicRef: targetTopic,
+      coopIngressId: ingressId,
+      objective: "Implement the approved Voice conversational mode.",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(approved.classificationCount(), 1);
+    assert.deepEqual(entries[0].implementationDecision, {
+      intent: "implement", projectName: "",
+      source: "explicit_owner_turn", at: 1786840579387,
+    });
+    assert.equal(entries[0].expectsExecution, true);
+    assert.deepEqual(entries[0].projectRefs, [{ projectId: PROJECT }]);
+    assert.equal(delivered.length, 1);
+    assert.deepEqual(delivered[0].payload.targetProject, { projectId: PROJECT });
+    assert.deepEqual(delivered[0].payload.coopTopicRef, targetTopic);
+    assert.equal(delivered[0].payload.coopIngressId, ingressId);
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("recovered replay stays closed when verified production metadata changes", function () {
+  var ingressId = "coop:871a194b-8879-40f7-a1fe-656e48e722af:360";
+  var targetTopic = { topicId: mainIngressRecovery.TARGET_THREAD_ID };
+  var history = [];
+  history[166989] = {
+    type: "user_message",
+    text: "Create a dedicated Voice conversational mode Thread for Clay, detach Voice work from Webapp, " +
+      "use session 18104cdc-5aff-4328-9afc-88bb709dd21d as read-only context, and implement it.",
+    coopIngressId: ingressId,
+    coopIngressSequence: 360,
+    coopIngressKind: "text",
+    coopTopicRef: { topicId: mainIngressRecovery.SOURCE_THREAD_ID },
+    coopThreadRef: { threadId: mainIngressRecovery.SOURCE_THREAD_ID },
+    coopProjectRef: null,
+    coopImplementationDecision: { intent: "ship" },
+    _ts: 1786840579387,
+  };
+  var denied = executionRouter([{
+    ingressId: ingressId, ingressSequence: 360, topicRef: targetTopic,
+    projectRefs: [], expectsExecution: false, implementationDecision: null,
+    sessionRef: { projectId: "system-lead",
+      sessionStorageId: mainIngressRecovery.CANONICAL_SESSION_ID },
+    requestRef: { projectId: "system-lead",
+      sessionStorageId: mainIngressRecovery.CANONICAL_SESSION_ID, eventIndex: 166989 },
+  }], [], [], {
+    canonicalStorageId: mainIngressRecovery.CANONICAL_SESSION_ID,
+    history: history,
+  });
+  try {
+    assert.deepEqual(denied.router.createProjectExecution({
+      source: { projectId: "system-lead",
+        sessionStorageId: mainIngressRecovery.CANONICAL_SESSION_ID },
+      portfolioTaskId: "changed-recovered-event",
+      bindingRevision: 1,
+      idempotencyKey: "changed-recovered-event-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT },
+      coopTopicRef: targetTopic,
+      coopIngressId: ingressId,
+    }), { ok: false, reason: "owner_implementation_decision_required" });
+  } finally { fs.rmSync(denied.dir, { recursive: true, force: true }); }
 });
 
 test("a generic explicit decision admits the next typed ProjectRef but an explicit mismatch does not", function () {

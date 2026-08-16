@@ -6,6 +6,7 @@ var path = require("path");
 
 var externalOrchestration = require("../lib/project-task-orchestrator-external");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
+var mainIngressRecovery = require("../lib/coop-main-ingress-recovery");
 var createExternalTaskCoordinator = externalOrchestration.createExternalTaskCoordinator;
 var attachPortfolioExecutionTarget = externalOrchestration.attachPortfolioExecutionTarget;
 var terminalStatusForTurn =
@@ -121,6 +122,50 @@ test("the next typed dispatch reuses explicit approval text restored from histor
     targetProject: { projectId: projectId }, coopTopicRef: topic }).ok, true);
   assert.equal(delivered.coopIngressId, "coop:canonical-coop:281");
   assert.deepEqual(delivered.coopTopicRef, topic);
+});
+
+test("the exact recovered Voice command routes through its canonical ProjectRef", function () {
+  var history = [];
+  history[166989] = {
+    type: "user_message",
+    text: "Create a dedicated Voice conversational mode Thread for Clay, detach Voice work from Webapp, " +
+      "use session 18104cdc-5aff-4328-9afc-88bb709dd21d as read-only context, and implement it.",
+    coopIngressId: "coop:871a194b-8879-40f7-a1fe-656e48e722af:360",
+    coopIngressSequence: 360,
+    coopIngressKind: "text",
+    coopTopicRef: { topicId: mainIngressRecovery.SOURCE_THREAD_ID },
+    coopThreadRef: { threadId: mainIngressRecovery.SOURCE_THREAD_ID },
+    coopProjectRef: null,
+    coopImplementationDecision: null,
+    _ts: 1786840579387,
+  };
+  var source = { localId: 1, storageId: mainIngressRecovery.CANONICAL_SESSION_ID,
+    history: history };
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+  var targetTopic = { topicId: mainIngressRecovery.TARGET_THREAD_ID };
+
+  var result = coordinate({
+    coordinatorSessionId: mainIngressRecovery.CANONICAL_SESSION_ID,
+    portfolioTaskId: "clay-voice-conversational-mode-2026-08-16",
+    bindingRevision: 1,
+    idempotencyKey: "clay-voice-conversational-mode-2026-08-16-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: mainIngressRecovery.CLAY_PROJECT_ID },
+    coopTopicRef: targetTopic,
+    objective: "Implement the approved Voice conversational mode.",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(delivered.coopIngressId,
+    "coop:871a194b-8879-40f7-a1fe-656e48e722af:360");
+  assert.deepEqual(delivered.coopTopicRef, targetTopic);
+  assert.deepEqual(delivered.targetProject,
+    { projectId: mainIngressRecovery.CLAY_PROJECT_ID });
 });
 
 test("queue-wide approval preserves the queued task's original ThreadRef and ingress", function () {
