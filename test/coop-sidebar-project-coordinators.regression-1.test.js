@@ -466,6 +466,155 @@ test("a durable task dismissal overrides its failed historical child execution",
     "only the exact dismissed task bindings are reconciled into hidden history");
 });
 
+test("sidebar hides historical failed coordinator revisions and retains latest attention", async function () {
+  var canonicalCoopId = "871a194b-8879-40f7-a1fe-656e48e722af";
+  var controlRootId = "457f9fa1-7024-40cc-acee-2cef6b2b8445";
+  var rootRef = { projectId: "system-lead", sessionStorageId: controlRootId };
+
+  function execution(taskId, revision, status) {
+    return {
+      portfolioTaskId: taskId,
+      bindingRevision: revision,
+      idempotencyKey: taskId + "-r" + revision,
+      mode: "project_coordinator",
+      status: status,
+    };
+  }
+
+  function coordinator(id, title, binding) {
+    return session(id, {
+      storageId: "portfolio-coordinator-" + id,
+      title: title,
+      coordinationMode: true,
+      coordinationRole: "task_coordinator",
+      coopControlledBy: { coopSessionStorageId: controlRootId, since: 1 },
+      projectCoordinatorRef: rootRef,
+      orchestrationPolicy: { portfolioExecution: binding },
+    });
+  }
+
+  function durableBinding(item, status) {
+    return Object.assign({}, item.orchestrationPolicy.portfolioExecution, {
+      status: status,
+      targetProject: { projectId: CLAY },
+      coordinator: { projectId: CLAY, sessionStorageId: item.storageId },
+      projectCoordinator: rootRef,
+      createdAt: item.localId,
+      updatedAt: item.localId,
+      completedAt: status === "completed" ? item.localId : null,
+    });
+  }
+
+  var voiceOne = coordinator(71, "Fix compact Voice chat controls",
+    execution("clay-voice-chat-controls-fix-2026-08-16", 1, "failed"));
+  var voiceTwo = coordinator(72, "Recover compact Voice controls",
+    execution("clay-voice-chat-controls-fix-2026-08-16", 2, "failed"));
+  var voiceFour = coordinator(74, "Finish Voice controls after restart",
+    execution("clay-voice-chat-controls-fix-2026-08-16", 4, "completed"));
+  voiceFour.hidden = true;
+  var routingOne = coordinator(81, "Fix worker routing and restart recovery",
+    execution("clay-worker-routing-restart-reliability-2026-08-16", 1, "failed"));
+  var routingTwo = coordinator(82, "Verify routing and checkpointed restart",
+    execution("clay-worker-routing-restart-reliability-2026-08-16", 2, "completed"));
+  routingTwo.hidden = true;
+  var unresolvedPrior = coordinator(90, "Earlier unresolved failure",
+    execution("clay-current-unresolved-failure-2026-08-16", 2, "failed"));
+  var unresolved = coordinator(91, "Latest unresolved failure",
+    execution("clay-current-unresolved-failure-2026-08-16", 3, "failed"));
+  var active = coordinator(92, "Current active work",
+    execution("clay-current-active-work-2026-08-16", 1, "running"));
+  var queued = coordinator(93, "Current queued work",
+    execution("clay-current-queued-work-2026-08-16", 1, "queued"));
+  var reviewing = coordinator(94, "Current reviewing work",
+    execution("clay-current-reviewing-work-2026-08-16", 1, "reviewing"));
+  var children = [voiceOne, voiceTwo, voiceFour, routingOne, routingTwo,
+    unresolvedPrior, unresolved, active, queued, reviewing];
+  var root = session(70, {
+    storageId: controlRootId,
+    title: "Clay coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: canonicalCoopId, since: 1 },
+    orchestrationPolicy: { coopControlPlane: {
+      version: 1,
+      role: "project_coordinator",
+      projectRef: { projectId: CLAY },
+      createdAt: 1,
+    } },
+    orchestrationTasks: children.map(function (item) {
+      return Object.assign(task("task-" + item.localId, "running", item), {
+        clientRef: "portfolio:" + item.orchestrationPolicy.portfolioExecution.portfolioTaskId + ":" +
+          item.orchestrationPolicy.portfolioExecution.bindingRevision,
+        workerSessionRef: { projectId: CLAY, sessionStorageId: item.storageId },
+      });
+    }),
+  });
+  var coopHome = session(1, { storageId: canonicalCoopId, coopHome: true });
+  var lead = project("system-lead", "lead", "Coop", [coopHome, root], { isLead: true });
+  var clay = project(CLAY, "clay", "Clay", children);
+  var bindings = [
+    durableBinding(voiceOne, "failed"),
+    durableBinding(voiceTwo, "failed"),
+    durableBinding(voiceFour, "completed"),
+    durableBinding(routingOne, "failed"),
+    durableBinding(routingTwo, "completed"),
+    durableBinding(unresolvedPrior, "failed"),
+    durableBinding(unresolved, "failed"),
+    durableBinding(active, "active"),
+    durableBinding(queued, "active"),
+    durableBinding(reviewing, "active"),
+  ];
+  var projection = buildGlobalCoopProjection({
+    projects: [lead, clay],
+    portfolioBindings: bindings,
+    coopTopicIndex: {
+      ensureRetro: function () { return { ok: true }; },
+      project: function () { return { groups: [] }; },
+    },
+  });
+  var hierarchy = projection.projects[0].summary.coordinatorTree;
+  var titles = hierarchy[0].children.map(function (item) { return item.title; });
+
+  assert.deepEqual(titles.sort(), [
+    "Current active work",
+    "Current queued work",
+    "Current reviewing work",
+    "Latest unresolved failure",
+  ], "only the newest committed revision retains its failed attention row");
+  assert.equal(JSON.stringify(hierarchy).includes("Fix compact Voice chat controls"), false);
+  assert.equal(JSON.stringify(hierarchy).includes("Recover compact Voice controls"), false);
+  assert.equal(JSON.stringify(hierarchy).includes("Fix worker routing and restart recovery"), false);
+  assert.equal(JSON.stringify(hierarchy).includes("Earlier unresolved failure"), false);
+
+  globalThis.document = { createElement: createElement };
+  var modelModule = await import(moduleUrl("sidebar-coop-topic-model.js") + "?superseded=" + Date.now());
+  var renderer = await import(moduleUrl("sidebar-coop-hierarchy.js") + "?superseded=" + Date.now());
+  var sections = modelModule.coopTopicSections({
+    hasProjection: true,
+    projects: projection.projects,
+    uncategorisedTopics: [],
+    crossProjectTopics: [],
+  });
+  var desktop = createElement("div");
+  var mobile = createElement("div");
+  renderer.renderCoopProjectHierarchy(desktop, sections[0].coordinators[0].hierarchy, {
+    mobile: false,
+    send: function () { return true; },
+  });
+  renderer.renderCoopProjectHierarchy(mobile, sections[0].coordinators[0].hierarchy, {
+    mobile: true,
+    send: function () { return true; },
+  });
+  assert.equal(JSON.stringify(desktop).includes("Fix compact Voice chat controls"), false);
+  assert.equal(JSON.stringify(mobile).includes("Fix worker routing and restart recovery"), false);
+  assert.equal(byClass(desktop, "coop-project-coordinator-row").filter(function (row) {
+    return row.classList.contains("child");
+  }).length, 4);
+  assert.equal(byClass(mobile, "mobile-coop-project-coordinator-row").filter(function (row) {
+    return row.classList.contains("child");
+  }).length, 4);
+});
+
 test("global Coop hierarchy fails closed on ambiguous storage records regardless of order", function () {
   var fixture = coordinatorFixture();
   fixture.clay.sm.sessions.set(fixture.duplicateWorker.localId, fixture.duplicateWorker);
