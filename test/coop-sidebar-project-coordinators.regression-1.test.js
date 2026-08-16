@@ -385,6 +385,77 @@ test("initial Coop projection includes the production-shaped active 38ee project
   assert.equal(JSON.stringify(tree).includes("owner-direct-project-coordinator"), false);
 });
 
+test("a durable task dismissal overrides its failed historical child execution", function () {
+  var canonicalCoopId = "871a194b-8879-40f7-a1fe-656e48e722af";
+  var controlRootId = "457f9fa1-7024-40cc-acee-2cef6b2b8445";
+  var rootRef = { projectId: "system-lead", sessionStorageId: controlRootId };
+  var legacy = [{
+    id: "64b2e4c4-e55d-490b-b111-81dc83569079",
+    title: "Recover stalled Coop sessions",
+  }, {
+    id: "905f2146-ee64-4f21-bc74-60b3f406404e",
+    title: "Verify activated Coop sidebar cleanup",
+  }, {
+    id: "e43eeac8-c25f-4905-b54c-1e95718a5740",
+    title: "Finalize Coop sidebar verification",
+  }, {
+    id: "ee3df56a-8494-473f-9b01-0c7967759131",
+    title: "Add conditional Coop control groups",
+  }];
+  var tasks = [];
+  var sessions = [];
+  for (var i = 0; i < legacy.length; i++) {
+    var item = legacy[i];
+    var child = session(50 + i, {
+      storageId: item.id,
+      title: item.title,
+      coordinationMode: true,
+      coordinationRole: "task_coordinator",
+      coopControlledBy: { coopSessionStorageId: controlRootId, since: 1 },
+      projectCoordinatorRef: rootRef,
+      orchestrationPolicy: { portfolioExecution: { status: "failed" } },
+    });
+    sessions.push(child);
+    tasks.push(Object.assign(task("dismissed-" + i, "dismissed", child), {
+      workerSessionRef: { projectId: CLAY, sessionStorageId: item.id },
+      resolutionReason: "Superseded by the completed visibility repair.",
+    }));
+  }
+  var root = session(49, {
+    storageId: controlRootId,
+    title: "clay coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: canonicalCoopId, since: 1 },
+    orchestrationPolicy: {
+      coopControlPlane: {
+        version: 1,
+        role: "project_coordinator",
+        projectRef: { projectId: CLAY },
+        createdAt: 1,
+      },
+    },
+    orchestrationTasks: tasks,
+  });
+  var coopHome = session(1, { storageId: canonicalCoopId, coopHome: true });
+  var lead = project("system-lead", "lead", "Coop", [coopHome, root], { isLead: true });
+  var clay = project(CLAY, "clay", "Clay", sessions);
+
+  var projection = buildGlobalCoopProjection({ projects: [lead, clay] });
+  var tree = projection.projects[0].summary.coordinatorTree;
+
+  assert.equal(tree.length, 1);
+  var taskCoordinators = tree[0].children.filter(function (child) {
+    return child.role === "task_coordinator";
+  });
+  assert.deepEqual(taskCoordinators, [],
+    "dismissed tasks remain closed even when their immutable child binding is failed");
+  assert.equal(JSON.stringify(tree).includes("64b2e4c4-e55d-490b-b111-81dc83569079"), false);
+  assert.equal(JSON.stringify(tree).includes("905f2146-ee64-4f21-bc74-60b3f406404e"), false);
+  assert.equal(JSON.stringify(tree).includes("e43eeac8-c25f-4905-b54c-1e95718a5740"), false);
+  assert.equal(JSON.stringify(tree).includes("ee3df56a-8494-473f-9b01-0c7967759131"), false);
+});
+
 test("global Coop hierarchy fails closed on ambiguous storage records regardless of order", function () {
   var fixture = coordinatorFixture();
   fixture.clay.sm.sessions.set(fixture.duplicateWorker.localId, fixture.duplicateWorker);
