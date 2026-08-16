@@ -295,6 +295,96 @@ test("global Coop projection keeps one persistent canonical root and only live t
   ], "terminal child rows close while both reusable project roots persist");
 });
 
+test("initial Coop projection includes the production-shaped active 38ee project coordinator", function () {
+  var canonicalCoopId = "871a194b-8879-40f7-a1fe-656e48e722af";
+  var controlRootId = "457f9fa1-7024-40cc-acee-2cef6b2b8445";
+  var activeId = "38ee2311-f5a2-4db0-90c9-ee95751d51db";
+  var rootRef = { projectId: "system-lead", sessionStorageId: controlRootId };
+  var activeRef = { projectId: CLAY, sessionStorageId: activeId };
+  var active = session(38, {
+    storageId: activeId,
+    title: "Review failed Clay sessions for recovery",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    coopControlledBy: { coopSessionStorageId: controlRootId, since: 1786875717441 },
+    projectCoordinatorRef: rootRef,
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "clay-project-coordinator-visibility-session-cleanup-2026-08-15",
+        bindingRevision: 12,
+        mode: "project_coordinator",
+        status: "running",
+        source: rootRef,
+      },
+    },
+    hidden: false,
+    isProcessing: true,
+    lastActivity: 1786875717441,
+  });
+  var terminal = session(39, {
+    storageId: "terminal-project-coordinator",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    coopControlledBy: { coopSessionStorageId: controlRootId, since: 1 },
+    projectCoordinatorRef: rootRef,
+    orchestrationPolicy: { portfolioExecution: { status: "completed" } },
+  });
+  var hidden = session(40, {
+    storageId: "hidden-project-coordinator",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    coopControlledBy: { coopSessionStorageId: controlRootId, since: 1 },
+    projectCoordinatorRef: rootRef,
+    orchestrationPolicy: { portfolioExecution: { status: "running" } },
+    hidden: true,
+  });
+  var ownerDirect = session(41, {
+    storageId: "owner-direct-project-coordinator",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+  });
+  var root = session(7, {
+    storageId: controlRootId,
+    title: "clay coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: canonicalCoopId, since: 1786794424191 },
+    orchestrationPolicy: {
+      coopControlPlane: {
+        version: 1,
+        role: "project_coordinator",
+        projectRef: { projectId: CLAY },
+        createdAt: 1786794424191,
+      },
+    },
+    orchestrationTasks: [
+      Object.assign(task("task-6530a460-e3af-4e43-b895-b9f350681688", "running", active), {
+        clientRef: "portfolio:clay-project-coordinator-visibility-session-cleanup-2026-08-15:12",
+        workerSessionRef: activeRef,
+      }),
+      task("terminal-task", "completed", terminal),
+      task("hidden-task", "running", hidden),
+    ],
+  });
+  var coopHome = session(1, { storageId: canonicalCoopId, coopHome: true });
+  var lead = project("system-lead", "lead", "Coop", [coopHome, root], { isLead: true });
+  var clay = project(CLAY, "clay", "Clay", [active, terminal, hidden, ownerDirect]);
+
+  var projection = buildGlobalCoopProjection({ projects: [lead, clay] });
+  var tree = projection.projects[0].summary.coordinatorTree;
+  var taskCoordinators = tree[0].children.filter(function (child) {
+    return child.role === "task_coordinator";
+  });
+  assert.equal(tree.length, 1);
+  assert.deepEqual(tree[0].sessionRef, rootRef);
+  assert.deepEqual(taskCoordinators.map(function (child) {
+    return { sessionRef: child.sessionRef, status: child.status };
+  }), [{ sessionRef: activeRef, status: "running" }]);
+  assert.equal(JSON.stringify(tree).includes("terminal-project-coordinator"), false);
+  assert.equal(JSON.stringify(tree).includes("hidden-project-coordinator"), false);
+  assert.equal(JSON.stringify(tree).includes("owner-direct-project-coordinator"), false);
+});
+
 test("global Coop hierarchy fails closed on ambiguous storage records regardless of order", function () {
   var fixture = coordinatorFixture();
   fixture.clay.sm.sessions.set(fixture.duplicateWorker.localId, fixture.duplicateWorker);
