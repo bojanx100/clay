@@ -144,6 +144,23 @@ function executionRouter(entries, delivered, handedOff, options) {
         entry.expectsExecution = true;
         return entry;
       },
+      scopeImplementation: function (ingressId, input) {
+        var entry = entries.find(function (candidate) {
+          return candidate.ingressId === ingressId;
+        });
+        if (!entry || !entry.implementationDecision || !entry.expectsExecution) {
+          return { ok: false, reason: "owner_implementation_decision_required" };
+        }
+        if (entry.implementationScope && JSON.stringify(entry.implementationScope) !==
+            JSON.stringify(input)) {
+          return { ok: false, reason: "owner_implementation_scope_mismatch" };
+        }
+        var reused = !!entry.implementationScope;
+        entry.implementationScope = JSON.parse(JSON.stringify(input));
+        entry.topicRef = input.topicRef;
+        entry.projectRefs = [input.projectRef];
+        return { ok: true, reused: reused, request: entry };
+      },
       claimCoordinator: function (input) { claimed = input.coordinator; return { ok: true }; },
       canonicalCoordinator: function () { return claimed; },
       canonicalProjectCoordinator: function () { return null; },
@@ -255,6 +272,49 @@ test("owner text approval is replayed from the exact canonical event and persist
     assert.equal(replay.reused, true);
     assert.equal(approved.classificationCount(), 1,
       "a replay must reuse the persisted decision instead of recording it again");
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("an explicit Main command authorizes one exact ProjectRef and task without a Thread worker", function () {
+  var delivered = [];
+  var handedOff = [];
+  var ingressId = "coop:canonical-coop:8";
+  var entries = [{
+    ingressId: ingressId,
+    topicRef: null,
+    projectRefs: [],
+    expectsExecution: true,
+    implementationDecision: { intent: "fix", source: "explicit_owner_turn" },
+    classification: { kind: "conversational", source: "ingress_route" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+  }];
+  var approved = executionRouter(entries, delivered, handedOff, { history: [{
+    type: "user_message", text: "Fix it", coopComposerScope: "main",
+    coopIngressId: ingressId, coopImplementationDecision: { intent: "fix" },
+  }] });
+  var exact = {
+    source: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+    portfolioTaskId: "main-owner-directed-task", bindingRevision: 1,
+    idempotencyKey: "main-owner-directed-task-r1", mode: "project_coordinator",
+    targetProject: { projectId: PROJECT }, coopTopicRef: TOPIC,
+    coopIngressId: ingressId, objective: "Implement the exact owner-directed fix.",
+  };
+  try {
+    var result = approved.router.createProjectExecution(exact);
+    assert.equal(result.ok, true);
+    assert.deepEqual(entries[0].implementationScope, {
+      projectRef: { projectId: PROJECT },
+      topicRef: TOPIC,
+      portfolioTaskId: "main-owner-directed-task",
+      bindingRevision: 1,
+      idempotencyKey: "main-owner-directed-task-r1",
+    });
+    assert.equal(approved.router.createProjectExecution(exact).reused, true);
+    assert.deepEqual(approved.router.createProjectExecution(Object.assign({}, exact, {
+      portfolioTaskId: "different-main-task",
+      idempotencyKey: "different-main-task-r1",
+    })), { ok: false, reason: "owner_implementation_scope_mismatch" });
+    assert.equal(delivered.length, 1);
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
 });
 

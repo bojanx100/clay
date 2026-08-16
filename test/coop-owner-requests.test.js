@@ -267,6 +267,39 @@ test("the first durable implementation decision survives classification replay",
   });
 });
 
+test("a Main implementation decision is durably scoped to one exact typed task", function () {
+  var file = tempFile();
+  var ledger = makeLedger({ file: file });
+  var id = "coop:" + COOP_SESSION + ":5";
+  var scope = {
+    projectRef: { projectId: LEAD_PROJECT },
+    topicRef: TOPIC,
+    portfolioTaskId: "owner-directed-task",
+    bindingRevision: 1,
+    idempotencyKey: "owner-directed-task-r1",
+  };
+  ledger.record(ingress(5));
+  ledger.classify(id, {
+    kind: "conversational",
+    implementationDecision: { intent: "fix" },
+  });
+
+  var first = ledger.scopeImplementation(id, scope);
+  var replay = ledger.scopeImplementation(id, scope);
+  var mismatch = ledger.scopeImplementation(id,
+    Object.assign({}, scope, { portfolioTaskId: "different-task" }));
+  var reloaded = ownerRequests.attachCoopOwnerRequests({ file: file }).get(id);
+
+  assert.equal(first.ok, true);
+  assert.equal(first.reused, false);
+  assert.equal(replay.ok, true);
+  assert.equal(replay.reused, true);
+  assert.deepEqual(mismatch, { ok: false, reason: "owner_implementation_scope_mismatch" });
+  assert.deepEqual(reloaded.implementationScope, scope);
+  assert.deepEqual(reloaded.topicRef, TOPIC);
+  assert.deepEqual(reloaded.projectRefs, [{ projectId: LEAD_PROJECT }]);
+});
+
 test("an unresolved ProjectRef records attention instead of silently dropping the request", function () {
   var ledger = makeLedger();
   var id = "coop:" + COOP_SESSION + ":182";

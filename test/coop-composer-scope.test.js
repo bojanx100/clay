@@ -48,6 +48,16 @@ test("server removes stale refs for Main and rejects malformed canonical scope",
   assert.equal(routed.coopTopicAnchor, undefined);
   assert.equal(main.coopClassification, "conversational");
 
+  var implementation = {
+    type: "message", text: "Fix it", coopComposerScope: "main",
+    coopTopicRef: { topicId: "stale-thread" },
+  };
+  assert.equal(ingress.prepareIngress(ctx, {}, implementation, session), true);
+  assert.equal(implementation.coopTopicRef, undefined);
+  assert.deepEqual(implementation.coopImplementationDecision, {
+    intent: "fix", projectName: "",
+  });
+
   assert.equal(ingress.prepareIngress(ctx, {}, {
     type: "message", text: "bad", coopComposerScope: "not-a-scope",
   }, session), false);

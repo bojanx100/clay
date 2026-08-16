@@ -573,12 +573,12 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.equal(router.getExecutionBinding("portfolio-slice-7", 2).attentionAt, undefined,
     "accepted steering clears obsolete attention so running state is truthful");
   target.sm.availableVendors = ["codex"];
-  target.sm.installedVendors = ["codex"];
+  target.sm.installedVendors = [];
   target.sm.providerRoutes = [{
     id: "codex-openai",
     vendor: "codex",
     label: "Codex",
-    enabled: true,
+    enabled: false,
     health: "healthy",
     catalogVerified: true,
     catalogSource: "live",
@@ -623,15 +623,15 @@ test("Coop creates one direct leaf in the target project and promotes it without
     maxParallel: 3,
     tasks: [{
       ref: "parallel-review-a",
-      title: "Review bootstrap persistence",
-      objective: "Review bootstrap persistence and report findings only.",
+      title: "Review bootstrap persistence architecture",
+      objective: "Review the bootstrap persistence architecture and report findings only.",
       ownedPaths: "read-only: bootstrap persistence",
       provider: "codex",
       difficulty: "strong",
     }, {
       ref: "parallel-review-b",
-      title: "Review typed routing",
-      objective: "Review typed routing and report findings only.",
+      title: "Review typed routing architecture",
+      objective: "Review the typed routing architecture and report findings only.",
       ownedPaths: "read-only: typed routing",
       provider: "codex",
       difficulty: "strong",
@@ -643,7 +643,9 @@ test("Coop creates one direct leaf in the target project and promotes it without
   });
   assert.equal(parallelTasks.length, 2);
   assert.deepEqual(parallelTasks.map(function (task) { return task.status; }), ["running", "running"]);
-  assert.deepEqual(parallelTasks.map(function (task) { return task.routingCapabilityFloor; }), [3, 3]);
+  assert.deepEqual(parallelTasks.map(function (task) { return task.routingCapabilityFloor; }), [4, 4]);
+  assert.deepEqual(parallelTasks.map(function (task) { return task.model; }),
+    ["gpt-5.6-sol", "gpt-5.6-sol"]);
   var parallelStarts = target.starts.filter(function (entry) {
     return entry.session.orchestrationParent &&
       parallelTasks.some(function (task) {

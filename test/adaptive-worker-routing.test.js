@@ -227,6 +227,27 @@ test("frontier fallback reaches OpenAI Sol when the compatible Copilot route is 
   assert.equal(result.model, "gpt-5.6-sol");
 });
 
+test("stale disabled route snapshots reconcile from an available Codex adapter before selection", function () {
+  var state = routingState();
+  state.availableVendors = ["codex"];
+  state.installedVendors = [];
+  state.providerRoutes = [route("codex-openai", "codex", "gpt", "Codex", false)];
+  state.verifiedModelsByRoute = { "codex-openai": ["gpt-5.6-sol"] };
+
+  var result = routing.selectWorkerRoute(state, parent(), {
+    title: "Repair the cross-project scheduling architecture",
+    objective: "Fix the root cause of stale provider-route readiness.",
+  });
+
+  assert.equal(result.blocked, false);
+  assert.equal(result.providerRouteId, "codex-openai");
+  assert.equal(result.model, "gpt-5.6-sol");
+  assert.equal(state.providerRoutes.find(function (item) {
+    return item.id === "codex-openai";
+  }).enabled, true);
+  assert.deepEqual(state.installedVendors, ["codex"]);
+});
+
 test("project route-cost overrides change ranking without lowering the capability floor", function () {
   var state = routingState();
   state.workerRoutingPolicy = {

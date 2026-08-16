@@ -78,6 +78,21 @@ test("a Lead-resident project coordinator owns a target-project task coordinator
     { projectId: projectIdentity.LEAD_PROJECT_ID, sessionStorageId: root.storageId });
 });
 
+test("ensuring a resident project coordinator reactivates the same archived session", function () {
+  var sm = manager();
+  var coopRef = { projectId: projectIdentity.LEAD_PROJECT_ID,
+    sessionStorageId: "canonical-coop" };
+  var root = controlPlane.ensureProjectCoordinator(sm, { projectId: CLAY }, "Clay", coopRef);
+  root.hidden = true;
+  root.closedAt = 1234;
+
+  var recovered = controlPlane.ensureProjectCoordinator(sm, { projectId: CLAY }, "Clay", coopRef);
+
+  assert.equal(recovered, root);
+  assert.equal(recovered.hidden, false);
+  assert.equal(recovered.closedAt, null);
+});
+
 test("global Coop projects Lead root to target task coordinator to its worker", function () {
   var leadManager = manager();
   var ensured = controlPlane.ensureControlPlane(leadManager, [

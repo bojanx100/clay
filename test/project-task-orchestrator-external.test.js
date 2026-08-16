@@ -125,6 +125,57 @@ test("the next typed dispatch reuses explicit approval text restored from histor
   assert.deepEqual(delivered.coopTopicRef, topic);
 });
 
+test("the latest explicit Main command supplies the exact next typed execution route", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var topic = { topicId: "auto-main-owner-directed" };
+  var source = { localId: 1, storageId: "canonical-coop", history: [{
+    type: "user_message", text: "Fix it", coopComposerScope: "main",
+    coopIngressId: "coop:canonical-coop:301",
+    coopImplementationDecision: { intent: "fix" },
+  }] };
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+
+  assert.equal(coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "main-directed-fix", bindingRevision: 1,
+    idempotencyKey: "main-directed-fix-r1", mode: "project_coordinator",
+    targetProject: { projectId: projectId }, coopTopicRef: topic,
+  }).ok, true);
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:301");
+  assert.deepEqual(delivered.coopTopicRef, topic);
+});
+
+test("an older unscoped Main command cannot authorize a later owner turn", function () {
+  var delivered = null;
+  var source = { localId: 1, storageId: "canonical-coop", history: [{
+    type: "user_message", text: "Fix it", coopComposerScope: "main",
+    coopIngressId: "coop:canonical-coop:301",
+    coopImplementationDecision: { intent: "fix" },
+  }, {
+    type: "user_message", text: "What is the current status?", coopComposerScope: "main",
+    coopIngressId: "coop:canonical-coop:302",
+  }] };
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+
+  assert.equal(coordinate({
+    coordinatorSessionId: "canonical-coop", portfolioTaskId: "stale-main-fix",
+    bindingRevision: 1, idempotencyKey: "stale-main-fix-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    coopTopicRef: { topicId: "auto-stale-main" },
+  }).ok, true);
+  assert.equal(delivered.coopIngressId, undefined);
+});
+
 test("the exact recovered Voice command routes through its canonical ProjectRef", function () {
   var history = [];
   history[166989] = {
@@ -591,4 +642,35 @@ test("restart recovery closes an archived project coordinator binding after sess
   assert.equal(coordinator.orchestrationProjectCompletion.status, "pending",
     "a recovered failure is terminal but not a verified project completion");
   assert.deepEqual(router.bindingStore.listCurrent(), []);
+});
+
+test("steering recovers an archived active task coordinator but leaves terminal evidence archived", function () {
+  var saves = 0;
+  var broadcasts = 0;
+  var sm = {
+    saveSessionFile: function () { saves++; },
+    broadcastSessionList: function () { broadcasts++; },
+  };
+  var active = {
+    hidden: true, closedAt: 123, coordinationRole: "task_coordinator",
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "active-task", bindingRevision: 1,
+      idempotencyKey: "active-task-r1", mode: "project_coordinator", status: "running",
+    } },
+  };
+  var terminal = {
+    hidden: true, closedAt: 456, coordinationRole: "task_coordinator",
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "done-task", bindingRevision: 1,
+      idempotencyKey: "done-task-r1", mode: "project_coordinator", status: "completed",
+    } },
+  };
+
+  assert.equal(externalOrchestration.recoverArchivedTaskCoordinator(sm, active), true);
+  assert.equal(active.hidden, false);
+  assert.equal(active.closedAt, null);
+  assert.equal(externalOrchestration.recoverArchivedTaskCoordinator(sm, terminal), false);
+  assert.equal(terminal.hidden, true);
+  assert.equal(saves, 1);
+  assert.equal(broadcasts, 1);
 });
