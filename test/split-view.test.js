@@ -59,3 +59,15 @@ test("pane session pin waits until the current websocket marks it pending", asyn
     sessionId: null,
   });
 });
+
+test("split view promotes one sticky-note canvas above both panes", function () {
+  var splitSource = fs.readFileSync(path.join(__dirname, "../lib/public/modules/split-view.js"), "utf8");
+  var notesSource = fs.readFileSync(path.join(__dirname, "../lib/public/modules/sticky-notes.js"), "utf8");
+  var paneCss = fs.readFileSync(path.join(__dirname, "../lib/public/css/pane.css"), "utf8");
+
+  assert.match(splitSource, /mainPanelsEl\.appendChild\(stickyNotesContainer\)/);
+  assert.match(splitSource, /placeStickyNotesOverlay\(false\)/);
+  assert.match(paneCss, /body\.pane-mode #sticky-notes-container\s*\{[^}]*display:\s*none !important/s);
+  assert.match(notesSource, /setPointerCapture\(pointerId\)/);
+  assert.match(paneCss, /body\.sticky-note-interacting \.split-pane-frame\s*\{[^}]*pointer-events:\s*none/s);
+});
