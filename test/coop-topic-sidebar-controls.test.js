@@ -141,7 +141,10 @@ test("all open topics render in one Threads group without legacy categories", as
     projects: [
       { projectRef: { projectId: CLAY }, slug: "clay", title: "clay", icon: "C",
         summary: { coordinatorTree: [{ sessionRef: { projectId: "system-lead", sessionStorageId: "clay-coordinator" },
-          title: "Project coordinator", role: "project_coordinator", children: [] }] },
+          title: "Project coordinator", role: "project_coordinator", children: [{
+            sessionRef: { projectId: CLAY, sessionStorageId: "clay-task-coordinator" },
+            title: "Active Clay work", role: "task_coordinator", status: "running", children: [],
+          }] }] },
         topics: [topic("clay-one", { projectRef: { projectId: CLAY } })] },
       { projectRef: { projectId: WEBAPP }, slug: "webapp", title: "webapp",
         summary: { coordinatorTree: [{ sessionRef: { projectId: "system-lead", sessionStorageId: "webapp-coordinator" },
@@ -160,7 +163,7 @@ test("all open topics render in one Threads group without legacy categories", as
     ["clay-one", "cross-one", "uncat-one"]);
   assert.deepEqual(sections[1].coordinators.map(function (item) {
     return item.hierarchy[0].title;
-  }), ["Clay coordinator", "Webapp coordinator"]);
+  }), ["Clay coordinator"]);
 });
 
 test("a project-classified open topic still lives in Threads", async function () {
@@ -187,6 +190,56 @@ test("all empty Coop control groups are omitted without headings or placeholders
     ui.projection.buildGlobalCoopDisplayModel(""))), []);
 });
 
+test("project coordinators omit empty and terminal-only history but retain active and attention work", async function () {
+  var ui = await loadTopicControls();
+  ui.projection.setGlobalCoopProjection(projectionMessage({
+    projects: [{
+      projectRef: { projectId: "empty" }, title: "Empty", summary: { coordinatorTree: [{
+        sessionRef: { projectId: "system-lead", sessionStorageId: "empty-coordinator" },
+        title: "Empty coordinator", role: "project_coordinator", children: [],
+      }] },
+    }, {
+      projectRef: { projectId: "terminal" }, title: "Terminal", summary: { coordinatorTree: [{
+        sessionRef: { projectId: "system-lead", sessionStorageId: "terminal-coordinator" },
+        title: "Terminal coordinator", role: "project_coordinator", children: [{
+          topicRef: { topicId: "handed-off-history" }, title: "Handed-off history", role: "thread",
+          status: "handed_off", children: [],
+        }, {
+          topicRef: { topicId: "completed-history" }, title: "Completed history", role: "thread",
+          status: "completed", children: [],
+        }],
+      }] },
+    }, {
+      projectRef: { projectId: "active" }, title: "Active", summary: { coordinatorTree: [{
+        sessionRef: { projectId: "system-lead", sessionStorageId: "active-coordinator" },
+        title: "Active coordinator", role: "project_coordinator", children: [{
+          sessionRef: { projectId: "active", sessionStorageId: "active-task" },
+          title: "Active task", role: "task_coordinator", status: "running", children: [],
+        }],
+      }] },
+    }, {
+      projectRef: { projectId: "attention" }, title: "Attention", summary: { coordinatorTree: [{
+        sessionRef: { projectId: "system-lead", sessionStorageId: "attention-coordinator" },
+        title: "Attention coordinator", role: "project_coordinator", children: [{
+          topicRef: { topicId: "attention-thread" }, title: "Attention Thread", role: "thread",
+          status: "handed_off", children: [{
+            sessionRef: { projectId: "attention", sessionStorageId: "attention-task" },
+            title: "Blocked task", role: "task_coordinator", status: "needs_input", children: [],
+          }],
+        }],
+      }] },
+    }],
+  }));
+
+  var sections = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
+  assert.deepEqual(sectionShape(sections), ["project_coordinators:Project coordinators"]);
+  assert.deepEqual(sections[0].coordinators.map(function (coordinator) {
+    return coordinator.label;
+  }), ["Active", "Attention"]);
+  assert.equal(JSON.stringify(sections).includes("Handed-off history"), false);
+  assert.equal(JSON.stringify(sections).includes("Completed history"), false);
+});
+
 test("each Coop control group can appear alone and invalid control sessions stay hidden", async function () {
   var ui = await loadTopicControls();
   var threadOnly = ui.model.coopTopicSections({ allTopics: [topic("only-thread")] });
@@ -196,6 +249,10 @@ test("each Coop control group can appear alone and invalid control sessions stay
     projects: [{ title: "Clay", summary: { coordinatorTree: [{
       title: "Clay coordinator", role: "project_coordinator",
       sessionRef: { projectId: "system-lead", sessionStorageId: "clay-coordinator" },
+      children: [{
+        title: "Active task", role: "task_coordinator", status: "running",
+        sessionRef: { projectId: CLAY, sessionStorageId: "clay-task-coordinator" }, children: [],
+      }],
     }] } }],
   });
   assert.deepEqual(sectionShape(coordinatorOnly), ["project_coordinators:Project coordinators"]);
@@ -280,7 +337,10 @@ test("admitted work leaves Threads while unadmitted discussion remains", async f
           title: "Project coordinator",
           role: "project_coordinator",
           status: "running",
-          children: [],
+          children: [{
+            sessionRef: { projectId: CLAY, sessionStorageId: "clay-task-coordinator" },
+            title: "Active Clay task", role: "task_coordinator", status: "running", children: [],
+          }],
         }],
       },
       topics: [

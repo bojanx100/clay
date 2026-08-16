@@ -679,7 +679,7 @@ function projectedProject(projectId, title, childTitle, workerTitle) {
   };
 }
 
-test("shared Coop renderer places project coordinator rows in desktop and mobile global sidebars", async function () {
+test("shared Coop renderer places only active project coordinator rows in desktop and mobile global sidebars", async function () {
   globalThis.document = { createElement: createElement };
   var modelModule = await import(moduleUrl("sidebar-coop-topic-model.js") + "?v=" + Date.now());
   var hierarchyModel = await import(moduleUrl("sidebar-coop-hierarchy-model.js") + "?v=" + Date.now());
@@ -698,7 +698,7 @@ test("shared Coop renderer places project coordinator rows in desktop and mobile
     "project roots share one global Coop group even when no Thread row exists");
   assert.deepEqual(sections[0].coordinators.map(function (coordinator) {
     return coordinator.label;
-  }), ["Clay", "Webapp"]);
+  }), ["Clay"]);
 
   var normalized = hierarchyModel.cloneCoopProjectHierarchy(model.projects[0].summary.coordinatorTree);
   assert.equal(normalized[0].children[0].children[0].role, "worker");
@@ -718,10 +718,10 @@ test("shared Coop renderer places project coordinator rows in desktop and mobile
 
   var desktopRows = byClass(desktop, "coop-project-coordinator-row");
   var mobileRows = byClass(mobile, "mobile-coop-project-coordinator-row");
-  assert.equal(desktopRows.filter(function (row) { return row.classList.contains("root"); }).length, 2);
+  assert.equal(desktopRows.filter(function (row) { return row.classList.contains("root"); }).length, 1);
   assert.equal(desktopRows.filter(function (row) { return row.classList.contains("child"); }).length, 1);
   assert.equal(desktopRows.filter(function (row) { return row.classList.contains("grandchild"); }).length, 1);
-  assert.equal(mobileRows.filter(function (row) { return row.classList.contains("root"); }).length, 2);
+  assert.equal(mobileRows.filter(function (row) { return row.classList.contains("root"); }).length, 1);
   assert.equal(mobileRows.filter(function (row) { return row.classList.contains("child"); }).length, 1);
   assert.equal(mobileRows.filter(function (row) { return row.classList.contains("grandchild"); }).length, 1);
   assert.equal(desktopRows.filter(function (row) { return row.classList.contains("child"); })[0]

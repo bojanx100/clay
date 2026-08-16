@@ -347,7 +347,10 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
       projectRef: { projectId: clayId }, title: "Clay", topics: [],
       summary: { coordinatorTree: [{
         sessionRef: { projectId: "system-lead", sessionStorageId: "clay-coordinator" },
-        title: "Clay coordinator", role: "project_coordinator", status: "persistent", children: [],
+        title: "Clay coordinator", role: "project_coordinator", status: "persistent", children: [{
+          sessionRef: { projectId: clayId, sessionStorageId: "clay-task-coordinator" },
+          title: "Active Clay task", role: "task_coordinator", status: "running", children: [],
+        }],
       }] },
     }],
     topics: [{
@@ -380,7 +383,7 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   }), ["Project coordinators", "Council", "Triage"]);
   assert.deepEqual(byClass(desktop, "coop-project-coordinator-title").map(function (title) {
     return title.textContent;
-  }), ["Clay coordinator"]);
+  }), ["Clay coordinator", "Active Clay task"]);
   var desktopControlRows = byClass(desktop, "coop-control-plane-row");
   assert.equal(desktopControlRows.length, 2);
   assert.equal(desktopControlRows[0].classList.contains("processing"), true);
