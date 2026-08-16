@@ -307,13 +307,6 @@ availableTest("production startup resumes an already-appended direct message bef
     var control = controlRuntime.getExecutionControl({ enabled: true, dbPath: dbPath });
     var delivery = controlRuntime.getDeliveryControl({ enabled: true, dbPath: dbPath });
     var token = started(control);
-    var unrelatedRequest = { portfolioTaskId: "task-unrelated-restart", bindingRevision: 1,
-      idempotencyKey: "task-unrelated-restart-r1", mode: "project_coordinator",
-      targetProject: { projectId: PROJECT }, source: SOURCE };
-    var unrelated = control.reserveStart(unrelatedRequest);
-    control.bindStart(unrelated, { projectId: PROJECT, sessionStorageId: "coordinator-unrelated" });
-    control.openStartBarrier(unrelated);
-    control.markProviderStarted(unrelated);
     var session = { localId: 1, storageId: OLD.sessionStorageId, history: [], isProcessing: false,
       orchestrationPolicy: { portfolioExecution: { portfolioTaskId: "task-main", bindingRevision: 1,
         idempotencyKey: "task-main-r1", mode: "project_coordinator", source: SOURCE, status: "running" } } };
@@ -357,7 +350,7 @@ availableTest("production startup resumes an already-appended direct message bef
     } }, ensureProjectAccessForSession: function () {}, onProcessingChanged: function () {} });
     assert.equal(controlRuntime.getStartupRecovery().state(), "closed");
     var result = sm.recoverCoopControlStartup();
-    assert.equal(result.recoveredExecutions, 1);
+    assert.equal(result.recoveredExecutions, 0);
     assert.equal(result.reconciledEffects, 1);
     assert.equal(controlRuntime.getStartupRecovery().isReady(), true);
     assert.equal(queryStarts, 1);
@@ -375,9 +368,6 @@ availableTest("production startup resumes an already-appended direct message bef
     ["callback", "tool", "completion"].forEach(function (action) {
       assert.equal(session._coopExecutionFence.isCurrent(action), true);
     });
-    var unrelatedDurable = reopenedControl.inspect(unrelated.executionId);
-    assert.equal(unrelatedDurable.execution.status, "failed");
-    assert.equal(unrelatedDurable.leases.length, 0);
     ["callback", "tool"].forEach(function (action) {
       assert.throws(function () { reopenedControl.assertCapability(token, action); }, function (error) {
         return error && error.code === "COOP_CONTROL_FENCE_REJECTED";

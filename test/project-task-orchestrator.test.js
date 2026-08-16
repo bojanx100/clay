@@ -673,7 +673,11 @@ test("Coop creates one direct leaf in the target project and promotes it without
     idempotencyKey: "promote-to-coordinator",
     mode: "project_coordinator",
     targetProject: { projectId: targetProjectId },
+    title: "Target project coordinator",
     objective: "Coordinate the expanded target-project effort.",
+    context: "The work has no local dependencies.",
+    acceptanceCriteria: "The focused test passes.",
+    ownedPaths: "lib/target.js",
   });
   assert.equal(restartedReplay.ok, true);
   assert.equal(restartedReplay.reused, true);
@@ -2216,8 +2220,10 @@ test("startup contains unavailable worker routing without crashing the daemon", 
   assert.equal(ctx.starts[0].session, parent);
   assert.equal(task.status, "needs_input");
   assert.equal(task.routingBlocked, true);
+  assert.equal(task.routingBlockedReason, "catalog_unverified");
+  assert.equal(task.routingDiagnostics.catalogVerification, "unverified");
   assert.match(task.currentActivity, /healthy verified worker route/);
-  assert.match(task.resultSummary, /No healthy candidate/);
+  assert.match(task.resultSummary, /verified model catalog/);
 });
 
 test("restores completed worker ownership for sidebar nesting", function () {

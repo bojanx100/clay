@@ -88,6 +88,22 @@ function request(taskId, revision, extra) {
   }, extra || {});
 }
 
+function cleanupLegacyBindingForTest() {
+  return {
+    portfolioTaskId: "legacy-task",
+    mode: "project_coordinator",
+    targetProject: TARGET,
+    bindingRevision: 1,
+    idempotencyKey: "legacy-task-r1",
+    source: SOURCE,
+    status: "unrouted",
+    createdAt: 1000,
+    updatedAt: 1001,
+    unroutedAt: 1001,
+    statusReason: "pre_task_failure: delivery_error",
+  };
+}
+
 // --- the defect itself -------------------------------------------------------
 
 test("a released reservation stops blocking the next revision", function () {
@@ -233,6 +249,115 @@ test("a conflicting idempotency key on the same revision is refused", function (
   var conflict = api.reserve(request("t", 1, { idempotencyKey: "different" }));
   assert.equal(conflict.ok, false);
   assert.equal(conflict.reason, "idempotency_conflict");
+});
+
+test("new reservations persist versioned control-plane provenance and a normalized task digest", function () {
+  var fs = memoryFs();
+  var api = store({ fs: fs, reconcileOnLoad: false });
+  var created = api.reserve(request("provenance", 1, {
+    title: "  Durable task  ",
+    objective: "  Preserve the exact task payload.  ",
+    context: " Context ",
+    acceptanceCriteria: " Exact replay is safe. ",
+    ownedPaths: " lib/example.js ",
+    dependencies: [{ taskId: "dependency-b" }, { taskId: "dependency-a" }],
+    provider: " codex ",
+    model: " gpt-5.6-sol ",
+  }));
+
+  assert.equal(created.ok, true);
+  assert.deepEqual(created.binding.controlPlaneProvenance, {
+    schema: "clay.coop_control_plane_reservation",
+    version: 1,
+  });
+  assert.match(created.binding.taskPayloadDigest, /^[a-f0-9]{64}$/);
+  assert.equal(created.binding.provider, "codex");
+  assert.equal(created.binding.model, "gpt-5.6-sol");
+
+  var reloaded = store({ fs: fs, reconcileOnLoad: false });
+  assert.deepEqual(reloaded.get("provenance", 1), created.binding,
+    "provenance and digest must reach disk before delivery can begin");
+});
+
+test("same-revision equivalence includes normalized task payload, provider, and model", function () {
+  var api = store();
+  var original = request("equivalence", 1, {
+    title: "Task title",
+    objective: "Do the exact work.",
+    context: "Context",
+    acceptanceCriteria: "Tests pass.",
+    ownedPaths: "lib/example.js",
+    dependencies: [{ taskId: "dependency-a" }, { taskId: "dependency-b" }],
+    provider: "codex",
+    model: "gpt-5.6-sol",
+  });
+  assert.equal(api.reserve(original).ok, true);
+
+  var normalizedReplay = api.reserve(Object.assign({}, original, {
+    title: "  Task title  ",
+    objective: "  Do the exact work.  ",
+    dependencies: [{ taskId: "dependency-b" }, { taskId: "dependency-a" }],
+    provider: " codex ",
+    model: " gpt-5.6-sol ",
+  }));
+  assert.equal(normalizedReplay.ok, true);
+  assert.equal(normalizedReplay.created, false);
+
+  [
+    { provider: "claude" },
+    { model: "gpt-5.6-terra" },
+    { objective: "Do different work." },
+  ].forEach(function (change) {
+    var conflict = api.reserve(Object.assign({}, original, change));
+    assert.equal(conflict.ok, false);
+    assert.equal(conflict.reason, "idempotency_conflict");
+  });
+});
+
+test("legacy records remain identifiable while new reservations are not legacy", function () {
+  var legacy = cleanupLegacyBindingForTest();
+  var fs = seedState([legacy]);
+  var api = store({ fs: fs, reconcileOnLoad: false });
+  var legacyRecord = api.get("legacy-task", 1);
+  assert.equal(bindings.isLegacyReservation(legacyRecord), true);
+  assert.equal(bindings.requestEquivalence(legacyRecord,
+    bindings.normalizeRequest(request("legacy-task", 1, {
+      mode: "project_coordinator",
+      objective: "Retry legacy task.",
+    }))), "legacy");
+  assert.equal(bindings.requestEquivalence(legacyRecord,
+    bindings.normalizeRequest(request("legacy-task", 1, {
+      mode: "project_coordinator",
+      idempotencyKey: "legacy-task-rival-key",
+      objective: "Retry legacy task.",
+    }))), "conflict", "a rival key is a conflict even before legacy migration");
+
+  var created = api.reserve(request("current-task", 1, {
+    objective: "Current control-plane task.",
+  }));
+  assert.equal(created.ok, true);
+  assert.equal(bindings.isLegacyReservation(created.binding), false);
+});
+
+test("structured pre-task failure code and details survive persistence", function () {
+  var fs = memoryFs();
+  var api = store({ fs: fs, reconcileOnLoad: false });
+  api.reserve(request("structured-failure", 1, { objective: "Route work." }));
+  var released = api.releaseReservation("structured-failure", 1, {
+    code: "provider_route_unavailable",
+    message: "No healthy exact-route provider was available.",
+    details: { provider: "codex", model: "gpt-5.6-sol", retryable: true },
+  });
+  assert.equal(released.ok, true);
+  assert.equal(released.binding.failureCode, "provider_route_unavailable");
+  assert.deepEqual(released.binding.failureDetails,
+    { provider: "codex", model: "gpt-5.6-sol", retryable: true });
+
+  var reloaded = store({ fs: fs, reconcileOnLoad: false });
+  assert.equal(reloaded.get("structured-failure", 1).failureCode,
+    "provider_route_unavailable");
+  assert.deepEqual(reloaded.get("structured-failure", 1).failureDetails,
+    released.binding.failureDetails);
 });
 
 test("terminal read-only attention releases the portfolio for an authorized repair revision", function () {

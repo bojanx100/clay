@@ -240,6 +240,7 @@ function buildHarness(options) {
     getSessionManager: function () { return targetSm; },
     deliverCrossProjectEnvelope: function (envelope) {
       deliveries.push(envelope);
+      if (typeof opts.deliver === "function") return opts.deliver(envelope, deliveries);
       if (envelope.payload.type === "portfolio_execution_message") return { ok: true };
       return {
         ok: true,
@@ -449,6 +450,73 @@ test("the migration task's own stranded pre-task revision migrates with an expli
   assert.equal(dispatched.ok, true);
   assert.equal(dispatched.coordinatorSessionId, "task-coordinator-r1");
   assert.deepEqual(dispatched.projectCoordinatorRef, PRIOR_ROOT_REF);
+});
+
+test("current-provenance reservation retries and conflicts before the legacy migration guard", function () {
+  var failDelivery = true;
+  var h = buildHarness({
+    deliver: function (envelope) {
+      if (envelope.payload.type !== "portfolio_execution_create") return { ok: true };
+      if (failDelivery) {
+        return {
+          ok: false,
+          reason: "provider_route_unavailable",
+          code: "provider_route_unavailable",
+          details: { provider: "codex", model: "gpt-5.6-sol", retryable: true },
+        };
+      }
+      return {
+        ok: true,
+        created: true,
+        sessionRef: {
+          projectId: TARGET_ID,
+          sessionStorageId: "current-provenance-task-coordinator",
+        },
+        projectCoordinatorRef: envelope.payload.targetProjectCoordinator,
+      };
+    },
+  });
+  var taskId = "current-provenance-retry-task";
+  var key = "current-provenance-retry-task-r1";
+  var input = Object.assign(dispatchInput(taskId, 1, key), {
+    provider: "codex",
+    model: "gpt-5.6-sol",
+    context: "Keep this payload stable.",
+  });
+
+  var first = h.router.createProjectExecution(input);
+  assert.equal(first.ok, false);
+  assert.equal(first.reason, "provider_route_unavailable");
+  var reserved = h.router.getExecutionBinding(taskId, 1);
+  assert.equal(reserved.status, "unrouted");
+  assert.equal(reserved.controlPlaneProvenance.version, 1);
+  assert.match(reserved.taskPayloadDigest, /^[a-f0-9]{64}$/);
+
+  [
+    { idempotencyKey: "current-provenance-retry-task-rival-key" },
+    { provider: "claude" },
+    { model: "gpt-5.6-terra" },
+    { context: "Changed payload." },
+  ].forEach(function (change) {
+    var conflict = h.router.createProjectExecution(Object.assign({}, input, change));
+    assert.equal(conflict.ok, false);
+    assert.equal(conflict.reason, "idempotency_conflict");
+    assert.equal(h.deliveries.length, 1, "a conflict must not create or deliver work");
+  });
+
+  failDelivery = false;
+  var replay = h.router.createProjectExecution(input);
+  assert.equal(replay.ok, true);
+  assert.equal(replay.created, true);
+  assert.equal(replay.sessionStorageId, "current-provenance-task-coordinator");
+  assert.equal(h.deliveries.length, 2, "the exact retry performs one new delivery attempt");
+  var task = h.rootSession().orchestrationTasks.filter(function (candidate) {
+    return candidate.clientRef === "portfolio:" + taskId + ":1";
+  });
+  assert.equal(task.length, 1, "the exact retry cannot duplicate the control-plane task");
+  assert.equal(reserved.failureCode, "provider_route_unavailable");
+  assert.deepEqual(reserved.failureDetails,
+    { provider: "codex", model: "gpt-5.6-sol", retryable: true });
 });
 
 test("migration fails closed on identity, admission, ambiguity, and infrastructure faults", function () {

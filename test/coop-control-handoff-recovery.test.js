@@ -412,19 +412,19 @@ availableTest("startup recovery keeps its barrier closed until post-cutover repl
   }
 });
 
-availableTest("startup recovery terminalizes non-handoff incarnations before opening the barrier", function () {
+availableTest("startup recovery refuses non-handoff incarnations without stamping restart_recovery", function () {
   var h = harness();
   try {
     var predecessor = started(h.control);
     var startup = startupModule.createStartupRecovery({ enabled: true, store: h.store,
       executionControl: h.control, handoffControl: h.handoff });
-    var result = startup.recover({});
-    assert.equal(result.recoveredExecutions, 1);
-    assert.equal(startup.isReady(), true);
-    assert.equal(h.control.inspect(predecessor.executionId).execution.status, "failed");
-    assert.throws(function () {
-      h.control.assertCapability(predecessor, "callback");
-    }, function (error) { return error && error.code === "COOP_CONTROL_FENCE_REJECTED"; });
+    assert.throws(function () { startup.recover({}); }, function (error) {
+      return error && error.code === "COOP_CONTROL_RESTART_RECOVERY_REQUIRED";
+    });
+    assert.equal(startup.state(), "recovery_required");
+    assert.equal(h.control.inspect(predecessor.executionId).execution.status, "running");
+    assert.equal(h.control.inspect(predecessor.executionId).current.failureCode, null);
+    assert.equal(h.control.assertCapability(predecessor, "callback"), true);
   } finally {
     h.cleanup();
   }

@@ -51,6 +51,18 @@ function fableTokenState() {
   return state;
 }
 
+function voiceTerraTask(overrides) {
+  return Object.assign({
+    title: "Repair Voice worker routing",
+    objective: "Find the root cause of the Voice worker launch regression.",
+    provider: "codex",
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-terra",
+    providerPinned: true,
+    modelPinned: true,
+  }, overrides || {});
+}
+
 test("phase floors route verification work to the cheapest eligible everyday model", function () {
   var result = routing.selectWorkerRoute(routingState(), parent(), {
     title: "Add regression tests",
@@ -85,6 +97,98 @@ test("owner provider and model pins are preserved after catalog and capability g
   assert.equal(result.tier, "pinned");
   assert.equal(result.provider, "claude");
   assert.equal(result.model, "claude-sonnet-4-6");
+});
+
+test("an explicit degraded Terra pin stays eligible for root-cause work without a hard floor", function () {
+  var state = routingState();
+  providerHealth.recordFailure("codex", "transient stream", {
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-terra",
+  });
+
+  var task = voiceTerraTask();
+  var result = routing.selectWorkerRoute(state, parent(), task);
+  var session = routing.prepareWorkerSession(state, parent(), task, "voice-terra-worker");
+
+  assert.equal(result.blocked, false);
+  assert.equal(result.model, "gpt-5.6-terra");
+  assert.equal(result.capabilityTier, 3);
+  assert.equal(result.diagnostics.catalogVerification, "verified");
+  assert.equal(result.diagnostics.advertisement, "advertised");
+  assert.equal(result.diagnostics.health, "degraded");
+  assert.equal(result.diagnostics.capability, "eligible");
+  assert.equal(result.diagnostics.hardCapabilityFloor, null);
+  assert.equal(result.diagnostics.inferredCapabilityFloor, 4);
+  assert.deepEqual(result.diagnostics.rejections, []);
+  assert.equal(session.vendor, "codex");
+  assert.equal(session.model, "gpt-5.6-terra");
+  assert.equal(task.routingBlocked, false);
+  assert.equal(task.routingDiagnostics.health, "degraded");
+});
+
+test("an explicit hard floor reports a precise Terra capability mismatch", function () {
+  var state = routingState();
+  providerHealth.recordFailure("codex", "transient stream", {
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-terra",
+  });
+
+  var result = routing.selectWorkerRoute(state, parent(), voiceTerraTask({ capabilityFloor: 4 }));
+
+  assert.equal(result.blocked, true);
+  assert.equal(result.blockedReason, "capability_mismatch");
+  assert.equal(result.diagnostics.catalogVerification, "verified");
+  assert.equal(result.diagnostics.advertisement, "advertised");
+  assert.equal(result.diagnostics.health, "degraded");
+  assert.equal(result.diagnostics.capability, "capability_mismatch");
+  assert.equal(result.diagnostics.capabilityTier, 3);
+  assert.equal(result.diagnostics.hardCapabilityFloor, 4);
+  assert.deepEqual(result.diagnostics.rejections, ["capability_mismatch"]);
+  assert.match(result.rationale, /capability tier 3/i);
+  assert.doesNotMatch(result.rationale, /no healthy candidate/i);
+
+  var compatible = routing.selectWorkerRoute(
+    state, parent(), voiceTerraTask({ capabilityFloor: 3 }));
+  assert.equal(compatible.blocked, false);
+  assert.equal(compatible.model, "gpt-5.6-terra");
+  assert.equal(compatible.diagnostics.hardCapabilityFloor, 3);
+});
+
+test("pinned-route diagnostics distinguish unverified, not-advertised, and unhealthy causes", function () {
+  var unverifiedState = routingState();
+  unverifiedState.verifiedModelsByRoute = {
+    "codex-openai": { models: [], verified: false },
+  };
+  var unverified = routing.selectWorkerRoute(unverifiedState, parent(), voiceTerraTask());
+  assert.equal(unverified.blockedReason, "catalog_unverified");
+  assert.equal(unverified.diagnostics.catalogVerification, "unverified");
+  assert.equal(unverified.diagnostics.advertisement, null);
+  assert.deepEqual(unverified.diagnostics.rejections, ["unverified"]);
+
+  var notAdvertisedState = routingState();
+  notAdvertisedState.verifiedModelsByRoute = {
+    "codex-openai": { models: ["gpt-5.6-sol"], source: "live" },
+  };
+  var notAdvertised = routing.selectWorkerRoute(
+    notAdvertisedState, parent(), voiceTerraTask());
+  assert.equal(notAdvertised.blockedReason, "model_not_advertised");
+  assert.equal(notAdvertised.diagnostics.catalogVerification, "verified");
+  assert.equal(notAdvertised.diagnostics.advertisement, "not_advertised");
+  assert.deepEqual(notAdvertised.diagnostics.rejections, ["not_advertised"]);
+
+  var unhealthyState = routingState();
+  providerHealth.recordFailure("codex", "rate-limit-rejected", {
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-terra",
+    immediate: true,
+  });
+  var unhealthy = routing.selectWorkerRoute(unhealthyState, parent(), voiceTerraTask());
+  assert.equal(unhealthy.blockedReason, "candidate_unhealthy");
+  assert.equal(unhealthy.diagnostics.catalogVerification, "verified");
+  assert.equal(unhealthy.diagnostics.advertisement, "advertised");
+  assert.equal(unhealthy.diagnostics.health, "unhealthy");
+  assert.equal(unhealthy.diagnostics.capability, "eligible");
+  assert.deepEqual(unhealthy.diagnostics.rejections, ["unhealthy"]);
 });
 
 test("Fable pins resolve only through advertised selectable and resolved-model identities", function () {

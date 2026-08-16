@@ -581,6 +581,82 @@ availableTest("an asynchronously reported provider-start failure removes the new
   }
 });
 
+test("target replay equivalence includes provider, model, and normalized task payload", function () {
+  var h = harness();
+  try {
+    var timeline = [];
+    var control = executions.createExecutionControl({ dbPath: h.dbPath, env: {} });
+    var runtime = target(control, timeline);
+    var first = envelope(70);
+    first.payload.provider = " codex ";
+    first.payload.model = " gpt-5.6-sol ";
+    first.payload.context = "  Exact context.  ";
+    var created = runtime.attached.handleEnvelope(first);
+    assert.equal(created.ok, true);
+    assert.equal(runtime.sessions.size, 1);
+
+    var exact = envelope(71);
+    exact.payload.provider = "codex";
+    exact.payload.model = "gpt-5.6-sol";
+    exact.payload.context = "Exact context.";
+    var replay = runtime.attached.handleEnvelope(exact);
+    assert.equal(replay.ok, true);
+    assert.equal(replay.reused, true);
+    assert.equal(runtime.sessions.size, 1, "exact retry cannot duplicate the session");
+
+    [
+      { provider: "claude", model: "gpt-5.6-sol", context: "Exact context." },
+      { provider: "codex", model: "gpt-5.6-terra", context: "Exact context." },
+      { provider: "codex", model: "gpt-5.6-sol", context: "Changed context." },
+    ].forEach(function (change, index) {
+      var changed = envelope(72 + index);
+      changed.payload.provider = change.provider;
+      changed.payload.model = change.model;
+      changed.payload.context = change.context;
+      var conflict = runtime.attached.handleEnvelope(changed);
+      assert.equal(conflict.ok, false);
+      assert.equal(conflict.reason, "idempotency_conflict");
+      assert.equal(runtime.sessions.size, 1);
+    });
+
+    var metadata = controlledSession(runtime).orchestrationPolicy.portfolioExecution;
+    assert.equal(metadata.provider, "codex");
+    assert.equal(metadata.model, "gpt-5.6-sol");
+    assert.match(metadata.taskPayloadDigest, /^[a-f0-9]{64}$/);
+    assert.equal(metadata.controlPlaneProvenance.version, 1);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("structured provider-start failure code and details survive on execution metadata", async function () {
+  var h = harness();
+  try {
+    var timeline = [];
+    var control = executions.createExecutionControl({ dbPath: h.dbPath, env: {} });
+    var runtime = target(control, timeline, {
+      startResult: {
+        ok: false,
+        reason: "provider_unavailable",
+        code: "provider_route_unavailable",
+        details: { provider: "codex", model: "gpt-5.6-sol", retryable: true },
+      },
+    });
+    var result = runtime.attached.handleEnvelope(envelope(76));
+    var session = runtime.sessions.get(result.localSessionId);
+    await new Promise(function (resolve) { setImmediate(resolve); });
+
+    var metadata = session.orchestrationPolicy.portfolioExecution;
+    assert.equal(metadata.status, "failed");
+    assert.equal(metadata.reason, "provider_unavailable");
+    assert.equal(metadata.failureCode, "provider_route_unavailable");
+    assert.deepEqual(metadata.failureDetails,
+      { provider: "codex", model: "gpt-5.6-sol", retryable: true });
+  } finally {
+    h.cleanup();
+  }
+});
+
 availableTest("provider-start failure removes only the new task coordinator and preserves the project root", async function () {
   var h = harness();
   try {
