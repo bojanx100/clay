@@ -27,6 +27,7 @@ test("voice routing stays on the TopicRef captured when recording starts", async
 
   assert.deepEqual(loaded.routing.takeSTTCoopRouting(), {
     stale: false,
+    scope: "topic",
     topicRef: first.topicRef,
     projectRef: first.projectRef,
   });
@@ -43,6 +44,7 @@ test("voice recording begun in All never inherits a later topic selection", asyn
   });
   assert.deepEqual(loaded.routing.takeSTTCoopRouting(), {
     stale: false,
+    scope: "canonical",
     topicRef: null,
     projectRef: null,
   });

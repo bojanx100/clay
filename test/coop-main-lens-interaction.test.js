@@ -175,7 +175,7 @@ test("exactly one lens button is ever active", async function () {
   assert.deepEqual(renderOverview(ctx).activeLabels, ["All"]);
 
   // A topic lens activates neither.
-  ctx.store.set({ activeCoopTopicRef: { topicId: "coop-conversation-architecture" } });
+  ctx.store.set({ activeCoopLensScope: "topic", activeCoopTopicRef: { topicId: "coop-conversation-architecture" } });
   assert.deepEqual(renderOverview(ctx).activeLabels, []);
 });
 

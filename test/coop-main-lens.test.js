@@ -134,6 +134,8 @@ test("exactly one lens button is active at a time", function () {
   // The old test was `!activeCoopTopicRef`, true for Main, All and a project
   // lens alike, so it would light more than one.
   assert.match(PROJECTION, /export function activeCoopLensScope\(\)/);
+  assert.match(PROJECTION, /var explicitScope = store\.get\("activeCoopLensScope"\)/);
+  assert.match(PROJECTION, /if \(explicitScope === "main" \|\| explicitScope === "canonical" \|\|/);
   assert.match(PROJECTION, /if \(store\.get\("activeCoopTopicRef"\)\) return "topic"/);
   assert.match(PROJECTION, /if \(store\.get\("activeCoopProjectRef"\)\) return "project"/);
 

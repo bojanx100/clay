@@ -174,3 +174,35 @@ ThreadRefs, hide reversibly, and remain idempotent; discussion does not admit
 execution; explicit handoff creates the expected typed project link and hides
 duplicate active discussion; parked reminder and #2539 decision records remain
 available; and ordinary sidebar and direct-session behavior does not regress.
+
+## Main-ingress scope repair (2026-08-16)
+
+Every canonical Coop user message carries `coopComposerScope`, captured from
+the visible composer lens at send time. `main` and `canonical` are unscoped:
+the ingress layer removes all Topic/Thread/Project refs before routing and
+skips automatic Thread classification. `topic` keeps its exact TopicRef, while
+`project` requires only its ProjectRef. Missing, malformed, or internally
+inconsistent scope is rejected rather than inferred from cached selection
+state. The same snapshot is carried by reconnect input sync, voice/STT, queued
+and scheduled sends.
+
+After the server and web client for this revision are active, the canonical
+owner may run this one-time recovery through the authenticated Coop WebSocket:
+
+```js
+{
+  type: "coop_main_ingress_recovery",
+  recoveryId: "clay-main-ingress-threadref-isolation-2026-08-16"
+}
+```
+
+No daemon restart is part of activation or recovery. The owner-gated operation
+only accepts ingresses 360, 361, and 362 from source Thread
+`auto-cfc74233f22b687493f5efc4`. Before writing, it proves each immutable
+canonical user event, matching ledger request/event reference, source turn
+membership, and absence of admitted tasks, sessions, or coordinators. It then
+creates (or verifies) exactly one open `Voice` Thread with id
+`recovery-voice-ingresses-360-362` and retopics only those turn references and
+ledger records. It never rewrites canonical history, source execution links,
+or the owner-direct Voice session. A repeat returns success with zero moves;
+any mismatch fails closed and makes no recovery change.

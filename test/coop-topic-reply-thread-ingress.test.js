@@ -255,7 +255,8 @@ function ws() {
 // A send from a topic lens, exactly as the owner's client issues it: an explicit
 // coopTopicRef the owner selected, plus the composer's clientMessageId.
 function send(h, topicId, text, clientMessageId) {
-  var msg = { type: "message", text: text, clientMessageId: clientMessageId };
+  var msg = { type: "message", text: text, clientMessageId: clientMessageId,
+    coopComposerScope: topicId ? "topic" : "main" };
   if (topicId) msg.coopTopicRef = { topicId: topicId };
   return h.context.handleUserMessage(ws(), msg);
 }

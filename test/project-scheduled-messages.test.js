@@ -90,3 +90,23 @@ test("a scheduled Lead wake keeps typed automation provenance on its response tu
   assert.equal(session.history[2].synthetic, true);
   assert.equal(session.history[2].coopContinuationIngressId, undefined);
 });
+
+test("a scheduled Coop send retains its captured scope without Main stale refs", function () {
+  var ctx = harness();
+  var session = { localId: 45, history: [], isProcessing: false, coopHome: true };
+
+  ctx.messages.scheduleMessage(session, "general", Date.now(), null, null, {
+    coopRouting: { scope: "main", topicRef: { topicId: "stale" } },
+  });
+  assert.equal(ctx.messages.sendScheduledMessageNow(session), true);
+  assert.equal(session.history[2].coopComposerScope, "main");
+  assert.equal(session.history[2].coopTopicRef, undefined);
+
+  session.isProcessing = false;
+  ctx.messages.scheduleMessage(session, "threaded", Date.now(), null, null, {
+    coopRouting: { scope: "topic", topicRef: { topicId: "exact-thread" }, projectRef: { projectId: "p" } },
+  });
+  assert.equal(ctx.messages.sendScheduledMessageNow(session), true);
+  assert.equal(session.history[5].coopComposerScope, "topic");
+  assert.deepEqual(session.history[5].coopTopicRef, { topicId: "exact-thread" });
+});
