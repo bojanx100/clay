@@ -86,3 +86,24 @@ test("collectStaleBlankSessions keeps young blanks and the active session", func
   ]);
   assert.deepStrictEqual(hygiene.collectStaleBlankSessions(sessions, 3, NOW), [1]);
 });
+
+test("isClaudeWarmupTranscript accepts the interruption record added on abort", function () {
+  var events = [
+    { type: "user", message: { role: "user", content: [{ type: "text", text: "hi" }] } },
+    { type: "user", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] } },
+  ];
+  assert.strictEqual(hygiene.isClaudeWarmupTranscript(events), true);
+});
+
+test("isClaudeWarmupTranscript rejects real conversations", function () {
+  var assistantReply = [
+    { type: "user", message: { role: "user", content: "hi" } },
+    { type: "assistant", message: { role: "assistant", content: [] } },
+  ];
+  var secondPrompt = [
+    { type: "user", message: { role: "user", content: "hi" } },
+    { type: "user", message: { role: "user", content: "please help" } },
+  ];
+  assert.strictEqual(hygiene.isClaudeWarmupTranscript(assistantReply), false);
+  assert.strictEqual(hygiene.isClaudeWarmupTranscript(secondPrompt), false);
+});
