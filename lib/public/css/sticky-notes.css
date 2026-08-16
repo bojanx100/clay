@@ -122,6 +122,7 @@
   white-space: nowrap;
   color: transparent;
   pointer-events: auto;
+  touch-action: none;
 }
 
 .sticky-note-spacer:active { cursor: grabbing; }
@@ -335,6 +336,7 @@
   cursor: nwse-resize;
   opacity: 0;
   transition: opacity 0.15s;
+  touch-action: none;
 }
 
 .sticky-note:hover .sticky-note-resize { opacity: 0.3; }

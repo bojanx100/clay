@@ -873,6 +873,46 @@
   font-weight: 600;
 }
 
+.split-group-text {
+  display: flex;
+  align-items: center;
+}
+
+.split-group-glyph {
+  width: 14px;
+  margin-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dimmer);
+  flex-shrink: 0;
+}
+
+.split-group-glyph svg {
+  width: 13px;
+  height: 13px;
+}
+
+.split-group-vendors {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.split-group-vendors .session-vendor-icon {
+  margin-right: 0;
+}
+
+.split-group-vendors .session-vendor-icon + .session-vendor-icon {
+  margin-left: -3px;
+}
+
+.split-group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .session-item.drag-over-above::before,
 .session-item.drag-over-below::after {
   content: "";
