@@ -1,3 +1,10 @@
+# [3.0.0-beta.3](https://github.com/chadbyte/clay/compare/v3.0.0-beta.2...v3.0.0-beta.3) (2026-08-16)
+
+
+### Bug Fixes
+
+* **pair:** support driver tools across vendors ([051f21b](https://github.com/chadbyte/clay/commit/051f21b307d0ca23b136345c2b7ceb4c6c81235f))
+
 # [3.0.0-beta.2](https://github.com/chadbyte/clay/compare/v3.0.0-beta.1...v3.0.0-beta.2) (2026-08-16)
 
 
