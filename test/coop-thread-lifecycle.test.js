@@ -163,9 +163,14 @@ test("owner correction reassigns and merges canonical turn references, then undo
     };
 
     assert.deepEqual(h.index.reassignTurn(narrative.threadRef, renderer.threadRef, turn), { ok: true });
+    var correction = h.index.load().threadCorrections.at(-1);
+    assert.deepEqual(correction.classificationEvidence,
+      { version: 1, kind: "exact_turn_membership" });
+    assert.equal(correction.undoneAt, null);
     assert.deepEqual(h.index.resolveCanonicalEvent(renderer.threadRef, { eventIndex: 2 }).turnRef, turn);
     assert.equal(h.index.resolveCanonicalEvent(narrative.threadRef, { eventIndex: 2 }).code, "event_not_in_thread");
     assert.deepEqual(h.index.undoLastCorrection(), { ok: true });
+    assert.equal(h.index.load().threadCorrections.at(-1).undoneAt !== null, true);
     assert.deepEqual(h.index.resolveCanonicalEvent(narrative.threadRef, { eventIndex: 2 }).turnRef, turn);
 
     assert.deepEqual(h.index.merge(renderer.threadRef, [narrative.threadRef]), { ok: true });

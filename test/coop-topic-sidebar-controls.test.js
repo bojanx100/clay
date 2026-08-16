@@ -834,7 +834,9 @@ test("the Thread row keeps the title primary and shows lifecycle text plus an in
   assert.match(css, /\.coop-topic-status-exploring \{ background: var\(--accent\)/);
   assert.match(css, /\.coop-topic-status-parked \{ background: var\(--warning/);
   assert.match(css, /\.coop-topic-status-working .*animation: vendor-dot-pulse/);
-  assert.match(css, /\.coop-topic-status-queued .*opacity: \.48/);
+  var queuedRule = css.match(/\.coop-topic-status-queued \{[^}]+\}/)[0];
+  assert.match(queuedRule, /opacity: \.48/);
+  assert.doesNotMatch(queuedRule, /animation:/);
   assert.match(css, /\.coop-topic-status-closed,/);
 });
 
