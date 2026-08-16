@@ -87,8 +87,10 @@ test("v3 resume suppresses replay and configures supervised model selection", as
   var handle = await adapter.createQuery({
     cwd: process.cwd(),
     model: "auto",
+    systemPrompt: "Base instructions",
+    appendSystemPrompt: "You are the Driver",
     resumeSessionId: "sess-existing",
-    adapterOptions: { KIRO: { mode: "vibe", mcpServers: [] } },
+    adapterOptions: { KIRO: { mode: "vibe", mcpServers: [{ name: "clay-tools", command: "/usr/bin/node", args: ["bridge.js"] }] } },
     canUseTool: function() { return Promise.resolve({ behavior: "deny" }); },
   });
   handle.pushMessage("hello");
@@ -116,4 +118,9 @@ test("v3 resume suppresses replay and configures supervised model selection", as
       && call.params.value === "auto";
   }));
   assert.ok(!calls.some(function(call) { return call.method === "session/set_model"; }));
+  var loadCall = calls.find(function(call) { return call.method === "session/load"; });
+  assert.strictEqual(loadCall.params.mcpServers[0].name, "clay-tools");
+  var promptCall = calls.find(function(call) { return call.method === "session/prompt"; });
+  assert.match(promptCall.params.prompt[0].text, /Base instructions/);
+  assert.match(promptCall.params.prompt[0].text, /You are the Driver/);
 });
