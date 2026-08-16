@@ -552,3 +552,52 @@
     75% { box-shadow: 0 0 0 7px rgba(45, 164, 78, 0); }
   }
 }
+
+/* Canonical Coop only: a compact owner decision surface, not another worker
+   tree. Status color is descriptive; it never implies background activity. */
+.workspace-coop-owner { display: grid; gap: 16px; padding: 2px 0 10px; }
+.workspace-coop-owner-title { color: var(--text); font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+.workspace-coop-owner .coop-owner-sidebar { display: grid; gap: 16px; }
+.workspace-coop-owner .coop-owner-section { border-left: 2px solid rgba(var(--overlay-rgb), .14); padding-left: 12px; }
+.workspace-coop-owner .coop-owner-section-next { border-left-color: rgba(var(--accent-rgb), .56); }
+.workspace-coop-owner .coop-owner-section-needs-you,
+.workspace-coop-owner .coop-owner-section-blocked { border-left-color: rgba(225, 123, 83, .72); }
+.workspace-coop-owner .coop-owner-section-recent { border-left-color: rgba(94, 177, 137, .64); }
+.workspace-coop-owner .coop-owner-heading { color: var(--text-secondary); font-size: 10px; font-weight: 700; letter-spacing: .09em; margin: 0 0 8px; text-transform: uppercase; }
+.workspace-coop-owner .coop-owner-row { border-bottom: 1px solid rgba(var(--overlay-rgb), .07); padding: 9px 0 10px; }
+.workspace-coop-owner .coop-owner-row:last-child { border-bottom: 0; }
+.workspace-coop-owner .coop-owner-title { background: transparent; border: 0; color: var(--text); cursor: pointer; font: inherit; font-size: 13px; font-weight: 650; min-height: 30px; padding: 0; text-align: left; }
+.workspace-coop-owner .coop-owner-title:hover,
+.workspace-coop-owner .coop-owner-link:hover { color: var(--accent); }
+.workspace-coop-owner .coop-owner-title:focus-visible,
+.workspace-coop-owner .coop-owner-link:focus-visible,
+.workspace-coop-owner .coop-owner-priority-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.workspace-coop-owner .coop-owner-meta { align-items: center; color: var(--text-muted); display: flex; font-size: 11px; gap: 7px; margin-top: 3px; }
+.workspace-coop-owner .coop-owner-status { text-transform: capitalize; }
+.workspace-coop-owner .coop-owner-status-running,
+.workspace-coop-owner .coop-owner-status-reviewing { color: var(--accent); }
+.workspace-coop-owner .coop-owner-status-blocked,
+.workspace-coop-owner .coop-owner-status-failed,
+.workspace-coop-owner .coop-owner-status-waiting-user { color: #de835d; }
+.workspace-coop-owner .coop-owner-status-completed { color: #6bb889; }
+.workspace-coop-owner .coop-owner-reason,
+.workspace-coop-owner .coop-owner-unblock,
+.workspace-coop-owner .coop-owner-evidence { color: var(--text-secondary); font-size: 12px; line-height: 1.4; margin: 4px 0 0; }
+.workspace-coop-owner .coop-owner-unblock { color: var(--text); }
+.workspace-coop-owner .coop-owner-evidence { color: var(--text-muted); }
+.workspace-coop-owner .coop-owner-links,
+.workspace-coop-owner .coop-owner-priority { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.workspace-coop-owner .coop-owner-link,
+.workspace-coop-owner .coop-owner-priority-button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 11px; min-height: 30px; padding: 2px 0; }
+.workspace-coop-owner .coop-owner-link + .coop-owner-link::before { color: var(--border); content: "·"; margin-right: 6px; }
+.workspace-coop-owner .coop-owner-priority-button { border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; }
+.workspace-coop-owner .coop-owner-priority-button:disabled { cursor: default; opacity: .45; }
+
+@media (max-width: 1023px) {
+  .workspace-coop-owner { gap: 18px; padding-bottom: 18px; }
+  .workspace-coop-owner .coop-owner-title { font-size: 15px; min-height: 42px; width: 100%; }
+  .workspace-coop-owner .coop-owner-meta { font-size: 12px; }
+  .workspace-coop-owner .coop-owner-link,
+  .workspace-coop-owner .coop-owner-priority-button { font-size: 12px; min-height: 38px; padding: 5px 3px; }
+  .workspace-coop-owner .coop-owner-priority-button { padding: 5px 10px; }
+}
