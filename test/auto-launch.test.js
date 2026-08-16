@@ -663,6 +663,7 @@ var { createAutomationGate } = require("../lib/project-automation-gate");
 var { createCandidateStore } = require("../lib/project-automation-candidates");
 
 var CUTOVER_PROJECT = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+var URBAN_STAY_PROJECT = "51e67388-cea0-52b7-8e01-cde68cae713c";
 
 // Builds a real auto-launch wired to a real gate over throwaway state.
 function makeCutoverHarness(recipeFilter) {
@@ -828,7 +829,7 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
   fs.mkdirSync(tasksDir, { recursive: true });
   var recipe = {
     id: "assigned-to-me",
-    source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+    source: settings.source || { provider: "github", kind: "issue", repo: "trialview/v2" },
     launch: { defaultLimit: 10 },
     session: {},
     completion: {},
@@ -884,7 +885,7 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
       sm: {
         sessions: new Map(),
         broadcastSessionList: function () {},
-        getProjectId: function () { return CUTOVER_PROJECT; },
+        getProjectId: function () { return settings.projectId || CUTOVER_PROJECT; },
       },
       getTaskLauncher: function () { return launcher; },
       getLeadMode: function () { return leadMode; },
@@ -980,6 +981,43 @@ test("unassigned board work never launches and never reaches a binding", async f
       "unassigned work must never be admitted through a binding");
     assert.strictEqual(result.skipped.length, 1);
     assert.strictEqual(result.unassignedSkipped, 1, "the skip must be attributable");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+// Urban Stay deliberately configured `assigned: "any"`: this is not a GitHub
+// assignee and does not make the issue assigned to the owner. It lets the
+// project's own recipe surface the work, then its unscoped policy keeps the
+// work owner-gated until Coop records an explicit admission.
+test("an assigned:any recipe reaches its canonical binding after owner admission", async function () {
+  var item = unassignedIssue();
+  item.number = 198;
+  item.title = "Urban Stay auto-launch regression";
+  item.url = "https://github.com/bojanx100/urban-stay-web/issues/198";
+  item.recipeAllowsUnassigned = true;
+  var h = makeIdleBoardHarness({ assigned: "any" }, item, {
+    projectId: URBAN_STAY_PROJECT,
+    source: {
+      provider: "github", kind: "issue", repo: "bojanx100/urban-stay-web",
+      ghAccount: "bojanx100",
+    },
+  });
+  var store = createCandidateStore({ cwd: h.cwd });
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    var key = "launch:bojanx100/urban-stay-web#198";
+    assert.strictEqual(store.get({ projectId: URBAN_STAY_PROJECT }, key).status,
+      "awaiting_owner", "unscoped Urban-style work must not silently auto-admit");
+    assert.strictEqual(h.executions.length, 0);
+
+    var approved = store.decideOwner({ projectId: URBAN_STAY_PROJECT }, key,
+      { approved: true, by: "bojan" });
+    assert.strictEqual(approved.ok, true);
+
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 1);
+    assert.strictEqual(h.executions[0].targetProject.projectId, URBAN_STAY_PROJECT);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
@@ -1344,6 +1382,20 @@ test("PR-backed board work is excluded before the launcher ever sees it", functi
   assert.strictEqual(taskSources.issueMatches(recipe, {}, issue(2541, "In Progress"), "bojantv"), false);
   // And the one that is genuinely available still is.
   assert.strictEqual(taskSources.issueMatches(recipe, {}, issue(2565, "Backlog"), "bojantv"), true);
+});
+
+test("assigned:any is source policy, not a literal GitHub assignee", function () {
+  var taskSources = require("../lib/project-task-sources");
+  var urbanRecipe = {
+    source: { provider: "github", kind: "issue", repo: "bojanx100/urban-stay-web", ghAccount: "bojanx100" },
+    filter: { state: "open", assigned: "any" },
+  };
+  assert.strictEqual(taskSources.resolveGhAccount("/unused", urbanRecipe, {}), "bojanx100");
+  assert.strictEqual(taskSources.recipeAllowsUnassigned(urbanRecipe, {}), true);
+  assert.strictEqual(taskSources.recipeAllowsUnassigned(urbanRecipe, { assigned: "me" }), false);
+  assert.strictEqual(taskSources.issueMatches(urbanRecipe, {}, {
+    number: 198, title: "Urban Stay issue", labels: [], assignees: [], projectItems: [],
+  }, "bojanx100"), true);
 });
 
 // The full standing contract, end to end, through the REAL cross-project router

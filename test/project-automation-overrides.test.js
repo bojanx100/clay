@@ -122,6 +122,18 @@ test("unassigned work is refused when the owner has said nothing about it", func
   }
 });
 
+test("an explicit assigned:any recipe policy is eligible without fabricating ownership", function () {
+  var dir = tempDir();
+  try {
+    var out = store(dir).eligibility(ITEM, false, true);
+    assert.strictEqual(out.eligible, true);
+    assert.strictEqual(out.reason, "recipe_allows_unassigned");
+    assert.strictEqual(out.decision, null);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // The #2539 shape: an unassigned item the owner personally authorized. The
 // exception lives in owner data, so the general rule stays untouched.
 test("an owner include makes one unassigned item eligible without changing the rule", function () {

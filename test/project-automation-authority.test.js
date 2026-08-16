@@ -478,6 +478,18 @@ test("unassigned work is denied even where the project grants autonomy", functio
   assert.strictEqual(out.reason, "not_assigned_to_owner");
 });
 
+test("an explicit recipe any-policy can advance unassigned work to its own project policy", function () {
+  var out = decide({
+    action: "launch", itemClass: "bug", itemKey: "urban-stay#198",
+    policy: policy({ autonomy: { bug: "autonomous", default: "propose" } }),
+    claim: liveClaim(), assignedToOwner: false, recipeAllowsUnassigned: true,
+  });
+  assert.strictEqual(out.decision, "execute");
+  assert.strictEqual(out.reason, "policy_autonomous");
+  assert.strictEqual(out.audit.assignedToOwner, false);
+  assert.strictEqual(out.audit.recipeAllowsUnassigned, true);
+});
+
 // Unproven is not the same as assigned. A missing stamp means the fetch layer
 // could not establish ownership, and that must fail closed.
 test("ownership must be proven, never assumed from a missing or loose value", function () {

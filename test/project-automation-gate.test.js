@@ -97,6 +97,10 @@ function unassigned(key) {
   return { itemKey: key, item: { labels: [{ name: "bug" }] }, recipeKind: "issue",
     recipeType: "bug", assignedToOwner: false };
 }
+function anyScopedUnassigned(key) {
+  return { itemKey: key, item: { labels: [{ name: "bug" }] }, recipeKind: "issue",
+    recipeType: "bug", assignedToOwner: false, recipeAllowsUnassigned: true };
+}
 function evidence() {
   return { status: "completed", summary: "fixed", verification: "suite green", escalationRequired: "no" };
 }
@@ -112,6 +116,15 @@ test("a project's own bug autonomy yields a candidate, never a launch", function
   // The project's own policy still decides HOW it may be admitted.
   assert.strictEqual(h.candidates[0].admission, "auto");
   assert.strictEqual(h.candidates[0].itemKey, "trialview/v2#1");
+  assert.strictEqual(h.candidates[0].projectRef.projectId, PROJECT_A);
+});
+
+test("a project any-recipe can propose unassigned work without changing default ownership", function () {
+  var h = makeGate();
+  var out = h.gate.evaluateLaunch(anyScopedUnassigned("urban-stay#198"));
+  assert.strictEqual(out.decision, "propose");
+  assert.strictEqual(out.reason, "proposed_to_coop");
+  assert.strictEqual(h.candidates[0].admission, "auto");
   assert.strictEqual(h.candidates[0].projectRef.projectId, PROJECT_A);
 });
 
