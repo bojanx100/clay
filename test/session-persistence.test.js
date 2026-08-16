@@ -703,6 +703,66 @@ test("persisted restart interruption does not auto-resume again", function () {
   }
 });
 
+test("persisted restart interruption does not rewrite the session on every load", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  var originalWriteFileSync = fs.writeFileSync;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    clearSessionModuleCache();
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(tmpHome, "sessions", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    var storageId = "persisted-interrupted-session";
+    var sessionPath = path.join(sessionsDir, storageId + ".jsonl");
+    var ts = Date.now() - 1000;
+    var lines = [
+      JSON.stringify({
+        type: "meta",
+        cliSessionId: storageId,
+        storageId: storageId,
+        title: "Already interrupted",
+        createdAt: ts,
+        vendor: "codex",
+        interruptedByRestart: true,
+      }),
+      JSON.stringify({ type: "user_message", text: "do work", _ts: ts }),
+      JSON.stringify({
+        type: "info",
+        text: "Session was interrupted by a Clay restart. Clay will continue it when you reopen this session.",
+        _ts: ts + 1,
+      }),
+      JSON.stringify({ type: "done", code: 1, _ts: ts + 2 }),
+    ];
+    fs.writeFileSync(sessionPath, lines.join("\n") + "\n");
+
+    var sessionWrites = 0;
+    fs.writeFileSync = function (filePath) {
+      if (String(filePath).indexOf(sessionPath + ".tmp.") === 0) sessionWrites++;
+      return originalWriteFileSync.apply(fs, arguments);
+    };
+
+    require("../lib/sessions").createSessionManager({
+      cwd: projectDir,
+      send: function () {},
+    });
+
+    assert.strictEqual(sessionWrites, 0);
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    clearSessionModuleCache();
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
 test("persisted queued messages are restored before any client reconnects", function () {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
