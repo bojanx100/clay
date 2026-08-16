@@ -103,6 +103,19 @@ test("permission failures are actionable and do not leave the conversation liste
   assert.match(controller.getState().error, /Microphone access was denied/);
 });
 
+test("unsupported speech recognition reports a usable fallback", async function () {
+  var mod = await loadController();
+  var controller = mod.createVoiceConversationController({
+    createRecognition: function () { return null; },
+  });
+  var started = await controller.start({ scope: "topic", topicRef: { topicId: "recovery-voice-ingresses-360-362" } });
+
+  assert.equal(started, false);
+  assert.equal(controller.getState().listening, false);
+  assert.match(controller.getState().error, /not supported in this browser/);
+  assert.match(controller.getState().error, /text composer/);
+});
+
 test("confirmed audio waits through reconnect and flushes with its original ThreadRef", async function () {
   var mod = await loadController();
   var recognitions = [];

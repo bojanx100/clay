@@ -169,6 +169,11 @@
   flex: 0 0 auto;
 }
 
+#voice-conversation-btn.hidden,
+.voice-conversation-panel.hidden {
+  display: none;
+}
+
 #voice-conversation-btn:hover,
 #voice-conversation-btn.voice-conversation-active {
   color: var(--accent);
@@ -184,8 +189,8 @@
 .voice-conversation-panel {
   display: grid;
   gap: 7px;
-  margin: 0 8px 8px;
-  max-width: 720px;
+  width: 100%;
+  margin: 0 0 8px;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -238,7 +243,7 @@
 .voice-conversation-actions button:disabled { opacity: .48; cursor: not-allowed; }
 
 @media (max-width: 768px) {
-  .voice-conversation-panel { margin: 0 4px 7px; padding: 9px; }
+  .voice-conversation-panel { margin-bottom: 7px; padding: 9px; }
   .voice-conversation-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .voice-conversation-actions button { min-width: 0; padding: 6px 4px; font-size: 12px; }
   .voice-conversation-thread { max-width: 48%; }
