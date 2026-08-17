@@ -209,10 +209,18 @@ any mismatch fails closed and makes no recovery change.
 
 A handed off target Thread blocks the repair only while it still has to create
 that Thread or move a turn into it for the first time. When every remaining
-turn already lives in the target and its implementation decision is already
-persisted, the sole outstanding work is deleting stale duplicate membership
-from the source, so a handed off target is expected rather than a conflict.
-That cleanup creates nothing, populates nothing, and moves no ledger record.
-The target must still be titled `Voice` and be open, and every other proof —
-canonical event digest and identity, ambiguity, ledger references, admitted
-execution, and Project scope — is unchanged.
+turn already lives in the target, the handoff is the expected state rather
+than a conflict: the owner-gated message returns success with zero moves, and
+the startup migration deletes any stale duplicate membership left in the
+source. That cleanup creates nothing, populates nothing, and moves no ledger
+record. The target must still be titled `Voice` and be open, and every other
+proof — canonical event digest and identity, ambiguity, ledger references,
+admitted execution, and Project scope — is unchanged. This single rule is
+stated once and shared by both the owner-gated and startup paths, so the
+manual lever and the automatic migration can never disagree about it.
+
+The owner-gated message is the pre-admission lever. It requires each turn to
+live in exactly one of the two Threads and refuses an ingress whose execution
+is already admitted, so it repairs a misroute but never duplicate membership.
+Removing duplicate membership belongs to the startup migration, which alone
+proves the canonical event digests.

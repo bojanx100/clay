@@ -240,6 +240,48 @@ test("fixed ingress recovery moves only 360-362 and is idempotent", function () 
   });
 });
 
+test("a repeat recovery still succeeds after the recovered Voice Thread is handed off", function () {
+  var h = makeHarness();
+  assert.equal(recovery.recover(h.index, h.ledger, h.session, h.reassign).ok, true);
+  // Exactly what happened in production: the recovered Thread is then handed off to a
+  // coordinator, and the owner re-runs the documented recovery lever.
+  h.topics[TARGET].threadState = "handed_off";
+  assert.deepEqual(recovery.recover(h.index, h.ledger, h.session, h.reassign), {
+    ok: true, moved: 0, created: false, threadRef: { threadId: TARGET },
+  });
+  assert.deepEqual(h.topics[SOURCE].turnRefs, []);
+  assert.deepEqual(h.topics[TARGET].turnRefs.map(function (item) {
+    return item.startEventIndex;
+  }), [10, 20, 30]);
+  assert.equal(h.topics[TARGET].threadState, "handed_off", "the handoff is never rewritten");
+});
+
+test("recovery still refuses a handed off or mismatched target while turns remain in Main", function () {
+  function pending(topic) {
+    var h = makeHarness();
+    h.topics[TARGET] = Object.assign({
+      topicRef: { topicId: TARGET }, threadRef: { threadId: TARGET }, title: "Voice",
+      status: "open", threadState: "exploring", turnRefs: [], eventRefs: [],
+    }, topic);
+    return h;
+  }
+  var handedOff = pending({ threadState: "handed_off" });
+  assert.deepEqual(recovery.recover(handedOff.index, handedOff.ledger, handedOff.session,
+    handedOff.reassign), { ok: false, code: "recovery_target_conflict" });
+  assert.equal(handedOff.topics[SOURCE].turnRefs.length, 3, "no turn is moved");
+  assert.deepEqual(handedOff.topics[TARGET].turnRefs, []);
+
+  var wrongTitle = pending({ title: "Webapp" });
+  assert.deepEqual(recovery.recover(wrongTitle.index, wrongTitle.ledger, wrongTitle.session,
+    wrongTitle.reassign), { ok: false, code: "recovery_target_conflict" });
+  assert.equal(wrongTitle.topics[SOURCE].turnRefs.length, 3);
+
+  var closed = pending({ status: "archived" });
+  assert.deepEqual(recovery.recover(closed.index, closed.ledger, closed.session,
+    closed.reassign), { ok: false, code: "recovery_target_conflict" });
+  assert.equal(closed.topics[SOURCE].turnRefs.length, 3);
+});
+
 test("production migration moves exact Voice ingresses 360-362 and backfills admission once", function () {
   var h = productionHarness();
   var historyBefore = JSON.stringify([h.history[166989], h.history[167058], h.history[167144]]);
