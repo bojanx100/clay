@@ -35,6 +35,19 @@ took (watchdog aborts, auto-resumes). Fields:
   wedged and will never self-apply. In dev the daemon inherits the supervisor's
   stdio rather than writing `daemon-dev.log`, so this canary is the ONLY durable
   record of such a failure.
+- `kind: "startup_failure"` — a boot/startup step that failed closed without
+  blocking boot. Fields: `stage` (`coop_control_recovery`,
+  `coop_control_reconciliation`, `coop_control_plane_ensure`,
+  `control_plane_binding_migration`, `git_account_pin`), `detail`.
+  **Sick:** `coop_control_recovery`/`coop_control_reconciliation` present at
+  all — the controlled-execution barrier failed closed and ALL controlled task
+  execution is blocked for this daemon lifetime. Deduplicated per process, so
+  one line per stuck cause, not one per occurrence.
+- `kind: "coop_persistence"` — a durable store (topic index, auth tokens,
+  session ledger) refused to load or write (`store`, `op`, `code`, `message`).
+  **Sick:** any non-`ENOENT` entry — existing owner state could not be read and
+  the store is refusing writes to protect the on-disk file. Do not "fix" this
+  by deleting the file; it is the only intact copy.
 
 ## 2. Daemon performance — `~/.clay/diag(-dev).log`
 
@@ -76,7 +89,9 @@ main thread is being starved by rendering work, not a network problem.
 ## Debugging protocol for agents
 
 1. `tail -30 ~/.clay/recovery-events-dev.log` — any recent entries? What case?
-2. `grep -E "SAVE-SLOW|LOOP-LAG" ~/.clay/diag-dev.log | tail -20` — lag spikes?
+2. `grep -E "SAVE-SLOW|SAVE-FAIL|LOOP-LAG" ~/.clay/diag-dev.log | tail -20` —
+   lag spikes? `[SAVE-FAIL]` means a session save FAILED (data loss on
+   restart), which is strictly worse than `[SAVE-SLOW]`.
 3. Correlate timestamps between the two before reading any source code.
 4. Only then trace code — and when you fix something, these logs are your
    before/after evidence. A fix without a quiet canary afterwards is not done.
