@@ -755,3 +755,61 @@ test("a failed ledger write is retried instead of being lost to in-memory state"
   assert.equal(written.entries.length, 1);
   assert.equal(written.entries[0].sessionStorageId, "retry-session");
 });
+
+test("an entry that loses its last evidence cannot stay active forever", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-stranded-"));
+  var file = path.join(dir, "ledger.json");
+  var ledger = attachCoopSessionLedger({ file: file, now: function () { return 900; } });
+
+  // A binding with no live session behind it: born active, sessionPresent false.
+  var first = ledger.reconcile({
+    bindings: [binding("portfolio-stranded", WEBAPP_ID, "stranded-coordinator",
+      "project_coordinator", "active")],
+    projects: [],
+  });
+  assert.equal(first.ok, true);
+  var born = ledger.get({ projectId: WEBAPP_ID, sessionStorageId: "stranded-coordinator" });
+  assert.equal(born.lifecycleState, "active");
+  assert.equal(born.sessionPresent, false);
+
+  // The binding disappears (a store recovery dropped it) and the project is not
+  // registered, so nothing enumerates it. Before the fix the row was carried
+  // forward verbatim on every pass and stayed active/working permanently, with
+  // no code path able to terminalize it.
+  var stranded = ledger.reconcile({ bindings: [], projects: [] });
+  assert.equal(stranded.ok, true);
+  var demoted = ledger.get({ projectId: WEBAPP_ID, sessionStorageId: "stranded-coordinator" });
+  assert.equal(demoted.lifecycleState, "missing");
+  assert.equal(demoted.workState, "needs_input");
+  assert.equal(demoted.lastCoopAction.type, "session_missing");
+
+  // Idempotent: a second pass must not churn the store.
+  assert.equal(ledger.reconcile({ bindings: [], projects: [] }).changed, false);
+});
+
+test("an unenumerated project keeps a still-present session active", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-unenumerated-"));
+  var file = path.join(dir, "ledger.json");
+  var ledger = attachCoopSessionLedger({ file: file, now: function () { return 900; } });
+  var live = { storageId: "live-coordinator", title: "Live coordinator", vendor: "codex" };
+
+  var first = ledger.reconcile({
+    bindings: [binding("portfolio-live", WEBAPP_ID, "live-coordinator",
+      "project_coordinator", "active")],
+    projects: [project(WEBAPP_ID, [live])],
+  });
+  assert.equal(first.ok, true);
+  var present = ledger.get({ projectId: WEBAPP_ID, sessionStorageId: "live-coordinator" });
+  assert.equal(present.sessionPresent, true);
+  assert.equal(present.lifecycleState, "active");
+
+  // A boot pass before the project's resolver registers enumerates neither the
+  // project nor its bindings. Absence is NOT evidence that live work ended, so a
+  // row that was still present must keep its state -- otherwise every restart
+  // would wrongly report all in-flight project work as missing.
+  var partial = ledger.reconcile({ bindings: [], projects: [] });
+  assert.equal(partial.ok, true);
+  var preserved = ledger.get({ projectId: WEBAPP_ID, sessionStorageId: "live-coordinator" });
+  assert.equal(preserved.sessionPresent, true);
+  assert.equal(preserved.lifecycleState, "active");
+});
