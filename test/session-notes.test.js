@@ -147,13 +147,17 @@ test("write_note allows detailed handoffs up to the generous abuse guard", async
   assert.strictEqual(f.notes.length, 1);
 });
 
-test("write_note contract requires a titled detailed handoff format", function () {
+test("write_note contract treats the board as a scarce user-facing surface", function () {
   var tool = toolsFor(createFixture()).write_note;
   assert.match(tool.description, /title on the first line/i);
-  assert.match(tool.description, /checklists and to-do lists/i);
-  assert.match(tool.description, /knowledge that should still be available after the current session ends/i);
-  assert.match(tool.description, /People may use the board freely/i);
-  assert.match(tool.description, /20000-character abuse guard/i);
+  assert.match(tool.description, /user-facing artifact/i);
+  assert.match(tool.description, /Default to not writing/i);
+  assert.match(tool.description, /glad to find it on the board a week later/i);
+  assert.match(tool.description, /not already adequately recorded in the repository/i);
+  assert.match(tool.description, /Never create a note merely because work is important/i);
+  assert.match(tool.description, /completed work, implementation details, test results/i);
+  assert.match(tool.description, /When uncertain, do not write/i);
+  assert.match(tool.description, /abuse guard, not a target/i);
 });
 
 test("write_note caps new active notes at twenty but still permits updates", async function () {
@@ -198,7 +202,9 @@ test("sticky-note prompt announces an empty board and proactive policy", functio
   assert.ok(prompt.startsWith(notesModule.NOTES_LABEL + "\n"));
   assert.match(prompt, /Use port 2633/);
   assert.match(prompt, /persists across sessions/);
-  assert.match(prompt, /checklists and to-do lists/);
+  assert.match(prompt, /user-facing artifact/);
+  assert.match(prompt, /Default to not writing/);
+  assert.match(prompt, /glad to find it on the board a week later/);
   assert.ok(prompt.endsWith(notesModule.PROACTIVE_POLICY));
 });
 
