@@ -160,10 +160,6 @@
     background: rgba(var(--overlay-rgb), 0.06);
   }
 
-  .mobile-project-item.has-pending-perm {
-    animation: permShake 2s ease-in-out infinite;
-  }
-
   .mobile-project-abbrev {
     width: 32px;
     height: 32px;
