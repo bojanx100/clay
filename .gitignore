@@ -1,5 +1,16 @@
 node_modules/
-.claude/
+# .claude/ is local config, EXCEPT the Lead's operating contract, which is
+# version-controlled on purpose: it encodes owner authority rules (approval
+# ordering, the self-modification gate) that must be reviewable and revertible.
+# Re-including it takes un-excluding each parent directory in turn -- a bare
+# "!.claude/skills/lead-tick/SKILL.md" has no effect while .claude/ itself is
+# excluded, which is why the file was previously tracked only via a forced add.
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/lead-tick/
+.claude/skills/lead-tick/*
+!.claude/skills/lead-tick/SKILL.md
 .claude-relay/
 .clay/
 ref/
