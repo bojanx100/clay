@@ -632,3 +632,126 @@ test("a compacted continuation inherits the exact source binding and topic", fun
     return entry.sessionStorageId;
   }), ["continuation-session"]);
 });
+
+// --- Fail-closed persistence -------------------------------------------------
+// A ledger read that failed or did not validate must never be persisted back:
+// an empty ledger written over merely unreadable content is silent data loss.
+
+function canarySink() {
+  var events = [];
+  return {
+    events: events,
+    record: function (event) { events.push(event); },
+    kinds: function () {
+      return events.map(function (event) { return event.store + ":" + event.op; });
+    },
+  };
+}
+
+function controllableFs(state) {
+  return {
+    readFileSync: function (target, encoding) { return fs.readFileSync(target, encoding); },
+    mkdirSync: function (target, options) { return fs.mkdirSync(target, options); },
+    writeFileSync: function (target, data, options) {
+      if (state.failWrites) {
+        var error = new Error("simulated write failure");
+        error.code = "ENOSPC";
+        throw error;
+      }
+      return fs.writeFileSync(target, data, options);
+    },
+    renameSync: function (from, to) { return fs.renameSync(from, to); },
+  };
+}
+
+function reconcileInput(storageId) {
+  var session = {
+    storageId: storageId,
+    title: "Fail-closed persistence session",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+  };
+  return {
+    bindings: [binding("failclosed-task", CLAY_ID, storageId, "direct_leaf", "active")],
+    projects: [project(CLAY_ID, [session])],
+  };
+}
+
+test("a corrupt session ledger is never overwritten by an empty reconcile", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-corrupt-"));
+  var file = path.join(dir, "ledger.json");
+  var corrupt = '{"schema":"clay.coop_session_ledger","version":1,"entries":[{"trunc';
+  fs.writeFileSync(file, corrupt);
+  var sink = canarySink();
+  var ledger = attachCoopSessionLedger({ file: file, recordRecoveryEvent: sink.record });
+
+  assert.deepEqual(ledger.persistenceState(), { code: "invalid_json" });
+  var result = ledger.reconcile(reconcileInput("corrupt-session"));
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "persistence_unreadable");
+  assert.equal(result.changed, false);
+  assert.equal(fs.readFileSync(file, "utf8"), corrupt);
+  assert.deepEqual(sink.kinds(), ["session_ledger:parse", "session_ledger:write_refused"]);
+  assert.equal(sink.events[0].kind, "coop_persistence");
+  // Read-only lenses may serve an empty view, but only after the canary fired.
+  assert.deepEqual(ledger.list({ projectRefs: [{ projectId: CLAY_ID }] }), []);
+});
+
+test("a schema-mismatched session ledger fails closed instead of resetting", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-schema-"));
+  var file = path.join(dir, "ledger.json");
+  var future = JSON.stringify({ schema: "clay.coop_session_ledger", version: 99, entries: [] });
+  fs.writeFileSync(file, future);
+  var sink = canarySink();
+  var ledger = attachCoopSessionLedger({ file: file, recordRecoveryEvent: sink.record });
+
+  var result = ledger.reconcile(reconcileInput("schema-session"));
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "persistence_unreadable");
+  assert.equal(fs.readFileSync(file, "utf8"), future);
+  assert.deepEqual(sink.kinds(), ["session_ledger:validate", "session_ledger:write_refused"]);
+});
+
+test("a missing session ledger still initializes a fresh store silently", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-fresh-"));
+  var file = path.join(dir, "ledger.json");
+  var sink = canarySink();
+  var ledger = attachCoopSessionLedger({ file: file, recordRecoveryEvent: sink.record });
+
+  // Asserted through behaviour only, so this test also passes before the
+  // fail-closed fix: fresh-install handling must not change at all.
+  var result = ledger.reconcile(reconcileInput("fresh-session"));
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  assert.deepEqual(sink.events, []);
+  var written = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(written.entries.length, 1);
+  assert.equal(written.entries[0].sessionStorageId, "fresh-session");
+});
+
+test("a failed ledger write is retried instead of being lost to in-memory state", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-retry-"));
+  var file = path.join(dir, "ledger.json");
+  var control = { failWrites: true };
+  var sink = canarySink();
+  var ledger = attachCoopSessionLedger({
+    file: file, fs: controllableFs(control), recordRecoveryEvent: sink.record,
+  });
+
+  var failed = ledger.reconcile(reconcileInput("retry-session"));
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reason, "persistence_failed");
+  assert.equal(failed.changed, false);
+  assert.equal(fs.existsSync(file), false);
+  assert.deepEqual(sink.kinds(), ["session_ledger:write"]);
+  // The in-memory state must not have advanced, otherwise the next reconcile
+  // sees no change and the ledger never reaches disk again.
+  assert.deepEqual(ledger.list({ projectRefs: [{ projectId: CLAY_ID }] }), []);
+
+  control.failWrites = false;
+  var retried = ledger.reconcile(reconcileInput("retry-session"));
+  assert.equal(retried.ok, true);
+  assert.equal(retried.changed, true);
+  var written = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(written.entries.length, 1);
+  assert.equal(written.entries[0].sessionStorageId, "retry-session");
+});
