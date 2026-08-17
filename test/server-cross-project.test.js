@@ -1182,3 +1182,70 @@ test("migrated coordinator retry re-claims after claim and cleanup failures", fu
   assert.equal(claims, 2, "migrated replay must claim and verify before success");
   assert.equal(starts, 1, "claim recovery reuses the committed migrated coordinator");
 });
+
+// --- Duplicated-invariant guards -------------------------------------------
+//
+// `sameSessionRef` was declared twice inside the router closure: a normalized
+// version that validated both refs through projectIdentity, and a later raw
+// field-comparison version. Function-declaration hoisting made the RAW one win
+// for the whole closure, so the validated predicate was dead code and nothing
+// in the suite noticed. These two tests close that class of defect: one proves
+// the shared predicate refuses malformed refs, the other proves no module in
+// the family can silently shadow a helper with a second declaration again.
+
+var CROSS_PROJECT_MODULE_FILES = fs.readdirSync(path.join(__dirname, "..", "lib"))
+  .filter(function (name) {
+    return name === "server-cross-project.js" ||
+      name.indexOf("server-cross-project-") === 0 && /\.js$/.test(name);
+  });
+
+function duplicateFunctionDeclarations(source) {
+  var seen = Object.create(null);
+  var duplicates = [];
+  var pattern = /^[ \t]*function[ \t]+([A-Za-z_$][\w$]*)[ \t]*\(/gm;
+  var match = pattern.exec(source);
+  while (match) {
+    if (seen[match[1]]) duplicates.push(match[1]);
+    seen[match[1]] = true;
+    match = pattern.exec(source);
+  }
+  return duplicates;
+}
+
+test("no cross-project router module declares the same function name twice", function () {
+  assert.ok(CROSS_PROJECT_MODULE_FILES.length > 0, "the module family must be discoverable");
+  for (var i = 0; i < CROSS_PROJECT_MODULE_FILES.length; i++) {
+    var file = CROSS_PROJECT_MODULE_FILES[i];
+    var source = fs.readFileSync(path.join(__dirname, "..", "lib", file), "utf8");
+    assert.deepEqual(duplicateFunctionDeclarations(source), [],
+      file + " declares a function name twice; hoisting makes the LAST one win silently");
+  }
+});
+
+test("the shared session-ref predicate refuses malformed refs instead of comparing raw fields", function () {
+  var sameSessionRef = require("../lib/server-cross-project-shared").sameSessionRef;
+  var validProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+
+  assert.equal(sameSessionRef(
+    { projectId: validProjectId, sessionStorageId: "coordinator-1" },
+    { projectId: validProjectId, sessionStorageId: "coordinator-1" }), true,
+    "two identical well-formed refs still match");
+  assert.equal(sameSessionRef(
+    { projectId: validProjectId, sessionStorageId: "coordinator-1" },
+    { projectId: validProjectId, sessionStorageId: "coordinator-2" }), false);
+
+  // The raw predicate returned TRUE for both of these: it compared fields
+  // without ever asking whether the fields were a legal identity.
+  assert.equal(sameSessionRef(
+    { projectId: "not-a-project-id", sessionStorageId: "coordinator-1" },
+    { projectId: "not-a-project-id", sessionStorageId: "coordinator-1" }), false,
+    "an invalid projectId must never produce a match");
+  assert.equal(sameSessionRef(
+    { projectId: validProjectId },
+    { projectId: validProjectId }), false,
+    "two refs that both lack a sessionStorageId must never match");
+
+  assert.equal(sameSessionRef(null, null), false);
+  assert.equal(sameSessionRef(undefined,
+    { projectId: validProjectId, sessionStorageId: "coordinator-1" }), false);
+});
