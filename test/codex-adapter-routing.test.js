@@ -333,6 +333,42 @@ test("Codex does not render empty reasoning blocks", function () {
   assert.deepStrictEqual(events, []);
 });
 
+test("Codex streams readable reasoning deltas without repeating completed text", function () {
+  var state = {
+    blockCounter: 0,
+    toolBlocks: {},
+    thinkingBlocks: {},
+    thinkingLengths: {},
+    commandInputs: {},
+    commandOutputs: {},
+    planTexts: {},
+  };
+  var events = [];
+  events = events.concat(routing.flattenEvent({
+    method: "item/reasoning/summaryTextDelta",
+    params: { itemId: "reasoning-1", delta: "First" },
+  }, state));
+  events = events.concat(routing.flattenEvent({
+    method: "item/reasoning/summaryPartAdded",
+    params: { itemId: "reasoning-1" },
+  }, state));
+  events = events.concat(routing.flattenEvent({
+    method: "item/reasoning/textDelta",
+    params: { itemId: "reasoning-1", delta: "Second" },
+  }, state));
+  events = events.concat(routing.flattenEvent({
+    method: "item/completed",
+    params: { item: { id: "reasoning-1", type: "reasoning", text: "First\n\nSecond" } },
+  }, state));
+
+  assert.deepStrictEqual(events.map(function (event) { return event.yokeType; }), [
+    "thinking_start", "thinking_delta", "thinking_delta", "thinking_delta", "thinking_stop",
+  ]);
+  assert.strictEqual(events.filter(function (event) {
+    return event.yokeType === "thinking_delta";
+  }).map(function (event) { return event.text; }).join(""), "First\n\nSecond");
+});
+
 test("Tool results render every image, preserve text, and expand their group", function () {
   function FakeClassList() {
     this.values = [];
