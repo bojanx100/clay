@@ -308,9 +308,10 @@ test("lead-backtest CLI ignores GIT_CONFIG_PARAMETERS when reading the origin", 
 });
 
 test("lead-backtest CLI reports one canonical identity through a symlinked root", function () {
-  // The audit line makes the ownership decision observable: reaching the same
-  // project through a symlink must report the REAL project label and the same
-  // deterministic ProjectRef, never the alias.
+  // This identity-only fixture deliberately has no policy evidence. The CLI
+  // must therefore fail closed, while its diagnostic still makes the
+  // canonical repository identity observable: reaching the project through a
+  // symlink reports the REAL project label and origin, never the alias.
   var repo = makeRepo("https://github.com/acme/widgets.git");
   writeRecipe(repo, path.join(".clay", "tasks"));
   var aliasParent = fs.mkdtempSync(path.join(os.tmpdir(), "lead-alias-"));
@@ -319,13 +320,18 @@ test("lead-backtest CLI reports one canonical identity through a symlinked root"
 
   var direct = runScript(path.join(repo, ".clay", "tasks", "x.json"));
   var viaAlias = runScript(path.join(aliasDir, ".clay", "tasks", "x.json"));
-  var line = /resolved acme\/widgets -> project (\S+) \((\S+)\)/;
+  var line = /policy_missing \(project (\S+) origin ([^)]+)\)/;
   var a = direct.stderr.match(line);
   var b = viaAlias.stderr.match(line);
-  assert.ok(a && b, "both runs must report a resolution: " + direct.stderr + " | " + viaAlias.stderr);
+  assert.strictEqual(direct.status, 2, direct.stderr);
+  assert.strictEqual(viaAlias.status, 2, viaAlias.stderr);
+  assert.ok(a && b, "both runs must fail closed with canonical identity: " +
+    direct.stderr + " | " + viaAlias.stderr);
   assert.strictEqual(a[1], b[1], "project label must be canonical, not the alias");
-  assert.strictEqual(a[2], b[2], "ProjectRef must be canonical, not derived from the alias");
+  assert.strictEqual(a[2], b[2], "repository origin must be canonical, not derived from the alias");
   assert.ok(b[1].indexOf("some-other-name") === -1, "must not report the alias name");
+  assert.ok(direct.stderr.indexOf("resolved acme/widgets") === -1, "missing policy must not resolve a source");
+  assert.ok(viaAlias.stderr.indexOf("resolved acme/widgets") === -1, "missing policy must not resolve a source");
   fs.rmSync(repo, { recursive: true, force: true });
   fs.rmSync(aliasParent, { recursive: true, force: true });
 });
