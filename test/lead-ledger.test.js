@@ -251,3 +251,30 @@ test("sequence gaps, missing refs, and stale revisions fail the portfolio gate c
     bindings: [binding], events: [Object.assign({}, completed, { bindingRevision: 2 })],
   }).reason, "project_unverified");
 });
+
+test("an event with no injected clock is stamped with write time, never zero", function () {
+  withDir(function (dir) {
+    var before = Date.now();
+    // appendAttention supplies no `at` of its own. Without an injected clock
+    // this used to persist at: 0, which is not "very early" -- it is no
+    // ordering evidence, and consumers that snapshot what was pending when the
+    // owner spoke read 0 as earlier than every approval ever made.
+    var attention = ledger.appendAttention({
+      type: "staffing_attention",
+      portfolioTaskId: "clay-some-pending-item",
+      bindingRevision: 1,
+      reason: "waiting on the owner",
+    }, { dir: dir });
+    assert.ok(attention, "the attention event must persist");
+    assert.equal(typeof attention.at, "number");
+    assert.ok(attention.at >= before, "at must be the write time, not 0");
+
+    var persisted = ledger.readEvents({ dir: dir });
+    assert.equal(persisted.length, 1);
+    assert.ok(persisted[0].at > 0, "a zero timestamp must never reach the ledger");
+
+    // An explicitly injected clock still wins, so tests stay deterministic.
+    var stamped = ledger.appendEvent({ type: "lead_note", note: "n" }, { dir: dir, now: 4242 });
+    assert.equal(stamped.at, 4242);
+  });
+});

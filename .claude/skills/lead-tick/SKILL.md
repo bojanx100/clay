@@ -131,9 +131,24 @@ stall the backlog behind something only the boss can clear.
   relevant hardening warnings in extraContext); staff it via
   `clay-orchestration/delegate_task` with the session's coordinator id;
   append `{type:"staffed", item, route, taskId}` to the ledger.
-- **staff, needsApproval: true** — present the brief to the boss in plain
-  terms (item, route, gate, boundaries) and ask for approval. Only staff
-  after an explicit yes; record the same ledger event.
+- **staff, needsApproval: true** — record the pending item to the ledger
+  **BEFORE** you ask, via `lib/lead-ledger.appendAttention` with the exact
+  `portfolioTaskId` and `bindingRevision` you intend to staff. Then present
+  the brief to the boss in plain terms (item, route, gate, boundaries) and
+  ask for approval. Only staff after an explicit yes, citing the approval's
+  ingress id as `coopApprovalIngressId` on `delegate_task`; then append the
+  `staffed` event.
+  **Why the order is binding:** an approval is referential — it means "yes to
+  *that*" — so `lib/coop-item-approval.js` admits it only against an item that
+  was ALREADY pending when the boss spoke. Ask first and record after, and the
+  snapshot at approval time is empty, the approval resolves to nothing, and
+  dispatch fails closed with `thread_ref_required` /
+  `owner_approval_unmatched_item` no matter how clearly the boss said yes.
+  That is exactly what happened to ingress 455 ("approve eligibility fix"):
+  the attention was written 43 seconds after the approval, so the approved
+  work could never run. Recording the referent after the fact is also what
+  would let the Lead manufacture what the boss appeared to approve, which is
+  why the gate refuses it rather than being relaxed.
 - **ADMISSION-GATE RULE (owner decision 2026-08-04)**: the approval gate
   sits at backlog admission, not dispatch. An item that was discussed
   with the boss and admitted to `items.json` is pre-approved — staff it
