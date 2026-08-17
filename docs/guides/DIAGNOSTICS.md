@@ -28,6 +28,13 @@ took (watchdog aborts, auto-resumes). Fields:
   codex) was the resume-spam bug fixed in `d108f9b8e1`.
 - A huge `silentMs` (e.g. 17min vs 30s timeout) usually means laptop sleep, not
   a real event.
+- `kind: "coop_startup_migration"` — a Coop startup recovery migration that
+  failed closed (`lib/server.js`). Fields: `migration` (e.g.
+  `coop-recovered-thread-admission:voice`), `detail` with the failure `code`.
+  **Sick:** the same `migration` failing on every restart — a one-time repair is
+  wedged and will never self-apply. In dev the daemon inherits the supervisor's
+  stdio rather than writing `daemon-dev.log`, so this canary is the ONLY durable
+  record of such a failure.
 
 ## 2. Daemon performance — `~/.clay/diag(-dev).log`
 
@@ -78,6 +85,7 @@ main thread is being starved by rendering work, not a network problem.
 
 | Date | Signature | Root cause | Fix |
 |---|---|---|---|
+| 2026-08-17 | nothing in any canary; ThreadRef repair silently unapplied for a day | startup migration failed closed with `recovery_target_conflict`, but reported only via `console.error` → inherited dev stdio → no file | mirror startup-migration failures into the recovery canary |
 | 2026-07-07 | repeated claude `mid-generation` @ 30-35s (session 577) | Opus 4.8 extended thinking reasons silently between events; 30s claude watchdog killed healthy turns → resume loop | base mid-generation budget raised to 120s for all vendors |
 | 2026-07-04 | dozens of codex `mid-generation` @ 30-35s | 30s watchdog vs silent gpt-5.5 reasoning → resume loop | `d108f9b8e1` vendor-aware 120s budget |
 | 2026-07-03 | `[SAVE-SLOW]` bursts + `[LOOP-LAG]` spikes | multiple full-history rewrites per tick | `e230191f63` heavy-session save coalescing |
