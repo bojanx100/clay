@@ -335,13 +335,35 @@
 }
 
 .sticky-note-rendered .sn-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   font-size: 12px;
   margin-right: 4px;
   opacity: 0.6;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 3px;
+  transition: opacity 0.15s, background 0.15s, transform 0.15s;
+}
+
+.sticky-note-rendered .sn-check:hover,
+.sticky-note-rendered .sn-check:focus-visible {
+  opacity: 1;
+  background: rgba(0,0,0,0.07);
+  outline: none;
+  transform: scale(1.08);
 }
 
 .sticky-note-rendered .sn-check.checked {
   opacity: 0.9;
+}
+
+.dark-theme .sticky-note-rendered .sn-check:hover,
+.dark-theme .sticky-note-rendered .sn-check:focus-visible {
+  background: rgba(255,255,255,0.1);
 }
 
 /* --- Resize handle (bottom-right corner) --- */
@@ -649,9 +671,12 @@
   font-weight: 400 !important;
   color: var(--text-dimmer) !important;
   margin-top: 6px !important;
+  max-width: 520px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
+  line-height: 1.55;
 }
 
 .notes-archive-empty-sub .lucide {

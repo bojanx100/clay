@@ -1,10 +1,16 @@
-# Sticky notes as agent-controllable long-term memory
+# Sticky notes as agent-controllable handoff memory
 
 **Goal (Chad, 2026-08-17):** sessions can read and write the project's
-sticky notes, turning the existing shared canvas into visible long-term
-memory. The user always sees what the agent remembers, can edit or
-delete it, and every vendor gets the same memory because injection is
-plain text.
+sticky notes, turning the existing shared canvas into visible handoff
+memory. People may use the board freely; Clay agents use it specifically
+for cross-session work memory: checklists and to-do lists, work goals,
+handoffs, unfinished work, durable decisions and constraints, and
+knowledge worth preserving beyond the current session. Notes are
+title-first, may contain detailed multi-paragraph context, and should
+let another worker continue without reconstructing the previous
+conversation. The user always sees what the agent remembers, can edit
+or delete it, and every vendor gets the same memory because injection
+is plain text.
 
 ## Why sticky notes beat a hidden memory file
 
@@ -44,13 +50,13 @@ plain text.
   the calling session; removing a user-created note (or another
   session's) keeps the permission prompt -- deleting someone else's
   memory is destructive.
-- Tool descriptions frame the memory contract AND the register (Chad,
-  2026-08-17: notes must never get verbose -- they are sticky notes):
-  "Shared project memory on the user's board. One note = one fact,
-  decision, or reminder, written like a real sticky note: a phrase or
-  at most two short sentences. Never paragraphs, lists of steps, or
-  logs. Update an existing note instead of adding a near-duplicate;
-  delete notes that stop being true."
+- Tool descriptions frame the memory contract as handoff-first. The
+  first line is a concise title; the remaining body may be long and
+  should preserve the goal, background, rationale, decisions, completed
+  work, current state, validation, next steps, blockers, and references
+  when those details prevent context loss. Quality is controlled by
+  prohibiting routine narration and duplicate notes, not by forcing
+  artificial brevity.
 
 ### 2. Injection (the recall half)
 
@@ -59,10 +65,11 @@ plain text.
   instructions.scanAndMerge / appendSystemPrompt from a726fbc):
   `"--- Project sticky notes (shared memory; manage via clay-notes
   tools) ---"` + `getActiveNotesText()`.
-- Caps: 2000 chars total, newest-first truncation with a note telling
-  the model to use list_notes for the rest. Zero notes -> inject
-  nothing. The injection block is intentionally small: sticky notes are
-  an index of durable facts, not a context dump.
+- Caps: 4000 chars total and 800 chars per note, newest-first truncation
+  with a marker telling the model to use list_notes for the full note.
+  The policy explicitly requires reading a relevant truncated handoff
+  before acting. Full board content remains available through
+  list_notes without truncation.
 - This makes recall automatic; the agent does not need to remember to
   look.
 
@@ -70,19 +77,23 @@ plain text.
 
 - Agent-created notes render a small vendor avatar badge (origin) in
   the note corner, mirroring the delegated-message pattern.
-- No other canvas changes; the whole point is reusing the existing
-  surface.
+- The first line renders as the note title. Checklist lines accept both
+  `[x]` / `[ ]` and `- [x]` / `- [ ]`; rendered boxes are keyboard- and
+  pointer-toggleable and persist back to Markdown.
+- The empty archive explains the value in user terms: notes survive the
+  current session and are useful for checklists, goals, handoffs, and
+  durable project knowledge. This is guidance, not a restriction on how
+  people use their board.
+- The rest of the canvas remains the existing shared surface.
 
 ## Rails
 
 - REVISED (Chad, 2026-08-17): no short hard cap -- the canvas has a
-  collapse affordance, so long notes are fine on the BOARD. The real
-  enemy is rambling register, which the tool description polices, not
-  a length rejection. Keep only a generous abuse guard: write_note
-  rejects past 2000 chars.
-- Context cost is contained at INJECTION instead: each note contributes
-  at most ~240 chars (preview + "... (list_notes for the full note)"),
-  total block still capped at 2000 chars.
+  collapse affordance, so long handoff notes are encouraged when they
+  preserve worker context. Keep only a generous abuse guard:
+  write_note rejects past 20000 chars.
+- Context cost is contained at injection instead: each note contributes
+  at most 800 chars and the total note block stays capped at 4000 chars.
 - Note count cap (20 active) -- write_note errors past it, prompting
   consolidation/cleanup instead of unbounded growth.
 - remove_note ownership rule above.
@@ -97,24 +108,19 @@ spammed by it.
   empty board must still announce the capability, otherwise the agent
   never volunteers). Zero-note form: label + "(board is empty)" +
   policy text.
-- Policy text (goes inside the injected block, terse):
-  "Use the board proactively: when the user states a decision,
-  preference, correction, or durable project fact that future sessions
-  will need, record it with write_note WITHOUT being asked, and say so
-  in one short clause. The bar: a person skimming the board a week
-  from now must still find the note useful, and it must stand on its
-  own without this conversation. Never write announcement or narration
-  notes ('leaving a note', 'did X just now'), routine progress,
-  transient state, or anything the repo already records. Update or
-  remove your stale notes instead of adding near-duplicates. A task
-  should rarely add more than one or two notes."
-  (Revised 2026-08-17 per Chad: notes must be human-valuable memory,
-  never self-narration; writes run with no permission prompt.)
+- Policy text defines the board as shared cross-session work memory and
+  limits Clay-agent writes to checklists and to-dos, work goals,
+  handoffs, unfinished work, durable decisions and constraints, and
+  knowledge worth preserving beyond the current session. It requires a
+  title on the first line, welcomes detailed bodies, and tells the next
+  worker to call list_notes before acting on a relevant truncated
+  preview. Transcripts, routine progress narration, self-announcements,
+  and duplicate notes remain forbidden. Human use remains unrestricted.
 - Noticeability: on an agent write, the server broadcasts
   `note_written {id, byTitle, vendor, preview}` (register in
   ws-schema); non-pane clients toast "<title> left a note: <preview>"
   and pulse the note on the canvas. User's own edits never toast.
-- Abuse ceiling stays structural: 20 active notes, 2000-char guard,
+- Abuse ceiling stays structural: 20 active notes, 20000-char guard,
   ownership rule.
 
 ## Out of scope (v1)
