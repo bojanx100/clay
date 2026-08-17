@@ -1,3 +1,10 @@
+# [3.1.0-beta.2](https://github.com/chadbyte/clay/compare/v3.1.0-beta.1...v3.1.0-beta.2) (2026-08-17)
+
+
+### Features
+
+* **notes:** add cross-session task memory ([d96bade](https://github.com/chadbyte/clay/commit/d96badef6036aab7968780fb23ba90f3646c1f1d))
+
 # [3.1.0-beta.1](https://github.com/chadbyte/clay/compare/v3.0.0...v3.1.0-beta.1) (2026-08-17)
 
 
