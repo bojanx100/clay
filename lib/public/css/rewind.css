@@ -677,3 +677,13 @@
   border: 1px dashed var(--border, #444);
 }
 
+
+/* Attention pulse: shown when the user sends a message while a permission
+   request is still unanswered (the turn is blocked on it). */
+.permission-container.permission-attention {
+  animation: permission-attention-pulse 0.65s ease-in-out 3;
+}
+@keyframes permission-attention-pulse {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
+}
