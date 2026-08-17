@@ -1,3 +1,10 @@
+## [3.2.1](https://github.com/chadbyte/clay/compare/v3.2.0...v3.2.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **sessions:** recover messages rejected by stale queries ([1e72e0d](https://github.com/chadbyte/clay/commit/1e72e0d645cb4878e8c929a69310d31cec6c074b))
+
 ## [3.2.1-beta.1](https://github.com/chadbyte/clay/compare/v3.2.0...v3.2.1-beta.1) (2026-08-17)
 
 
