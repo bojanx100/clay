@@ -2,7 +2,8 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var queueModule = require("../lib/project-user-message-queue");
 
-function harness() {
+function harness(options) {
+  options = options || {};
   var events = [];
   var stateMessages = [];
   var session = { localId: 7, history: [], pendingUserMessageQueue: [], isProcessing: false };
@@ -16,8 +17,11 @@ function harness() {
   var api = queueModule.attachProjectUserMessageQueue({
     sm: sm,
     sdk: {
-      startQuery: function () { events.push("start"); },
-      pushMessage: function () { events.push("push"); },
+      startQuery: function (target, text) { events.push("start:" + text); },
+      pushMessage: function () {
+        events.push("push");
+        return options.pushResult === undefined ? true : options.pushResult;
+      },
     },
     sendToSession: function (id, message) {
       events.push(message.type);
@@ -47,7 +51,7 @@ test("task, queue, steer, and direct SDK dispatch keep their distinct order", fu
     finalText: "direct", images: null, steer: false, queueId: null, displayText: "direct",
     imageCount: 0, clientMessageId: null, pastes: null, fromQueue: false, intent: "chat",
   });
-  assert.ok(h.events.indexOf("start") > h.events.indexOf("status"));
+  assert.ok(h.events.indexOf("start:direct") > h.events.indexOf("status"));
 
   var coordinated = [];
   var task = harness();
@@ -84,4 +88,19 @@ test("task, queue, steer, and direct SDK dispatch keep their distinct order", fu
   assert.equal(steered.session.pendingUserMessageQueue[0].text, "steer");
   assert.equal(steered.session.steerInterruptRequested, true);
   assert.equal(aborted, 1);
+});
+
+test("a stale processing state starts a fresh query when no push consumer exists", function () {
+  var h = harness({ pushResult: false });
+  h.session.isProcessing = true;
+
+  h.api.dispatchPreparedToSdk(h.session, {
+    finalText: "recover me", images: null, steer: false, queueId: "q-recover",
+    displayText: "recover me", imageCount: 0, clientMessageId: null, pastes: null,
+    fromQueue: true, intent: "chat",
+  });
+
+  assert.deepStrictEqual(h.events.filter(function (event) {
+    return event === "push" || event.indexOf("start:") === 0;
+  }), ["push", "start:recover me"]);
 });
