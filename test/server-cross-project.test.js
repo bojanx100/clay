@@ -668,6 +668,13 @@ test("allowLeadSourcedExecution never weakens the structural execution precondit
     objective: "Do the bounded work.",
   });
   assert.equal(notLeadSourced.reason, "access_denied");
+  // The reason code stays stable for cross-project delivery, which treats it as
+  // non-retryable, but it must also SAY why: a bare "access_denied" reaching an
+  // MCP caller in a project session reads as broken dispatch rather than a
+  // refusal working as designed.
+  assert.match(notLeadSourced.error, /must be staffed from a Coop\/Lead session/);
+  assert.match(notLeadSourced.error, new RegExp(harness.projectId));
+  assert.match(notLeadSourced.error, /omit the project-execution fields/);
 
   // ...and the target must not be Lead.
   var leadTargeted = harness.router.createProjectExecution({

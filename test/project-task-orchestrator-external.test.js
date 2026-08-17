@@ -120,6 +120,7 @@ test("the next typed dispatch reuses explicit approval text restored from histor
 
   assert.equal(coordinate({ coordinatorSessionId: "canonical-coop",
     portfolioTaskId: "cleanup", bindingRevision: 3,
+    idempotencyKey: "cleanup-r3", mode: "project_coordinator",
     targetProject: { projectId: projectId }, coopTopicRef: topic }).ok, true);
   assert.equal(delivered.coopIngressId, "coop:canonical-coop:281");
   assert.deepEqual(delivered.coopTopicRef, topic);
@@ -673,4 +674,55 @@ test("steering recovers an archived active task coordinator but leaves terminal 
   assert.equal(terminal.hidden, true);
   assert.equal(saves, 1);
   assert.equal(broadcasts, 1);
+});
+
+test("a partial project-execution field set names what is missing", function () {
+  var problem = externalOrchestration.projectExecutionInputProblem;
+  // The exact shape that used to fail as a bare "invalid_binding": a target
+  // project and task id, but no idempotency key, mode or binding revision.
+  var partial = problem({
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    portfolioTaskId: "cleanup",
+  });
+  assert.ok(partial, "a partial set must be reported as a problem");
+  assert.match(partial, /idempotencyKey/);
+  assert.match(partial, /mode/);
+  assert.match(partial, /bindingRevision/);
+  assert.doesNotMatch(partial, /targetProject\.projectId/);
+  assert.match(partial, /Omit all five to delegate a local worker task instead/);
+
+  // A missing target project is named too -- that was the original report.
+  assert.match(problem({ portfolioTaskId: "cleanup", bindingRevision: 1,
+    idempotencyKey: "cleanup-r1", mode: "direct_leaf" }) || "",
+    /targetProject\.projectId/);
+
+  // A revision that is not a positive integer is invalid, not merely absent.
+  assert.match(problem({ targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    portfolioTaskId: "cleanup", idempotencyKey: "cleanup-r1",
+    mode: "direct_leaf", bindingRevision: 0 }) || "", /bindingRevision/);
+
+  // The complete set is accepted.
+  assert.equal(problem({
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    portfolioTaskId: "cleanup", bindingRevision: 2,
+    idempotencyKey: "cleanup-r2", mode: "project_coordinator",
+  }), null);
+});
+
+test("an incomplete typed dispatch is refused with a legible reason", function () {
+  var source = { localId: 1, storageId: "canonical-coop", history: [] };
+  var reached = false;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    createProjectExecution: function () { reached = true; return { ok: true }; },
+  });
+  var result = coordinate({ coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "cleanup", bindingRevision: 3,
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" } });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /idempotencyKey/);
+  // Refused before the binding layer, so the caller never sees invalid_binding.
+  assert.equal(reached, false);
+  assert.equal(result.reason, undefined);
 });
