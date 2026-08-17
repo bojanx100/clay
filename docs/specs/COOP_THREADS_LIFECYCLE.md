@@ -206,3 +206,13 @@ creates (or verifies) exactly one open `Voice` Thread with id
 ledger records. It never rewrites canonical history, source execution links,
 or the owner-direct Voice session. A repeat returns success with zero moves;
 any mismatch fails closed and makes no recovery change.
+
+A handed off target Thread blocks the repair only while it still has to create
+that Thread or move a turn into it for the first time. When every remaining
+turn already lives in the target and its implementation decision is already
+persisted, the sole outstanding work is deleting stale duplicate membership
+from the source, so a handed off target is expected rather than a conflict.
+That cleanup creates nothing, populates nothing, and moves no ledger record.
+The target must still be titled `Voice` and be open, and every other proof —
+canonical event digest and identity, ambiguity, ledger references, admitted
+execution, and Project scope — is unchanged.

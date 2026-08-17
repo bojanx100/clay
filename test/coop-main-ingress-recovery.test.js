@@ -141,7 +141,8 @@ function productionHarness(options) {
   if (opts.moved || opts.duplicate) {
     topics[TARGET] = {
       topicRef: { topicId: TARGET }, threadRef: { threadId: TARGET }, title: "Voice",
-      status: "open", threadState: "exploring", turnRefs: targetTurns,
+      status: "open", threadState: opts.targetThreadState || "exploring",
+      turnRefs: targetTurns,
       eventRefs: targetTurns.map(function (item) { return item.startEventIndex; }),
     };
   }
@@ -333,6 +334,86 @@ test("an admitted Voice decision still permits exact duplicate membership cleanu
   });
   assert.deepEqual(h.topics[SOURCE].turnRefs, []);
   assert.equal(h.classificationCount(), 0);
+});
+
+test("duplicate membership cleanup completes when the recovered Voice Thread is handed off", function () {
+  // Exact live production shape: ledger side already repaired, index still duplicated,
+  // and the recovered Voice Thread legitimately handed off to a coordinator.
+  var h = productionHarness({ duplicate: true, targetThreadState: "handed_off" });
+  var record = h.records["coop:" + recovery.CANONICAL_SESSION_ID + ":360"];
+  record.implementationDecision = {
+    intent: "implement", source: "explicit_owner_turn", at: 1786840579387,
+  };
+  record.projectRefs = [{ projectId: recovery.CLAY_PROJECT_ID }];
+  record.expectsExecution = true;
+  record.links.coordinators = [{ projectId: "system-lead",
+    sessionStorageId: "457f9fa1-7024-40cc-acee-2cef6b2b8445" }];
+  var historyBefore = JSON.stringify([h.history[166989], h.history[167058], h.history[167144]]);
+
+  assert.deepEqual(recovery.migrateProduction(h.index, h.ledger, h.session), {
+    ok: true,
+    migrationId: recovery.PRODUCTION_RECOVERY_ID,
+    moved: 3,
+    created: false,
+    decisionBackfilled: false,
+    threadRef: { threadId: TARGET },
+  });
+  assert.deepEqual(h.topics[SOURCE].turnRefs, [], "stale source membership is removed");
+  assert.deepEqual(h.topics[SOURCE].eventRefs, []);
+  assert.deepEqual(h.topics[TARGET].turnRefs.map(function (item) {
+    return item.startEventIndex;
+  }), [166989, 167058, 167144]);
+  assert.equal(h.topics[TARGET].threadState, "handed_off", "the handoff is never rewritten");
+  assert.equal(h.classificationCount(), 0, "an admitted decision is never restamped");
+  assert.equal(JSON.stringify([h.history[166989], h.history[167058], h.history[167144]]),
+    historyBefore, "the canonical owner events remain byte-equivalent");
+
+  var afterFirst = JSON.stringify(h.topics);
+  assert.deepEqual(recovery.migrateProduction(h.index, h.ledger, h.session), {
+    ok: true,
+    migrationId: recovery.PRODUCTION_RECOVERY_ID,
+    moved: 0,
+    created: false,
+    decisionBackfilled: false,
+    threadRef: { threadId: TARGET },
+  }, "a replayed migration succeeds with zero moves");
+  assert.equal(JSON.stringify(h.topics), afterFirst, "the replay mutates nothing");
+  assert.equal(h.classificationCount(), 0);
+});
+
+test("a handed off or mismatched target still blocks the create and first populate path", function () {
+  // Turns still live only in Main, so the repair would have to populate the target.
+  function pending(topic) {
+    var h = productionHarness();
+    h.topics[TARGET] = Object.assign({
+      topicRef: { topicId: TARGET }, threadRef: { threadId: TARGET }, title: "Voice",
+      status: "open", threadState: "exploring", turnRefs: [], eventRefs: [],
+    }, topic);
+    return h;
+  }
+  var handedOff = pending({ threadState: "handed_off" });
+  assert.equal(recovery.migrateProduction(handedOff.index, handedOff.ledger,
+    handedOff.session).code, "recovery_target_conflict");
+  assert.equal(handedOff.topics[SOURCE].turnRefs.length, 3, "no turn is moved");
+  assert.equal(handedOff.classificationCount(), 0);
+
+  var wrongTitle = pending({ title: "Webapp" });
+  assert.equal(recovery.migrateProduction(wrongTitle.index, wrongTitle.ledger,
+    wrongTitle.session).code, "recovery_target_conflict");
+  assert.equal(wrongTitle.classificationCount(), 0);
+
+  var closed = pending({ status: "archived" });
+  assert.equal(recovery.migrateProduction(closed.index, closed.ledger,
+    closed.session).code, "recovery_target_conflict");
+  assert.equal(closed.classificationCount(), 0);
+
+  // Duplicate membership with no admitted decision still refuses a handed off target,
+  // because that path would also backfill the implementation decision.
+  var unadmitted = productionHarness({ duplicate: true, targetThreadState: "handed_off" });
+  assert.equal(recovery.migrateProduction(unadmitted.index, unadmitted.ledger,
+    unadmitted.session).code, "recovery_target_conflict");
+  assert.equal(unadmitted.topics[SOURCE].turnRefs.length, 3);
+  assert.equal(unadmitted.classificationCount(), 0);
 });
 
 test("production migration fails closed on changed, ambiguous, or unrelated evidence", function () {
