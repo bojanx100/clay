@@ -134,12 +134,26 @@ test("manual note-manager edits do not broadcast note_written", function () {
   assert.deepStrictEqual(f.written, []);
 });
 
-test("write_note rejects text past the 2000-character abuse guard", async function () {
+test("write_note allows detailed handoffs up to the generous abuse guard", async function () {
   var f = createFixture();
-  var result = await toolsFor(f).write_note.handler({ text: "x".repeat(2001) });
+  var tools = toolsFor(f);
+  var acceptedText = "Detailed handoff\n" + "x".repeat(notesModule.MAX_NOTE_TEXT_CHARS - 17);
+  var accepted = await tools.write_note.handler({ text: acceptedText });
+  assert.strictEqual(accepted.isError, undefined);
+
+  var result = await tools.write_note.handler({ text: "x".repeat(notesModule.MAX_NOTE_TEXT_CHARS + 1) });
   assert.strictEqual(result.isError, true);
-  assert.match(result.content[0].text, /text exceeds 2000 characters/);
-  assert.strictEqual(f.notes.length, 0);
+  assert.match(result.content[0].text, new RegExp("text exceeds " + notesModule.MAX_NOTE_TEXT_CHARS + " characters"));
+  assert.strictEqual(f.notes.length, 1);
+});
+
+test("write_note contract requires a titled detailed handoff format", function () {
+  var tool = toolsFor(createFixture()).write_note;
+  assert.match(tool.description, /title on the first line/i);
+  assert.match(tool.description, /checklists and to-do lists/i);
+  assert.match(tool.description, /knowledge that should still be available after the current session ends/i);
+  assert.match(tool.description, /People may use the board freely/i);
+  assert.match(tool.description, /20000-character abuse guard/i);
 });
 
 test("write_note caps new active notes at twenty but still permits updates", async function () {
@@ -183,25 +197,26 @@ test("sticky-note prompt announces an empty board and proactive policy", functio
   var prompt = notesModule.buildNotesPrompt([{ text: "Use port 2633", color: "yellow", updatedAt: 1 }]);
   assert.ok(prompt.startsWith(notesModule.NOTES_LABEL + "\n"));
   assert.match(prompt, /Use port 2633/);
-  assert.match(prompt, /Use the board proactively:/);
+  assert.match(prompt, /persists across sessions/);
+  assert.match(prompt, /checklists and to-do lists/);
   assert.ok(prompt.endsWith(notesModule.PROACTIVE_POLICY));
 });
 
-test("sticky-note prompt is capped at 2000 characters with newest notes first", function () {
+test("sticky-note prompt stays bounded with newest notes first", function () {
   var notes = [];
-  for (var i = 0; i < 30; i++) {
+  for (var i = 0; i < 60; i++) {
     notes.push({ text: "note-" + i + " " + "x".repeat(100), color: "blue", updatedAt: i });
   }
   var prompt = notesModule.buildNotesPrompt(notes);
   var notesPortion = prompt.slice(0, prompt.length - notesModule.PROACTIVE_POLICY.length - 1);
-  assert.ok(notesPortion.length <= 2000);
-  assert.ok(prompt.indexOf("note-29") < prompt.indexOf("note-28"));
+  assert.ok(notesPortion.length <= notesModule.MAX_PROMPT_CHARS);
+  assert.ok(prompt.indexOf("note-59") < prompt.indexOf("note-58"));
   assert.match(prompt, /call list_notes for the rest/);
   assert.ok(prompt.endsWith(notesModule.PROACTIVE_POLICY));
   assert.strictEqual(prompt.indexOf("note-0"), -1);
 });
 
-test("long notes use a 240-character injection preview while list_notes returns full text", async function () {
+test("long notes use a bounded injection preview while list_notes returns full text", async function () {
   var longText = "Long durable context " + "x".repeat(900);
   var f = createFixture();
   var tools = toolsFor(f);
