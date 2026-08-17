@@ -1,6 +1,33 @@
 var test = require("node:test");
 var assert = require("node:assert");
+var fs = require("node:fs");
+var path = require("node:path");
 var serverTuiHooks = require("../lib/server-tui-hooks");
+
+test("detached adopted sessions are suppressed until Clay attaches a terminal", function () {
+  assert.strictEqual(serverTuiHooks.shouldSuppressDetachedAdoptedSession({
+    adopted: true,
+    terminalId: null,
+    runtimeTerminalId: null,
+  }), true);
+  assert.strictEqual(serverTuiHooks.shouldSuppressDetachedAdoptedSession({
+    adopted: true,
+    terminalId: null,
+    runtimeTerminalId: 7,
+  }), false);
+  assert.strictEqual(serverTuiHooks.shouldSuppressDetachedAdoptedSession({
+    adopted: false,
+    terminalId: null,
+    runtimeTerminalId: null,
+  }), false);
+});
+
+test("both TUI notification emitters apply the adopted-session suppression policy", function () {
+  var projectSource = fs.readFileSync(path.join(__dirname, "../lib/project-sessions-tui.js"), "utf8");
+  var serverSource = fs.readFileSync(path.join(__dirname, "../lib/server.js"), "utf8");
+  assert.match(projectSource, /shouldSuppressDetachedAdoptedSession\(s\)/);
+  assert.match(serverSource, /shouldSuppressDetachedAdoptedSession\(s\)/);
+});
 
 function createInstaller(calls) {
   return {

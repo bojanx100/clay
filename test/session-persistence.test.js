@@ -41,6 +41,34 @@ function makeSessionHarness(managerOverrides) {
   };
 }
 
+test("adopted CLI provenance survives a daemon restart", async function () {
+  var h = makeSessionHarness();
+  try {
+    var session = [...h.sm.sessions.values()][0];
+    session.storageId = "adopted-cli-session";
+    session.cliSessionId = "adopted-cli-session";
+    session.vendor = "claude";
+    session.mode = "tui";
+    session.adopted = true;
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(readSessionMeta(h, "adopted-cli-session").adopted, true);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = [...restored.sessions.values()].find(function (candidate) {
+      return candidate.storageId === "adopted-cli-session";
+    });
+    assert.ok(restoredSession);
+    assert.strictEqual(restoredSession.adopted, true);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
 test("Lead sessions keep exactly one durable, protected Coop home", async function () {
   var h = makeSessionHarness({ isLead: true });
   try {

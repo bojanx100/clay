@@ -4,6 +4,49 @@ var fs = require("fs");
 var os = require("os");
 var path = require("path");
 
+test("automatic CLI adoption records provenance while explicit import does not", function () {
+  var tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-adoption-origin-"));
+  var cliDir = path.join(tmpDir, "cli");
+  fs.mkdirSync(cliDir, { recursive: true });
+  fs.writeFileSync(path.join(cliDir, "auto-session.jsonl"), "\n");
+  var sessions = new Map();
+  var nextId = 1;
+  var descriptors = {
+    "auto-session": {
+      cliSid: "auto-session", title: "Automatic", createdAt: 1, lastActivity: 2,
+      vendor: "claude",
+    },
+    "manual-session": {
+      cliSid: "manual-session", title: "Manual", createdAt: 3, lastActivity: 4,
+      vendor: "claude",
+    },
+  };
+  var api = require("../lib/sessions-cli-import").attachSessionCliImport({
+    cwd: tmpDir,
+    sessions: sessions,
+    allocateLocalId: function () { return nextId++; },
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+    isValidCliSessionId: function () { return true; },
+    cliSessionsDir: function () { return cliDir; },
+    readCliSessionDescriptor: function (cliSid) { return descriptors[cliSid] || null; },
+    readCodexThreadNames: function () { return new Map(); },
+    listCodexRolloutFiles: function () { return []; },
+    readCodexSessionDescriptor: function () { return null; },
+    findCodexRolloutByThreadId: function () { return null; },
+  });
+
+  try {
+    api.adoptOrphanedCliSessions();
+    assert.strictEqual(sessions.get(1).adopted, true);
+
+    var manualId = api.importCliSession("manual-session", "claude");
+    assert.strictEqual(sessions.get(manualId).adopted, undefined);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("Codex import keeps first user prompt even when it starts with injected instructions", function () {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-codex-history-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
