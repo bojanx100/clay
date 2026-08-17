@@ -104,6 +104,7 @@ test("production migration creates one Clay Thread, preserves the canonical even
   assert.deepEqual(recovery.migrateProduction(h.index, h.ledger, h.session), {
     ok: true,
     migrationId: recovery.RECOVERY_ID,
+    noop: false,
     threadCreated: true,
     membershipAdded: true,
     decisionBackfilled: true,
@@ -132,6 +133,7 @@ test("production migration creates one Clay Thread, preserves the canonical even
   assert.deepEqual(recovery.migrateProduction(h.index, h.ledger, h.session), {
     ok: true,
     migrationId: recovery.RECOVERY_ID,
+    noop: true,
     threadCreated: false,
     membershipAdded: false,
     decisionBackfilled: false,
@@ -140,6 +142,74 @@ test("production migration creates one Clay Thread, preserves the canonical even
   assert.equal(h.classificationCount(), 1, "a restart does not readmit the owner command");
 });
 
+// Once the ledger decision exists the repair is finished, and the Thread it created is
+// meant to be worked and then closed, renamed, or moved to another Project. None of that
+// may wedge the migration on a later restart.
+function appliedHarness(options) {
+  var h = harness(options);
+  h.record.implementationDecision = { intent: "implement", source: "explicit_owner_turn",
+    at: h.history[recovery.EXPECTED.eventIndex]._ts };
+  h.record.topicRef = { topicId: recovery.THREAD_ID };
+  h.record.projectRefs = [{ projectId: recovery.CLAY_PROJECT_ID }];
+  h.record.expectsExecution = true;
+  h.topics[recovery.THREAD_ID] = {
+    topicRef: { topicId: recovery.THREAD_ID }, threadRef: { threadId: recovery.THREAD_ID },
+    title: recovery.THREAD_TITLE, status: "open", threadState: "handed_off",
+    group: { kind: "project", projectRef: { projectId: recovery.CLAY_PROJECT_ID } },
+    eventRefs: [{ projectId: "system-lead",
+      sessionStorageId: recovery.CANONICAL_SESSION_ID,
+      eventIndex: recovery.EXPECTED.eventIndex }],
+  };
+  return h;
+}
+
+var APPLIED_NOOP = {
+  ok: true,
+  migrationId: "clay-urban-stay-autolaunch-thread-admission-2026-08-16",
+  noop: true,
+  threadCreated: false,
+  membershipAdded: false,
+  decisionBackfilled: false,
+  threadRef: { threadId: "recovery-urban-stay-autolaunch-406" },
+};
+
+test("an applied repair stays a no-op success after the Thread is closed, renamed, or moved", function () {
+  var closed = appliedHarness();
+  closed.topics[recovery.THREAD_ID].status = "closed";
+  assert.deepEqual(recovery.migrateProduction(closed.index, closed.ledger, closed.session),
+    APPLIED_NOOP);
+  assert.equal(closed.classificationCount(), 0);
+
+  var renamed = appliedHarness();
+  renamed.topics[recovery.THREAD_ID].title = "Renamed by the owner";
+  assert.deepEqual(recovery.migrateProduction(renamed.index, renamed.ledger,
+    renamed.session), APPLIED_NOOP);
+
+  var moved = appliedHarness();
+  moved.topics[recovery.THREAD_ID].group = { kind: "project",
+    projectRef: { projectId: "another-project" } };
+  assert.deepEqual(recovery.migrateProduction(moved.index, moved.ledger, moved.session),
+    APPLIED_NOOP);
+
+  var dropped = appliedHarness();
+  dropped.topics[recovery.THREAD_ID].eventRefs = [];
+  assert.deepEqual(recovery.migrateProduction(dropped.index, dropped.ledger,
+    dropped.session), APPLIED_NOOP, "membership is never re-added over owner intent");
+
+  // Strongest form of the same rule: the applied verdict never reads live Thread state.
+  var poisoned = appliedHarness();
+  poisoned.index = {
+    resolve: function () { throw new Error("Thread state must not be re-proven"); },
+    createTopic: function () { throw new Error("no Thread may be recreated"); },
+    addEventMembership: function () { throw new Error("no membership may be re-added"); },
+  };
+  assert.deepEqual(recovery.migrateProduction(poisoned.index, poisoned.ledger,
+    poisoned.session), APPLIED_NOOP);
+});
+
+// Split deliberately from the applied case above: before the ledger decision exists the
+// repair still has to create the Thread and its membership, so Thread drift there is a
+// genuine conflict and must keep failing closed.
 test("the recovery fails closed before creating or admitting on drift or pre-existing execution", function () {
   var changed = harness();
   changed.history[recovery.EXPECTED.eventIndex].text = "Start a Clay implementation Thread.";
@@ -164,6 +234,18 @@ test("the recovery fails closed before creating or admitting on drift or pre-exi
   assert.equal(recovery.migrateProduction(conflict.index, conflict.ledger, conflict.session).code,
     "urban_stay_recovery_thread_mismatch");
   assert.equal(conflict.classificationCount(), 0);
+
+  var closedBeforeApplication = harness();
+  closedBeforeApplication.topics[recovery.THREAD_ID] = {
+    topicRef: { topicId: recovery.THREAD_ID }, threadRef: { threadId: recovery.THREAD_ID },
+    title: recovery.THREAD_TITLE, status: "closed", threadState: "exploring",
+    group: { kind: "project", projectRef: { projectId: recovery.CLAY_PROJECT_ID } },
+    eventRefs: [],
+  };
+  assert.equal(recovery.migrateProduction(closedBeforeApplication.index,
+    closedBeforeApplication.ledger, closedBeforeApplication.session).code,
+  "urban_stay_recovery_thread_mismatch");
+  assert.equal(closedBeforeApplication.classificationCount(), 0);
 });
 
 test("recovered routing aliases permit only the exact project-bound Thread", function () {

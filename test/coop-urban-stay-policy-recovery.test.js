@@ -111,6 +111,7 @@ test("production recovery creates one Urban Stay Thread and admits the decision 
   assert.deepEqual(recovery.migrateProduction(h.index, h.ledger, h.session), {
     ok: true,
     migrationId: recovery.RECOVERY_ID,
+    noop: false,
     threadCreated: true,
     membershipAdded: true,
     decisionBackfilled: true,
@@ -139,6 +140,7 @@ test("production recovery creates one Urban Stay Thread and admits the decision 
   assert.deepEqual(recovery.migrateProduction(h.index, h.ledger, h.session), {
     ok: true,
     migrationId: recovery.RECOVERY_ID,
+    noop: true,
     threadCreated: false,
     membershipAdded: false,
     decisionBackfilled: false,
@@ -149,6 +151,76 @@ test("production recovery creates one Urban Stay Thread and admits the decision 
   h.record.links.tasks.push({ taskId: "typed-urban-stay-policy-task" });
   assert.equal(recovery.migrateProduction(h.index, h.ledger, h.session).ok, true);
   assert.equal(h.classificationCount(), 1);
+});
+
+// Once the ledger decision exists the repair is finished. The Urban Stay Thread it
+// created is meant to be worked and then closed, renamed, or moved, and the ingress's
+// work may legitimately be delegated under a different TopicRef through
+// implementationScope. None of that may wedge the migration on a later restart.
+function appliedHarness(options) {
+  var h = harness(options);
+  h.record.implementationDecision = { intent: "implement", source: "explicit_owner_turn",
+    at: recovery.EXPECTED.timestamp };
+  h.record.topicRef = { topicId: recovery.THREAD_ID };
+  h.record.projectRefs = [{ projectId: recovery.URBAN_STAY_PROJECT_ID }];
+  h.record.expectsExecution = true;
+  h.topics[recovery.THREAD_ID] = {
+    topicRef: { topicId: recovery.THREAD_ID }, threadRef: { threadId: recovery.THREAD_ID },
+    title: recovery.THREAD_TITLE, status: "open", threadState: "handed_off",
+    group: { kind: "project",
+      projectRef: { projectId: recovery.URBAN_STAY_PROJECT_ID } },
+    eventRefs: [{ projectId: "system-lead",
+      sessionStorageId: recovery.CANONICAL_SESSION_ID,
+      eventIndex: recovery.EXPECTED.eventIndex }],
+  };
+  return h;
+}
+
+var APPLIED_NOOP = {
+  ok: true,
+  migrationId: "clay-urban-stay-policy-thread-admission-2026-08-16",
+  noop: true,
+  threadCreated: false,
+  membershipAdded: false,
+  decisionBackfilled: false,
+  threadRef: { threadId: "recovery-urban-stay-policy-409" },
+};
+
+test("an applied policy repair stays a no-op success after the Thread is closed, renamed, or moved", function () {
+  var closed = appliedHarness();
+  closed.topics[recovery.THREAD_ID].status = "closed";
+  assert.deepEqual(recovery.migrateProduction(closed.index, closed.ledger, closed.session),
+    APPLIED_NOOP);
+  assert.equal(closed.classificationCount(), 0);
+
+  var renamed = appliedHarness();
+  renamed.topics[recovery.THREAD_ID].title = "Renamed by the owner";
+  assert.deepEqual(recovery.migrateProduction(renamed.index, renamed.ledger,
+    renamed.session), APPLIED_NOOP);
+
+  var moved = appliedHarness();
+  moved.topics[recovery.THREAD_ID].group = { kind: "project",
+    projectRef: { projectId: "another-project" } };
+  assert.deepEqual(recovery.migrateProduction(moved.index, moved.ledger, moved.session),
+    APPLIED_NOOP);
+
+  // The one-of-three asymmetry: delegating this ingress's work under another TopicRef
+  // is downstream progress, not evidence drift, so it may not wedge the repair either.
+  var delegated = appliedHarness();
+  delegated.record.implementationScope = { projectRef: { projectId: "another-project" },
+    topicRef: { topicId: "another-thread" } };
+  assert.deepEqual(recovery.migrateProduction(delegated.index, delegated.ledger,
+    delegated.session), APPLIED_NOOP);
+
+  // Strongest form of the same rule: the applied verdict never reads live Thread state.
+  var poisoned = appliedHarness();
+  poisoned.index = {
+    resolve: function () { throw new Error("Thread state must not be re-proven"); },
+    createTopic: function () { throw new Error("no Thread may be recreated"); },
+    addEventMembership: function () { throw new Error("no membership may be re-added"); },
+  };
+  assert.deepEqual(recovery.migrateProduction(poisoned.index, poisoned.ledger,
+    poisoned.session), APPLIED_NOOP);
 });
 
 test("tampered, duplicate, and already-executed evidence fails closed", function () {
@@ -185,6 +257,9 @@ test("tampered, duplicate, and already-executed evidence fails closed", function
   assert.equal(scoped.topics[recovery.THREAD_ID], undefined);
 });
 
+// Split deliberately from the applied case above: before the ledger decision exists the
+// repair still has to create the Thread and its membership, so Thread drift there is a
+// genuine conflict and must keep failing closed.
 test("ledger, ProjectRef, session, and target Thread drift fails closed", function () {
   var wrongRef = harness();
   wrongRef.record.requestRef.eventIndex++;
@@ -214,6 +289,22 @@ test("ledger, ProjectRef, session, and target Thread drift fails closed", functi
   assert.equal(recovery.migrateProduction(conflict.index, conflict.ledger,
     conflict.session).code, "urban_stay_policy_recovery_thread_mismatch");
   assert.equal(conflict.classificationCount(), 0);
+
+  var closedBeforeApplication = harness();
+  closedBeforeApplication.topics[recovery.THREAD_ID] = {
+    topicRef: { topicId: recovery.THREAD_ID },
+    threadRef: { threadId: recovery.THREAD_ID },
+    title: recovery.THREAD_TITLE,
+    status: "closed",
+    threadState: "exploring",
+    group: { kind: "project", projectRef: {
+      projectId: recovery.URBAN_STAY_PROJECT_ID } },
+    eventRefs: [],
+  };
+  assert.equal(recovery.migrateProduction(closedBeforeApplication.index,
+    closedBeforeApplication.ledger, closedBeforeApplication.session).code,
+  "urban_stay_policy_recovery_thread_mismatch");
+  assert.equal(closedBeforeApplication.classificationCount(), 0);
 });
 
 test("recovered routing and replay stay exact and Urban Stay-bound", function () {

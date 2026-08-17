@@ -93,6 +93,7 @@ test("production migration pins ingress 371 to canonical Threads and Clay exactl
   assert.deepEqual(recovery.migrateProduction(h.index, h.ledger, h.session), {
     ok: true,
     migrationId: recovery.RECOVERY_ID,
+    noop: false,
     decisionBackfilled: true,
     threadRef: { threadId: recovery.THREAD_ID },
   });
@@ -110,6 +111,7 @@ test("production migration pins ingress 371 to canonical Threads and Clay exactl
   assert.deepEqual(recovery.migrateProduction(h.index, h.ledger, h.session), {
     ok: true,
     migrationId: recovery.RECOVERY_ID,
+    noop: true,
     decisionBackfilled: false,
     threadRef: { threadId: recovery.THREAD_ID },
   });
@@ -121,6 +123,58 @@ test("production migration pins ingress 371 to canonical Threads and Clay exactl
   assert.equal(h.classificationCount(), 1);
 });
 
+// The applied state is the durable ledger record alone: the finished repair keeps
+// proving itself after the owner closes, renames, or reassigns the Thread it created,
+// which is the intended end of that Thread's lifecycle rather than an edge case.
+function appliedHarness(options) {
+  var h = harness(options);
+  h.record.implementationDecision = { intent: "implement", source: "explicit_owner_turn",
+    at: h.history[recovery.EXPECTED.eventIndex]._ts };
+  h.record.topicRef = { topicId: recovery.THREAD_ID };
+  h.record.projectRefs = [{ projectId: recovery.CLAY_PROJECT_ID }];
+  h.record.expectsExecution = true;
+  return h;
+}
+
+test("an applied Threads repair stays a no-op success after the Thread is closed", function () {
+  var closed = appliedHarness();
+  closed.thread.status = "closed";
+  assert.deepEqual(recovery.migrateProduction(closed.index, closed.ledger, closed.session), {
+    ok: true,
+    migrationId: recovery.RECOVERY_ID,
+    noop: true,
+    decisionBackfilled: false,
+    threadRef: { threadId: recovery.THREAD_ID },
+  });
+  assert.equal(closed.classificationCount(), 0);
+
+  var released = appliedHarness();
+  released.thread.threadState = "exploring";
+  assert.equal(recovery.migrateProduction(released.index, released.ledger,
+    released.session).noop, true, "a released handoff no longer wedges the repair");
+
+  var gone = appliedHarness();
+  gone.index = { resolve: function () { return { ok: false, code: "topic_not_found" }; } };
+  assert.equal(recovery.migrateProduction(gone.index, gone.ledger, gone.session).noop, true,
+    "even a deleted Thread leaves the durable ledger decision intact");
+
+  // Strongest form of the same rule: the applied verdict never reads live Thread state.
+  var poisoned = appliedHarness();
+  poisoned.index = { resolve: function () {
+    throw new Error("mutable Thread state must not be re-proven once applied");
+  } };
+  assert.deepEqual(recovery.migrateProduction(poisoned.index, poisoned.ledger,
+    poisoned.session), {
+    ok: true,
+    migrationId: recovery.RECOVERY_ID,
+    noop: true,
+    decisionBackfilled: false,
+    threadRef: { threadId: recovery.THREAD_ID },
+  });
+});
+
+// Split deliberately from the applied case above: before the decision is written the
+// repair still has to touch the Thread, so mutable drift must keep failing closed.
 test("production migration fails closed on changed event or Thread evidence", function () {
   var changedText = harness();
   changedText.history[recovery.EXPECTED.eventIndex].text += ".";
@@ -138,8 +192,16 @@ test("production migration fails closed on changed event or Thread evidence", fu
   var changedState = harness();
   changedState.thread.threadState = "exploring";
   assert.equal(recovery.migrateProduction(changedState.index, changedState.ledger,
-    changedState.session).code, "threads_recovery_thread_mismatch");
+    changedState.session).code, "threads_recovery_thread_mismatch",
+  "drift before the decision is written still fails closed");
   assert.equal(changedState.classificationCount(), 0);
+
+  var closedBeforeApplication = harness();
+  closedBeforeApplication.thread.status = "closed";
+  assert.equal(recovery.migrateProduction(closedBeforeApplication.index,
+    closedBeforeApplication.ledger, closedBeforeApplication.session).code,
+  "threads_recovery_thread_mismatch");
+  assert.equal(closedBeforeApplication.classificationCount(), 0);
 
   var wrongSession = harness({ storageId: "wrong-session" });
   assert.equal(recovery.migrateProduction(wrongSession.index, wrongSession.ledger,
