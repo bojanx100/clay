@@ -311,7 +311,7 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 | Module | Concern |
 |--------|---------|
 | `lead-routing.js` | Pure routing brain: classify a work item (class/risk/complexity), route to the cheapest healthy exact-route/model target with explicit verification depth |
-| `lead-backlog.js` | Portfolio assembly: normalize, classify, and priority-order work items across projects (GitHub issues via injected exec + pre-fetched collections). `resolveGithubSources` binds each repository to the single project whose git origin owns it and fails closed on unresolved/ambiguous ownership — never first-file or first-project |
+| `lead-backlog.js` + `lead-backlog-sources.js` + `lead-backlog-github.js` | Portfolio assembly: normalize, classify, and priority-order work items; policy-attested GitHub source ownership and collection stay split from scoring. `resolveGithubSources` binds each repository to the single project whose git origin owns it and requires that project's current launcher-recipe and automation-policy evidence; collection applies canonical task-source, policy-board, ownership/override, and completion eligibility before scoring. |
 | `lead-staffing.js` | Turns a routed item into an explicit typed target-project execution command; missing/Lead targets produce attention and never a Lead-local fallback |
 | `lead-standup.js` | Composes the boss's daily digest from typed ledger events only, including distinct worker, project, and Coop portfolio completion levels |
 | `lead-ledger.js` | Durable typed memory and attention lifecycle plus the Coop-only portfolio-completion gate over current bindings, verified evidence, and transport/reference health |

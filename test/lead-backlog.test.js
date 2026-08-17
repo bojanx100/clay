@@ -5,6 +5,7 @@ var test = require("node:test");
 var assert = require("node:assert");
 
 var backlog = require("../lib/lead-backlog");
+var policyModule = require("../lib/project-automation-policy");
 
 var NOW = 1785700000000;
 
@@ -31,6 +32,52 @@ test("normalizeGithubIssue lowercases labels and parses dates", function () {
 var WEBAPP_REF = { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" };
 var CLAY_REF = { projectId: "11111111-2222-5333-8444-555555555555" };
 
+function policyFor(ref, configs) {
+  var recipes = [];
+  var exclusions = [];
+  var seen = {};
+  for (var i = 0; i < configs.length; i++) {
+    var recipe = configs[i] || {};
+    if (!recipe.source || typeof recipe.source !== "object") continue;
+    var filter = recipe.filter || {};
+    var statuses = filter.skipProjectStatuses || [];
+    for (var s = 0; s < statuses.length; s++) {
+      var status = String(statuses[s]).toLowerCase();
+      if (!seen[status]) { seen[status] = true; exclusions.push(status); }
+    }
+    recipes.push({
+      id: recipe.id || null,
+      kind: recipe.source.kind === "pr-reviews" ? "pr_review" : "issue",
+      repo: recipe.source.repo || "",
+      type: filter.type || "",
+      digest: policyModule.recipeDigest(recipe),
+    });
+  }
+  recipes.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+  exclusions.sort();
+  var policy = {
+    projectRef: ref,
+    derived: true,
+    autonomy: { bug: "propose", feature: "propose", ambiguous: "propose", pr_review: "propose", default: "propose" },
+    externalActions: { comment: "approval", done_workflow: "approval", merge: "approval", close: "approval" },
+    boardExclusions: exclusions,
+    providerRules: { vendors: {} },
+    recipes: recipes,
+    sources: [],
+  };
+  policy.digest = policyModule.policyDigest(policy);
+  return { ok: true, policy: policy };
+}
+
+function candidateEligibility(itemKey, assignedToOwner, recipeAllowsUnassigned) {
+  return {
+    ok: true,
+    eligible: assignedToOwner === true || recipeAllowsUnassigned === true,
+    reason: assignedToOwner === true ? "assigned_to_owner" :
+      recipeAllowsUnassigned === true ? "recipe_allows_unassigned" : "not_assigned_to_owner",
+  };
+}
+
 var WEBAPP_ASSIGNED = {
   id: "assigned-to-me",
   source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv" },
@@ -44,10 +91,18 @@ var CLAY_STALE_COPY = {
 };
 
 function webappEntry(configs) {
-  return { project: "webapp", projectRef: WEBAPP_REF, originRepo: "https://bojantv@github.com/trialview/v2.git", configs: configs };
+  return {
+    project: "webapp", projectRef: WEBAPP_REF,
+    originRepo: "https://bojantv@github.com/trialview/v2.git", configs: configs,
+    automationPolicy: policyFor(WEBAPP_REF, configs), candidateEligibility: candidateEligibility,
+  };
 }
 function clayEntry(configs) {
-  return { project: "clay", projectRef: CLAY_REF, originRepo: "https://bojanx100@github.com/bojanx100/clay.git", configs: configs };
+  return {
+    project: "clay", projectRef: CLAY_REF,
+    originRepo: "https://bojanx100@github.com/bojanx100/clay.git", configs: configs,
+    automationPolicy: policyFor(CLAY_REF, configs), candidateEligibility: candidateEligibility,
+  };
 }
 
 test("resolveGithubSources binds a repo to the origin-matching project", function () {
@@ -193,7 +248,11 @@ test("a trailing DNS dot is the same GitHub host, not a foreign one", function (
   assert.strictEqual(backlog.normalizeRepoSlug("https://github.com.evil.example./trialview/v2"), "");
   // A trailing-dot origin owns the repo end to end.
   var result = backlog.resolveGithubSources([
-    { project: "webapp", projectRef: WEBAPP_REF, originRepo: "https://github.com./trialview/v2.git", configs: [WEBAPP_ASSIGNED] },
+    {
+      project: "webapp", projectRef: WEBAPP_REF,
+      originRepo: "https://github.com./trialview/v2.git", configs: [WEBAPP_ASSIGNED],
+      automationPolicy: policyFor(WEBAPP_REF, [WEBAPP_ASSIGNED]), candidateEligibility: candidateEligibility,
+    },
   ]);
   assert.strictEqual(result.sources.length, 1);
   assert.strictEqual(result.sources[0].project, "webapp");
@@ -309,7 +368,11 @@ test("loose items with the same id in different projects both survive", function
   ], { now: NOW });
   assert.strictEqual(duped.summary.total, 1);
   var result = backlog.resolveGithubSources([
-    { project: "webapp", projectRef: WEBAPP_REF, originRepo: "git@github.com:trialview/v2.git", configs: [WEBAPP_ASSIGNED] },
+    {
+      project: "webapp", projectRef: WEBAPP_REF,
+      originRepo: "git@github.com:trialview/v2.git", configs: [WEBAPP_ASSIGNED],
+      automationPolicy: policyFor(WEBAPP_REF, [WEBAPP_ASSIGNED]), candidateEligibility: candidateEligibility,
+    },
   ]);
   assert.strictEqual(result.sources.length, 1);
   assert.strictEqual(result.sources[0].project, "webapp");
@@ -429,8 +492,11 @@ test("collectGithubIssues normalizes successful output", function (t, done) {
 });
 
 test("issue #2507 cannot be projected as clay#2507", function (t, done) {
-  var issue2507 = [{ number: 2507, title: "Editor crash on paste", body: "", labels: [], state: "OPEN", updatedAt: "2026-08-05T10:00:00Z", url: "https://x/2507" }];
-  var fakeExec = function (cmd, args, cb) { cb(null, JSON.stringify(issue2507)); };
+  var issue2507 = [{ number: 2507, title: "Editor crash on paste", body: "", labels: [], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Backlog" } }], state: "OPEN", updatedAt: "2026-08-05T10:00:00Z", url: "https://x/2507" }];
+  var fakeExec = function (cmd, args, cb) {
+    if (args[0] === "api") return cb(null, JSON.stringify({ login: "bojantv" }));
+    cb(null, JSON.stringify(issue2507));
+  };
   var owned = backlog.resolveGithubSources([webappEntry([WEBAPP_ASSIGNED])]).sources[0];
 
   // The owning project labels the item, whatever the caller passes.
@@ -505,4 +571,88 @@ test("scoring is replayable: same inputs, same order", function () {
       { now: NOW }).items.map(function (x) { return x.id; });
   };
   assert.deepStrictEqual(build(), build());
+});
+
+test("missing, stale, mismatched, or unresolvable policy evidence fails closed", function () {
+  var missing = {
+    project: "webapp", projectRef: WEBAPP_REF, originRepo: "trialview/v2",
+    configs: [WEBAPP_ASSIGNED], candidateEligibility: candidateEligibility,
+  };
+  assert.strictEqual(backlog.resolveGithubSources([missing]).conflicts[0].reason, "policy_missing");
+
+  var stalePolicy = policyFor(WEBAPP_REF, [WEBAPP_ASSIGNED]);
+  stalePolicy.policy.digest = "stale";
+  var stale = Object.assign({}, missing, { automationPolicy: stalePolicy });
+  assert.strictEqual(backlog.resolveGithubSources([stale]).conflicts[0].reason, "policy_stale");
+
+  var mismatchedPolicy = policyFor(WEBAPP_REF, [WEBAPP_ASSIGNED]);
+  mismatchedPolicy.policy.recipes[0].digest = "other-recipe";
+  mismatchedPolicy.policy.digest = policyModule.policyDigest(mismatchedPolicy.policy);
+  var mismatched = Object.assign({}, missing, { automationPolicy: mismatchedPolicy });
+  assert.strictEqual(backlog.resolveGithubSources([mismatched]).conflicts[0].reason, "policy_recipe_mismatch");
+
+  var noCandidateEligibility = Object.assign({}, missing, {
+    automationPolicy: policyFor(WEBAPP_REF, [WEBAPP_ASSIGNED]),
+    candidateEligibility: null,
+  });
+  assert.strictEqual(backlog.resolveGithubSources([noCandidateEligibility]).conflicts[0].reason,
+    "candidate_eligibility_missing");
+});
+
+test("Lead excludes policy-board and completed candidates before deterministic scoring", function (t, done) {
+  var recipe = Object.assign({}, WEBAPP_ASSIGNED, {
+    filter: Object.assign({}, WEBAPP_ASSIGNED.filter, {
+      skipProjectStatuses: ["Dev Complete", "Done"],
+    }),
+  });
+  var policy = policyFor(WEBAPP_REF, [recipe]);
+  // This is the bounded migration path for Webapp's Ready for production rule:
+  // it is machine-readable policy, never a Lead parse of TRIAGE.local.md.
+  policy.policy.boardExclusions.push("ready for production");
+  policy.policy.boardExclusions.sort();
+  policy.policy.digest = policyModule.policyDigest(policy.policy);
+  var resolved = backlog.resolveGithubSources([{
+    project: "webapp", projectRef: WEBAPP_REF, originRepo: "trialview/v2", configs: [recipe],
+    automationPolicy: policy,
+    candidateEligibility: function (itemKey, assignedToOwner) {
+      if (itemKey === "trialview/v2#1262") {
+        return { ok: true, eligible: false, reason: "already_completed_or_in_flight" };
+      }
+      return {
+        ok: true, eligible: assignedToOwner === true,
+        reason: assignedToOwner === true ? "assigned_to_owner" : "not_assigned_to_owner",
+      };
+    },
+  }]);
+  assert.deepStrictEqual(resolved.conflicts, []);
+
+  var fakeExec = function (cmd, args, cb) {
+    if (args[0] === "api") return cb(null, JSON.stringify({ login: "bojantv" }));
+    cb(null, JSON.stringify([
+      { number: 1259, title: "Urgent but ready for production", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Ready for production" } }] },
+      { number: 1260, title: "Dev complete", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Dev Complete" } }] },
+      { number: 1261, title: "Done", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Done" } }] },
+      { number: 1262, title: "Already completed", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Backlog" } }] },
+      { number: 1263, title: "Next eligible candidate", state: "OPEN", labels: [{ name: "P2" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Backlog" } }] },
+    ]));
+  };
+  backlog.collectGithubIssues(fakeExec, resolved.sources[0], "webapp", function (err, items, metadata) {
+    assert.strictEqual(err, null);
+    assert.deepStrictEqual(items.map(function (item) { return item.number; }), [1263]);
+    assert.deepStrictEqual(metadata.exclusions.map(function (entry) { return entry.reason; }).sort(), [
+      "already_completed_or_in_flight", "launcher_recipe_ineligible", "launcher_recipe_ineligible", "policy_board_excluded",
+    ].sort());
+    var portfolio = backlog.buildPortfolio([{ project: "webapp", items: items }], { now: NOW });
+    assert.strictEqual(portfolio.items.length, 1);
+    assert.strictEqual(portfolio.summary.top.id, "webapp#1263");
+    done();
+  });
+});
+
+test("an attested ineligible candidate is never classified or scored", function () {
+  var blocked = backlog.normalizeGithubIssue(GH_FIXTURE[0], "webapp");
+  blocked.automationEligibility = { eligible: false, reason: "already_completed_or_in_flight" };
+  var portfolio = backlog.buildPortfolio([{ project: "webapp", items: [blocked] }], { now: NOW });
+  assert.deepStrictEqual(portfolio.items, []);
+  assert.strictEqual(portfolio.summary.ineligible, 1);
 });

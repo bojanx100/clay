@@ -101,9 +101,13 @@ test("explicit automation block wins and marks the policy as not derived", funct
   assert.deepStrictEqual(result.policy.externalActions, { comment: "claim", done_workflow: "approval", merge: "deny", close: "approval" });
   assert.deepStrictEqual(result.policy.projectRef, REF_A);
   assert.deepStrictEqual(result.policy.providerRules, { vendors: { claude: 70, codex: 30 } });
-  assert.deepStrictEqual(result.policy.recipes, [
+  assert.deepStrictEqual(result.policy.recipes.map(function (recipe) {
+    return { id: recipe.id, kind: recipe.kind, repo: recipe.repo, type: recipe.type };
+  }), [
     { id: "assigned-to-me", kind: "issue", repo: "trialview/v2", type: "bug" },
   ]);
+  assert.strictEqual(result.policy.recipes[0].digest,
+    policyModule.recipeDigest(BUG_RECIPE));
   assert.deepStrictEqual(result.policy.sources,
     [".clay/tasks/assigned-to-me.json", ".clay/tasks/config.json"]);
   assert.match(result.policy.digest, /^[0-9a-f]{64}$/);
@@ -123,6 +127,34 @@ test("a partial explicit block falls back to the restrictive baseline, not to de
   assert.strictEqual(result.policy.autonomy.bug, "propose");
   assert.deepStrictEqual(result.policy.externalActions,
     { comment: "approval", done_workflow: "approval", merge: "approval", close: "approval" });
+});
+
+test("machine-readable candidate eligibility extends recipe board exclusions without parsing workflow prose", function () {
+  var cwd = makeProject({
+    "config.json": {
+      automation: {
+        candidateEligibility: { boardExclusions: ["Ready for production", "DONE", "ready for production"] },
+      },
+    },
+    "assigned-to-me.json": BUG_RECIPE,
+  });
+  var result = load(cwd);
+  assert.strictEqual(result.ok, true);
+  assert.deepStrictEqual(result.policy.boardExclusions,
+    ["done", "in progress", "ready for production"]);
+});
+
+test("malformed candidate eligibility is policy_malformed", function () {
+  var asArray = makeProject({ "config.json": { automation: { candidateEligibility: [] } } });
+  assert.strictEqual(load(asArray).reason, "policy_malformed");
+  var unknownKey = makeProject({
+    "config.json": { automation: { candidateEligibility: { freeText: "do not use workflow prose" } } },
+  });
+  assert.strictEqual(load(unknownKey).reason, "policy_malformed");
+  var blankStatus = makeProject({
+    "config.json": { automation: { candidateEligibility: { boardExclusions: [""] } } },
+  });
+  assert.strictEqual(load(blankStatus).reason, "policy_malformed");
 });
 
 test("unknown key inside automation is policy_malformed", function () {
@@ -199,7 +231,10 @@ test("a pr-review recipe derives pr_review === propose and never autonomous", fu
     assert.notStrictEqual(policy.autonomy.pr_review, "autonomous");
     // A PR recipe carrying a stray filter.type must not grant bug autonomy.
     assert.strictEqual(policy.autonomy.bug, "propose");
-    assert.deepStrictEqual(policy.recipes, [{ id: "pr", kind: "pr_review", repo: "trialview/v2", type: "bug" }]);
+    assert.deepStrictEqual(policy.recipes.map(function (entry) {
+      return { id: entry.id, kind: entry.kind, repo: entry.repo, type: entry.type };
+    }), [{ id: "pr", kind: "pr_review", repo: "trialview/v2", type: "bug" }]);
+    assert.strictEqual(policy.recipes[0].digest, policyModule.recipeDigest(recipe));
   }
 });
 
@@ -246,10 +281,18 @@ test("recipes inventory is normalized and sorted by id", function () {
     "assigned-to-me.json": BUG_RECIPE,
     "everything.json": UNSCOPED_RECIPE,
   });
-  assert.deepStrictEqual(load(cwd).policy.recipes, [
+  var recipes = load(cwd).policy.recipes;
+  assert.deepStrictEqual(recipes.map(function (recipe) {
+    return { id: recipe.id, kind: recipe.kind, repo: recipe.repo, type: recipe.type };
+  }), [
     { id: "assigned-to-me", kind: "issue", repo: "trialview/v2", type: "bug" },
     { id: "everything", kind: "issue", repo: "trialview/v2", type: "" },
     { id: "pr-reviews", kind: "pr_review", repo: "trialview/v2", type: "" },
+  ]);
+  assert.deepStrictEqual(recipes.map(function (recipe) { return recipe.digest; }), [
+    policyModule.recipeDigest(BUG_RECIPE),
+    policyModule.recipeDigest(UNSCOPED_RECIPE),
+    policyModule.recipeDigest(PR_RECIPE),
   ]);
 });
 
@@ -295,7 +338,9 @@ test("a recipe file without a source object is skipped, not an error", function 
   });
   var result = load(cwd);
   assert.strictEqual(result.ok, true);
-  assert.deepStrictEqual(result.policy.recipes, [
+  assert.deepStrictEqual(result.policy.recipes.map(function (recipe) {
+    return { id: recipe.id, kind: recipe.kind, repo: recipe.repo, type: recipe.type };
+  }), [
     { id: "assigned-to-me", kind: "issue", repo: "trialview/v2", type: "bug" },
   ]);
   assert.strictEqual(result.policy.autonomy.bug, "autonomous");
