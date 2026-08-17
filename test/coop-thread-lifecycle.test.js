@@ -180,6 +180,74 @@ test("owner correction reassigns and merges canonical turn references, then undo
   } finally { h.cleanup(); }
 });
 
+test("the Main-ingress recovery reassignment is exempt at both handed off endpoints", function () {
+  var h = harness();
+  try {
+    var canonical = session();
+    h.index.ensureRetro(canonical, { clayProjectRef: { projectId: CLAY }, projects: [] });
+    var rows = durableThreads(h.index);
+    var source = threadForTurn(rows, 2);
+    var target = threadForTurn(rows, 0);
+    var turn = {
+      projectId: "system-lead", sessionStorageId: canonical.storageId,
+      startEventIndex: 2, endEventIndex: 3,
+    };
+    assert.equal(h.index.setThreadState(source.threadRef,
+      lifecycle.THREAD_STATES.HANDED_OFF).ok, true);
+    assert.equal(h.index.setThreadState(target.threadRef,
+      lifecycle.THREAD_STATES.HANDED_OFF).ok, true);
+
+    // Ordinary owner correction stays strict on both endpoints.
+    assert.deepEqual(h.index.reassignTurn(source.threadRef, target.threadRef, turn),
+      { ok: false, code: "thread_handed_off" });
+
+    // The proven one-time recovery is exempt at both. Exempting only the source
+    // left the repair unable to clean stale membership once the recovered
+    // Thread had itself been handed off.
+    assert.deepEqual(h.index.reassignMainIngressRecoveryTurn(source.threadRef,
+      target.threadRef, turn, { ownerRequestCorrections: [] }), { ok: true });
+    assert.deepEqual(h.index.resolveCanonicalEvent(target.threadRef, { eventIndex: 2 }).turnRef, turn);
+    assert.equal(h.index.resolveCanonicalEvent(source.threadRef, { eventIndex: 2 }).code,
+      "event_not_in_thread");
+  } finally { h.cleanup(); }
+});
+
+test("recovery reassignment drops stale duplicate membership without duplicating the target turn", function () {
+  var h = harness();
+  try {
+    var canonical = session();
+    h.index.ensureRetro(canonical, { clayProjectRef: { projectId: CLAY }, projects: [] });
+    var rows = durableThreads(h.index);
+    var source = threadForTurn(rows, 2);
+    var target = threadForTurn(rows, 0);
+    var turn = {
+      projectId: "system-lead", sessionStorageId: canonical.storageId,
+      startEventIndex: 2, endEventIndex: 3,
+    };
+    // Reproduce the live half-applied shape: the turn is in BOTH Threads.
+    var state = h.index.load();
+    state.topics[target.threadRef.threadId].turnRefs.push(JSON.parse(JSON.stringify(turn)));
+    h.index.save(state);
+    assert.equal(h.index.setThreadState(source.threadRef,
+      lifecycle.THREAD_STATES.HANDED_OFF).ok, true);
+    assert.equal(h.index.setThreadState(target.threadRef,
+      lifecycle.THREAD_STATES.HANDED_OFF).ok, true);
+
+    assert.deepEqual(h.index.reassignMainIngressRecoveryTurn(source.threadRef,
+      target.threadRef, turn, { ownerRequestCorrections: [] }), { ok: true });
+
+    var after = h.index.load().topics;
+    var targetHits = after[target.threadRef.threadId].turnRefs.filter(function (candidate) {
+      return candidate.startEventIndex === 2;
+    });
+    var sourceHits = after[source.threadRef.threadId].turnRefs.filter(function (candidate) {
+      return candidate.startEventIndex === 2;
+    });
+    assert.equal(targetHits.length, 1, "target keeps exactly one copy");
+    assert.equal(sourceHits.length, 0, "stale source membership is gone");
+  } finally { h.cleanup(); }
+});
+
 test("retro replay consumes exact correction evidence and an undo restores negative membership evidence", function () {
   var h = harness();
   try {
