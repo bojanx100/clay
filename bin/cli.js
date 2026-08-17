@@ -1834,9 +1834,47 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
   var intentionalKill = false;
   var debounceTimer = null;
 
+  // The dev watcher used to give the daemon inherited stdio, so its output went
+  // only to this terminal's scrollback and logPath() was never written. Anything
+  // the daemon reported with console.error — including startup migrations that
+  // fail closed — was therefore lost, and the CLI's own "logs" viewer showed a
+  // stale file. Tee instead: keep the live terminal view the watcher exists for,
+  // and also make the output durable and greppable after the fact.
+  var DAEMON_LOG_MAX_BYTES = 16 * 1024 * 1024;
+  var daemonLogStream = null;
+
+  function trimDaemonLogIfTooLarge(filePath) {
+    // Same bounded-file approach as lib/recovery-log.js: keep the recent half.
+    try {
+      if (fs.statSync(filePath).size <= DAEMON_LOG_MAX_BYTES) return;
+      var lines = fs.readFileSync(filePath, "utf8").split("\n");
+      fs.writeFileSync(filePath, lines.slice(Math.floor(lines.length / 2)).join("\n"));
+    } catch (e) {
+      // No file yet — nothing to trim.
+    }
+  }
+
+  function closeDaemonLogStream() {
+    if (!daemonLogStream) return;
+    try { daemonLogStream.end(); } catch (e) { /* best effort */ }
+    daemonLogStream = null;
+  }
+
   function spawnDaemon() {
+    closeDaemonLogStream();
+    var daemonLogFile = logPath();
+    trimDaemonLogIfTooLarge(daemonLogFile);
+    try {
+      ensureConfigDir();
+      daemonLogStream = fs.createWriteStream(daemonLogFile, { flags: "a" });
+      daemonLogStream.on("error", function () { daemonLogStream = null; });
+    } catch (e) {
+      daemonLogStream = null;
+    }
+
     child = spawn(process.execPath, [daemonScript], {
-      stdio: ["ignore", "inherit", "inherit"],
+      stdio: ["ignore", daemonLogStream ? "pipe" : "inherit",
+        daemonLogStream ? "pipe" : "inherit"],
       env: Object.assign({}, process.env, {
         CLAY_CONFIG: configPath(),
         // Signals to the daemon that it runs under this dev watcher, which
@@ -1847,8 +1885,17 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
       }),
     });
 
+    if (daemonLogStream) {
+      // end: false so a daemon restart never closes this process's own streams.
+      child.stdout.pipe(process.stdout, { end: false });
+      child.stdout.pipe(daemonLogStream, { end: false });
+      child.stderr.pipe(process.stderr, { end: false });
+      child.stderr.pipe(daemonLogStream, { end: false });
+    }
+
     child.on("exit", function (code) {
       child = null;
+      closeDaemonLogStream();
       if (intentionalKill) {
         intentionalKill = false;
         return;
