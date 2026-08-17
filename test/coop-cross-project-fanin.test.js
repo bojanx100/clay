@@ -65,6 +65,10 @@ test("a worker fan-in event in a non-lead project is delivered cross-project to 
     var crossProject = createCrossProjectRouter({
       recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return projects.get(slug) || null; },
+      // Without an explicit bindingFile the binding store and session ledger
+      // resolve to the real ~/.clay/lead files, so a direct run of this file
+      // reads live owner state and any reconcile could rewrite it.
+      bindingFile: path.join(scratch, "bindings.json"),
     });
 
     // The controlled worker lives in a totally separate project ("clay")
@@ -118,6 +122,7 @@ test("fan-in uses a durable typed envelope when project identities are available
       deliveryFile: path.join(scratch, "transport.json"),
       getProjectContext: function () { return null; },
       getProjectContextById: function (projectId) { return projects.get(projectId) || null; },
+      bindingFile: path.join(scratch, "bindings.json"),
     });
     var fanIn = attachCoopFanIn({
       sm: { sessions: new Map(), getProjectId: function () { return "system-source"; } },
@@ -154,6 +159,7 @@ test("cross-project delivery to a not-yet-registered lead project stays durably 
     var crossProject = createCrossProjectRouter({
       recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return projects.get(slug) || null; },
+      bindingFile: path.join(scratch, "bindings.json"),
     });
     var claySm = { sessions: new Map() };
     var deliveryFile = path.join(scratch, "coop-fanin-delivery.json");
@@ -218,6 +224,7 @@ test("a pending cross-project event survives a restart (fresh module instance re
     var crossProjectDown = createCrossProjectRouter({
       recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return emptyProjects.get(slug) || null; },
+      bindingFile: path.join(scratch, "bindings.json"),
     });
     var claySm = { sessions: new Map() };
     var fanInBeforeRestart = attachCoopFanIn({
@@ -248,6 +255,9 @@ test("a pending cross-project event survives a restart (fresh module instance re
     var crossProjectAfterRestart = createCrossProjectRouter({
       recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return projectsAfterRestart.get(slug) || null; },
+      // Same scratch file as before the simulated restart: the durable store is
+      // exactly what a restart is meant to share.
+      bindingFile: path.join(scratch, "bindings.json"),
     });
     var fanInAfterRestart = attachCoopFanIn({
       sm: { sessions: new Map() },

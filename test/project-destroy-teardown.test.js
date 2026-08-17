@@ -126,6 +126,10 @@ test("removing a project from the registry (post-destroy) makes cross-project de
     var crossProject = createCrossProjectRouter({
       recordRecoveryEvent: sink.record,
       getProjectContext: function (slug) { return projects.get(slug) || null; },
+      // Without an explicit bindingFile the binding store and session ledger
+      // resolve to the real ~/.clay/lead files, so a direct run of this file
+      // reads live owner state and any reconcile could rewrite it.
+      bindingFile: path.join(scratch, "bindings.json"),
     });
 
     var claySm = { sessions: new Map() };
