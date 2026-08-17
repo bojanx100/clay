@@ -136,6 +136,7 @@ function executionRouter(entries, delivered, handedOff, options) {
     saveSessionFile: function () {},
   };
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     ownerRequests: {
       forTopic: function (topicRef) {

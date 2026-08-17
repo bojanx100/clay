@@ -592,6 +592,7 @@ test("Coop creates one direct leaf in the target project and promotes it without
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-execution-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -838,6 +839,7 @@ test("Coop creates one direct leaf in the target project and promotes it without
   assert.match(parallelStarts[1].prompt, /do not modify files or external state/);
 
   var afterRestart = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -869,6 +871,7 @@ test("direct-leaf delegation routes advertised Fable aliases and leaves future v
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-fable-direct-leaf-"));
   var targetProjectId = "ad8c7932-da3c-4d0b-879b-eb7c847cb64d";
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -955,6 +958,7 @@ test("project-coordinator completion closes its source binding through typed del
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-closure-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -1007,6 +1011,7 @@ test("project-coordinator needs-input turns stay active and resume through typed
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-needs-input-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -1136,6 +1141,7 @@ test("steering an idle project coordinator starts a new turn even with a stale q
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-steer-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -1263,6 +1269,7 @@ test("direct-leaf completion closes its source binding and suppresses late deliv
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-direct-leaf-closure-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -1439,6 +1446,7 @@ test("adapter shutdown closes a direct-leaf binding without retrying orphaned ac
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-direct-leaf-adapter-stop-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -1568,6 +1576,7 @@ test("delegate tool routes a typed binding into the target project without a Lea
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-tool-route-"));
   var targetProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -1637,6 +1646,7 @@ test("an explicitly selected target coordinator is bound and reused without sele
   sessions.set(existing.localId, existing);
   sessions.set(unrelated.localId, unrelated);
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });

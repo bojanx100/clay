@@ -1453,6 +1453,7 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
       },
     };
     var router = serverCrossProject.createCrossProjectRouter({
+      allowLeadSourcedExecution: true,
       bindingFile: bindingFile,
       ownerRequests: {
         claimCoordinator: function (input) {
@@ -1555,6 +1556,7 @@ test("end to end: a delivery that starts no coordinator strands no binding", asy
       },
     };
     var router = serverCrossProject.createCrossProjectRouter({
+      allowLeadSourcedExecution: true,
       bindingFile: bindingFile,
       ownerRequests: {
         claimCoordinator: function (input) {
@@ -1650,6 +1652,7 @@ test("end to end: a broken route makes at most maxConcurrent attempts per scan",
       },
     };
     var router = serverCrossProject.createCrossProjectRouter({
+      allowLeadSourcedExecution: true,
       bindingFile: bindingFile,
       ownerRequests: {
         claimCoordinator: function (input) {

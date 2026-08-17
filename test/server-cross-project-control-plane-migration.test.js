@@ -225,6 +225,7 @@ function buildHarness(options) {
 
   var deliveries = [];
   var router = createCrossProjectRouter(Object.assign({
+    allowLeadSourcedExecution: true,
     bindingFile: bindingFile,
     deliveryFile: path.join(dir, "delivery.json"),
     ownerRequests: ownerLedger,

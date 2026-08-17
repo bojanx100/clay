@@ -824,6 +824,7 @@ test("#2517: admission verifies replays against the real router surface", functi
       getSessionManager: function () { return { sessions: { forEach: function () {} } }; },
     };
     var router = createCrossProjectRouter({
+      allowLeadSourcedExecution: true,
       bindingFile: path.join(dir, "bindings.json"),
       deliveryFile: path.join(dir, "delivery.json"),
       ownerRequests: {

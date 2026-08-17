@@ -592,6 +592,118 @@ test("project execution ACL and target capability fail closed", function () {
   assert.equal(incapable.getExecutionBindings().length, 0);
 });
 
+// --- authorization is explicit in both directions ----------------------------
+//
+// An absent `canCreateExecution` used to fall through to `return true`, so a
+// router constructed without an ACL was silently wide open and no construction
+// site said so. Openness is now a named option a caller has to ask for.
+
+function authorizationHarness(dir, routerOptions) {
+  var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var deliveries = 0;
+  var router = createCrossProjectRouter(Object.assign({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  }, routerOptions || {}));
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () {
+      deliveries++;
+      return { ok: true, created: true,
+        sessionRef: { projectId: projectId, sessionStorageId: "worker-1" } };
+    },
+  });
+  return {
+    router: router,
+    projectId: projectId,
+    deliveries: function () { return deliveries; },
+    create: function () {
+      return router.createProjectExecution({
+        source: { projectId: "system-lead", sessionStorageId: "coop" },
+        portfolioTaskId: "portfolio-authorization",
+        bindingRevision: 1,
+        idempotencyKey: "create-authorization",
+        mode: "direct_leaf",
+        targetProject: { projectId: projectId },
+        objective: "Do the bounded work.",
+      });
+    },
+  };
+}
+
+test("a router built with neither authorization option refuses Lead-sourced execution", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-authz-default-"));
+  var harness = authorizationHarness(dir, {});
+
+  var result = harness.create();
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "access_denied",
+    "absent authorization must deny, not fall through to allow");
+  assert.equal(harness.deliveries(), 0);
+  assert.equal(harness.router.getExecutionBindings().length, 0);
+});
+
+test("allowLeadSourcedExecution admits Lead-sourced execution without an ACL", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-authz-allow-"));
+  var harness = authorizationHarness(dir, { allowLeadSourcedExecution: true });
+
+  var result = harness.create();
+  assert.equal(result.ok, true);
+  assert.equal(harness.deliveries(), 1);
+  assert.equal(harness.router.getExecutionBindings().length, 1);
+});
+
+test("allowLeadSourcedExecution never weakens the structural execution preconditions", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-authz-precondition-"));
+  var harness = authorizationHarness(dir, { allowLeadSourcedExecution: true });
+
+  // The source must be Lead...
+  var notLeadSourced = harness.router.createProjectExecution({
+    source: { projectId: harness.projectId, sessionStorageId: "local-session" },
+    portfolioTaskId: "portfolio-not-lead-sourced",
+    bindingRevision: 1,
+    idempotencyKey: "create-not-lead-sourced",
+    mode: "direct_leaf",
+    targetProject: { projectId: harness.projectId },
+    objective: "Do the bounded work.",
+  });
+  assert.equal(notLeadSourced.reason, "access_denied");
+
+  // ...and the target must not be Lead.
+  var leadTargeted = harness.router.createProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    portfolioTaskId: "portfolio-lead-targeted",
+    bindingRevision: 1,
+    idempotencyKey: "create-lead-targeted",
+    mode: "direct_leaf",
+    targetProject: { projectId: "system-lead" },
+    objective: "Do the bounded work.",
+  });
+  assert.notEqual(leadTargeted.ok, true);
+
+  assert.equal(harness.deliveries(), 0);
+});
+
+test("canCreateExecution stays authoritative even when Lead-sourced execution is allowed", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-authz-acl-wins-"));
+  var denied = authorizationHarness(dir, {
+    allowLeadSourcedExecution: true,
+    canCreateExecution: function () { return false; },
+  });
+  assert.equal(denied.create().reason, "access_denied",
+    "an injected ACL decides regardless of the default");
+  assert.equal(denied.deliveries(), 0);
+
+  var throwing = authorizationHarness(
+    fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-authz-acl-throws-")), {
+      allowLeadSourcedExecution: true,
+      canCreateExecution: function () { throw new Error("acl unavailable"); },
+    });
+  assert.equal(throwing.create().reason, "access_denied",
+    "an ACL that throws fails closed rather than reverting to the default");
+  assert.equal(throwing.deliveries(), 0);
+});
+
 var CUTOVER_TARGET_ID = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
 
 function leadCutoverHarness(status, processing) {
@@ -660,6 +772,7 @@ test("controlled legacy cutover persists supersession and binding before replace
   var lead = leadCutoverHarness("running", true);
   var starts = 0;
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: bindingFile,
     deliveryFile: path.join(dir, "delivery.json"),
     getProjectContext: function (slug) { return slug === "lead" ? lead.project : null; },
@@ -699,6 +812,7 @@ test("healthy active legacy work drains unless controlled cutover is explicit", 
   var lead = leadCutoverHarness("running", true);
   var starts = 0;
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
     getProjectContext: function (slug) { return slug === "lead" ? lead.project : null; },
@@ -720,6 +834,7 @@ test("queued legacy binding is superseded idempotently before target execution",
   var lead = leadCutoverHarness("queued", false);
   var starts = 0;
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
     getProjectContext: function (slug) { return slug === "lead" ? lead.project : null; },
@@ -794,6 +909,7 @@ function cardinalityRouter(dir, ownerRequests, created) {
   var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var projectCoordinatorRef = null;
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
     ownerRequests: ownerRequests,
@@ -1032,7 +1148,7 @@ test("a failed cleanup leaves an active binding recoverable only by re-claiming"
   };
   var created = [];
   var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
-  var router = createCrossProjectRouter({ bindingStore: bindingStore, ownerRequests: ownerLedger });
+  var router = createCrossProjectRouter({ allowLeadSourcedExecution: true, bindingStore: bindingStore, ownerRequests: ownerLedger });
   router.registerProjectResolver({
     getProjectId: function () { return projectId; },
     deliverCrossProjectEnvelope: function () {
@@ -1091,6 +1207,7 @@ test("coordinator replay fails closed when canonical claim lookup throws", funct
 test("resident coordinator dismissal supersedes the exact active project execution", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-dismiss-execution-"));
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
   });
@@ -1153,6 +1270,7 @@ test("migrated coordinator retry re-claims after claim and cleanup failures", fu
   var lead = leadCutoverHarness("running", true);
   var starts = 0;
   var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
     bindingStore: bindingStore,
     deliveryFile: path.join(dir, "delivery.json"),
     getProjectContext: function (slug) { return slug === "lead" ? lead.project : null; },
