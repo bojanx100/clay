@@ -28,13 +28,17 @@ took (watchdog aborts, auto-resumes). Fields:
   codex) was the resume-spam bug fixed in `d108f9b8e1`.
 - A huge `silentMs` (e.g. 17min vs 30s timeout) usually means laptop sleep, not
   a real event.
-- `kind: "coop_startup_migration"` — a Coop startup recovery migration that
-  failed closed (`lib/server.js`). Fields: `migration` (e.g.
-  `coop-recovered-thread-admission:voice`), `detail` with the failure `code`.
-  **Sick:** the same `migration` failing on every restart — a one-time repair is
-  wedged and will never self-apply. In dev the daemon inherits the supervisor's
-  stdio rather than writing `daemon-dev.log`, so this canary is the ONLY durable
-  record of such a failure.
+- `kind: "coop_startup_migration"` — a Coop startup recovery migration outcome
+  (`lib/server.js`). Fields: `migration`, `ok`, and either `detail` with the
+  failure `code`+`terminal` flag (when `ok:false`) or `allNoop`+per-key `detail`
+  (when `ok:true`). **Sick:** an `ok:false` entry, especially the same
+  `migration` failing on every restart — a one-time repair is wedged. A
+  `terminal:true` failure is an evidence mismatch that can never self-heal (act
+  or retire it); `terminal:false` is retryable (deps/persistence not ready yet).
+  **Retirement-ready:** `ok:true, allNoop:true` on a clean boot with no failure
+  line means the repair has fully applied and the module can be deleted. In dev
+  the daemon inherits the supervisor's stdio rather than writing
+  `daemon-dev.log`, so this canary is the ONLY durable record of these outcomes.
 - `kind: "startup_failure"` — a boot/startup step that failed closed without
   blocking boot. Fields: `stage` (`coop_control_recovery`,
   `coop_control_reconciliation`, `coop_control_plane_ensure`,
