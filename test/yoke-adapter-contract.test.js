@@ -45,6 +45,7 @@ for (var i = 0; i < fixtures.length; i++) {
       iface.validateAdapter(adapter);
       iface.validateQueryHandle(handle);
       handle.close();
+      assert.strictEqual(handle.pushMessage("closed handle probe"), false);
     });
 
     test(fixture.vendor + " protocol snapshot normalizes to stable YOKE events", function() {
@@ -56,3 +57,20 @@ for (var i = 0; i < fixtures.length; i++) {
     });
   })(fixtures[i]);
 }
+
+test("Claude query handles reject messages after their input queue closes", function() {
+  var claudeModule = require("../lib/yoke/adapters/claude");
+  var kit = claudeModule.contractTestKit;
+  var queue = kit.createMessageQueue();
+  var handle = kit.createQueryHandle({
+    [Symbol.asyncIterator]: function() {
+      return { next: function() { return new Promise(function() {}); } };
+    },
+    close: function() {},
+  }, queue, new AbortController());
+
+  assert.strictEqual(handle.pushMessage("first"), true);
+  handle.close();
+  assert.strictEqual(handle.pushMessage("must not be dropped silently"), false);
+  assert.strictEqual(queue.push({ type: "user" }), false);
+});
