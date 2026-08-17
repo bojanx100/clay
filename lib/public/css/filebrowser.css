@@ -1036,6 +1036,41 @@
 .file-viewer-btn.hidden { display: none; }
 .file-viewer-btn .lucide { width: 16px; height: 16px; }
 
+.file-viewer-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--accent-25);
+  border-radius: 999px;
+  background: var(--accent-8);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.file-viewer-live-status.hidden { display: none; }
+
+.file-viewer-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 0 var(--accent-25);
+}
+
+.file-viewer-live-status.editing .file-viewer-live-dot {
+  animation: markdown-live-pulse 1.15s ease-out infinite;
+}
+
+.file-viewer-live-status.updated {
+  border-color: var(--success-25);
+  background: var(--success-8);
+  color: var(--success);
+}
+
 /* --- Markdown rendered view --- */
 .file-viewer-markdown {
   padding: 20px 24px;
@@ -1112,6 +1147,84 @@
 }
 
 .file-viewer-markdown img { max-width: 100%; border-radius: 8px; }
+
+.file-viewer-markdown > .markdown-live-added,
+.file-viewer-markdown > .markdown-live-changed {
+  position: relative;
+  margin-left: -10px;
+  margin-right: -10px;
+  padding-left: 10px;
+  padding-right: 10px;
+  border-radius: 6px;
+  background: var(--success-12);
+  box-shadow: inset 2px 0 0 var(--success);
+  animation: markdown-live-arrive 0.46s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transition: background 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+}
+
+.file-viewer-markdown > .markdown-live-removed {
+  margin-left: -10px;
+  margin-right: -10px;
+  padding-left: 10px;
+  padding-right: 10px;
+  border-radius: 6px;
+  background: var(--error-8);
+  box-shadow: inset 2px 0 0 var(--error);
+  color: color-mix(in srgb, var(--text-secondary) 72%, transparent);
+  text-decoration-color: var(--error);
+  transition: background 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+}
+
+.file-viewer-markdown > .markdown-live-focus {
+  z-index: 1;
+  opacity: 1;
+  box-shadow: 0 10px 30px rgba(var(--shadow-rgb), 0.22);
+}
+
+.file-viewer-markdown > .markdown-live-focus.markdown-live-added,
+.file-viewer-markdown > .markdown-live-focus.markdown-live-changed {
+  box-shadow: inset 3px 0 0 var(--success), 0 0 0 1px var(--success), 0 10px 30px rgba(var(--shadow-rgb), 0.22);
+}
+
+.file-viewer-markdown > .markdown-live-focus.markdown-live-removed {
+  box-shadow: inset 3px 0 0 var(--error), 0 0 0 1px var(--error), 0 10px 30px rgba(var(--shadow-rgb), 0.22);
+}
+
+.file-viewer-markdown > .markdown-live-seen.markdown-live-added,
+.file-viewer-markdown > .markdown-live-seen.markdown-live-changed {
+  background: var(--success-8);
+  box-shadow: inset 2px 0 0 var(--success-25);
+}
+
+.file-viewer-markdown > .markdown-live-seen.markdown-live-removed {
+  animation: markdown-live-depart 0.42s ease both;
+}
+
+@keyframes markdown-live-pulse {
+  0% { box-shadow: 0 0 0 0 var(--accent-25); }
+  70% { box-shadow: 0 0 0 5px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes markdown-live-arrive {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes markdown-live-depart {
+  0%, 58% { opacity: 0.82; max-height: 800px; }
+  100% { opacity: 0; max-height: 0; margin-top: 0; margin-bottom: 0; overflow: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-viewer-live-status.editing .file-viewer-live-dot,
+  .file-viewer-markdown > .markdown-live-added,
+  .file-viewer-markdown > .markdown-live-changed,
+  .file-viewer-markdown > .markdown-live-removed,
+  .file-viewer-markdown > .markdown-live-seen.markdown-live-removed {
+    animation: none;
+  }
+}
 
 .file-viewer-body {
   flex: 1;

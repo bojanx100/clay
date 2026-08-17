@@ -636,11 +636,16 @@
   <div id="file-viewer" class="hidden">
     <div class="file-viewer-header">
       <span class="file-viewer-path" id="file-viewer-path"></span>
+      <span class="file-viewer-live-status hidden" id="file-viewer-live-status" aria-live="polite">
+        <span class="file-viewer-live-dot"></span>
+        <span class="file-viewer-live-label">Editing</span>
+      </span>
       <button class="file-viewer-btn hidden" id="file-viewer-render" title="Toggle rendered view"><i data-lucide="book-open"></i></button>
       <button class="file-viewer-btn hidden" id="file-viewer-pdf" title="Export PDF"><i data-lucide="file-down"></i></button>
       <button class="file-viewer-btn hidden" id="file-viewer-history" title="Edit history"><i data-lucide="clock"></i></button>
       <button class="file-viewer-btn" id="file-viewer-refresh" title="Refresh"><i data-lucide="refresh-cw"></i></button>
-      <button class="file-viewer-btn" id="file-viewer-copy" title="Copy contents"><i data-lucide="copy"></i></button>
+      <button class="file-viewer-btn" id="file-viewer-copy" title="Copy contents" aria-label="Copy contents"><i data-lucide="copy"></i></button>
+      <button class="file-viewer-btn hidden" id="file-viewer-copy-formatted" title="Copy Markdown formatting" aria-label="Copy Markdown formatting"><i data-lucide="clipboard-copy"></i></button>
       <button class="file-viewer-btn" id="file-viewer-fullscreen" title="Toggle fullscreen"><i data-lucide="maximize-2"></i></button>
       <button class="file-viewer-btn" id="file-viewer-close" title="Close"><i data-lucide="x"></i></button>
     </div>
