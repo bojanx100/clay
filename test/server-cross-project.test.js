@@ -1374,3 +1374,57 @@ test("the shared session-ref predicate refuses malformed refs instead of compari
   assert.equal(sameSessionRef(undefined,
     { projectId: validProjectId, sessionStorageId: "coordinator-1" }), false);
 });
+
+test("a missing ThreadRef is not blamed when no owner decision exists", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-threadref-reason-"));
+  var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  // The three real shapes from live state: a bug report, a follow-up question
+  // and an approval, all classified conversational with no implementation
+  // decision. Each was reported as thread_ref_required, which sent an operator
+  // hunting a Thread-creation gap that was never the blocker.
+  var conversational = {
+    ingressId: "coop:coop:455",
+    expectsExecution: false,
+    implementationDecision: null,
+    projectRefs: [],
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    allowLeadSourcedExecution: true,
+    requireOwnerImplementationDecision: true,
+    ownerRequests: {
+      get: function () { return conversational; },
+      forTopic: function () { return [conversational]; },
+    },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+
+  function dispatch() {
+    return router.createProjectExecution({
+      source: { projectId: "system-lead", sessionStorageId: "coop" },
+      coopIngressId: "coop:coop:455",
+      portfolioTaskId: "portfolio-threadref-reason",
+      bindingRevision: 1,
+      idempotencyKey: "threadref-reason-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: projectId },
+      objective: "Do the bounded work.",
+    });
+  }
+
+  var noDecision = dispatch();
+  assert.equal(noDecision.ok, false);
+  assert.equal(noDecision.reason, "owner_implementation_decision_required",
+    "the real blocker is the missing decision, not the missing ThreadRef");
+  assert.match(noDecision.error, /A missing ThreadRef is not the blocker here/);
+
+  // With a real decision on the ingress, a missing ThreadRef IS the blocker and
+  // the original reason is still reported, because now it is true.
+  conversational.implementationDecision = { intent: "implement", projectName: "" };
+  conversational.expectsExecution = true;
+  assert.equal(dispatch().reason, "thread_ref_required");
+});
