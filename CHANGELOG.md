@@ -1,3 +1,20 @@
+# [3.1.0](https://github.com/chadbyte/clay/compare/v3.0.0...v3.1.0) (2026-08-17)
+
+
+### Bug Fixes
+
+* **input:** surface the pending permission when a sent message stalls ([0ea2d49](https://github.com/chadbyte/clay/commit/0ea2d49ba11d1ccc41dc6bcc0c2aa47faf0055e1))
+* **pair:** stop prompting for partner tool permissions ([6db6a4e](https://github.com/chadbyte/clay/commit/6db6a4e3736aff794e4064d810a1b8972ab30455))
+* **ui:** restore sidebar worktree navigation ([d6e562a](https://github.com/chadbyte/clay/commit/d6e562a3d7ad8bf6b88131c36a3c7f0661d0ee2f))
+
+
+### Features
+
+* **notes:** add cross-session task memory ([d96bade](https://github.com/chadbyte/clay/commit/d96badef6036aab7968780fb23ba90f3646c1f1d))
+* **notes:** let sessions use sticky notes as shared long-term memory ([9fda09d](https://github.com/chadbyte/clay/commit/9fda09d6d2b52518526fc5803a720d10e46a0795))
+* **pair:** render delegated messages as work-order cards ([0ee7ac2](https://github.com/chadbyte/clay/commit/0ee7ac2ea6ba1d6e0415dc007e8a4ab18f87d322))
+* **pair:** show a composer notice in the worker pane during delegation ([545afa3](https://github.com/chadbyte/clay/commit/545afa3d300e9a387fbda3a746fd725c49cd51c0))
+
 # [3.1.0-beta.2](https://github.com/chadbyte/clay/compare/v3.1.0-beta.1...v3.1.0-beta.2) (2026-08-17)
 
 
