@@ -223,6 +223,7 @@
 
 /* Show dot only on active item or when processing */
 .icon-strip-item.active .icon-strip-status,
+.icon-strip-wt-item.active .icon-strip-status,
 .icon-strip-status.processing {
   opacity: 1;
 }
@@ -247,6 +248,7 @@
 
 /* Pending permission shake */
 .icon-strip-item.has-pending-perm,
+.icon-strip-wt-item.has-pending-perm,
 .icon-strip-mate.has-pending-perm {
   animation: permShake 2s ease-in-out infinite;
 }
@@ -1144,6 +1146,155 @@
   opacity: 1;
 }
 
+/* --- Worktree folder groups --- */
+.icon-strip-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.icon-strip-group .folder-header {
+  position: relative;
+}
+
+.icon-strip-group-chevron {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dimmer);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s, border-color 0.15s;
+  z-index: 2;
+  line-height: 1;
+}
+
+.icon-strip-group-chevron i,
+.icon-strip-group-chevron svg {
+  width: 10px;
+  height: 10px;
+}
+
+.icon-strip-group-chevron:hover {
+  background: var(--bg-hover, var(--bg-alt));
+  border-color: var(--text-dimmer);
+  color: var(--text-secondary);
+}
+
+.icon-strip-group.collapsed .icon-strip-group-chevron {
+  background: var(--border);
+}
+
+.icon-strip-group-items {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+  max-height: 500px;
+  border-left: 2px solid var(--border);
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.icon-strip-group.collapsed .icon-strip-group-items {
+  max-height: 0;
+}
+
+/* Worktree items (smaller than regular project icons) */
+.icon-strip-wt-item {
+  width: 48px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  text-decoration: none;
+  color: var(--text-secondary);
+  transition: background 0.15s;
+}
+
+.icon-strip-wt-item::before {
+  content: "";
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--bg-alt);
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.icon-strip-wt-item:hover::before {
+  opacity: 1;
+}
+
+.icon-strip-wt-item.active::before {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.icon-strip-wt-item.active {
+  color: #fff;
+}
+
+.icon-strip-wt-item .wt-branch-abbrev {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
+}
+
+/* Disabled/inaccessible worktree */
+.icon-strip-wt-item.wt-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.icon-strip-wt-item.wt-disabled::after {
+  content: "\1F6AB";
+  position: absolute;
+  font-size: 14px;
+  z-index: 3;
+  filter: grayscale(0.3);
+}
+
+/* Group add button */
+.icon-strip-group-add {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1.5px dashed var(--border);
+  background: transparent;
+  color: var(--text-dimmer);
+  font-size: 16px;
+  font-weight: 400;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 0 4px 0;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.icon-strip-group-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb, 124, 58, 237), 0.08);
+}
+
 /* --- Worktree creation modal --- */
 .wt-modal-overlay {
   position: fixed;
@@ -1256,6 +1407,45 @@ select.wt-modal-input {
 .wt-modal-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* --- Mobile worktree folder --- */
+.mobile-project-folder {
+  display: flex;
+  flex-direction: column;
+}
+
+.mobile-project-item.wt-item {
+  padding-left: 28px;
+  opacity: 0.85;
+}
+
+.mobile-project-item.wt-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.mobile-folder-chevron {
+  font-size: 8px;
+  color: var(--text-dimmer);
+  margin-left: auto;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  padding: 4px;
+}
+
+.mobile-project-folder.collapsed .mobile-folder-chevron {
+  transform: rotate(-90deg);
+}
+
+.mobile-folder-items {
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+  max-height: 500px;
+}
+
+.mobile-project-folder.collapsed .mobile-folder-items {
+  max-height: 0;
 }
 
 /* --- Per-project presence avatars --- */

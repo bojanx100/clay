@@ -187,6 +187,33 @@ button.split-pair-role:hover { filter: brightness(1.25); }
 @keyframes pair-divider-flow-left { 0%, 100% { transform: translateX(3px); opacity: 0.65; } 50% { transform: translateX(-3px); opacity: 1; } }
 @keyframes pair-status-pulse { 50% { opacity: 0.55; } }
 
+/* Worker-pane composer notice: shown while this pane's session processes a
+   delegated turn. Informational only -- the composer stays enabled. */
+.pane-delegation-notice {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.pane-delegation-notice.visible { display: flex; }
+.pane-delegation-notice::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: pair-status-pulse 1.5s ease-in-out infinite;
+}
+
 /* Pair dialog rides the standard wt-modal pattern; these classes only add
    the two-column role layout on top of it. */
 .pair-modal { min-width: 480px; max-width: 560px; }
