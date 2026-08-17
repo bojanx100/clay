@@ -365,19 +365,19 @@ function readSessionMeta(h, storageId) {
 }
 
 function countSessionTempWrites(h) {
-  var originalWriteFileSync = fs.writeFileSync;
+  var originalRenameSync = fs.renameSync;
   var writes = [];
-  fs.writeFileSync = function (filePath, data) {
-    var fileName = String(filePath);
+  fs.renameSync = function (oldPath, newPath) {
+    var fileName = String(oldPath);
     if (fileName.indexOf(h.sessionsDir + path.sep) === 0 && fileName.indexOf(".tmp.") !== -1) {
-      writes.push({ file: fileName, data: String(data) });
+      writes.push({ file: fileName });
     }
-    return originalWriteFileSync.apply(fs, arguments);
+    return originalRenameSync.apply(fs, arguments);
   };
   return {
     writes: writes,
     restore: function () {
-      fs.writeFileSync = originalWriteFileSync;
+      fs.renameSync = originalRenameSync;
     },
   };
 }
@@ -1083,6 +1083,52 @@ test("light session saves write immediately each time", function () {
     assert.strictEqual(readSessionMeta(h, "light-save").title, "Second title");
   } finally {
     counter.restore();
+    h.cleanup();
+  }
+});
+
+test("large session saves write bounded chunks instead of one whole-history payload", function () {
+  var h = makeSessionHarness();
+  var originalWriteFileSync = fs.writeFileSync;
+  var originalWriteSync = fs.writeSync;
+  var maxChunkBytes = 0;
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "bounded-large-save" });
+    for (var i = 0; i < 24; i++) {
+      session.history.push({
+        type: "delta",
+        text: String(i) + ":" + "x".repeat(128 * 1024),
+        _ts: Date.now() + i,
+      });
+    }
+
+    fs.writeFileSync = function (filePath, data) {
+      var fileName = String(filePath);
+      var size = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(String(data));
+      if (fileName.indexOf(sessionFile(h, "bounded-large-save") + ".tmp.") === 0 &&
+          size > 512 * 1024) {
+        throw new Error("whole-history payload reached writeFileSync");
+      }
+      return originalWriteFileSync.apply(fs, arguments);
+    };
+    fs.writeSync = function (fd, data) {
+      var size = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(String(data));
+      if (size > maxChunkBytes) maxChunkBytes = size;
+      return originalWriteSync.apply(fs, arguments);
+    };
+
+    h.sm.saveSessionFile(session, { durable: true });
+
+    var savedLines = fs.readFileSync(sessionFile(h, "bounded-large-save"), "utf8")
+      .trimEnd().split("\n");
+    assert.strictEqual(savedLines.length, session.history.length + 1);
+    assert.ok(maxChunkBytes > 0);
+    assert.ok(maxChunkBytes <= 512 * 1024);
+    assert.deepStrictEqual(JSON.parse(savedLines[savedLines.length - 1]),
+      session.history[session.history.length - 1]);
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+    fs.writeSync = originalWriteSync;
     h.cleanup();
   }
 });
