@@ -1,3 +1,15 @@
+# [3.2.0-beta.1](https://github.com/chadbyte/clay/compare/v3.1.0...v3.2.0-beta.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **notes:** make proactive writes conservative ([6a75692](https://github.com/chadbyte/clay/commit/6a7569215abb7e2f0b40070a9b573a21af119280))
+
+
+### Features
+
+* **markdown:** visualize agent document edits ([d3846af](https://github.com/chadbyte/clay/commit/d3846af2920516b53a1cb1339ef74cef5da0cdc6))
+
 # [3.1.0](https://github.com/chadbyte/clay/compare/v3.0.0...v3.1.0) (2026-08-17)
 
 
