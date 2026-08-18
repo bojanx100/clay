@@ -10,7 +10,9 @@ var contextModule = require("../lib/project-user-message-context");
 var topicIndexModule = require("../lib/coop-topic-index");
 var replyAnchor = require("../lib/coop-topic-reply-anchor");
 var projectUserMessageCoop = require("../lib/project-user-message-coop");
+var projectUserMessage = require("../lib/project-user-message");
 var projectIdentity = require("../lib/project-identity");
+var threadIntent = require("../lib/coop-thread-intent");
 
 // The ingress seam, end to end, with nothing reimplemented.
 //
@@ -167,7 +169,7 @@ function makeHarness(options) {
     localId: 21, vendor: "codex", coopHome: true,
     storageId: CANONICAL_STORAGE_ID,
     title: "Canonical Coop home",
-    history: seededHistory(),
+    history: opts.history || seededHistory(),
   };
   var sent = [];
   var sdkCalls = [];
@@ -218,13 +220,22 @@ function makeHarness(options) {
     handoffTraceOwnerId: function () { return "_single_user"; },
     observeAssistantTurns: function () { return function () { return 0; }; },
     usersModule: { isMultiUser: function () { return false; } },
-    // The two production seams, wired exactly as the daemon wires them.
+    // The production seams, wired exactly as the daemon wires them.
     validateCoopTopicIngress: function (currentSession, msg) {
+      if (opts.contextualResolver) {
+        return projectUserMessage.validateCoopTopicIngress({
+          topicIndexFor: function () { return index; },
+          getProjectList: function () { return []; },
+        }, currentSession, msg, null);
+      }
       var route = replyAnchor.replyAnchorForRoute(index, currentSession, index.validateIngress(currentSession, msg, {
         isProjectAvailable: function () { return true; },
       }));
       routes.push(route);
       return route;
+    },
+    resolveCoopThreadIntentTarget: function (currentSession, evidence) {
+      return threadIntent.resolveDominantTarget(index, currentSession, evidence);
     },
     bindCoopTopicMessage: function (currentSession, msg, eventIndex) {
       var bound = replyAnchor.bindTopicMembership(index, currentSession, msg, eventIndex);
@@ -246,6 +257,11 @@ function topicContextFromDispatchedText(text) {
   if (lines[0] !== "<coop_topic_context>") return null;
   assert.equal(lines[2], "</coop_topic_context>", "the block is exactly open/JSON/close");
   return JSON.parse(lines[1]);
+}
+
+function threadControlFromDispatchedText(text) {
+  var match = String(text || "").match(/<coop_thread_control>\n([^\n]+)\n<\/coop_thread_control>/);
+  return match ? JSON.parse(match[1]) : null;
 }
 
 function ws() {
@@ -508,6 +524,29 @@ test("the text handed to the SDK carries a coop_topic_context block whose replyT
     "the real applyText seam ran, including the coopControl foreground framing hook");
   assert.ok(h.controlCalls.indexOf("clearAttention") !== -1,
     "every target check passed, so the accept point cleared attention");
+});
+
+test("repeated contextual fixes carry one concrete ThreadRef and no raw ambiguity question to the foreground agent", function () {
+  var h = makeHarness({
+    coopControl: true,
+    contextualResolver: true,
+    history: seededHistory().slice(0, 9),
+  });
+  var commands = ["Fix that too", "FIX!"];
+
+  for (var i = 0; i < commands.length; i++) {
+    h.session.isProcessing = false;
+    assert.equal(send(h, null, commands[i], "cm-contextual-" + i), true);
+    assert.equal(h.sdkCalls.length, i + 1);
+    var foregroundText = h.sdkCalls[i].text;
+    var control = threadControlFromDispatchedText(foregroundText);
+    assert.ok(control, "the foreground text carries the Thread control block");
+    assert.equal(control.kind, "implement");
+    assert.deepEqual(control.threadRef, { threadId: TOPIC_A });
+    assert.equal(control.question, "");
+    assert.doesNotMatch(foregroundText, /Which Thread should I apply that to\?/);
+    assert.deepEqual(h.session.history[9 + i].coopThreadRef, { threadId: TOPIC_A });
+  }
 });
 
 test("a Coop send with no topic ref produces no coop_topic_context block at all", function () {

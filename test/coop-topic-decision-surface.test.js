@@ -31,11 +31,24 @@ test("Thread rows are navigation-only on desktop and mobile", function () {
   assert.doesNotMatch(mobile, /createTopicMenu|sidebar-coop-topic-close/);
 });
 
-test("lifecycle intent is server-side and exact-target gated", function () {
+test("lifecycle intent is server-side and concrete-Thread gated", function () {
   var ingress = read("lib/coop-topic-ingress.js");
   var intent = read("lib/coop-thread-intent.js");
+  var userMessage = read("lib/project-user-message.js");
+  var prepareIngress = ingress.slice(ingress.indexOf("function prepareIngress"));
   assert.match(ingress, /explicitTarget/);
   assert.match(ingress, /threadIntent\.parse/);
+  assert.match(ingress, /resolveCoopThreadIntentTarget/);
+  assert.match(prepareIngress, /!explicitTarget && scope\.unscoped && threadIntent\.isControlShaped/);
+  assert.ok(prepareIngress.indexOf("resolveCoopThreadIntentTarget") <
+    prepareIngress.indexOf("threadIntent.parse"),
+  "contextual evidence resolves before public intent parsing");
+  assert.match(ingress, /delete msg\.coopContextualThreadTarget/,
+    "the server-only contextual proof marker never survives ingress validation");
   assert.match(intent, /Which Thread should I apply that to/);
+  assert.match(intent, /thread_target_ambiguous/);
+  assert.match(intent, /resolveDominantTarget/);
   assert.match(intent, /threadRef/);
+  assert.match(userMessage, /contextualThreadTarget/);
+  assert.match(userMessage, /threadIntent\.resolveDominantTarget/);
 });
