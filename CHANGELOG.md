@@ -1,3 +1,10 @@
+## [3.2.2-beta.1](https://github.com/chadbyte/clay/compare/v3.2.1...v3.2.2-beta.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* **split:** align pair arrow and deduplicate banners ([f5fdfc2](https://github.com/chadbyte/clay/commit/f5fdfc2ddbb0fe0c3ee6dd6725e9be14bf59c711))
+
 ## [3.2.1](https://github.com/chadbyte/clay/compare/v3.2.0...v3.2.1) (2026-08-17)
 
 
