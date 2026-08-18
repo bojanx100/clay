@@ -49,6 +49,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-image.js` | `hydrateImageRefs`, `saveImageFile`, image directory setup |
 | `project-file-watch.js` | File and directory fs.watch wrappers |
 | `project-session-spawn.js` | Agent-driven sibling session creation, safety policy, and concurrency queue |
+| `project-worker-proposal.js` | Fable-triggered inline Worker suggestions, approval routing, and execution handoff |
 | `session-spawn-mcp-server.js` | SDK-free `clay-sessions` MCP tool definitions for spawning and checking sessions |
 | `project-session-document.js` + `session-document-mcp-server.js` | Session-bound `clay-documents` MCP signal that snapshots and presents explicit Markdown editing work |
 | `sdk-bridge.js` | SDK bridge coordinator: createSDKBridge factory, worker lifecycle, query stream, tool permissions, mention sessions |
@@ -141,6 +142,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-rendering.js` | Message rendering, streaming, scroll management, pre-thinking dots, suggestion chips, system messages |
 | `app-projects.js` | Project list, switching, add/remove project modals, update available pill, topbar presence |
 | `app-panels.js` | Config chip (model/mode/effort/thinking/beta), usage panel, status panel, context panel, context popover |
+| `worker-proposal.js` | Inline Worker recommendation card with model/reasoning selection and lifecycle states |
 | `app-loop-ui.js` | Ralph Loop UI: bars, banners, preview modal, execution modal |
 | `app-loop-wizard.js` | Ralph Loop wizard: step navigation, mode/authorship selection, data collection |
 | `app-notifications.js` | Notification center panel, badge, rendering, click-to-navigate |
