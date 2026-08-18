@@ -1618,6 +1618,70 @@ test("delegate tool routes a typed binding into the target project without a Lea
   assert.ok(binding.coordinator);
 });
 
+test("independent admitted project bindings start parallel visible target coordinators", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-parallel-admission-"));
+  var targetProjectId = "34f53e11-b5e3-4b7e-8c4e-9f9229f87940";
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  var inputs = [{
+    portfolioTaskId: "parallel-admitted-one",
+    idempotencyKey: "parallel-admitted-one-r1",
+    title: "First independent target task",
+    objective: "Complete the first independent target-project task.",
+  }, {
+    portfolioTaskId: "parallel-admitted-two",
+    idempotencyKey: "parallel-admitted-two-r1",
+    title: "Second independent target task",
+    objective: "Complete the second independent target-project task.",
+  }];
+
+  for (var i = 0; i < inputs.length; i++) {
+    var result = lead.api.coordinateExternalTask(Object.assign({}, inputs[i], {
+      coordinatorSessionId: coop.storageId,
+      bindingRevision: 1,
+      mode: "project_coordinator",
+      targetProject: { projectId: targetProjectId },
+      context: "The two admitted tasks have no shared dependency.",
+      acceptanceCriteria: "Keep this target-project task independently visible.",
+      ownedPaths: "test/project-task-orchestrator.test.js",
+    }));
+    assert.equal(result.ok, true);
+    assert.equal(result.created, true);
+  }
+
+  assert.equal(lead.sessions.size, 1, "target-bound work never creates a Lead-local worker");
+  assert.equal(lead.starts.length, 0);
+  assert.equal(target.sessions.size, 3,
+    "the shared target-project coordinator plus both visible task coordinators are durable");
+  assert.equal(target.starts.length, 2,
+    "both independent bindings start in the same admission pass without waiting for either worker");
+
+  for (var j = 0; j < inputs.length; j++) {
+    var worker = portfolioSession(target, inputs[j].portfolioTaskId);
+    var binding = router.getExecutionBinding(inputs[j].portfolioTaskId, 1);
+    assert.ok(worker);
+    assert.notEqual(worker.hidden, true, "admitted worker remains visible in its target project");
+    assert.equal(worker.isProcessing, true);
+    assert.equal(worker.orchestrationPolicy.portfolioExecution.status, "running");
+    assert.equal(binding.status, "active");
+    assert.deepEqual(binding.coordinator, {
+      projectId: targetProjectId,
+      sessionStorageId: worker.storageId,
+    });
+  }
+});
+
 test("an explicitly selected target coordinator is bound and reused without selecting an unrelated chat", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-existing-coordinator-"));
   var projectId = "d8af2cc1-ea08-5b4c-82e6-e729d3a7dcef";
