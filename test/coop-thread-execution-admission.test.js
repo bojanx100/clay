@@ -121,6 +121,7 @@ test("queue-wide authorization language and task snapshots stay narrow and bound
 function executionRouter(entries, delivered, handedOff, options) {
   options = options || {};
   var dir = options.dir || fs.mkdtempSync(path.join(os.tmpdir(), "clay-thread-admission-"));
+  var targetProjectId = options.targetProjectId || PROJECT;
   var claimed = null;
   var classifications = 0;
   var leadSessions = new Map([[1, { coopHome: true,
@@ -138,7 +139,8 @@ function executionRouter(entries, delivered, handedOff, options) {
   var router = createCrossProjectRouter({
     allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
-    ownerRequests: {
+    bindingStore: options.bindingStore,
+    ownerRequests: options.ownerRequests || {
       forTopic: function (topicRef) {
         return entries.filter(function (entry) {
           return entry.topicRef && topicRef && entry.topicRef.topicId === topicRef.topicId;
@@ -197,7 +199,7 @@ function executionRouter(entries, delivered, handedOff, options) {
     getSessionManager: function () { return leadManager; },
   });
   router.registerProjectResolver({
-    getProjectId: function () { return PROJECT; },
+    getProjectId: function () { return targetProjectId; },
     validateAutomationAuthorization: options.validateAutomationAuthorization,
     deliverCrossProjectEnvelope: function (envelope) {
       delivered.push(envelope);
@@ -205,7 +207,8 @@ function executionRouter(entries, delivered, handedOff, options) {
         return options.deliverCrossProjectEnvelope(envelope);
       }
       return { ok: true, created: true,
-        sessionRef: { projectId: PROJECT, sessionStorageId: "thread-worker" },
+        sessionRef: { projectId: targetProjectId,
+          sessionStorageId: options.targetSessionStorageId || "thread-worker" },
         projectCoordinatorRef: envelope.payload.targetProjectCoordinator };
     },
   });
@@ -381,6 +384,166 @@ test("current autonomous evidence creates one deterministic visible Thread and b
       { projectId: "system-lead", sessionStorageId: "canonical-coop" });
     assert.equal(metadata.automationAuthorization.kind, "project_policy_autonomous",
       "the target session keeps typed automation provenance");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("#2522: a new Webapp automation Thread claims the incumbent before control-plane migration", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-webapp-2522-control-plane-"));
+  var ownerFile = path.join(dir, "owner-requests.json");
+  var bindingFile = path.join(dir, "bindings.json");
+  var topicFile = path.join(dir, "threads.json");
+  var webapp = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+  var coopStorageId = "871a194b-8879-40f7-a1fe-656e48e722af";
+  var incumbent = { projectId: webapp,
+    sessionStorageId: "7e539a81-8ecf-4943-ad26-bcaf6544f1c0" };
+  var priorTopic = { topicId: "auto-5cdaa61d7d8d8637ead5adaf" };
+  var ownerLedger = require("../lib/coop-owner-requests")
+    .attachCoopOwnerRequests({ file: ownerFile });
+  var bindingStore = portfolioBindings.createPortfolioExecutionBindings({ file: bindingFile });
+  var topicIndex = createTopicIndex({ file: topicFile, now: function () { return 1000; } });
+  var portfolioTaskId = "auto:6bab7b2dfa0ca349934de11f:trialview-v2-2522";
+  var candidate = {
+    candidateKey: "launch:trialview/v2#2522",
+    itemKey: "trialview/v2#2522",
+    itemClass: "bug",
+    admission: "auto",
+    status: "pending",
+    projectRef: { projectId: webapp },
+    policyDigest: "policy-current-2522",
+    recipeId: "assigned-to-me",
+    eligibilityPass: "scan-current-2522",
+    eligibility: {
+      assignedToOwner: true,
+      recipeAllowsUnassigned: false,
+      reason: "assigned_to_owner",
+    },
+    intent: { recipeId: "assigned-to-me", number: 2522,
+      title: "Replace the Excel zoom slider" },
+  };
+  candidate.digest = automationCandidates.contentDigest(candidate);
+  var historicalRequest = {
+    source: { projectId: "system-lead", sessionStorageId: coopStorageId },
+    targetProject: { projectId: webapp },
+    mode: "project_coordinator",
+    portfolioTaskId: portfolioTaskId,
+    bindingRevision: 1,
+    idempotencyKey: automationIdentity.idempotencyKeyFor(portfolioTaskId, 1),
+  };
+  var delivered = [];
+  var handedOff = [];
+  var validator = automationAuthorization.createAuthorizationValidator({
+    candidates: {
+      pending: function () { return { ok: true, candidates: [candidate] }; },
+    },
+    getLeadMode: function () { return true; },
+    loadPolicy: function () {
+      return { ok: true, policy: {
+        projectRef: { projectId: webapp },
+        digest: candidate.policyDigest,
+        autonomy: {
+          bug: "autonomous", feature: "propose", ambiguous: "propose",
+          pr_review: "propose", default: "propose",
+        },
+        externalActions: {
+          comment: "approval", done_workflow: "approval",
+          merge: "approval", close: "approval",
+        },
+      } };
+    },
+    now: function () { return 1000; },
+  });
+  function request() {
+    var input = {
+      source: { projectId: "system-lead", sessionStorageId: coopStorageId },
+      targetProject: { projectId: webapp },
+      mode: "project_coordinator",
+      portfolioTaskId: portfolioTaskId,
+      bindingRevision: 2,
+      idempotencyKey: automationIdentity.idempotencyKeyFor(portfolioTaskId, 2),
+      title: "#2522 Replace the Excel zoom slider",
+      objective: "Resolve trialview/v2#2522.",
+    };
+    input.automationAuthorization = automationAuthorization.createAuthorization(candidate, input);
+    input.coopTopicRef = { topicId: input.automationAuthorization.threadRef.threadId };
+    return input;
+  }
+  function validate(input) { return validator.validate(input); }
+  function link(input) {
+    return topicIndex.linkExecution(input.topicRef, {
+      projectRef: input.projectRef,
+      sessionRef: input.sessionRef,
+    });
+  }
+  try {
+    assert.equal(ownerLedger.claimCoordinator({
+      topicRef: priorTopic,
+      projectRef: { projectId: webapp },
+      coordinator: incumbent,
+    }).ok, true);
+    assert.equal(bindingStore.reserve(historicalRequest).ok, true);
+    assert.equal(bindingStore.commit(portfolioTaskId, 1,
+      { projectId: webapp, sessionStorageId: "historical-2522-worker" },
+      { projectCoordinatorRef: incumbent }).ok, true);
+    assert.equal(bindingStore.supersede(portfolioTaskId, 1,
+      "historical_attempt_superseded").ok, true);
+    var historicalBefore = bindingStore.get(portfolioTaskId, 1);
+
+    var first = executionRouter([], delivered, handedOff, {
+      dir: dir,
+      targetProjectId: webapp,
+      targetSessionStorageId: "2522-task-coordinator",
+      canonicalStorageId: coopStorageId,
+      bindingStore: bindingStore,
+      ownerRequests: ownerLedger,
+      automationThreadIndex: topicIndex,
+      validateAutomationAuthorization: validate,
+      onThreadHandedOff: link,
+    });
+    var created = first.router.createProjectExecution(request());
+
+    assert.equal(created.ok, true, JSON.stringify(created));
+    assert.equal(created.binding.bindingRevision, 2);
+    assert.equal(delivered.length, 1);
+    assert.deepEqual(bindingStore.get(portfolioTaskId, 1), historicalBefore,
+      "revision 1 remains immutable while the new Thread advances to revision 2");
+    var rootRef = created.binding.projectCoordinator;
+    assert.equal(rootRef.projectId, "system-lead");
+    assert.deepEqual(ownerLedger.canonicalCoordinator(priorTopic, { projectId: webapp }), rootRef);
+    assert.deepEqual(ownerLedger.canonicalCoordinator(request().coopTopicRef,
+      { projectId: webapp }), rootRef);
+    var webappClaims = ownerLedger.listCoordinators().filter(function (claim) {
+      return claim.projectId === webapp;
+    });
+    assert.equal(webappClaims.length, 2);
+    assert.deepEqual(webappClaims.map(function (claim) { return claim.coordinator; }),
+      [rootRef, rootRef], "one project coordinator owns both the old and new Threads");
+
+    var replay = first.router.createProjectExecution(request());
+    assert.equal(replay.ok, true);
+    assert.equal(replay.reused, true);
+    assert.equal(delivered.length, 1, "an identical admission does not start a second task");
+
+    var reloadedLedger = require("../lib/coop-owner-requests")
+      .attachCoopOwnerRequests({ file: ownerFile });
+    var reloadedStore = portfolioBindings.createPortfolioExecutionBindings({ file: bindingFile });
+    assert.deepEqual(reloadedStore.get(portfolioTaskId, 1), historicalBefore);
+    assert.deepEqual(reloadedLedger.canonicalCoordinator(request().coopTopicRef,
+      { projectId: webapp }), rootRef);
+    var restartDelivered = [];
+    var restarted = executionRouter([], restartDelivered, [], {
+      dir: dir,
+      targetProjectId: webapp,
+      canonicalStorageId: coopStorageId,
+      bindingStore: reloadedStore,
+      ownerRequests: reloadedLedger,
+      automationThreadIndex: createTopicIndex({ file: topicFile, now: function () { return 2000; } }),
+      validateAutomationAuthorization: validate,
+      onThreadHandedOff: link,
+    });
+    assert.equal(restarted.router.createProjectExecution(request()).reused, true);
+    assert.equal(restartDelivered.length, 0, "restart replay reuses revision 2 without redispatch");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1105,6 +1268,125 @@ test("an explicit decision creates typed ProjectRef execution and marks the Thre
     assert.deepEqual(handedOff[0].topicRef, TOPIC);
     assert.deepEqual(handedOff[0].projectRef, { projectId: PROJECT });
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("board-exclusions dispatch claims its exact owner Thread before coordinator migration", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-board-exclusions-control-plane-"));
+  var ownerFile = path.join(dir, "owner-requests.json");
+  var webapp = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+  var coopStorageId = "871a194b-8879-40f7-a1fe-656e48e722af";
+  var ingressId = "coop:" + coopStorageId + ":459";
+  var boardTopic = { topicId: "owner-65d0dc78c4e6d085002842c1" };
+  var priorTopic = { topicId: "auto-fb42f62b499c463e340f95b8" };
+  var incumbent = { projectId: webapp,
+    sessionStorageId: "7e539a81-8ecf-4943-ad26-bcaf6544f1c0" };
+  var ownerLedger = require("../lib/coop-owner-requests")
+    .attachCoopOwnerRequests({ file: ownerFile });
+  var history = [{
+    type: "user_message",
+    text: "Implement the Webapp board-exclusions policy repair.",
+    coopIngressId: ingressId,
+    coopTopicRef: boardTopic,
+    coopProjectRef: { projectId: webapp },
+    coopImplementationDecision: { intent: "implement" },
+    _ts: 1787010344341,
+  }];
+  var delivered = [];
+  var handedOff = [];
+  var request = {
+    source: { projectId: "system-lead", sessionStorageId: coopStorageId },
+    portfolioTaskId: "webapp-automation-policy-board-exclusions",
+    bindingRevision: 1,
+    idempotencyKey: "webapp-automation-policy-board-exclusions-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: webapp },
+    coopTopicRef: boardTopic,
+    coopIngressId: ingressId,
+    title: "Repair Webapp board exclusions",
+    objective: "Implement the approved Webapp automation-policy board exclusions.",
+  };
+  try {
+    assert.ok(ownerLedger.record({
+      ingressId: ingressId,
+      ingressSequence: 459,
+      ingressKind: "text",
+      sessionRef: { projectId: "system-lead", sessionStorageId: coopStorageId },
+      requestRef: { projectId: "system-lead", sessionStorageId: coopStorageId, eventIndex: 0 },
+      topicRef: boardTopic,
+      projectRefs: [{ projectId: webapp }],
+      receivedAt: 1787010344329,
+    }));
+    var classified = ownerLedger.classify(ingressId, {
+      kind: "existing_topic",
+      source: "explicit_owner_turn",
+      at: 1787010344341,
+      topicRef: boardTopic,
+      projectRefs: [{ projectId: webapp }],
+      implementationDecision: {
+        intent: "implement",
+        source: "explicit_owner_turn",
+        at: 1787010344341,
+      },
+    });
+    var decisionBefore = classified.implementationDecision;
+    var requestRefBefore = classified.requestRef;
+    assert.equal(ownerLedger.claimCoordinator({
+      topicRef: priorTopic,
+      projectRef: { projectId: webapp },
+      coordinator: incumbent,
+    }).ok, true);
+
+    var approved = executionRouter([], delivered, handedOff, {
+      dir: dir,
+      targetProjectId: webapp,
+      targetSessionStorageId: "board-exclusions-task-coordinator",
+      canonicalStorageId: coopStorageId,
+      history: history,
+      ownerRequests: ownerLedger,
+    });
+    var created = approved.router.createProjectExecution(request);
+
+    assert.equal(created.ok, true, JSON.stringify(created));
+    assert.equal(delivered.length, 1);
+    var rootRef = created.binding.projectCoordinator;
+    assert.equal(rootRef.projectId, "system-lead");
+    assert.deepEqual(ownerLedger.canonicalCoordinator(priorTopic, { projectId: webapp }), rootRef);
+    assert.deepEqual(ownerLedger.canonicalCoordinator(boardTopic, { projectId: webapp }), rootRef);
+    var boardClaim = ownerLedger.listCoordinators().filter(function (claim) {
+      return claim.projectId === webapp && claim.topicId === boardTopic.topicId;
+    });
+    assert.equal(boardClaim.length, 1);
+    assert.deepEqual(boardClaim[0].ingressIds, [ingressId],
+      "the claim is linked to the exact owner ingress that authorized this task");
+    assert.equal(boardClaim[0].transferReason, "coop_control_plane_migration");
+    var linked = ownerLedger.get(ingressId);
+    assert.deepEqual(linked.requestRef, requestRefBefore, "canonical owner event history is immutable");
+    assert.deepEqual(linked.implementationDecision, decisionBefore,
+      "the original owner decision is not restamped during routing");
+    assert.deepEqual(linked.implementationScope, {
+      projectRef: { projectId: webapp },
+      topicRef: boardTopic,
+      portfolioTaskId: request.portfolioTaskId,
+      bindingRevision: request.bindingRevision,
+      idempotencyKey: request.idempotencyKey,
+    });
+    assert.deepEqual(linked.links.coordinators, [rootRef]);
+
+    var bindingBeforeReplay = approved.router.getExecutionBinding(request.portfolioTaskId, 1);
+    var replay = approved.router.createProjectExecution(request);
+    assert.equal(replay.ok, true);
+    assert.equal(replay.reused, true);
+    assert.equal(delivered.length, 1, "owner ingress replay does not create a second task");
+    assert.deepEqual(approved.router.getExecutionBinding(request.portfolioTaskId, 1),
+      bindingBeforeReplay);
+
+    var reloaded = require("../lib/coop-owner-requests")
+      .attachCoopOwnerRequests({ file: ownerFile });
+    assert.deepEqual(reloaded.get(ingressId), linked);
+    assert.deepEqual(reloaded.canonicalCoordinator(boardTopic, { projectId: webapp }), rootRef);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("a failed durable handoff link retries against the same coordinator", function () {
