@@ -1,3 +1,10 @@
+# [3.3.0-beta.1](https://github.com/chadbyte/clay/compare/v3.2.2-beta.3...v3.3.0-beta.1) (2026-08-18)
+
+
+### Features
+
+* **pair:** add Fable worker delegation flow ([9bcebf3](https://github.com/chadbyte/clay/commit/9bcebf36624ad9a24a726cf9f799852a188fe058))
+
 ## [3.2.2-beta.3](https://github.com/chadbyte/clay/compare/v3.2.2-beta.2...v3.2.2-beta.3) (2026-08-18)
 
 
