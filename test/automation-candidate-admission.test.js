@@ -12,7 +12,8 @@ var fs = require("fs");
 var os = require("os");
 var path = require("path");
 
-var { createCandidateAdmission, portfolioTaskIdFor } = require("../lib/project-automation-admission");
+var { createCandidateAdmission, idempotencyKeyFor, portfolioTaskIdFor, selectBindingRevision } =
+  require("../lib/project-automation-admission");
 var { createCandidateStore } = require("../lib/project-automation-candidates");
 var automationAudit = require("../lib/project-automation-audit");
 
@@ -55,7 +56,18 @@ function withTestPass(admission) {
 // store: the same (portfolioTaskId, revision) replays instead of re-creating.
 function fakeCrossProject(behavior) {
   var calls = [];
-  var bound = {};
+  var bindings = (behavior && Array.isArray(behavior.bindings) ? behavior.bindings : []).map(function (binding) {
+    return Object.assign({}, binding);
+  });
+
+  function bindingFor(portfolioTaskId, bindingRevision) {
+    for (var i = 0; i < bindings.length; i++) {
+      if (bindings[i].portfolioTaskId === portfolioTaskId &&
+          bindings[i].bindingRevision === bindingRevision) return bindings[i];
+    }
+    return null;
+  }
+
   return {
     calls: calls,
     // The canonical live Coop SessionRef, as the real router resolves it from
@@ -72,21 +84,28 @@ function fakeCrossProject(behavior) {
           targetProject: { projectId: WEBAPP },
         }, behavior.foreignBinding);
       }
-      return bound[portfolioTaskId + ":" + bindingRevision] || null;
+      return bindingFor(portfolioTaskId, bindingRevision);
+    },
+    getExecutionBindings: function () {
+      return bindings.map(function (binding) { return Object.assign({}, binding); });
     },
     createProjectExecution: function (input) {
       calls.push(input);
       if (behavior && behavior.fail) return { ok: false, reason: behavior.fail };
-      var key = input.portfolioTaskId + ":" + input.bindingRevision;
-      if (bound[key]) return { ok: false, reason: "active_binding_exists" };
-      bound[key] = {
+      var existing = bindingFor(input.portfolioTaskId, input.bindingRevision);
+      if (existing) return { ok: false, reason: "active_binding_exists" };
+      var binding = {
         portfolioTaskId: input.portfolioTaskId,
         bindingRevision: input.bindingRevision,
         mode: input.mode,
         idempotencyKey: input.idempotencyKey,
         targetProject: input.targetProject,
+        coopTopicRef: input.coopTopicRef,
+        automationAuthorization: input.automationAuthorization,
+        status: "active",
       };
-      return { ok: true, binding: bound[key] };
+      bindings.push(binding);
+      return { ok: true, binding: binding };
     },
   };
 }
@@ -268,6 +287,74 @@ test("#2517: an existing binding for unmarked work is treated as success, not a 
     assert.ok(h.cross.calls.length >= boundCalls,
       "and it must not create a second binding");
     assert.strictEqual(h.store.get({ projectId: WEBAPP }, key).status, "admitted");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("#2522: immutable automation history advances once, then retries revision 2 idempotently", function () {
+  var reportedPortfolioTaskId = "auto:6bab7b2dfa0ca349934de11f:trialview-v2-2522";
+  var immutableStatuses = ["completed", "superseded"];
+  for (var i = 0; i < immutableStatuses.length; i++) {
+    var selected = selectBindingRevision(reportedPortfolioTaskId, [{
+      portfolioTaskId: reportedPortfolioTaskId,
+      bindingRevision: 1,
+      status: immutableStatuses[i],
+    }]);
+    assert.deepStrictEqual(selected, { ok: true, bindingRevision: 2 },
+      immutableStatuses[i] + " revision 1 must advance the reported binding to revision 2");
+  }
+
+  var work = candidate({
+    candidateKey: "launch:trialview/v2#2522",
+    itemKey: "trialview/v2#2522",
+    intent: { recipeId: "assigned-to-me", number: 2522, url: "u", title: "t", autoKind: "issue" },
+  });
+  var portfolioTaskId = portfolioTaskIdFor(work);
+  var terminalRevision = {
+    portfolioTaskId: portfolioTaskId,
+    bindingRevision: 1,
+    mode: "project_coordinator",
+    idempotencyKey: "historical-terminal-r1",
+    targetProject: { projectId: WEBAPP },
+    status: "superseded",
+    statusReason: "historical_attempt_superseded",
+  };
+  var terminalBefore = JSON.parse(JSON.stringify(terminalRevision));
+  var h = harness({ behavior: { bindings: [terminalRevision] } });
+  try {
+    h.store.upsert(work);
+    var markAdmitted = h.store.markAdmitted;
+    var markAttempts = 0;
+    h.store.markAdmitted = function () {
+      markAttempts++;
+      if (markAttempts === 1) return { ok: false, reason: "simulated_mark_failure" };
+      return markAdmitted.apply(h.store, arguments);
+    };
+
+    var first = h.admission.admitPending();
+    assert.strictEqual(first.failed, 1,
+      "the simulated bookkeeping failure keeps the candidate pending for a retry");
+    assert.strictEqual(h.cross.calls.length, 1);
+    assert.strictEqual(h.cross.calls[0].bindingRevision, 2);
+    assert.strictEqual(h.cross.calls[0].idempotencyKey, idempotencyKeyFor(portfolioTaskId, 2));
+    assert.deepStrictEqual(h.cross.getBinding(portfolioTaskId, 1), terminalBefore,
+      "the terminal revision remains immutable when admission advances");
+
+    h.store.markAdmitted = markAdmitted;
+    var retry = h.admission.admitPending();
+    assert.strictEqual(retry.failed, 0);
+    assert.strictEqual(retry.admitted, 1,
+      "the pending candidate is completed by the verified replay");
+    assert.strictEqual(h.cross.calls.length, 2,
+      "the retry reuses the existing revision rather than creating revision 3");
+    assert.strictEqual(h.cross.calls[1].bindingRevision, 2);
+    assert.strictEqual(h.cross.calls[1].idempotencyKey, h.cross.calls[0].idempotencyKey);
+    assert.strictEqual(h.cross.getExecutionBindings().filter(function (binding) {
+      return binding.portfolioTaskId === portfolioTaskId;
+    }).length, 2, "only immutable revision 1 and admitted revision 2 remain");
+    assert.deepStrictEqual(h.cross.getBinding(portfolioTaskId, 1), terminalBefore,
+      "the retry must not rewrite historical terminal evidence");
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
   }
