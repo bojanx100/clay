@@ -6,7 +6,8 @@ function parseToolResult(result) {
   return JSON.parse(result.content[0].text);
 }
 
-function fixture(configured) {
+function fixture(configured, options) {
+  options = options || {};
   var driver = { localId: 1, ownerId: null, title: "Planner", vendor: "claude", history: [], isProcessing: false };
   var worker = { localId: 2, ownerId: null, title: "Builder", vendor: "codex", history: [], isProcessing: false };
   var sessions = new Map([[1, driver], [2, worker]]);
@@ -14,6 +15,8 @@ function fixture(configured) {
   if (configured) group.pair = { driverId: 1, workerId: 2 };
   var events = [];
   var starts = [];
+  var driverPushes = [];
+  var attached;
   var sm = {
     sessions: sessions,
     installedVendors: ["claude", "codex"],
@@ -24,17 +27,26 @@ function fixture(configured) {
     broadcastSessionList: function () {},
   };
   var sdk = {
-    pushMessage: function () { return false; },
+    pushMessage: function (session, text) {
+      if (session === driver) {
+        driverPushes.push(text);
+        return options.driverPushAccepted !== false;
+      }
+      return false;
+    },
     startQuery: function (session, text) {
       starts.push({ session: session, text: text });
+      if (session !== worker) return Promise.resolve();
       setTimeout(function () {
-        session.history.push({ type: "delta", text: "Partner result" });
+        if (options.workerError) session.history.push({ type: "error", text: options.workerError });
+        else session.history.push({ type: "delta", text: "Partner result" });
         session.isProcessing = false;
-      }, 20);
+        if (options.autoTurnDone !== false) attached.handleTurnDone(session);
+      }, options.workerDelay || 20);
       return Promise.resolve();
     },
   };
-  var attached = pairModule.attachSessionPair({
+  attached = pairModule.attachSessionPair({
     sm: sm,
     splitStore: { groupForMember: function (id) { return group.members.indexOf(id) === -1 ? null : group; }, create: function () {} },
     getSdk: function () { return sdk; },
@@ -44,7 +56,7 @@ function fixture(configured) {
     getLinuxUserForSession: function () { return null; },
     onProcessingChanged: function () {},
   });
-  return { attached: attached, driver: driver, worker: worker, events: events, starts: starts };
+  return { attached: attached, driver: driver, worker: worker, group: group, events: events, starts: starts, driverPushes: driverPushes };
 }
 
 test("configured pairs expose partner tools only to the Driver", function () {
@@ -72,6 +84,66 @@ test("send_to_partner records attribution and returns the response", async funct
   assert.strictEqual(f.starts[0].text, "Inspect the tests");
   assert.deepStrictEqual(f.events.map(function (event) { return event.active; }), [true, false]);
   assert.strictEqual(f.worker._delegatedBy, undefined);
+  assert.deepStrictEqual(f.driverPushes, []);
+});
+
+test("a detached delegated turn pushes its result to the Driver once", async function () {
+  var f = fixture(true);
+  var tool = f.attached.getToolDefs(f.driver)[0];
+  var result = parseToolResult(await tool.handler({ message: "Inspect the tests", wait: false }));
+  assert.strictEqual(result.status, "running");
+  await new Promise(function (resolve) { setTimeout(resolve, 50); });
+
+  assert.strictEqual(f.driverPushes.length, 1);
+  assert.match(f.driverPushes[0], /Worker result:\nPartner result/);
+  assert.strictEqual(f.driver.history.length, 1);
+  assert.strictEqual(f.driver.history[0]._internal, true);
+  assert.strictEqual(f.driver.history[0].partnerResult, true);
+  assert.deepStrictEqual(f.events.map(function (event) { return event.active; }), [true, false]);
+});
+
+test("a detached result starts a fresh Driver query when push is rejected", async function () {
+  var f = fixture(true, { driverPushAccepted: false });
+  var tool = f.attached.getToolDefs(f.driver)[0];
+  await tool.handler({ message: "Inspect the tests", wait: false });
+  await new Promise(function (resolve) { setTimeout(resolve, 50); });
+
+  var driverStarts = f.starts.filter(function (start) { return start.session === f.driver; });
+  assert.strictEqual(driverStarts.length, 1);
+  assert.match(driverStarts[0].text, /Worker result:\nPartner result/);
+});
+
+test("the detached monitor delivers failures even when no normal turn-done event arrives", async function () {
+  var f = fixture(true, { autoTurnDone: false, workerError: "Worker crashed" });
+  var tool = f.attached.getToolDefs(f.driver)[0];
+  await tool.handler({ message: "Inspect the tests", wait: false });
+  await new Promise(function (resolve) { setTimeout(resolve, 550); });
+
+  assert.strictEqual(f.driverPushes.length, 1);
+  assert.match(f.driverPushes[0], /Worker error:\nWorker crashed/);
+  assert.strictEqual(f.worker._pairDelegation, undefined);
+});
+
+test("a user-started Worker turn never pushes to the Driver", function () {
+  var f = fixture(true);
+  f.worker.history.push({ type: "user_message", text: "User request" });
+  f.worker.history.push({ type: "delta", text: "User-requested result" });
+
+  assert.strictEqual(f.attached.handleTurnDone(f.worker), false);
+  assert.deepStrictEqual(f.driverPushes, []);
+  assert.deepStrictEqual(f.driver.history, []);
+});
+
+test("a role change invalidates a detached Worker completion", async function () {
+  var f = fixture(true);
+  var tool = f.attached.getToolDefs(f.driver)[0];
+  await tool.handler({ message: "Inspect the tests", wait: false });
+  f.group.pair = { driverId: 2, workerId: 1 };
+  await new Promise(function (resolve) { setTimeout(resolve, 50); });
+
+  assert.deepStrictEqual(f.driverPushes, []);
+  assert.deepStrictEqual(f.driver.history, []);
+  assert.strictEqual(f.worker._pairDelegation, undefined);
 });
 
 test("a delegated session cannot delegate back", async function () {
