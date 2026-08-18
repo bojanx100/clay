@@ -151,6 +151,99 @@ test("the latest explicit Main command supplies the exact next typed execution r
   assert.deepEqual(delivered.coopTopicRef, topic);
 });
 
+test("a durable owner classification restores an unmarked Main ingress for its exact Thread", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var topic = { topicId: "owner-6f1e740ba6c300a282290713" };
+  var ingressId = "coop:canonical-coop:461";
+  var source = { localId: 1, storageId: "canonical-coop", history: [{
+    type: "user_message", text: "solve it", coopComposerScope: "main",
+    coopIngressId: ingressId,
+  }] };
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: {
+      forTopic: function (requested) {
+        if (!requested || requested.topicId !== topic.topicId) return [];
+        return [{
+          ingressId: ingressId,
+          sessionRef: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+          requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+          expectsExecution: true,
+          implementationDecision: { intent: "implement", source: "explicit_owner_turn" },
+        }];
+      },
+    },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+
+  assert.equal(coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-stale-project-activity-indicator-2026-08-18",
+    bindingRevision: 1,
+    idempotencyKey: "clay-stale-project-activity-indicator-2026-08-18-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+    coopTopicRef: topic,
+  }).ok, true);
+  assert.equal(delivered.coopIngressId, ingressId);
+  assert.deepEqual(delivered.coopTopicRef, topic);
+
+  // A ThreadRef supplied by a caller never selects a ledger ingress from a
+  // different Thread.
+  coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-stale-project-activity-indicator-2026-08-18",
+    bindingRevision: 1,
+    idempotencyKey: "clay-stale-project-activity-indicator-2026-08-18-r1-wrong-thread",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+    coopTopicRef: { topicId: "owner-forged-thread" },
+  });
+  assert.equal(delivered.coopIngressId, undefined);
+});
+
+test("ledger recovery refuses ambiguous or unverifiable implementation records", function () {
+  var topic = { topicId: "owner-admission-thread" };
+  var source = { localId: 1, storageId: "canonical-coop", history: [{
+    type: "user_message", text: "solve it", coopIngressId: "coop:canonical-coop:461",
+  }, {
+    type: "user_message", text: "solve it too", coopIngressId: "coop:canonical-coop:462",
+  }] };
+  var candidates = [0, 1].map(function (index) {
+    return {
+      ingressId: source.history[index].coopIngressId,
+      sessionRef: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+      requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: index },
+      expectsExecution: true,
+      implementationDecision: { intent: "implement", source: "explicit_owner_turn" },
+    };
+  });
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: { forTopic: function () { return candidates; } },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+  var request = {
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "admission-recovery", bindingRevision: 1,
+    idempotencyKey: "admission-recovery-r1", mode: "project_coordinator",
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" }, coopTopicRef: topic,
+  };
+
+  coordinate(request);
+  assert.equal(delivered.coopIngressId, undefined, "ambiguous records choose no ingress");
+
+  candidates.splice(1, 1);
+  candidates[0].requestRef.eventIndex = 99;
+  coordinate(request);
+  assert.equal(delivered.coopIngressId, undefined,
+    "a record without its exact canonical event chooses no ingress");
+});
+
 test("an older unscoped Main command cannot authorize a later owner turn", function () {
   var delivered = null;
   var source = { localId: 1, storageId: "canonical-coop", history: [{

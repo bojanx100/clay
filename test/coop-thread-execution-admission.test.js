@@ -174,6 +174,7 @@ function executionRouter(entries, delivered, handedOff, options) {
         entry.implementationScope = JSON.parse(JSON.stringify(input));
         entry.topicRef = input.topicRef;
         entry.projectRefs = [input.projectRef];
+        entry.classification = { kind: "existing_topic", source: "owner_directed_execution" };
         return { ok: true, reused: reused, request: entry };
       },
       claimCoordinator: function (input) { claimed = input.coordinator; return { ok: true }; },
@@ -608,6 +609,68 @@ test("an explicit Main command authorizes one exact ProjectRef and task without 
     })), { ok: false, reason: "owner_implementation_scope_mismatch" });
     assert.equal(delivered.length, 1);
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("a durably classified unmarked Main ingress binds one exact Thread task", function () {
+  var delivered = [];
+  var handedOff = [];
+  var ingressId = "coop:canonical-coop:461";
+  var entries = [{
+    ingressId: ingressId,
+    topicRef: TOPIC,
+    projectRefs: [{ projectId: PROJECT }],
+    expectsExecution: true,
+    implementationDecision: { intent: "implement", source: "explicit_owner_turn" },
+    classification: { kind: "existing_topic", source: "explicit_owner_turn" },
+    response: { state: "answered" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+  }];
+  var approved = executionRouter(entries, delivered, handedOff, { history: [{
+    type: "user_message", text: "solve it", coopComposerScope: "main",
+    coopIngressId: ingressId,
+  }] });
+  var request = {
+    source: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+    portfolioTaskId: "clay-stale-project-activity-indicator-2026-08-18",
+    bindingRevision: 1,
+    idempotencyKey: "clay-stale-project-activity-indicator-2026-08-18-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: PROJECT },
+    coopTopicRef: TOPIC,
+    coopIngressId: ingressId,
+  };
+  try {
+    assert.equal(approved.router.createProjectExecution(request).ok, true);
+    assert.deepEqual(entries[0].implementationScope, {
+      projectRef: { projectId: PROJECT },
+      topicRef: TOPIC,
+      portfolioTaskId: "clay-stale-project-activity-indicator-2026-08-18",
+      bindingRevision: 1,
+      idempotencyKey: "clay-stale-project-activity-indicator-2026-08-18-r1",
+    });
+    assert.deepEqual(approved.router.createProjectExecution(Object.assign({}, request, {
+      bindingRevision: 2,
+      idempotencyKey: "clay-stale-project-activity-indicator-2026-08-18-r2",
+    })), { ok: false, reason: "owner_implementation_scope_mismatch" });
+    assert.equal(delivered.length, 1);
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("a superseded implementation ingress remains closed even when its Thread still exists", function () {
+  var entries = [{
+    ingressId: INGRESS,
+    topicRef: TOPIC,
+    projectRefs: [{ projectId: PROJECT }],
+    expectsExecution: true,
+    implementationDecision: { intent: "implement", source: "explicit_owner_turn" },
+    response: { state: "superseded" },
+  }];
+  var denied = executionRouter(entries, [], [], { history: [] });
+  try {
+    assert.deepEqual(execute(denied.router), {
+      ok: false, reason: "owner_implementation_decision_required",
+    });
+  } finally { fs.rmSync(denied.dir, { recursive: true, force: true }); }
 });
 
 test("recovered ingress 360 replays from its exact canonical Main event into the Voice Thread", function () {
