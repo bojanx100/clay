@@ -186,6 +186,33 @@ test("ordinary project restore never selects an internal session omitted from th
   assert.equal(exact.active, internal, "an explicit durable conversation link remains authoritative");
 });
 
+test("ordinary project entry skips the internal Coop coordinator while an exact SessionRef keeps it reachable", function () {
+  var coordinator = {
+    localId: 1,
+    storageId: "project-coordinator",
+    lastViewedAt: 100,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  var ownerFacing = { localId: 2, storageId: "owner-facing", lastViewedAt: 10 };
+  var sessions = new Map([[coordinator.localId, coordinator], [ownerFacing.localId, ownerFacing]]);
+  var ordinary = state.findRestoredActiveSession(restoreOptions({
+    sessions: sessions,
+    allSessions: [coordinator, ownerFacing],
+    storedPresence: { sessionId: coordinator.localId },
+  }));
+  assert.equal(ordinary.active, ownerFacing);
+
+  var exact = state.findRestoredActiveSession(restoreOptions({
+    sessions: sessions,
+    allSessions: [coordinator, ownerFacing],
+    requestedSessionId: coordinator.storageId,
+    requestedSessionExact: true,
+  }));
+  assert.equal(exact.active, coordinator,
+    "an explicit SessionRef remains authoritative over the project default");
+});
+
 test("vendor, route, and Codex fallback model selection is deterministic", function () {
   var codex = state.selectInitialModelState({
     active: { vendor: "codex", providerRouteId: "codex-openai", requestedModel: "missing-model" },
