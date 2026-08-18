@@ -83,7 +83,7 @@ body.pane-mode #input-area {
   gap: 6px;
   padding: 0 5px 0 9px;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--sidebar-bg);
+  background: var(--bg);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
@@ -194,7 +194,9 @@ button.split-pair-role:hover { filter: brightness(1.25); }
   display: none;
   align-items: center;
   gap: 6px;
-  margin: 0 12px;
+  width: 100%;
+  max-width: var(--content-width);
+  margin: 0 auto;
   padding: 4px 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-bottom: 0;
@@ -205,6 +207,9 @@ button.split-pair-role:hover { filter: brightness(1.25); }
   line-height: 1.4;
 }
 .pane-delegation-notice.visible { display: flex; }
+.pane-delegation-notice.visible + #input-wrapper #input-row {
+  border-radius: 0 0 8px 8px;
+}
 .pane-delegation-notice::before {
   content: "";
   width: 6px;

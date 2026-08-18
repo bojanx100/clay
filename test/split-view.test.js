@@ -85,6 +85,21 @@ test("split role arrow stays anchored to the pane divider", function () {
   assert.match(paneCss, /#split-host\.split-delegating::after\s*\{[^}]*left:\s*calc\(50% - 17px\)/s);
 });
 
+test("split pane headers match the native session header background", function () {
+  var paneCss = fs.readFileSync(path.join(__dirname, "../lib/public/css/pane.css"), "utf8");
+
+  assert.match(paneCss, /\.split-pane-header\s*\{[^}]*background:\s*var\(--bg\)/s);
+});
+
+test("worker delegation notice joins the composer without a gap", function () {
+  var pairSource = fs.readFileSync(path.join(__dirname, "../lib/public/modules/split-pair-ui.js"), "utf8");
+  var paneCss = fs.readFileSync(path.join(__dirname, "../lib/public/css/pane.css"), "utf8");
+
+  assert.match(pairSource, /inputArea\.insertBefore\(workerNoticeEl, inputWrapper\)/);
+  assert.match(paneCss, /\.pane-delegation-notice\s*\{[^}]*width:\s*100%[^}]*max-width:\s*var\(--content-width\)[^}]*margin:\s*0 auto/s);
+  assert.match(paneCss, /\.pane-delegation-notice\.visible \+ #input-wrapper #input-row\s*\{[^}]*border-radius:\s*0 0 8px 8px/s);
+});
+
 test("split pane clients leave notification banners to the parent shell", function () {
   var notificationsSource = fs.readFileSync(path.join(__dirname, "../lib/public/modules/app-notifications.js"), "utf8");
   var initStart = notificationsSource.indexOf("export function initAppNotifications()");
