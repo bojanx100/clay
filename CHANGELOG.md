@@ -1,3 +1,10 @@
+## [3.2.2-beta.3](https://github.com/chadbyte/clay/compare/v3.2.2-beta.2...v3.2.2-beta.3) (2026-08-18)
+
+
+### Bug Fixes
+
+* **split:** align pane chrome with native sessions ([d9a800b](https://github.com/chadbyte/clay/commit/d9a800b49c83cec4052cb898778ae283ee0a00fb))
+
 ## [3.2.2-beta.2](https://github.com/chadbyte/clay/compare/v3.2.2-beta.1...v3.2.2-beta.2) (2026-08-18)
 
 
