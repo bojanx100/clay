@@ -1,3 +1,10 @@
+## [3.2.2-beta.2](https://github.com/chadbyte/clay/compare/v3.2.2-beta.1...v3.2.2-beta.2) (2026-08-18)
+
+
+### Performance Improvements
+
+* **daemon:** share periodic project sync loop ([263ba33](https://github.com/chadbyte/clay/commit/263ba33a6501c195e14befe72beae4964710b95e))
+
 ## [3.2.2-beta.1](https://github.com/chadbyte/clay/compare/v3.2.1...v3.2.2-beta.1) (2026-08-18)
 
 
