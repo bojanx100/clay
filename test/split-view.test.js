@@ -77,3 +77,20 @@ test("split view promotes one sticky-note canvas above both panes", function () 
   assert.match(notesSource, /setPointerCapture\(pointerId\)/);
   assert.match(paneCss, /body\.sticky-note-interacting \.split-pane-frame\s*\{[^}]*pointer-events:\s*none/s);
 });
+
+test("split role arrow stays anchored to the pane divider", function () {
+  var paneCss = fs.readFileSync(path.join(__dirname, "../lib/public/css/pane.css"), "utf8");
+
+  assert.match(paneCss, /#split-host\s*\{[^}]*position:\s*relative/s);
+  assert.match(paneCss, /#split-host\.split-delegating::after\s*\{[^}]*left:\s*calc\(50% - 17px\)/s);
+});
+
+test("split pane clients leave notification banners to the parent shell", function () {
+  var notificationsSource = fs.readFileSync(path.join(__dirname, "../lib/public/modules/app-notifications.js"), "utf8");
+  var initStart = notificationsSource.indexOf("export function initAppNotifications()");
+  var initEnd = notificationsSource.indexOf("// ========================================================", initStart);
+  var initSource = notificationsSource.slice(initStart, initEnd);
+
+  assert.match(initSource, /if \(store\.get\('paneMode'\)\) return;/);
+  assert.ok(initSource.indexOf("paneMode") < initSource.indexOf('document.createElement("div")'));
+});
