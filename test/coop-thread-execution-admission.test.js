@@ -1236,3 +1236,70 @@ test("review admission preserves exact owner project scoping", function () {
     assert.equal(delivered.length, 0);
   } finally { fs.rmSync(scoped.dir, { recursive: true, force: true }); }
 });
+
+test("a named owner approval admits the exact pending task it named", function () {
+  var delivered = [];
+  var handedOff = [];
+  var approvalIngress = "coop:canonical-coop:455";
+  // The Thread the approval route mints for the approved work. Owner
+  // provenance, bound to the approval turn.
+  var approvalTopic = { topicId: "owner-2f4c9d1a8b3e5f7061c2d4e6" };
+  var entries = [{
+    ingressId: approvalIngress,
+    ingressSequence: 455,
+    receivedAt: 2000,
+    topicRef: null,
+    projectRefs: [],
+    expectsExecution: false,
+    implementationDecision: null,
+    response: { state: "answered" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+  }];
+  var approved = executionRouter(entries, delivered, handedOff, {
+    history: [{
+      type: "user_message",
+      text: "approve eligibility fix",
+      coopIngressId: approvalIngress,
+      coopComposerScope: "main",
+      _ts: 2000,
+    }],
+    // Recorded BEFORE the approval, which is what makes it approvable at all.
+    leadEvents: [{
+      type: "staffing_attention",
+      attentionKey: "clay-lead-project-policy-eligibility:1",
+      itemId: "clay-lead-project-policy-eligibility",
+      portfolioTaskId: "clay-lead-project-policy-eligibility",
+      bindingRevision: 1,
+      seq: 40,
+      at: 1000,
+    }],
+  });
+  try {
+    var request = {
+      source: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+      portfolioTaskId: "clay-lead-project-policy-eligibility",
+      bindingRevision: 1,
+      idempotencyKey: "clay-lead-project-policy-eligibility-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT },
+      coopTopicRef: approvalTopic,
+      coopApprovalIngressId: approvalIngress,
+      objective: "Honor project auto-launch eligibility policy before Lead scoring.",
+    };
+    var result = approved.router.createProjectExecution(request);
+    assert.equal(result.ok, true, "the approval must admit the work it named");
+    assert.deepEqual(result.binding.targetProject, { projectId: PROJECT });
+    assert.equal(delivered.length, 1);
+    assert.equal(delivered[0].payload.coopApprovalIngressId, approvalIngress);
+
+    // A revision the owner never approved is refused on the same evidence.
+    var bumped = Object.assign({}, request, {
+      bindingRevision: 2,
+      idempotencyKey: "clay-lead-project-policy-eligibility-r2",
+    });
+    var refused = approved.router.createProjectExecution(bumped);
+    assert.equal(refused.ok, false);
+    assert.equal(refused.reason, "owner_approval_task_mismatch");
+    assert.equal(delivered.length, 1, "nothing new may be dispatched");
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});

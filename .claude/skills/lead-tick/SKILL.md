@@ -156,9 +156,12 @@ stall the backlog behind something only the boss can clear.
   **BEFORE** you ask, via `lib/lead-ledger.appendAttention` with the exact
   `portfolioTaskId` and `bindingRevision` you intend to staff. Then present
   the brief to the boss in plain terms (item, route, gate, boundaries) and
-  ask for approval. Only staff after an explicit yes, citing the approval's
-  ingress id as `coopApprovalIngressId` on `delegate_task`; then append the
-  `staffed` event.
+  ask for approval. Only staff after an explicit yes; then append the
+  `staffed` event. Do NOT try to pass the approval's ingress id yourself —
+  the server derives it from the canonical session history and mints the
+  Thread the approved work needs, exactly as it already does for queue-wide
+  authorization. Caller-supplied linkage is refused on purpose: you must not
+  be able to hand the gate the authorization you want believed.
   **Why the order is binding:** an approval is referential — it means "yes to
   *that*" — so `lib/coop-item-approval.js` admits it only against an item that
   was ALREADY pending when the boss spoke. Ask first and record after, and the

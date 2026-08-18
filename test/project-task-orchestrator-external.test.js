@@ -726,3 +726,117 @@ test("an incomplete typed dispatch is refused with a legible reason", function (
   assert.equal(reached, false);
   assert.equal(result.reason, undefined);
 });
+
+test("a named owner approval routes itself and mints the Thread it needs", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var approval = {
+    type: "user_message",
+    text: "approve eligibility fix",
+    coopIngressId: "coop:canonical-coop:455",
+    coopComposerScope: "main",
+    _ts: 2000,
+  };
+  var source = { localId: 1, storageId: "canonical-coop", history: [approval] };
+  var minted = [];
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    // The pending item, recorded BEFORE the approval as the contract requires.
+    readLeadEvents: function () {
+      return [{
+        type: "staffing_attention",
+        attentionKey: "clay-lead-project-policy-eligibility:1",
+        itemId: "clay-lead-project-policy-eligibility",
+        portfolioTaskId: "clay-lead-project-policy-eligibility",
+        bindingRevision: 1,
+        at: 1000,
+        seq: 1,
+      }];
+    },
+    ensureOwnerThread: function (request) {
+      minted.push(request);
+      return { ok: true, created: true, topicRef: { topicId: "owner-deadbeef" },
+        threadRef: { threadId: "owner-deadbeef" } };
+    },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+
+  var result = coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-lead-project-policy-eligibility",
+    bindingRevision: 1,
+    idempotencyKey: "eligibility-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+  });
+  assert.equal(result.ok, true);
+
+  // The approval ingress is derived server-side, never taken from the caller.
+  assert.equal(delivered.coopApprovalIngressId, "coop:canonical-coop:455");
+  // The Thread is bound to the approval turn and reaches the gate as a TopicRef,
+  // which is what "thread_ref_required" was blocking on.
+  assert.equal(minted.length, 1);
+  assert.equal(minted[0].ingressId, "coop:canonical-coop:455");
+  assert.equal(minted[0].projectRef.projectId, projectId);
+  assert.deepEqual(delivered.coopTopicRef, { topicId: "owner-deadbeef" });
+});
+
+test("an approval never routes a task it did not name", function () {
+  var approval = {
+    type: "user_message",
+    text: "approve eligibility fix",
+    coopIngressId: "coop:canonical-coop:455",
+    coopComposerScope: "main",
+    _ts: 2000,
+  };
+  var source = { localId: 1, storageId: "canonical-coop", history: [approval] };
+  var minted = 0;
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    readLeadEvents: function () {
+      return [{
+        type: "staffing_attention",
+        attentionKey: "clay-lead-project-policy-eligibility:1",
+        itemId: "clay-lead-project-policy-eligibility",
+        portfolioTaskId: "clay-lead-project-policy-eligibility",
+        bindingRevision: 1,
+        at: 1000,
+        seq: 1,
+      }];
+    },
+    ensureOwnerThread: function () {
+      minted++;
+      return { ok: true, topicRef: { topicId: "owner-should-not-exist" } };
+    },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+
+  // Same approval, a DIFFERENT task: no route, and above all no Thread minted
+  // for work the owner never approved.
+  coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-something-else-entirely",
+    bindingRevision: 1,
+    idempotencyKey: "other-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+  });
+  assert.equal(minted, 0);
+  assert.equal(delivered.coopApprovalIngressId, undefined);
+  assert.equal(delivered.coopTopicRef, undefined);
+
+  // A bumped revision is outside the approval too.
+  coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-lead-project-policy-eligibility",
+    bindingRevision: 2,
+    idempotencyKey: "eligibility-r2",
+    mode: "project_coordinator",
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+  });
+  assert.equal(minted, 0);
+  assert.equal(delivered.coopApprovalIngressId, undefined);
+});
