@@ -35,6 +35,28 @@ test("staffing composes complete delegate_task args from item + route", function
   assert.strictEqual(args.mode, "project_coordinator");
 });
 
+test("GitHub candidate identity shares staffing's canonical default portfolio task id", function () {
+  var candidate = {
+    source: "github",
+    project: "webapp",
+    projectRef: TARGET,
+    itemKey: "trialview/v2#2517",
+  };
+  assert.strictEqual(staffing.portfolioTaskIdForCandidate(candidate), "portfolio-webapp-2517");
+
+  var item = makeItem("Fix live Webapp regression");
+  item.project = "webapp";
+  item.id = "webapp#2517";
+  item.number = 2517;
+  item.projectRef = TARGET;
+  var route = routing.routeWorkItem(item.classification, {});
+  var args = staffing.composeStaffing(item, route, staffingOptions("lib/webapp.js"));
+  assert.strictEqual(args.portfolioTaskId, staffing.portfolioTaskIdForCandidate(candidate));
+  assert.strictEqual(staffing.portfolioTaskIdForCandidate(Object.assign({}, candidate, {
+    itemKey: "trialview/v2 issue 2517",
+  })), "", "identity must come from an exact structured GitHub item key");
+});
+
 test("mechanical work gets light criteria and routine difficulty", function () {
   var item = makeItem("Fix typo in README");
   var route = routing.routeWorkItem(item.classification, {});

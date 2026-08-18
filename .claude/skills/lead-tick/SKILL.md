@@ -67,8 +67,16 @@ above in every staffing/spend-class exchange before applying the gates below.
   from that exact project root. Also construct the project's scoped
   `candidateEligibility(itemKey, assignedToOwner, recipeAllowsUnassigned)` by
   checking `project-automation-candidates.completionEligibility` against that
-  project's `project-issue-launch-state`, then its
-  `project-automation-overrides.eligibility`. Pass `resolveGithubSources` one
+  project's `project-issue-launch-state` AND the canonical typed binding list
+  loaded above. Pass the candidate as `{ source: "github", project,
+  projectRef, itemKey }`; this makes the binding check use
+  `lead-staffing.portfolioTaskIdForCandidate`, the same exact default identity
+  path staffing uses. If completion eligibility is not eligible, return it
+  unchanged; otherwise check `project-automation-overrides.eligibility`. An
+  explicit issue-launch-state relaunch remains eligible, but absent/non-relaunch
+  state plus the latest active or completed typed binding returns
+  `already_completed_or_in_flight`. Never derive identity from a session title,
+  note, issue-number substring, or workflow prose. Pass `resolveGithubSources` one
   entry per project — `{ project, projectRef, originRepo, configs,
   automationPolicy, candidateEligibility }`, where `originRepo` is that
   project's `git config --get remote.origin.url`, `configs` are its parsed

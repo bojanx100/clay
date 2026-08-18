@@ -5,6 +5,7 @@ var test = require("node:test");
 var assert = require("node:assert");
 
 var backlog = require("../lib/lead-backlog");
+var automationCandidates = require("../lib/project-automation-candidates");
 var policyModule = require("../lib/project-automation-policy");
 
 var NOW = 1785700000000;
@@ -655,4 +656,62 @@ test("an attested ineligible candidate is never classified or scored", function 
   var portfolio = backlog.buildPortfolio([{ project: "webapp", items: [blocked] }], { now: NOW });
   assert.deepStrictEqual(portfolio.items, []);
   assert.strictEqual(portfolio.summary.ineligible, 1);
+});
+
+test("live Webapp #2517 completed binding excludes the issue before scoring", function (t, done) {
+  var noIssueEntry = {
+    hasEntry: function () { return false; },
+    shouldRelaunch: function () { return false; },
+  };
+  var bindings = [{
+    portfolioTaskId: "portfolio-webapp-2517",
+    bindingRevision: 1,
+    idempotencyKey: "staff-portfolio-webapp-2517-r1",
+    targetProject: WEBAPP_REF,
+    mode: "project_coordinator",
+    status: "completed",
+    coordinator: { projectId: WEBAPP_REF.projectId, sessionStorageId: "webapp-2517-r1" },
+    createdAt: 1787000000001,
+    updatedAt: 1787000001001,
+  }];
+  var resolved = backlog.resolveGithubSources([{
+    project: "webapp",
+    projectRef: WEBAPP_REF,
+    originRepo: "https://bojantv@github.com/trialview/v2.git",
+    configs: [WEBAPP_ASSIGNED],
+    automationPolicy: policyFor(WEBAPP_REF, [WEBAPP_ASSIGNED]),
+    candidateEligibility: function (itemKey) {
+      return automationCandidates.completionEligibility(noIssueEntry, {
+        source: "github",
+        project: "webapp",
+        projectRef: WEBAPP_REF,
+        itemKey: itemKey,
+      }, bindings);
+    },
+  }]);
+  assert.deepStrictEqual(resolved.conflicts, []);
+
+  var fakeExec = function (cmd, args, cb) {
+    if (args[0] === "api") return cb(null, JSON.stringify({ login: "bojantv" }));
+    cb(null, JSON.stringify([{
+      number: 2517,
+      title: "Live completed issue resurfaced",
+      state: "OPEN",
+      labels: [{ name: "P0" }],
+      assignees: [{ login: "bojantv" }],
+      projectItems: [{ status: { name: "Backlog" } }],
+    }]));
+  };
+  backlog.collectGithubIssues(fakeExec, resolved.sources[0], "webapp", function (err, items, metadata) {
+    assert.strictEqual(err, null);
+    assert.deepStrictEqual(items, []);
+    assert.deepStrictEqual(metadata.exclusions, [{
+      number: 2517,
+      reason: "already_completed_or_in_flight",
+    }]);
+    var portfolio = backlog.buildPortfolio([{ project: "webapp", items: items }], { now: NOW });
+    assert.strictEqual(portfolio.summary.total, 0);
+    assert.strictEqual(portfolio.summary.top, null);
+    done();
+  });
 });
