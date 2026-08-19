@@ -1122,10 +1122,14 @@ test("large session saves write bounded chunks instead of one whole-history payl
   var maxChunkBytes = 0;
   try {
     var session = h.sm.createSessionRaw({ storageId: "bounded-large-save" });
+    // Deliberately not deltas: a contiguous run of them is coalesced into one
+    // line on the way to disk, which would collapse this fixture to a single
+    // entry and stop it exercising chunked writing at all.
     for (var i = 0; i < 24; i++) {
       session.history.push({
-        type: "delta",
-        text: String(i) + ":" + "x".repeat(128 * 1024),
+        type: "tool_result",
+        id: "bounded-" + i,
+        content: String(i) + ":" + "x".repeat(128 * 1024),
         _ts: Date.now() + i,
       });
     }
