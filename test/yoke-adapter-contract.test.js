@@ -74,3 +74,57 @@ test("Claude query handles reject messages after their input queue closes", func
   assert.strictEqual(handle.pushMessage("must not be dropped silently"), false);
   assert.strictEqual(queue.push({ type: "user" }), false);
 });
+
+test("Claude worker transport reports closed and failed IPC writes", function() {
+  var claudeModule = require("../lib/yoke/adapters/claude");
+  var kit = claudeModule.contractTestKit;
+  var writes = [];
+  var worker = {
+    connection: {
+      destroyed: false,
+      writableEnded: false,
+      writable: true,
+      write: function(data) { writes.push(data); return false; },
+    },
+  };
+
+  assert.strictEqual(kit.sendWorkerMessage(worker, { type: "probe" }), true);
+  assert.strictEqual(writes.length, 1);
+
+  worker.connection.destroyed = true;
+  assert.strictEqual(kit.sendWorkerMessage(worker, { type: "closed" }), false);
+
+  worker.connection.destroyed = false;
+  worker.connection.write = function() { throw new Error("closed during write"); };
+  assert.strictEqual(kit.sendWorkerMessage(worker, { type: "failed" }), false);
+});
+
+test("Claude worker handles reject a message when IPC delivery fails", function() {
+  var claudeModule = require("../lib/yoke/adapters/claude");
+  var kit = claudeModule.contractTestKit;
+  var handler;
+  var worker = {
+    process: { killed: false, exitCode: null },
+    exitPromise: Promise.resolve(),
+    send: function() { return false; },
+    onMessage: function(fn) { handler = fn; },
+  };
+  var handle = kit.createWorkerQueryHandle(worker);
+
+  assert.strictEqual(typeof handler, "function");
+  assert.strictEqual(handle.pushMessage("must be retried"), false);
+});
+
+test("Claude only reuses workers with a live writable IPC connection", function() {
+  var claudeModule = require("../lib/yoke/adapters/claude");
+  var kit = claudeModule.contractTestKit;
+  var worker = {
+    ready: true,
+    process: { killed: false, exitCode: null },
+    connection: { destroyed: false, writableEnded: false, writable: true },
+  };
+
+  assert.strictEqual(kit.canReuseWorker(worker), true);
+  worker.connection.writableEnded = true;
+  assert.strictEqual(kit.canReuseWorker(worker), false);
+});
