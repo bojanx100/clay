@@ -1,8 +1,125 @@
 # `thread_ref_required` standing dispatch blocker — engineering brief
 
-Status: **open**. Written 2026-08-19 for a Clay engineering session to fix.
-Not a fix, not a diagnosis to trust blindly — a scoped starting point with the
-evidence already gathered and two wrong turns already burned.
+Status: **measured and partly fixed 2026-08-19.** Read
+[the measurement section](#what-was-actually-measured) before the hypotheses
+below it: the leading hypothesis in this brief was **disproved**, and one of the
+"established facts" was substantively misleading. The original text is kept
+verbatim underneath so the reasoning trail stays auditable, but do not act on it.
+
+Written 2026-08-19 for a Clay engineering session to fix. Not a fix, not a
+diagnosis to trust blindly — a scoped starting point with the evidence already
+gathered and two wrong turns already burned.
+
+## What was actually measured
+
+Instrumented all six `approvalExecutionRoute` gates and `currentExecutionRoute`,
+then replayed a real dispatch of `webapp-automation-policy-board-exclusions` rev2
+against the real canonical Coop transcript (`871a194b`, 37 831 events) and the
+real Lead ledger (613 events).
+
+**`approvalExecutionRoute` is never reached.** No gate in it fires, so the
+revision-equality hypothesis at lines 153-155 is dead. The route is decided
+earlier, in `currentExecutionRoute`'s history scan:
+
+```
+ROUTE: ledgerImplementationRoute empty
+ROUTE: history scan hit index=32453 unscopedMain=false itemTopicRef=null
+       ingress=coop:871a194b…:482 scope=main text="FIX!"
+RESULT ROUTE: {"coopTopicRef":null,"coopIngressId":"coop:871a194b…:482"}
+```
+
+The scan's topic filter is `if (requested && topicId !== requested …) continue;`.
+A dispatch that names no Thread makes `requested` falsy, which switches the
+filter **off entirely**, so the scan returns the latest implementation ingress
+*anywhere* in history. For board-exclusions rev2 (project `b0c9b7a0`) that is
+owner turn `:482` — "FIX!" — a turn about project `5332aafc` whose owner-request
+record was already scoped to `clay-thread-followup-resolution-fix-2026-08-18`
+rev1. Its event carries no TopicRef, so `implementationAdmission` bailed at
+`!request.coopTopicRef` and `missingThreadRefReason(":482")` found a genuine
+implementation decision on it and answered `thread_ref_required`.
+
+That explains every symptom: permanence (the same wrong turn is picked every
+time), `thread_ref_required` rather than `access_denied` (session scope is
+irrelevant, confirming seq 610), and survival of `a6d005642c` (a decision really
+does exist — just not this task's). It also means the early return **shadowed
+`queueExecutionRoute` and `approvalExecutionRoute`**, the only routes that can
+supply a Thread, so the minting path was unreachable for any unscoped dispatch.
+
+Correction to "established fact" #1 above: the reason was *technically* truthful
+and *substantively* misleading. It described an unrelated owner turn.
+
+### Second measured defect, on the same path
+
+Once the hijack is narrowed, `approvalExecutionRoute` becomes reachable and dies
+at gate 3: `pendingApprovalSnapshotAt` → `owner_approval_scope_too_large`. Live
+state holds **38 unresolved attention items against a cap of 32**. The cap was
+copied from `coop-queue-authorization`, where it bounds how many tasks one sweep
+may staff; a named approval staffs exactly one item however many are waiting, so
+here it bounded nothing and only created a cliff that can never self-heal,
+because the unresolved backlog only grows.
+
+### Why rev2 and rev3 are still not dispatchable
+
+The owner authorizations exist, but for **revision 1**:
+
+| Ingress | Task | Scope | rev1 binding outcome |
+|---|---|---|---|
+| `:459` | `webapp-automation-policy-board-exclusions` | rev **1**, project `b0c9b7a0`, Thread `owner-65d0dc78…` | **failed** |
+| `:479` | `clay-voice-end-to-end-qa-2026-08-18` | rev **1**, project `5332aafc`, Thread `owner-ca174658…` | **completed** |
+
+Every owner turn after `:459` was audited: none authorizes board-exclusions rev2.
+The only implementation ingresses after it (`:468`, `:472`, `:482`) are scoped to
+other tasks in another project. So rev2/rev3 are **retries after a terminal
+outcome**, and `implementationScope` is pinned to rev1 — correctly, since an
+approval must not silently authorize rewritten work.
+
+Making them dispatchable therefore needs an explicit approval carry-forward,
+which is exactly what the owner's most recent turn (`:503`) asks for: *"Bind it
+to task, carry the approval forward on retry."* See the escalation below.
+
+## What was fixed
+
+1. **Router hijack** (`project-task-orchestrator-external-delegation.js`). An
+   unscoped dispatch may now only adopt an owner turn that provably covers the
+   requested work: the owner's most recent turn, or a turn whose durable
+   owner-request scope names this exact project, task and revision. On a scope
+   match the record's own TopicRef is routed rather than dropped — that Thread
+   already belongs to the owner's turn, so nothing is minted. Strictly narrower
+   than before: it can only reduce what the router proposes, and
+   `implementationAdmission` re-derives every authorization independently.
+2. **Truthful blocker** (`server-cross-project.js`). An empty route means no
+   owner turn authorizes the dispatch, so `missingThreadRefReason` now reports
+   `owner_implementation_decision_required` instead of relocating the same
+   misdiagnosis onto the no-ingress case.
+3. **Approval cliff** (`coop-item-approval.js`). `MAX_PENDING_ITEMS` no longer
+   nullifies the snapshot. The set is **never truncated** — dropping a rival
+   candidate could turn an ambiguous approval into a false unique match, which
+   would be the genuinely fail-open move. Authorization keeps being done by
+   `resolveApprovedTask`'s exactly-one-match rule, which gets *harder* to satisfy
+   as the set grows, never easier.
+
+Measured effect on the real transcript: board-exclusions **rev1** now routes to
+its own turn `:459` with its own Thread `owner-65d0dc78…` (was: `:482` with a
+null Thread); `:482` still routes correctly for the task it *does* authorize;
+rev2 now returns no route and reports the truthful reason.
+
+## Escalated, not fixed: approval carry-forward on retry
+
+Deliberately not implemented here, for two reasons.
+
+*Boundary:* a carry-forward must be **durably recorded** to be explicit rather
+than implicit, and `scopeImplementation` is first-scope-wins by design
+(`coop-owner-requests.js:352`), which is outside this task's owned paths.
+
+*Semantics:* the safe rule is narrow, and the two stuck items fall on opposite
+sides of it. An approval scoped to `T:R` should authorize `T:R'` only when the
+target project and task are identical, `R' > R`, revision `R` reached a terminal
+**unsuccessful** state, and **no** revision of `T` has ever completed — success
+consumes an approval. Under that rule board-exclusions rev2 (rev1 **failed**)
+carries forward, and Voice rev3 (rev1 **completed**, and `:498` asks for *new*
+work: "Do another verification and tell me how to use it") correctly does not.
+Relaxing the revision check instead would convert a fail-closed authorization
+gate into a fail-open one.
 
 ## Symptom
 
@@ -18,7 +135,7 @@ Both `mode: project_coordinator`. Canaries are quiet; the only evidence is
 `staffing_attention` in `~/.clay/lead/ledger.jsonl` (seq 604, 605, 607, 608, 610).
 Retrying identically does not help and should not be repeated.
 
-## Two hypotheses already disproved
+## Two hypotheses already disproved (original text below — see the measurement above)
 
 Record these so nobody spends another day on them.
 
@@ -64,7 +181,7 @@ returned) while the owner event has none. That combination is reachable *only*
 via `approvalExecutionRoute`. It is not dead code, but it is entirely downstream
 of the one minting path — if that path returns `{}`, this never runs either.
 
-## Leading hypothesis — revision drift in the approval route
+## Leading hypothesis — revision drift in the approval route (DISPROVED by measurement)
 
 `approvalExecutionRoute` returns `{}` (no Thread) at six gates. The one that
 best fits the evidence is lines 153-155:

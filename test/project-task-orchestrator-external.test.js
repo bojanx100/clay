@@ -938,3 +938,258 @@ test("an approval never routes a task it did not name", function () {
   assert.equal(minted, 0);
   assert.equal(delivered.coopApprovalIngressId, undefined);
 });
+
+// The standing thread_ref_required dispatch blocker, reproduced from the live
+// shapes measured on 2026-08-19 in the canonical Coop session.
+//
+// The owner authorized webapp-automation-policy-board-exclusions rev1 at ingress
+// 459, which carries a durable implementationScope and its own Thread. Later,
+// unrelated Main turns ("Fix that too", "FIX!") gained implementation decisions
+// scoped to other tasks in another project. Because the scan's topic filter is
+// guarded by `requested`, a dispatch that named no Thread adopted the LATEST
+// implementation ingress instead of its own -- ingress 482, for project
+// 5332aafc, whose event carries no TopicRef. The gate then reported
+// thread_ref_required and blamed a Thread-minting gap that was never the
+// blocker, and the early return also shadowed the approval route, the only path
+// that can mint a Thread.
+function boardExclusionsSource() {
+  var webapp = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+  var other = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var authorization = {
+    type: "user_message",
+    text: "Implement webapp-automation-policy-board-exclusions revision 1 in the Webapp project.",
+    coopIngressId: "coop:canonical-coop:459",
+    coopComposerScope: "main",
+    coopImplementationDecision: { intent: "implement" },
+    _ts: 1000,
+  };
+  var unrelated = {
+    type: "user_message",
+    text: "FIX!",
+    coopIngressId: "coop:canonical-coop:482",
+    coopComposerScope: "main",
+    coopImplementationDecision: { intent: "fix" },
+    _ts: 2000,
+  };
+  // The owner's most recent turn is conversational, exactly as in live state, so
+  // it is not an implementation ingress and cannot itself carry the route.
+  var latest = {
+    type: "user_message",
+    text: "Bind it to task, carry the approval forward on retry",
+    coopIngressId: "coop:canonical-coop:503",
+    coopComposerScope: "main",
+    _ts: 3000,
+  };
+  var entries = {
+    "coop:canonical-coop:459": {
+      ingressId: "coop:canonical-coop:459",
+      expectsExecution: true,
+      implementationDecision: { intent: "implement" },
+      topicRef: { topicId: "owner-65d0dc78c4e6d085002842c1" },
+      projectRefs: [{ projectId: webapp }],
+      implementationScope: {
+        projectRef: { projectId: webapp },
+        topicRef: { topicId: "owner-65d0dc78c4e6d085002842c1" },
+        portfolioTaskId: "webapp-automation-policy-board-exclusions",
+        bindingRevision: 1,
+        idempotencyKey: "webapp-automation-policy-board-exclusions-r1",
+      },
+    },
+    "coop:canonical-coop:482": {
+      ingressId: "coop:canonical-coop:482",
+      expectsExecution: true,
+      implementationDecision: { intent: "fix" },
+      topicRef: { topicId: "owner-db63c678eaf213b79b8c62e9" },
+      projectRefs: [{ projectId: other }],
+      implementationScope: {
+        projectRef: { projectId: other },
+        topicRef: { topicId: "owner-db63c678eaf213b79b8c62e9" },
+        portfolioTaskId: "clay-thread-followup-resolution-fix-2026-08-18",
+        bindingRevision: 1,
+        idempotencyKey: "clay-thread-followup-resolution-fix-2026-08-18-r1",
+      },
+    },
+  };
+  return {
+    webapp: webapp,
+    other: other,
+    source: { localId: 1, storageId: "canonical-coop",
+      history: [authorization, unrelated, latest] },
+    ownerRequests: {
+      get: function (id) { return entries[id] || null; },
+      forTopic: function () { return []; },
+    },
+  };
+}
+
+test("an unscoped dispatch never adopts an owner turn that authorized other work", function () {
+  var live = boardExclusionsSource();
+  var delivered = null;
+  var minted = 0;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return live.source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: live.ownerRequests,
+    readLeadEvents: function () { return []; },
+    ensureOwnerThread: function () {
+      minted++;
+      return { ok: true, topicRef: { topicId: "owner-minted" } };
+    },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+  function dispatch(revision) {
+    delivered = null;
+    return coordinate({
+      coordinatorSessionId: "canonical-coop",
+      portfolioTaskId: "webapp-automation-policy-board-exclusions",
+      bindingRevision: revision,
+      idempotencyKey: "webapp-automation-policy-board-exclusions-r" + revision,
+      mode: "project_coordinator",
+      targetProject: { projectId: live.webapp },
+    });
+  }
+
+  // rev1: the owner's own authorization is found, and with it the Thread that
+  // owner turn already owns. Before the fix this routed ingress 482 with no
+  // TopicRef at all, which is what surfaced as thread_ref_required.
+  dispatch(1);
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:459");
+  assert.deepEqual(delivered.coopTopicRef, { topicId: "owner-65d0dc78c4e6d085002842c1" });
+  // The Thread is the owner turn's existing one, not a newly minted container.
+  assert.equal(minted, 0);
+
+  // rev2: the owner authorized rev1 only. No owner turn covers rev2, so no
+  // route is proposed -- and above all, the unrelated "FIX!" turn for another
+  // project is not borrowed to stand in for one.
+  dispatch(2);
+  assert.equal(delivered.coopIngressId, undefined);
+  assert.equal(delivered.coopTopicRef, undefined);
+  assert.equal(minted, 0);
+});
+
+test("narrowing the unscoped scan still routes the task each owner turn did authorize", function () {
+  var live = boardExclusionsSource();
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return live.source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: live.ownerRequests,
+    readLeadEvents: function () { return []; },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+  // Ingress 482 is not blocked as such -- it is only blocked for work it never
+  // authorized. Asked for its own task, it routes, with its own Thread.
+  coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-thread-followup-resolution-fix-2026-08-18",
+    bindingRevision: 1,
+    idempotencyKey: "clay-thread-followup-resolution-fix-2026-08-18-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: live.other },
+  });
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:482");
+  assert.deepEqual(delivered.coopTopicRef, { topicId: "owner-db63c678eaf213b79b8c62e9" });
+});
+
+test("an unscoped dispatch may still adopt the owner turn that just spoke", function () {
+  // The unscoped-Main path depends on this: the owner types a fix request in
+  // Main with no Thread and Coop dispatches immediately. That turn is the latest
+  // owner ingress and carries no durable scope yet, so it stays routable and
+  // admitUnscopedMainImplementation re-derives it independently. Narrowing the
+  // scan must not close this.
+  var justSpoke = {
+    type: "user_message",
+    text: "Fix the broken thing now",
+    coopIngressId: "coop:canonical-coop:600",
+    coopComposerScope: "main",
+    coopImplementationDecision: { intent: "fix" },
+    _ts: 5000,
+  };
+  var source = { localId: 1, storageId: "canonical-coop", history: [justSpoke] };
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: { get: function () { return null; }, forTopic: function () { return []; } },
+    readLeadEvents: function () { return []; },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+  coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-some-new-task",
+    bindingRevision: 1,
+    idempotencyKey: "clay-some-new-task-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+  });
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:600");
+  // Still no Thread: that gap is real and separate. The point here is only that
+  // the turn is not filtered out by the narrowing.
+  assert.equal(delivered.coopTopicRef, undefined);
+});
+
+test("an unscoped hijack no longer shadows the Thread-minting approval route", function () {
+  // The approval route is the only path that mints a Thread for approved backlog
+  // work. Before the fix the scan returned an unrelated implementation ingress
+  // first, so this route was unreachable for any dispatch without a TopicRef.
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var unrelated = {
+    type: "user_message",
+    text: "Fix that too",
+    coopIngressId: "coop:canonical-coop:468",
+    coopComposerScope: "main",
+    coopImplementationDecision: { intent: "fix" },
+    _ts: 1000,
+  };
+  var approval = {
+    type: "user_message",
+    text: "approve eligibility fix",
+    coopIngressId: "coop:canonical-coop:455",
+    coopComposerScope: "main",
+    _ts: 3000,
+  };
+  var source = { localId: 1, storageId: "canonical-coop", history: [unrelated, approval] };
+  var minted = [];
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: {
+      get: function () {
+        return { ingressId: "coop:canonical-coop:468", expectsExecution: true,
+          implementationDecision: { intent: "fix" },
+          implementationScope: {
+            projectRef: { projectId: projectId },
+            topicRef: { topicId: "owner-other" },
+            portfolioTaskId: "clay-unrelated-task",
+            bindingRevision: 1,
+            idempotencyKey: "clay-unrelated-task-r1",
+          } };
+      },
+      forTopic: function () { return []; },
+    },
+    readLeadEvents: function () {
+      return [{ type: "staffing_attention",
+        attentionKey: "clay-lead-project-policy-eligibility:1",
+        itemId: "clay-lead-project-policy-eligibility",
+        portfolioTaskId: "clay-lead-project-policy-eligibility",
+        bindingRevision: 1, at: 1000, seq: 1 }];
+    },
+    ensureOwnerThread: function (request) {
+      minted.push(request);
+      return { ok: true, topicRef: { topicId: "owner-deadbeef" } };
+    },
+    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+  });
+  coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-lead-project-policy-eligibility",
+    bindingRevision: 1,
+    idempotencyKey: "eligibility-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+  });
+  assert.equal(delivered.coopApprovalIngressId, "coop:canonical-coop:455");
+  assert.equal(minted.length, 1);
+  assert.deepEqual(delivered.coopTopicRef, { topicId: "owner-deadbeef" });
+});

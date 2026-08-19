@@ -220,3 +220,55 @@ test("a cutover attention is pending for approval just like a staffing attention
     itemApproval.pendingApprovalSnapshotAt([attention(BOARD, 3000, { type: "cutover_attention" })],
       2000).tasks, []);
 });
+
+test("a large pending backlog does not disable every named approval", function () {
+  // Live state on 2026-08-19 held 38 unresolved attention items. The cap was 32,
+  // inherited from coop-queue-authorization where it bounds how many tasks one
+  // sweep may staff. A named approval staffs exactly one item regardless, so the
+  // cap bounded nothing here -- it just failed the whole gate closed, forever,
+  // since an unresolved backlog only grows.
+  var events = [];
+  for (var i = 0; i < 38; i++) {
+    events.push({
+      type: "staffing_attention",
+      attentionKey: "clay-pending-item-" + i + ":1",
+      itemId: "clay-pending-item-" + i,
+      portfolioTaskId: "clay-pending-item-" + i,
+      bindingRevision: 1,
+      at: 1000 + i,
+      seq: i + 1,
+    });
+  }
+  events.push({
+    type: "staffing_attention",
+    attentionKey: "webapp-automation-policy-board-exclusions:2",
+    itemId: "webapp-automation-policy-board-exclusions",
+    portfolioTaskId: "webapp-automation-policy-board-exclusions",
+    bindingRevision: 2,
+    at: 2000,
+    seq: 100,
+  });
+
+  var snapshot = itemApproval.pendingApprovalSnapshotAt(events, 5000);
+  assert.equal(snapshot.ok, true, "39 waiting items must not nullify the snapshot");
+  assert.equal(snapshot.tasks.length, 39, "the set is never truncated to fit a cap");
+
+  // The authorization work is still done by unambiguous identification, not by
+  // set size: a named approval resolves, and a bare one cannot.
+  var named = itemApproval.resolveApprovedTask(snapshot,
+    "webapp-automation-policy-board-exclusions");
+  assert.equal(named.ok, true);
+  assert.equal(named.task.portfolioTaskId, "webapp-automation-policy-board-exclusions");
+  assert.equal(named.task.bindingRevision, 2);
+
+  var bare = itemApproval.resolveApprovedTask(snapshot, "");
+  assert.deepEqual(bare, { ok: false, reason: "owner_approval_ambiguous" },
+    "a bare approval against many waiting items must still fail closed");
+
+  // An approval that names something no pending item matches still fails closed,
+  // and a wording that fits two candidates equally still refuses to pick.
+  assert.deepEqual(itemApproval.resolveApprovedTask(snapshot, "something nobody queued"),
+    { ok: false, reason: "owner_approval_unmatched_item" });
+  assert.deepEqual(itemApproval.resolveApprovedTask(snapshot, "pending"),
+    { ok: false, reason: "owner_approval_ambiguous" });
+});

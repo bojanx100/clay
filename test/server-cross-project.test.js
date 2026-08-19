@@ -1428,3 +1428,74 @@ test("a missing ThreadRef is not blamed when no owner decision exists", function
   conversational.expectsExecution = true;
   assert.equal(dispatch().reason, "thread_ref_required");
 });
+
+test("no owner turn at all is not reported as a missing ThreadRef", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-no-ingress-"));
+  var projectId = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+  // The live shape behind the standing blocker measured on 2026-08-19. The
+  // router used to hand this dispatch an unrelated owner ingress, so the gate
+  // found a real implementation decision on it and answered thread_ref_required
+  // -- true of that ingress, and completely misleading about this dispatch.
+  // With the hijack narrowed the route arrives empty, and an empty route means
+  // no owner turn authorizes this work at all. Saying "thread_ref_required" here
+  // would just relocate the same misdiagnosis: there is nothing yet for a Thread
+  // to be bound to.
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    allowLeadSourcedExecution: true,
+    requireOwnerImplementationDecision: true,
+    ownerRequests: {
+      get: function () { return null; },
+      forTopic: function () { return []; },
+    },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+
+  var result = router.createProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    portfolioTaskId: "webapp-automation-policy-board-exclusions",
+    bindingRevision: 2,
+    idempotencyKey: "webapp-automation-policy-board-exclusions-r2",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+    objective: "Exclude the configured boards from automation policy.",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_decision_required",
+    "an empty route means no owner decision, not a missing Thread");
+  assert.match(result.error, /A missing ThreadRef is not the blocker here/);
+
+  // A cited ingress that DOES carry a decision still reports the ThreadRef as
+  // the blocker, because for that dispatch it genuinely is.
+  var decided = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings-2.json"),
+    deliveryFile: path.join(dir, "delivery-2.json"),
+    allowLeadSourcedExecution: true,
+    requireOwnerImplementationDecision: true,
+    ownerRequests: {
+      get: function () {
+        return { ingressId: "coop:coop:459", expectsExecution: true,
+          implementationDecision: { intent: "implement" }, projectRefs: [] };
+      },
+      forTopic: function () { return []; },
+    },
+  });
+  decided.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+  assert.equal(decided.createProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    coopIngressId: "coop:coop:459",
+    portfolioTaskId: "webapp-automation-policy-board-exclusions",
+    bindingRevision: 1,
+    idempotencyKey: "webapp-automation-policy-board-exclusions-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+    objective: "Exclude the configured boards from automation policy.",
+  }).reason, "thread_ref_required");
+});
