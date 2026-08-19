@@ -3,13 +3,33 @@ var assert = require("node:assert");
 
 var createSDKBridge = require("../lib/sdk-bridge").createSDKBridge;
 
-function createBridge() {
+function createBridge(sessionManager) {
   return createSDKBridge({
     cwd: process.cwd(),
-    sessionManager: {},
-    adapter: {},
+    sessionManager: sessionManager || {},
+    adapter: { vendor: "codex" },
     send: function () {},
   });
+}
+
+function createEndingHandle(events, beforeDone) {
+  var index = 0;
+  return {
+    pushMessage: function() { return true; },
+    close: function() {},
+    [Symbol.asyncIterator]: function() {
+      return {
+        next: function() {
+          if (index < events.length) {
+            var event = events[index++];
+            return Promise.resolve({ value: event, done: false });
+          }
+          if (beforeDone) beforeDone();
+          return Promise.resolve({ value: undefined, done: true });
+        },
+      };
+    },
+  };
 }
 
 test("pushMessage retires a query handle that rejects delivery", function() {
@@ -70,4 +90,61 @@ test("rejected delivery does not clear resources from a replacement query", func
   assert.strictEqual(session.queryInstance, replacementQuery);
   assert.strictEqual(session.abortController, replacementAbortController);
   assert.strictEqual(session.messageQueue, replacementMessageQueue);
+});
+
+test("adapter errors finish a result-less stream instead of leaving it processing", async function() {
+  var recorded = [];
+  var broadcasts = 0;
+  var bridge = createBridge({
+    sendAndRecord: function(session, msg) { recorded.push(msg); },
+    sendToSession: function() {},
+    broadcastSessionList: function() { broadcasts++; },
+  });
+  var handle = createEndingHandle([{ yokeType: "error", text: "turn failed" }]);
+  var session = {
+    localId: 10,
+    vendor: "codex",
+    queryInstance: handle,
+    isProcessing: true,
+    pendingAskUser: {},
+    pendingPermissions: {},
+    pendingElicitations: {},
+  };
+
+  await bridge.processQueryStream(session);
+
+  assert.strictEqual(session.isProcessing, false);
+  assert.strictEqual(recorded.filter(function(msg) { return msg.type === "error"; }).length, 1);
+  assert.strictEqual(recorded[recorded.length - 1].type, "done");
+  assert.strictEqual(recorded[recorded.length - 1].code, 1);
+  assert.strictEqual(broadcasts, 1);
+});
+
+test("an old stream ending cannot stop its replacement query", async function() {
+  var recorded = [];
+  var replacement = { pushMessage: function() { return true; } };
+  var session;
+  var handle = createEndingHandle([], function() {
+    session.queryInstance = replacement;
+  });
+  var bridge = createBridge({
+    sendAndRecord: function(activeSession, msg) { recorded.push(msg); },
+    sendToSession: function() {},
+    broadcastSessionList: function() {},
+  });
+  session = {
+    localId: 11,
+    vendor: "codex",
+    queryInstance: handle,
+    isProcessing: true,
+    pendingAskUser: {},
+    pendingPermissions: {},
+    pendingElicitations: {},
+  };
+
+  await bridge.processQueryStream(session);
+
+  assert.strictEqual(session.isProcessing, true);
+  assert.strictEqual(session.queryInstance, replacement);
+  assert.strictEqual(recorded.length, 0);
 });
