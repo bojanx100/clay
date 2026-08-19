@@ -1369,10 +1369,14 @@ test("an unscoped Main command still routes when no Thread can be minted", funct
   // never fabricate a TopicRef.
   var harness = unscopedMainCoordinator(
     unscopedMainCommand("implement the ThreadRef minting fix in clay"),
-    { ensureOwnerThread: function () { return { ok: false, code: "owner_thread_request_malformed" }; } });
+    { ensureOwnerThread: function () { return { ok: false, code: "owner_thread_closed" }; } });
 
   harness.coordinate(unscopedMainInput());
 
   assert.equal(harness.delivered.coopIngressId, "coop:canonical-coop:612");
-  assert.equal(harness.delivered.coopTopicRef, undefined);
+  assert.ok(!harness.delivered.coopTopicRef, "a refused mint must never fabricate a TopicRef");
+  // And the reason travels to the gate rather than being swallowed, so the
+  // blocker reads as "the Thread cannot be created, and here is why" instead of
+  // the generic "a Thread is required".
+  assert.equal(harness.delivered.coopThreadMintRefusal, "owner_thread_closed");
 });

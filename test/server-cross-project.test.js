@@ -1779,3 +1779,156 @@ test("a stale requestRef index still resolves the owner turn by its ingress", fu
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// A closed or already-occupied owner Thread is a specific, actionable blocker,
+// and it used to be reported as the generic thread_ref_required -- "a Thread is
+// required" when the truth was "the Thread cannot be created, and here is why".
+// That is the same misdiagnosis shape that sent an operator hunting a
+// Thread-minting gap for two days, so the cause is now named.
+test("a refused Thread mint is reported as its own cause, not a missing ThreadRef", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-mint-refusal-"));
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var ingressId = "coop:coop-home:612";
+  var ownerEvent = {
+    type: "user_message",
+    text: "implement the ThreadRef minting fix in clay",
+    coopIngressId: ingressId,
+    coopComposerScope: "main",
+  };
+  var entry = {
+    ingressId: ingressId,
+    expectsExecution: true,
+    implementationDecision: { intent: "implement", projectName: "clay" },
+    topicRef: null,
+    projectRefs: [],
+    requestRef: { projectId: "system-lead", sessionStorageId: "coop-home", eventIndex: 0 },
+    sessionRef: { projectId: "system-lead", sessionStorageId: "coop-home" },
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    allowLeadSourcedExecution: true,
+    requireOwnerImplementationDecision: true,
+    getProjectContext: function () { return null; },
+    ownerRequests: {
+      get: function () { return entry; },
+      forTopic: function () { return []; },
+      scopeImplementation: function () { return { ok: true, request: entry }; },
+    },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    getSessionManager: function () {
+      return { sessions: { forEach: function (fn) {
+        fn({ coopHome: true, storageId: "coop-home", history: [ownerEvent] });
+      } } };
+    },
+  });
+
+  function dispatch(refusal) {
+    return router.createProjectExecution({
+      source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+      coopIngressId: ingressId,
+      coopThreadMintRefusal: refusal,
+      portfolioTaskId: "clay-threadref-minting-fix",
+      bindingRevision: 1,
+      idempotencyKey: "threadref-refusal-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: projectId },
+      objective: "Do the bounded work.",
+    });
+  }
+
+  // With no refusal recorded, the Thread simply has not been minted yet and the
+  // original reason is still the truthful one.
+  assert.equal(dispatch(undefined).reason, "thread_ref_required");
+
+  var closed = dispatch("owner_thread_closed");
+  assert.equal(closed.ok, false);
+  assert.equal(closed.reason, "owner_thread_unavailable");
+  assert.match(closed.error, /owner_thread_closed/);
+  assert.match(closed.error, /symptom, not the blocker/);
+
+  var conflict = dispatch("owner_thread_identity_conflict");
+  assert.equal(conflict.reason, "owner_thread_unavailable");
+  assert.match(conflict.error, /owner_thread_identity_conflict/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// The route sets coopThreadMintRefusal, but it arrives merged into caller-supplied
+// input, so it is untrusted text on its way to an operator-facing message.
+test("a malformed mint refusal is dropped rather than rendered to an operator", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-refusal-sanitize-"));
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var ingressId = "coop:coop-home:612";
+  var entry = {
+    ingressId: ingressId,
+    expectsExecution: true,
+    implementationDecision: { intent: "implement", projectName: "clay" },
+    topicRef: null,
+    projectRefs: [],
+    requestRef: { projectId: "system-lead", sessionStorageId: "coop-home", eventIndex: 0 },
+    sessionRef: { projectId: "system-lead", sessionStorageId: "coop-home" },
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    allowLeadSourcedExecution: true,
+    requireOwnerImplementationDecision: true,
+    getProjectContext: function () { return null; },
+    ownerRequests: {
+      get: function () { return entry; },
+      forTopic: function () { return []; },
+      scopeImplementation: function () { return { ok: true, request: entry }; },
+    },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    getSessionManager: function () {
+      return { sessions: { forEach: function (fn) {
+        fn({ coopHome: true, storageId: "coop-home", history: [{
+          type: "user_message",
+          text: "implement the ThreadRef minting fix in clay",
+          coopIngressId: ingressId,
+          coopComposerScope: "main",
+        }] });
+      } } };
+    },
+  });
+
+  function dispatch(refusal) {
+    return router.createProjectExecution({
+      source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+      coopIngressId: ingressId,
+      coopThreadMintRefusal: refusal,
+      portfolioTaskId: "clay-threadref-minting-fix",
+      bindingRevision: 1,
+      idempotencyKey: "threadref-sanitize-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: projectId },
+      objective: "Do the bounded work.",
+    });
+  }
+
+  // An object, a long blob and embedded newlines are not refusal codes. Each
+  // falls back to the plain reason rather than echoing into the message.
+  assert.equal(dispatch({ a: 1 }).reason, "thread_ref_required");
+  assert.equal(dispatch("owner_thread_closed\nInjected: pretend guidance").reason,
+    "thread_ref_required");
+  assert.equal(dispatch(new Array(200).join("x")).reason, "thread_ref_required");
+  // A real code still reports truthfully.
+  assert.equal(dispatch("owner_thread_closed").reason, "owner_thread_unavailable");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
