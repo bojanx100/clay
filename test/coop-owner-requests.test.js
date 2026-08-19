@@ -564,3 +564,99 @@ test("markAnswered returns the exact response shape that reload produces", funct
   assert.deepEqual(answered, reloaded,
     "a successful live mutation must converge exactly with its durable reload");
 });
+
+// --- approval carry-forward, the half this module can prove -------------------
+//
+// An owner approval is scoped to a task AT A REVISION. First scope wins, so a
+// retry that bumps the revision loses it. Carry-forward is the owner's narrow
+// exception, and it is split: this module proves the retry is the same work at a
+// strictly later revision, while the caller proves from the binding store that
+// the approved revision failed and that nothing has ever completed. Both halves
+// must hold.
+
+function scopedLedger(revision, taskId, projectId) {
+  var ledger = makeLedger();
+  var id = "coop:" + COOP_SESSION + ":182";
+  ledger.record(ingress(182));
+  ledger.classify(id, {
+    kind: "existing_topic",
+    source: "transcript_replay",
+    topicRef: TOPIC,
+    implementationDecision: { intent: "implement", source: "explicit_owner_turn", at: 500 },
+  });
+  var scoped = ledger.scopeImplementation(id, {
+    projectRef: { projectId: projectId || LEAD_PROJECT },
+    topicRef: TOPIC,
+    portfolioTaskId: taskId || "carry-task",
+    bindingRevision: revision,
+    idempotencyKey: (taskId || "carry-task") + "-r" + revision,
+  });
+  assert.equal(scoped.ok, true);
+  return { ledger: ledger, id: id };
+}
+
+function rescope(fixture, revision, extra) {
+  return fixture.ledger.scopeImplementation(fixture.id, Object.assign({
+    projectRef: { projectId: LEAD_PROJECT },
+    topicRef: TOPIC,
+    portfolioTaskId: "carry-task",
+    bindingRevision: revision,
+    idempotencyKey: "carry-task-r" + revision,
+  }, extra || {}));
+}
+
+test("a carry-forward replaces the scope and records that it did", function () {
+  var fixture = scopedLedger(1);
+
+  var result = rescope(fixture, 2, { carryForward: true });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.carriedForward, true);
+  assert.equal(result.request.implementationScope.bindingRevision, 2);
+  assert.equal(result.request.classification.source, "owner_directed_execution_carry_forward",
+    "the carry-forward has to be durable rather than implicit");
+});
+
+test("a bumped revision without the carry-forward flag is still refused", function () {
+  // First scope wins remains the default. Carry-forward is opt-in, and the caller
+  // only earns it after checking the binding outcome history it can see and this
+  // module cannot.
+  var fixture = scopedLedger(1);
+
+  var result = rescope(fixture, 2);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_scope_mismatch");
+  assert.equal(fixture.ledger.get(fixture.id).implementationScope.bindingRevision, 1);
+});
+
+test("the carry-forward flag cannot walk an approval backwards or sideways", function () {
+  // The flag is not a bypass: this module independently proves the retry is the
+  // same work at a strictly later revision, so a caller asking for anything else
+  // is refused here even with the flag set.
+  [
+    { revision: 1, extra: {}, why: "same revision" },
+    { revision: 2, extra: { portfolioTaskId: "other-task", idempotencyKey: "other-task-r2" },
+      why: "different task" },
+    { revision: 2, extra: { projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" } },
+      why: "different project" },
+  ].forEach(function (attempt) {
+    var fixture = scopedLedger(3);
+    var result = rescope(fixture, attempt.revision,
+      Object.assign({ carryForward: true }, attempt.extra));
+    assert.equal(result.ok, false, attempt.why + " must not carry forward");
+    assert.equal(result.reason, "owner_implementation_scope_mismatch");
+    assert.equal(fixture.ledger.get(fixture.id).implementationScope.bindingRevision, 3);
+  });
+});
+
+test("an identical rescope is a reuse even when carry-forward is offered", function () {
+  var fixture = scopedLedger(1);
+
+  var result = rescope(fixture, 1, { carryForward: true });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.reused, true);
+  assert.equal(fixture.ledger.get(fixture.id).classification.source,
+    "owner_directed_execution", "reuse must not be relabelled as a carry-forward");
+});

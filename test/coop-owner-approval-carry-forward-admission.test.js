@@ -1,0 +1,416 @@
+require("./helpers/isolated-clay-home");
+
+var test = require("node:test");
+var assert = require("node:assert/strict");
+var os = require("os");
+var path = require("path");
+var fs = require("fs");
+var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
+var ownerRequestsModule = require("../lib/coop-owner-requests");
+var createBindings = require("../lib/portfolio-execution-bindings")
+  .createPortfolioExecutionBindings;
+
+// Approval carry-forward, exercised through the real admission gate against a
+// real owner-request ledger and a real binding store.
+//
+// An owner approval is spent on a task AT A REVISION, so a retry that bumps the
+// revision loses it -- correctly, because otherwise one "yes" would authorize
+// arbitrarily rewritten work. The owner's rule admits a narrow exception needing
+// ALL of: same project, same task, strictly newer revision, the approved
+// revision ended terminal-unsuccessful, and no revision of the task has EVER
+// completed. Success consumes an approval.
+//
+// These cases also pin the interaction with stale `requestRef.eventIndex`
+// resolution (see coop-owner-event-resolution, which resolves an owner turn by
+// its immutable `coopIngressId` because delta coalescing renumbered the
+// transcript out from under every stored offset). Resolving those entries has to
+// make them REACHABLE without making any of them more AUTHORIZED, so each case
+// that admits a resolved turn has a sibling proving an unqualified turn is still
+// refused after being located.
+
+var CANONICAL = "871a194b-8879-40f7-a1fe-656e48e722af";
+var PROJECT = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+var OTHER_PROJECT = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+var TOPIC = { topicId: "owner-65d0dc78c4e6d085002842c1" };
+var TASK = "healing-task";
+var INGRESS = "coop:" + CANONICAL + ":459";
+
+function tempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "clay-admission-healing-"));
+}
+
+function ownerTurn(extra) {
+  return Object.assign({
+    type: "user_message",
+    coopIngressId: INGRESS,
+    coopComposerScope: "main",
+    text: "Implement the approved change.",
+    _ts: 5000,
+  }, extra || {});
+}
+
+// Padding that is deliberately NOT a user_message, so a stale offset landing
+// here is the "wrong but real event" case rather than an absent one.
+function noise(index) {
+  return { type: "tool_executing", text: "noise " + index, _ts: 100 + index };
+}
+
+// Builds a history whose owner turn sits at `at`, padded to `length` items.
+function historyWith(at, length, turnExtra) {
+  var history = [];
+  for (var i = 0; i < length; i++) history.push(noise(i));
+  history[at] = ownerTurn(turnExtra);
+  return history;
+}
+
+function bindingRecord(revision, status, extra) {
+  return Object.assign({
+    portfolioTaskId: TASK,
+    mode: "project_coordinator",
+    targetProject: { projectId: PROJECT },
+    bindingRevision: revision,
+    idempotencyKey: TASK + "-r" + revision,
+    source: { projectId: "system-lead", sessionStorageId: CANONICAL },
+    coopTopicRef: TOPIC,
+    controlPlaneProvenance: { schema: "clay.coop_control_plane_reservation", version: 1 },
+    taskPayloadDigest: "d".repeat(64),
+    provider: "codex",
+    model: "gpt-5.6-luna",
+    status: status,
+    createdAt: 1000,
+    updatedAt: 2000,
+    coordinator: { projectId: PROJECT, sessionStorageId: "coordinator-session" },
+    projectCoordinator: { projectId: "system-lead", sessionStorageId: "lead-session" },
+  }, extra || {});
+}
+
+// A real ledger, a real binding store and the real router. The point of these
+// tests is the interaction between durable owner state and the admission gate,
+// so stubbing either side would test the stub.
+function harness(options) {
+  var opts = options || {};
+  var dir = tempDir();
+  var ledgerFile = path.join(dir, "coop-owner-requests.json");
+  var bindingFile = path.join(dir, "bindings.json");
+  fs.writeFileSync(bindingFile, JSON.stringify({
+    schema: "clay.portfolio_execution_bindings",
+    version: 1,
+    bindings: opts.bindings || [],
+  }));
+
+  var ownerRequests = ownerRequestsModule.attachCoopOwnerRequests({ file: ledgerFile });
+  var bindingStore = createBindings({ file: bindingFile });
+
+  ownerRequests.record({
+    ingressId: INGRESS,
+    ingressSequence: 459,
+    sessionRef: { projectId: "system-lead", sessionStorageId: CANONICAL },
+    requestRef: {
+      projectId: "system-lead",
+      sessionStorageId: CANONICAL,
+      eventIndex: opts.storedIndex,
+    },
+  });
+  ownerRequests.classify(INGRESS, {
+    kind: "existing_topic",
+    source: "transcript_replay",
+    topicRef: TOPIC,
+    projectRefs: [{ projectId: PROJECT }],
+    implementationDecision: { intent: "implement", source: "explicit_owner_turn", at: 5000 },
+  });
+  if (opts.priorScope) {
+    var scoped = ownerRequests.scopeImplementation(INGRESS, {
+      projectRef: { projectId: opts.priorScope.projectId || PROJECT },
+      topicRef: TOPIC,
+      portfolioTaskId: opts.priorScope.portfolioTaskId || TASK,
+      bindingRevision: opts.priorScope.bindingRevision,
+      idempotencyKey: (opts.priorScope.portfolioTaskId || TASK) + "-r" +
+        opts.priorScope.bindingRevision,
+    });
+    assert.equal(scoped.ok, true, "prior scope must be established");
+  }
+
+  var delivered = [];
+  var leadSessions = new Map([[1, {
+    coopHome: true,
+    storageId: CANONICAL,
+    history: opts.history || [],
+  }]]);
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    bindingStore: bindingStore,
+    bindingFile: bindingFile,
+    deliveryFile: path.join(dir, "delivery.json"),
+    ownerRequests: ownerRequests,
+    requireOwnerImplementationDecision: true,
+    readLeadEvents: function () { return []; },
+    onThreadHandedOff: function () { return { ok: true }; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    getSessionManager: function () {
+      return {
+        sessions: leadSessions,
+        createSessionRaw: function (input) {
+          var session = Object.assign({ localId: leadSessions.size + 1, history: [] },
+            input || {});
+          leadSessions.set(session.localId, session);
+          return session;
+        },
+        saveSessionFile: function () {},
+      };
+    },
+  });
+  [PROJECT, OTHER_PROJECT].forEach(function (projectId) {
+    router.registerProjectResolver({
+      getProjectId: function () { return projectId; },
+      deliverCrossProjectEnvelope: function (envelope) {
+        delivered.push(envelope);
+        return {
+          ok: true,
+          created: true,
+          sessionRef: { projectId: projectId, sessionStorageId: "worker-session" },
+          projectCoordinatorRef: envelope.payload.targetProjectCoordinator,
+        };
+      },
+    });
+  });
+
+  return {
+    router: router,
+    ownerRequests: ownerRequests,
+    ledgerFile: ledgerFile,
+    delivered: delivered,
+    dispatch: function (spec) {
+      var input = spec || {};
+      var revision = input.bindingRevision || 1;
+      var taskId = input.portfolioTaskId || TASK;
+      return router.createProjectExecution({
+        source: { projectId: "system-lead", sessionStorageId: CANONICAL },
+        portfolioTaskId: taskId,
+        bindingRevision: revision,
+        idempotencyKey: taskId + "-r" + revision,
+        mode: "project_coordinator",
+        targetProject: { projectId: input.projectId || PROJECT },
+        coopTopicRef: TOPIC,
+        coopIngressId: INGRESS,
+        objective: "Implement the approved change.",
+        title: "Implement the approved change.",
+      });
+    },
+    storedIndex: function () {
+      var entry = ownerRequests.get(INGRESS);
+      return entry && entry.requestRef ? entry.requestRef.eventIndex : null;
+    },
+    // Re-reads the file through a fresh ledger instance, so assertions about the
+    // durable scope prove it survived a restart rather than only living in the
+    // copy the router already holds.
+    diskEntry: function () {
+      var fresh = ownerRequestsModule.attachCoopOwnerRequests({ file: ledgerFile });
+      return fresh.get(INGRESS);
+    },
+  };
+}
+
+test("a dispatch is admitted when the pinned offset points past the end of history",
+  function () {
+    // The 445-record case: the transcript shrank underneath the ledger, so the
+    // stored coordinate indexes nothing at all.
+    var h = harness({ storedIndex: 200452, history: historyWith(120, 400) });
+    var result = h.dispatch({ bindingRevision: 1 });
+    assert.equal(result.ok, true, result.reason);
+  });
+
+test("a dispatch is admitted when the pinned offset points at a wrong but real event",
+  function () {
+    // The 57-record case, and the dangerous one: the old offset lands on a
+    // genuine `tool_executing` event, so nothing looks broken from the outside
+    // while authorization fails silently.
+    var h = harness({ storedIndex: 37, history: historyWith(120, 400) });
+    var result = h.dispatch({ bindingRevision: 1 });
+    assert.equal(result.ok, true, result.reason);
+  });
+
+test("a pinned offset landing on a DIFFERENT owner turn does not authorize that turn",
+  function () {
+    // The worst shape of the wrong-but-real case: the pinned event IS a
+    // `user_message`, so a type check alone would accept it and admit a dispatch
+    // against an owner turn the owner never aimed at this work. Only the
+    // `coopIngressId` comparison rejects it, and resolution then finds the right
+    // turn by identity.
+    var history = historyWith(120, 400);
+    history[37] = ownerTurn({ coopIngressId: "coop:" + CANONICAL + ":999" });
+    var h = harness({ storedIndex: 37, history: history });
+    var result = h.dispatch({ bindingRevision: 1 });
+    assert.equal(result.ok, true, result.reason);
+  });
+
+test("admission fails closed when the ingress id matches no turn at all", function () {
+  var history = historyWith(120, 400, { coopIngressId: "coop:" + CANONICAL + ":777" });
+  var h = harness({ storedIndex: 200452, history: history });
+  var result = h.dispatch({ bindingRevision: 1 });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_decision_required");
+});
+
+test("admission fails closed when the ingress id matches more than one turn", function () {
+  // Two candidates make the choice arbitrary. Picking either would invent
+  // provenance, so resolution refuses rather than guessing -- and the gate then
+  // has no canonical event and refuses too.
+  var history = historyWith(120, 400);
+  history[240] = ownerTurn();
+  var h = harness({ storedIndex: 200452, history: history });
+  var result = h.dispatch({ bindingRevision: 1 });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_decision_required");
+});
+
+test("a turn located by identity is still refused when it does not qualify", function () {
+  // SAFETY BOUND: locating a turn is not authorizing it. This turn is reachable
+  // only via the identity fallback and is then rejected for naming another
+  // project, exactly as it would have been had the pinned offset still been
+  // correct. Resolution may change HOW a turn is found, never WHICH qualify.
+  var h = harness({ storedIndex: 200452, history: historyWith(120, 400) });
+  var result = h.dispatch({ bindingRevision: 1, projectId: OTHER_PROJECT });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_project_mismatch");
+});
+
+test("an already-correct offset is used directly", function () {
+  var h = harness({ storedIndex: 120, history: historyWith(120, 400) });
+  var result = h.dispatch({ bindingRevision: 1 });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(h.storedIndex(), 120);
+});
+
+test("carry-forward is permitted when the approved revision ended terminal-unsuccessful",
+  function () {
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWith(120, 400),
+      priorScope: { bindingRevision: 1 },
+      bindings: [bindingRecord(1, "failed")],
+    });
+    var result = h.dispatch({ bindingRevision: 2 });
+    assert.equal(result.ok, true);
+    var entry = h.diskEntry();
+    assert.equal(entry.implementationScope.bindingRevision, 2);
+    assert.equal(entry.classification.source, "owner_directed_execution_carry_forward",
+      "the carry-forward must be durably recorded, not implicit");
+  });
+
+test("carry-forward is REFUSED when any revision of the task has ever completed",
+  function () {
+    // Success consumes the approval. This is the asymmetry that keeps a retry of
+    // already-delivered work blocked while a retry of failed work proceeds.
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWith(120, 400),
+      priorScope: { bindingRevision: 1 },
+      bindings: [bindingRecord(1, "completed", { completedAt: 3000 })],
+    });
+    var result = h.dispatch({ bindingRevision: 3 });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "owner_implementation_scope_mismatch");
+    assert.equal(h.diskEntry().implementationScope.bindingRevision, 1,
+      "a refused carry-forward must not move the durable scope");
+  });
+
+test("carry-forward is REFUSED when a LATER revision completed but the approved one failed",
+  function () {
+    // "No revision has ever completed" is a statement about the whole task, not
+    // just the approved revision.
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWith(120, 400),
+      priorScope: { bindingRevision: 1 },
+      bindings: [bindingRecord(1, "failed"), bindingRecord(2, "completed", { completedAt: 3000 })],
+    });
+    var result = h.dispatch({ bindingRevision: 3 });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "owner_implementation_scope_mismatch");
+  });
+
+test("carry-forward is REFUSED when the approved revision has not finished", function () {
+  // Nothing to retry yet: an active revision has not failed.
+  var h = harness({
+    storedIndex: 200452,
+    history: historyWith(120, 400),
+    priorScope: { bindingRevision: 1 },
+    bindings: [bindingRecord(1, "active")],
+  });
+  var result = h.dispatch({ bindingRevision: 2 });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_scope_mismatch");
+});
+
+test("carry-forward is REFUSED for superseded, unrouted and deleted revisions", function () {
+  // These mean withdrawn, never routed, or removed -- binding bookkeeping rather
+  // than an attempt the owner watched fail. Admitting them would let routine
+  // churn manufacture authorization.
+  ["superseded", "unrouted", "deleted"].forEach(function (status) {
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWith(120, 400),
+      priorScope: { bindingRevision: 1 },
+      bindings: [bindingRecord(1, status)],
+    });
+    var result = h.dispatch({ bindingRevision: 2 });
+    assert.equal(result.ok, false, status + " must not carry an approval forward");
+    assert.equal(result.reason, "owner_implementation_scope_mismatch");
+  });
+});
+
+test("carry-forward is REFUSED when the requested revision is not newer", function () {
+  var h = harness({
+    storedIndex: 200452,
+    history: historyWith(120, 400),
+    priorScope: { bindingRevision: 3 },
+    bindings: [bindingRecord(3, "failed")],
+  });
+  var result = h.dispatch({ bindingRevision: 2 });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_scope_mismatch");
+});
+
+test("carry-forward is REFUSED across a different task", function () {
+  var h = harness({
+    storedIndex: 200452,
+    history: historyWith(120, 400),
+    priorScope: { bindingRevision: 1, portfolioTaskId: "some-other-task" },
+    bindings: [bindingRecord(1, "failed")],
+  });
+  var result = h.dispatch({ bindingRevision: 2 });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_scope_mismatch");
+});
+
+test("carry-forward is REFUSED when there is no binding history to justify it", function () {
+  // An empty store is not evidence that the approved revision failed.
+  var h = harness({
+    storedIndex: 200452,
+    history: historyWith(120, 400),
+    priorScope: { bindingRevision: 1 },
+    bindings: [],
+  });
+  var result = h.dispatch({ bindingRevision: 2 });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_scope_mismatch");
+});
+
+test("an exact re-dispatch of the approved revision is still a reuse, not a carry-forward",
+  function () {
+    // No binding for revision 1 yet, so this is a clean reservation rather than
+    // a retry -- the scope is byte-identical and must take the reuse path.
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWith(120, 400),
+      priorScope: { bindingRevision: 1 },
+      bindings: [],
+    });
+    var result = h.dispatch({ bindingRevision: 1 });
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(h.diskEntry().implementationScope.bindingRevision, 1);
+    assert.equal(h.diskEntry().classification.source, "owner_directed_execution",
+      "reuse must not be relabelled as a carry-forward");
+  });
