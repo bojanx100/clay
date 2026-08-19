@@ -1123,8 +1123,9 @@ test("an unscoped dispatch may still adopt the owner turn that just spoke", func
     targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
   });
   assert.equal(delivered.coopIngressId, "coop:canonical-coop:600");
-  // Still no Thread: that gap is real and separate. The point here is only that
-  // the turn is not filtered out by the narrowing.
+  // No Thread, because this harness wires no ensureOwnerThread seam. The turn
+  // being routable at all is the point here; the Thread it needs is minted from
+  // that seam and covered by the unscoped-Main minting tests below.
   assert.equal(delivered.coopTopicRef, undefined);
 });
 
@@ -1192,4 +1193,158 @@ test("an unscoped hijack no longer shadows the Thread-minting approval route", f
   assert.equal(delivered.coopApprovalIngressId, "coop:canonical-coop:455");
   assert.equal(minted.length, 1);
   assert.deepEqual(delivered.coopTopicRef, { topicId: "owner-deadbeef" });
+});
+
+// Narrowing the scan unshadowed the minting route for approved backlog work, but
+// left one shape with authority and no container: an implementation command typed
+// straight into Main. Its own turn has no TopicRef and a first dispatch has no
+// durable scope to borrow one from, so it routed the ingress alone and the gate
+// answered thread_ref_required forever -- the owner's most direct instruction was
+// the one shape that could not be staffed, and retrying never helped.
+function unscopedMainCoordinator(command, overrides) {
+  var source = { localId: 1, storageId: "canonical-coop", history: [command] };
+  var state = { minted: [], delivered: null, history: source.history };
+  var options = {
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: { get: function () { return null; }, forTopic: function () { return []; } },
+    readLeadEvents: function () { return []; },
+    ensureOwnerThread: function (request) {
+      state.minted.push(request);
+      // Deterministic by (ingressId, projectRef), as coop-owner-thread is.
+      return { ok: true, created: true,
+        topicRef: { topicId: "owner-" + request.ingressId },
+        threadRef: { threadId: "owner-" + request.ingressId } };
+    },
+    createProjectExecution: function (input) { state.delivered = input; return { ok: true }; },
+  };
+  Object.keys(overrides || {}).forEach(function (key) { options[key] = overrides[key]; });
+  state.coordinate = createExternalTaskCoordinator(options);
+  return state;
+}
+
+function unscopedMainCommand(text) {
+  return {
+    type: "user_message",
+    text: text,
+    coopIngressId: "coop:canonical-coop:612",
+    coopComposerScope: "main",
+    _ts: 2000,
+  };
+}
+
+function unscopedMainInput(overrides) {
+  var input = {
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-threadref-minting-fix",
+    bindingRevision: 1,
+    idempotencyKey: "threadref-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+  };
+  Object.keys(overrides || {}).forEach(function (key) { input[key] = overrides[key]; });
+  return input;
+}
+
+test("an unscoped Main implementation command mints the Thread it needs", function () {
+  var harness = unscopedMainCoordinator(
+    unscopedMainCommand("implement the ThreadRef minting fix in clay"));
+
+  var result = harness.coordinate(unscopedMainInput());
+  assert.equal(result.ok, true);
+
+  // The Thread is bound to the owner's own turn and reaches the gate as a
+  // TopicRef, which is what thread_ref_required was blocking on.
+  assert.equal(harness.minted.length, 1);
+  assert.equal(harness.minted[0].ingressId, "coop:canonical-coop:612");
+  assert.equal(harness.minted[0].projectRef.projectId,
+    "5332aafc-31e7-5cb1-ba96-c8d90e78260e");
+  assert.equal(harness.delivered.coopIngressId, "coop:canonical-coop:612");
+  assert.deepEqual(harness.delivered.coopTopicRef,
+    { topicId: "owner-coop:canonical-coop:612" });
+});
+
+test("a retried unscoped Main command reuses its Thread instead of minting a second", function () {
+  var harness = unscopedMainCoordinator(
+    unscopedMainCommand("implement the ThreadRef minting fix in clay"));
+
+  var first = harness.coordinate(unscopedMainInput());
+  var firstRef = harness.delivered.coopTopicRef;
+  var second = harness.coordinate(unscopedMainInput({ idempotencyKey: "threadref-r1-retry" }));
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  // Minting is keyed on the owner ingress, so a retry resolves the same container
+  // rather than accumulating a Thread per attempt.
+  assert.deepEqual(harness.delivered.coopTopicRef, firstRef);
+  assert.equal(harness.minted.length, 2);
+  assert.equal(harness.minted[0].ingressId, harness.minted[1].ingressId);
+});
+
+test("a minted Thread is carried by the durable scope once the owner types again", function () {
+  // Minting and the unscoped-scan narrowing have to compose. Once the owner has
+  // spoken again the command is no longer the latest turn, so it may only be
+  // adopted through the durable owner-request scope that admission recorded --
+  // and that scope already holds the minted Thread. So the same work keeps
+  // resolving the same Thread without minting a second one, and without the fix
+  // evaporating the moment the conversation moves on.
+  var command = unscopedMainCommand("implement the ThreadRef minting fix in clay");
+  var recorded = null;
+  var harness = unscopedMainCoordinator(command, {
+    ownerRequests: {
+      get: function () { return recorded ? { implementationScope: recorded } : null; },
+      forTopic: function () { return []; },
+    },
+  });
+
+  harness.coordinate(unscopedMainInput());
+  var firstRef = harness.delivered.coopTopicRef;
+  assert.deepEqual(firstRef, { topicId: "owner-coop:canonical-coop:612" });
+
+  // What implementationAdmission durably records on a successful dispatch.
+  recorded = {
+    projectRef: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    topicRef: firstRef,
+    portfolioTaskId: "clay-threadref-minting-fix",
+    bindingRevision: 1,
+  };
+  harness.history.push({
+    type: "user_message",
+    text: "thanks, that makes sense",
+    coopIngressId: "coop:canonical-coop:613",
+    coopComposerScope: "main",
+    _ts: 3000,
+  });
+  harness.coordinate(unscopedMainInput({ idempotencyKey: "threadref-r1-later" }));
+
+  assert.deepEqual(harness.delivered.coopTopicRef, firstRef);
+  assert.equal(harness.delivered.coopIngressId, "coop:canonical-coop:612",
+    "the command's own ingress still carries the work, not the chatter's");
+  assert.equal(harness.minted.length, 1,
+    "the recorded scope supplies the Thread, so nothing is minted a second time");
+});
+
+test("an unscoped Main turn carrying no implementation decision mints nothing", function () {
+  // Minting is not a courtesy extended to every Main turn. A question authorizes
+  // nothing, so it gets no Thread and stays undispatchable.
+  var harness = unscopedMainCoordinator(unscopedMainCommand("what is blocking the dispatch?"));
+
+  harness.coordinate(unscopedMainInput());
+
+  assert.equal(harness.minted.length, 0);
+  assert.equal(harness.delivered.coopTopicRef, undefined);
+});
+
+test("an unscoped Main command still routes when no Thread can be minted", function () {
+  // ensureOwnerThread refuses a Lead-targeted, closed or conflicting request.
+  // That must leave the route intact and let the gate report the missing Thread,
+  // never fabricate a TopicRef.
+  var harness = unscopedMainCoordinator(
+    unscopedMainCommand("implement the ThreadRef minting fix in clay"),
+    { ensureOwnerThread: function () { return { ok: false, code: "owner_thread_request_malformed" }; } });
+
+  harness.coordinate(unscopedMainInput());
+
+  assert.equal(harness.delivered.coopIngressId, "coop:canonical-coop:612");
+  assert.equal(harness.delivered.coopTopicRef, undefined);
 });

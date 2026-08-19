@@ -1499,3 +1499,184 @@ test("no owner turn at all is not reported as a missing ThreadRef", function () 
     objective: "Exclude the configured boards from automation policy.",
   }).reason, "thread_ref_required");
 });
+
+// The gate half of the unscoped-Main minting fix. admitUnscopedMainImplementation
+// has always existed to admit an owner implementation command typed in Main, but
+// the owner's own Main turn cannot supply the TopicRef it requires, so it was
+// only ever reachable by a caller that already had a Thread in hand. Now the
+// route mints one against that turn, and this is what the gate does with it.
+test("an unscoped Main implementation decision admits once its Thread exists", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-unscoped-main-"));
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var ingressId = "coop:coop-home:612";
+  var ownerEvent = {
+    type: "user_message",
+    text: "implement the ThreadRef minting fix in clay",
+    coopIngressId: ingressId,
+    coopComposerScope: "main",
+  };
+  var entry = {
+    ingressId: ingressId,
+    expectsExecution: true,
+    implementationDecision: { intent: "implement", projectName: "clay" },
+    topicRef: null,
+    projectRefs: [],
+    requestRef: { projectId: "system-lead", sessionStorageId: "coop-home", eventIndex: 0 },
+    sessionRef: { projectId: "system-lead", sessionStorageId: "coop-home" },
+  };
+  var scoped = [];
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    allowLeadSourcedExecution: true,
+    requireOwnerImplementationDecision: true,
+    getProjectContext: function () { return null; },
+    ownerRequests: {
+      get: function () { return entry; },
+      // Mirrors the real store: a record joins a Thread only once its
+      // implementation is scoped, so before that the freshly minted Thread has
+      // nothing bound to it and the unscoped-Main branch is what decides. After
+      // it, the record is on the Thread and a retry is the main loop's business.
+      forTopic: function (topicRef) {
+        return entry.topicRef && topicRef &&
+          entry.topicRef.topicId === topicRef.topicId ? [entry] : [];
+      },
+      scopeImplementation: function (id, scope) {
+        scoped.push({ id: id, scope: scope });
+        // The durable writes coop-owner-requests.scopeImplementation performs.
+        entry.topicRef = scope.topicRef;
+        entry.implementationScope = scope;
+        entry.classification = { kind: "existing_topic", source: "owner_directed_execution" };
+        return { ok: true, request: entry };
+      },
+    },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    getSessionManager: function () {
+      return { sessions: { forEach: function (fn) {
+        fn({ coopHome: true, storageId: "coop-home", history: [ownerEvent] });
+      } } };
+    },
+  });
+
+  function dispatch(topicRef) {
+    return router.createProjectExecution({
+      source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+      coopIngressId: ingressId,
+      coopTopicRef: topicRef,
+      portfolioTaskId: "clay-threadref-minting-fix",
+      bindingRevision: 1,
+      idempotencyKey: "threadref-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: projectId },
+      objective: "Do the bounded work.",
+    });
+  }
+
+  // Reproduces the standing blocker exactly: a real owner decision, no Thread.
+  assert.equal(dispatch(undefined).reason, "thread_ref_required");
+  assert.equal(scoped.length, 0, "nothing may be scoped while the gate refuses");
+
+  // With the Thread the route now mints, the owner decision is admitted and
+  // bound to the exact task, revision and project the dispatch named.
+  var admitted = dispatch({ topicId: "owner-612abc" });
+  assert.notEqual(admitted.reason, "thread_ref_required");
+  assert.notEqual(admitted.reason, "owner_implementation_decision_required");
+  assert.equal(scoped.length, 1, "the owner decision is scoped exactly once");
+  assert.equal(scoped[0].id, ingressId);
+  assert.deepEqual(scoped[0].scope.topicRef, { topicId: "owner-612abc" });
+  assert.equal(scoped[0].scope.portfolioTaskId, "clay-threadref-minting-fix");
+  assert.equal(scoped[0].scope.bindingRevision, 1);
+  assert.equal(scoped[0].scope.projectRef.projectId, projectId);
+
+  // The main loop re-asserts the scope on every admitted dispatch, which the real
+  // store answers with reused:true for a byte-equal scope. What must hold is that
+  // the retry asks for exactly the same scope -- no widened project, task or
+  // revision -- and never regresses to a missing-Thread or missing-decision refusal.
+  var retried = dispatch({ topicId: "owner-612abc" });
+  assert.notEqual(retried.reason, "thread_ref_required");
+  assert.notEqual(retried.reason, "owner_implementation_decision_required");
+  assert.equal(scoped.length, 2);
+  assert.deepEqual(scoped[1].scope, scoped[0].scope,
+    "a retry must re-assert the identical scope, never a widened one");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// The unscoped-Main branch used to skip the project refusal its sibling branches
+// all apply. Nothing populated projectRefs on a Thread-less record, so it was
+// unreachable rather than wrong -- but this branch is now the ordinary path for
+// owner-directed Main execution, so it fails closed on its own.
+test("an unscoped Main decision is refused for a project the owner did not name", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-unscoped-project-"));
+  var namedProject = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var otherProject = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+  var ingressId = "coop:coop-home:612";
+  var ownerEvent = {
+    type: "user_message",
+    text: "implement the ThreadRef minting fix in clay",
+    coopIngressId: ingressId,
+    coopComposerScope: "main",
+  };
+  var entry = {
+    ingressId: ingressId,
+    expectsExecution: true,
+    implementationDecision: { intent: "implement", projectName: "clay" },
+    topicRef: null,
+    projectRefs: [{ projectId: namedProject }],
+    requestRef: { projectId: "system-lead", sessionStorageId: "coop-home", eventIndex: 0 },
+    sessionRef: { projectId: "system-lead", sessionStorageId: "coop-home" },
+  };
+  var scoped = 0;
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    allowLeadSourcedExecution: true,
+    requireOwnerImplementationDecision: true,
+    getProjectContext: function () { return null; },
+    ownerRequests: {
+      get: function () { return entry; },
+      forTopic: function () { return []; },
+      scopeImplementation: function () { scoped++; return { ok: true, request: entry }; },
+    },
+  });
+  [namedProject, otherProject].forEach(function (id) {
+    router.registerProjectResolver({
+      getProjectId: function () { return id; },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    });
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    getSessionManager: function () {
+      return { sessions: { forEach: function (fn) {
+        fn({ coopHome: true, storageId: "coop-home", history: [ownerEvent] });
+      } } };
+    },
+  });
+
+  var refused = router.createProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+    coopIngressId: ingressId,
+    coopTopicRef: { topicId: "owner-612abc" },
+    portfolioTaskId: "clay-threadref-minting-fix",
+    bindingRevision: 1,
+    idempotencyKey: "threadref-elsewhere",
+    mode: "project_coordinator",
+    targetProject: { projectId: otherProject },
+    objective: "Do the bounded work.",
+  });
+
+  assert.equal(refused.ok, false);
+  assert.equal(refused.reason, "owner_implementation_project_mismatch");
+  assert.equal(scoped, 0, "a mismatched project must never be scoped");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

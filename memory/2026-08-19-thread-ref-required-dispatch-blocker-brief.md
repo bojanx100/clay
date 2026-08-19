@@ -103,6 +103,48 @@ its own turn `:459` with its own Thread `owner-65d0dc78…` (was: `:482` with a
 null Thread); `:482` still routes correctly for the task it *does* authorize;
 rev2 now returns no route and reports the truthful reason.
 
+4. **Unscoped-Main minting** (`project-task-orchestrator-external-delegation.js`,
+   added after fix 1). Narrowing the scan unshadowed `approvalExecutionRoute` for
+   approved backlog work, but left one shape with authority and no container: an
+   implementation command typed **straight into Main**. Its own turn carries no
+   TopicRef, and on a first dispatch there is no durable scope to borrow one from,
+   so coverage returns ok with a null Thread, the route reports the ingress alone
+   and the gate answers `thread_ref_required` forever. Confirmed by execution, not
+   inference: routing that shape minted **0** Threads and delivered
+   `coopTopicRef: undefined`. `admitUnscopedMainImplementation` exists for exactly
+   this case, so the Thread is now minted against the owner's own turn through a
+   shared `ownerThreadRefFor` helper the approval path uses too. Deterministic per
+   `(ingressId, projectRef)`, so a retry resolves the same Thread; once admission
+   records the scope, fix 1's coverage path carries that same Thread and nothing is
+   minted again. No authority is widened — the gate still re-derives the decision.
+
+   Also hardened: `admitUnscopedMainImplementation` skipped the
+   `projectMatchesEntry` refusal its sibling branches all apply. Unreachable while
+   Main scope always cleared `projectRefs`, but this branch is now the ordinary
+   path rather than a corner reachable only by a caller holding a Thread.
+
+### Adversarial-review finding worth acting on next
+
+`explicitImplementationDecision` is the **only** substantive authorization check
+on the unscoped-Main path — `expectsExecution` is derived from the same decision
+(`coop-owner-request-records.js:228`), so it is not an independent second factor.
+It is weak on ordinary Main chatter: `build system is broken in clay` →
+`{intent:"build"}` and `code review please` → `{intent:"code"}` are both
+**admitted** end to end. Negations, questions and relayed text are correctly
+refused.
+
+This is pre-existing and reachable before fix 4 (the topic-mismatch guard already
+carried `&& !unscopedMain`, so any caller-supplied `coopTopicRef` reached it), but
+fix 4 removes the last input a caller needed, making it the default path. It was
+deliberately **not** changed here: that classifier also drives ingress
+classification and Thread creation, so tightening it is its own decision with its
+own blast radius. Treat it as the next item on this path.
+
+Minor, same area: `ownerThreadRefFor` discards `ensureOwnerThread`'s refusal code,
+so `owner_thread_closed` and `owner_thread_identity_conflict` still surface as
+`thread_ref_required` — the same misdiagnosis class this file already documents
+costing two days. Plumbing a reason through the route is a separate change.
+
 ## Blocking coupling: every `requestRef.eventIndex` is stale
 
 Measured after the fix landed, while answering whether this work depends on the
