@@ -120,12 +120,27 @@ test("missing or Lead-local targets produce visible attention with no fallback",
 test("staffing carries a stable work identity so renamed attempts stay detectable", function () {
   var routed = routing.routeWorkItem(makeItem("x").classification, {});
 
-  // The backlog's own candidateKey wins when present.
-  var launched = makeItem("Replace the Excel zoom slider");
-  launched.candidateKey = "launch:trialview/v2#2522";
+  // The two dispatch paths spell the same issue differently. Automation carries
+  // a candidateKey; the GitHub backlog carries a url. Both must land on one
+  // identity, or the guard never fires and issue 2522 acquires a third binding
+  // family exactly as it did in live state.
+  var automation = makeItem("Replace the Excel zoom slider");
+  automation.candidateKey = "launch:trialview/v2#2522";
+  var backlog = makeItem("Replace the Excel zoom slider");
+  backlog.url = "https://github.com/trialview/v2/issues/2522";
+  var viaAutomation = staffing.composeStaffing(automation, routed, staffingOptions("src/viewer.ts"));
+  var viaBacklog = staffing.composeStaffing(backlog, routed, staffingOptions("src/viewer.ts"));
+  assert.strictEqual(viaAutomation.workIdentity, "github:trialview/v2#2522");
+  assert.strictEqual(viaBacklog.workIdentity, viaAutomation.workIdentity,
+    "automation and backlog must agree on what the work is");
+
+  // A candidateKey that is not repo-qualified is still an identity, just an
+  // opaque one; it must be preserved rather than discarded.
+  var opaque = makeItem("Internal sweep");
+  opaque.candidateKey = "sweep:nightly-reconcile";
   assert.strictEqual(
-    staffing.composeStaffing(launched, routed, staffingOptions("src/viewer.ts")).workIdentity,
-    "launch:trialview/v2#2522");
+    staffing.composeStaffing(opaque, routed, staffingOptions("lib/x.js")).workIdentity,
+    "sweep:nightly-reconcile");
 
   // Without one, canonical GitHub coordinates give the same item the same
   // identity no matter which ad-hoc portfolioTaskId a caller invents.

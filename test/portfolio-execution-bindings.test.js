@@ -493,7 +493,8 @@ test("the same work refiled under a different portfolioTaskId is refused, not du
 
   var first = store.reserve(withIdentity("auto-issue-2522", 1, "launch:trialview/v2#2522"));
   assert.equal(first.ok, true);
-  assert.equal(first.binding.workIdentity, "launch:trialview/v2#2522");
+  assert.equal(first.binding.workIdentity, "github:trialview/v2#2522",
+    "stored in canonical form, not the caller's spelling");
 
   // A fresh attempt name for work already bound: previously invisible to every
   // guard, because they all compared portfolioTaskId only.
@@ -514,7 +515,7 @@ test("the same work refiled under a different portfolioTaskId is refused, not du
   // Unrelated work is untouched, and identity survives reload.
   assert.equal(store.reserve(withIdentity("other-task", 1, "launch:trialview/v2#9999")).ok, true);
   var restarted = createBindings({ file: file, now: function () { return clock++; } });
-  assert.equal(restarted.get("auto-issue-2522", 1).workIdentity, "launch:trialview/v2#2522");
+  assert.equal(restarted.get("auto-issue-2522", 1).workIdentity, "github:trialview/v2#2522");
   assert.equal(restarted.reserve(withIdentity("renamed-again", 1,
     "launch:trialview/v2#2522")).reason, "duplicate_work_identity");
 });
@@ -562,4 +563,39 @@ test("a failure with no supplied code is still marked, and success stays clean",
   assert.equal(done.binding.status, "completed");
   assert.equal(done.binding.failureCode, undefined, "a verified completion explains nothing");
   assert.equal(done.binding.statusReason, undefined);
+});
+
+test("the store canonicalizes work identity itself, not just via the staffing path", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-"));
+  var file = path.join(dir, "bindings.json");
+  var clock = 10;
+  var store = createBindings({ file: file, now: function () { return clock++; } });
+
+  function spelled(taskId, identity) {
+    return {
+      portfolioTaskId: taskId,
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT_ID },
+      bindingRevision: 1,
+      idempotencyKey: taskId + "-r1",
+      candidateKey: identity,
+    };
+  }
+
+  // A caller that never went through lead-staffing still gets normalized. This
+  // was live: the backfilled records read "github:trialview/v2#2522" while the
+  // automation path supplied "launch:trialview/v2#2522", so the guard compared
+  // two spellings of one issue and let a fourth duplicate straight through.
+  var seeded = store.reserve(spelled("auto-2522", "github:trialview/v2#2522"));
+  assert.equal(seeded.binding.workIdentity, "github:trialview/v2#2522");
+
+  var otherSpelling = store.reserve(spelled("webapp-github-issue-2522", "launch:trialview/v2#2522"));
+  assert.equal(otherSpelling.ok, false);
+  assert.equal(otherSpelling.reason, "duplicate_work_identity");
+
+  // Case and action prefix are noise; an opaque key is preserved as-is.
+  assert.equal(store.reserve(spelled("shouty", "LAUNCH:TrialView/V2#2522")).reason,
+    "duplicate_work_identity");
+  assert.equal(store.reserve(spelled("opaque-task", "sweep:nightly")).binding.workIdentity,
+    "sweep:nightly");
 });
