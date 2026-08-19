@@ -309,6 +309,181 @@ test("orchestration workers stay out of every CLI import candidate path", functi
   }
 });
 
+// The owner closing a Coop-owned session must be able to get it back. The
+// default exclusion above protects the picker from auto-archived orchestration
+// work, so recovery runs through an explicit opt-in that still refuses workers
+// and Coop's own infrastructure sessions.
+function coopImportFixture() {
+  var tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-import-"));
+  var cliDir = path.join(tmpDir, "claude");
+  fs.mkdirSync(cliDir, { recursive: true });
+
+  var coopLeaf = {
+    localId: 1,
+    cliSessionId: "coop-leaf",
+    storageId: "coop-leaf-storage",
+    title: "Coop-owned execution leaf",
+    hidden: true,
+    closedAt: 4242,
+    history: [],
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  var coopWorker = {
+    localId: 2,
+    cliSessionId: "coop-worker",
+    storageId: "coop-worker-storage",
+    title: "Coop worker",
+    hidden: true,
+    history: [],
+    orchestrationParent: { taskId: "task-1" },
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  var coopHome = {
+    localId: 3,
+    cliSessionId: "coop-home-session",
+    storageId: "coop-home",
+    title: "Coop",
+    hidden: true,
+    history: [],
+    coopHome: true,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  var controlPlane = {
+    localId: 4,
+    cliSessionId: "coop-control-plane-session",
+    storageId: "coop-control-plane-storage",
+    title: "Coop control plane",
+    hidden: true,
+    history: [],
+    coordinationRole: "coop_control_plane",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  var malformedProvenance = {
+    localId: 5,
+    cliSessionId: "malformed-provenance",
+    storageId: "malformed-provenance-storage",
+    title: "Corrupt provenance on disk",
+    hidden: true,
+    history: [],
+    coopControlledBy: { coopSessionStorageId: "coop-home" },
+  };
+
+  var sessions = new Map([
+    [1, coopLeaf], [2, coopWorker], [3, coopHome], [4, controlPlane], [5, malformedProvenance],
+  ]);
+  var saved = [];
+  var cliImport = require("../lib/sessions-cli-import").attachSessionCliImport({
+    cwd: tmpDir,
+    sessions: sessions,
+    allocateLocalId: function () { return 100; },
+    saveSessionFile: function (session) { saved.push(session); },
+    broadcastSessionList: function () {},
+    isValidCliSessionId: function () { return true; },
+    cliSessionsDir: function () { return cliDir; },
+    readCliSessionDescriptor: function () { return null; },
+    readCodexThreadNames: function () { return new Map(); },
+    listCodexRolloutFiles: function () { return []; },
+    readCodexSessionDescriptor: function () { return null; },
+    findCodexRolloutByThreadId: function () { return null; },
+  });
+
+  return {
+    tmpDir: tmpDir, cliImport: cliImport, sessions: sessions, saved: saved,
+    coopLeaf: coopLeaf, coopWorker: coopWorker, coopHome: coopHome,
+    controlPlane: controlPlane, malformedProvenance: malformedProvenance,
+  };
+}
+
+test("closed Coop-owned sessions are importable only behind the explicit opt-in", function () {
+  var fx = coopImportFixture();
+  var copilotSessions = require("../lib/copilot-sessions");
+  var originalCopilotList = copilotSessions.listCopilotSessionDescriptors;
+  copilotSessions.listCopilotSessionDescriptors = function () { return []; };
+  try {
+    var ids = function (listed) {
+      return listed.map(function (item) { return item.cliSessionId; });
+    };
+
+    var defaultListed = fx.cliImport.listAdoptableCliSessions("");
+    assert.ok(ids(defaultListed).indexOf("coop-leaf") === -1,
+      "Coop-owned sessions stay hidden by default");
+
+    var optedIn = fx.cliImport.listAdoptableCliSessions("", { includeCoopManaged: true });
+    var optedInIds = ids(optedIn);
+    assert.ok(optedInIds.indexOf("coop-leaf") !== -1,
+      "opting in must surface the closed Coop-owned session");
+    assert.ok(optedInIds.indexOf("coop-worker") === -1,
+      "nested orchestration workers are never importable");
+    assert.ok(optedInIds.indexOf("coop-home-session") === -1,
+      "the canonical Coop conversation is infrastructure, not importable history");
+    assert.ok(optedInIds.indexOf("coop-control-plane-session") === -1,
+      "control-plane sessions are infrastructure, not importable history");
+
+    var leafRow = optedIn.filter(function (item) { return item.cliSessionId === "coop-leaf"; })[0];
+    assert.strictEqual(leafRow.coopManaged, true, "the row must be labelled Coop-managed");
+    assert.strictEqual(leafRow.hidden, true);
+    assert.strictEqual(leafRow.lastActivity, 4242, "closedAt is the authoritative close time");
+
+    // Malformed persisted provenance normalizes to null, so this session was
+    // never Coop-controlled and must behave like any other closed session:
+    // listed by default, and not mislabelled as Coop-managed.
+    var malformedRow = defaultListed.filter(function (item) {
+      return item.cliSessionId === "malformed-provenance";
+    })[0];
+    assert.ok(malformedRow, "a session with unusable provenance is an ordinary closed session");
+    assert.strictEqual(malformedRow.coopManaged, false);
+  } finally {
+    copilotSessions.listCopilotSessionDescriptors = originalCopilotList;
+    fs.rmSync(fx.tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("importing a Coop-owned session releases it to the owner so it stays visible", function () {
+  var fx = coopImportFixture();
+  try {
+    var localId = fx.cliImport.importCliSession("coop-leaf", "claude", { ownerId: "user-7" });
+    assert.strictEqual(localId, 1, "the existing session is reused, not duplicated");
+    assert.strictEqual(fx.coopLeaf.hidden, false);
+    assert.strictEqual(fx.coopLeaf.closedAt, null);
+    // Releasing provenance is the load-bearing part: while coopControlledBy is
+    // set, the sidebar filters the row out and the auto-archive/self-cleanup
+    // paths are free to re-hide it.
+    assert.strictEqual(fx.coopLeaf.coopControlledBy, null,
+      "an explicit import must release the session from Coop control");
+    assert.strictEqual(fx.coopLeaf.ownerId, "user-7");
+    assert.strictEqual(typeof fx.coopLeaf.coopReleasedToOwnerAt, "number",
+      "the release must leave durable evidence");
+    assert.ok(fx.saved.indexOf(fx.coopLeaf) !== -1, "the release must be persisted");
+
+    // Once released it is an ordinary session, so it is no longer offered as a
+    // Coop-managed import candidate.
+    var relisted = fx.cliImport.listAdoptableCliSessions("", { includeCoopManaged: true });
+    assert.ok(!relisted.some(function (item) {
+      return item.cliSessionId === "coop-leaf" && item.coopManaged;
+    }), "a released session is no longer Coop-managed");
+  } finally {
+    fs.rmSync(fx.tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("importing never releases Coop's own infrastructure sessions", function () {
+  var fx = coopImportFixture();
+  try {
+    fx.cliImport.importCliSession("coop-home-session", "claude", { ownerId: "user-7" });
+    assert.deepStrictEqual(fx.coopHome.coopControlledBy,
+      { coopSessionStorageId: "coop-home", since: 1 },
+      "the canonical Coop conversation keeps its provenance");
+    assert.strictEqual(fx.coopHome.coopReleasedToOwnerAt, undefined);
+
+    fx.cliImport.importCliSession("coop-control-plane-session", "claude", { ownerId: "user-7" });
+    assert.deepStrictEqual(fx.controlPlane.coopControlledBy,
+      { coopSessionStorageId: "coop-home", since: 1 },
+      "control-plane sessions keep their provenance");
+  } finally {
+    fs.rmSync(fx.tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("CLI session import preserves original message timestamps as _ts", function () {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-cli-ts-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
