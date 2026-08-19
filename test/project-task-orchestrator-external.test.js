@@ -1058,10 +1058,38 @@ test("an unscoped dispatch never adopts an owner turn that authorized other work
   // The Thread is the owner turn's existing one, not a newly minted container.
   assert.equal(minted, 0);
 
-  // rev2: the owner authorized rev1 only. No owner turn covers rev2, so no
-  // route is proposed -- and above all, the unrelated "FIX!" turn for another
-  // project is not borrowed to stand in for one.
+  // rev2: a retry of the same work at a later revision. This case USED to assert
+  // an empty route, on the reasoning that the owner authorized rev1 only -- and
+  // that assertion is what let the approval carry-forward (a8500b9a3a) ship dead.
+  // An approval is spent on a task AT A REVISION, so every retry arrives with a
+  // bumped revision; refusing to route one meant admission never reached
+  // `approvalCarriesForward` and the rule could not fire in production.
+  //
+  // So the router now proposes ingress 459 -- the owner's own turn for THIS task,
+  // with the Thread that turn already owns. Whether the carry-forward is actually
+  // earned (did rev1 end terminal-unsuccessful? has any revision ever completed?)
+  // is admission's decision and needs the binding store, which the router cannot
+  // read. Proposing is not authorizing.
+  //
+  // The property this case exists to defend is unchanged and still asserted: the
+  // unrelated "FIX!" turn 482, for another project and another task, is never
+  // borrowed to stand in for a covering authorization at any revision.
   dispatch(2);
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:459");
+  assert.deepEqual(delivered.coopTopicRef, { topicId: "owner-65d0dc78c4e6d085002842c1" });
+  assert.equal(minted, 0);
+
+  // The scope widening is bounded to the revision. Ask 482's task for a revision
+  // it never authorized and the route stays empty rather than sliding onto 459.
+  delivered = null;
+  coordinate({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-thread-followup-resolution-fix-2026-08-18",
+    bindingRevision: 2,
+    idempotencyKey: "clay-thread-followup-resolution-fix-2026-08-18-r2",
+    mode: "project_coordinator",
+    targetProject: { projectId: live.webapp },
+  });
   assert.equal(delivered.coopIngressId, undefined);
   assert.equal(delivered.coopTopicRef, undefined);
   assert.equal(minted, 0);

@@ -7,6 +7,8 @@ var path = require("path");
 var fs = require("fs");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 var ownerRequestsModule = require("../lib/coop-owner-requests");
+var createExternalTaskCoordinator =
+  require("../lib/project-task-orchestrator-external-delegation").createExternalTaskCoordinator;
 var createBindings = require("../lib/portfolio-execution-bindings")
   .createPortfolioExecutionBindings;
 
@@ -60,6 +62,27 @@ function historyWith(at, length, turnExtra) {
   var history = [];
   for (var i = 0; i < length; i++) history.push(noise(i));
   history[at] = ownerTurn(turnExtra);
+  return history;
+}
+
+// The live shape the router has to cope with, and the one the direct-admission
+// harness above cannot produce: the authorizing owner turn is NOT the newest owner
+// turn any more, because the owner has since said something conversational.
+//
+// That detail is load-bearing. `unscopedIngressCoverage` short-circuits to ok for
+// the latest owner ingress, so while the authorizing turn is still the newest one
+// the revision check never runs. Only once a later turn exists does coverage have
+// to prove the durable scope covers the requested revision -- which is exactly the
+// gate that swallowed the carry-forward in production.
+function historyWithFollowUp(at, length) {
+  var history = historyWith(at, length, { coopImplementationDecision: { intent: "implement" } });
+  history[at + 180] = {
+    type: "user_message",
+    coopIngressId: "coop:" + CANONICAL + ":503",
+    coopComposerScope: "main",
+    text: "thanks, that makes sense",
+    _ts: 6000,
+  };
   return history;
 }
 
@@ -176,11 +199,48 @@ function harness(options) {
     });
   });
 
+  // The seam the live daemon actually dispatches through: project-task-orchestrator
+  // wires createExternalTaskCoordinator's createProjectExecution straight to
+  // crossProject.createProjectExecution, so currentExecutionRoute runs FIRST and
+  // admission only ever sees a route the router agreed to propose.
+  var routed = [];
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return leadSessions.get(1); },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: ownerRequests,
+    readLeadEvents: function () { return []; },
+    createProjectExecution: function (request) {
+      routed.push(request);
+      return router.createProjectExecution(request);
+    },
+  });
+
   return {
     router: router,
     ownerRequests: ownerRequests,
     ledgerFile: ledgerFile,
     delivered: delivered,
+    // What the router proposed, per dispatch. Empty coopIngressId/coopTopicRef here
+    // means the router refused to route and admission was never given a chance.
+    routed: routed,
+    // Drives the router + admission path end to end. Supplies NEITHER coopTopicRef
+    // NOR coopIngressId -- both have to be derived from history by
+    // currentExecutionRoute, which is what makes unscopedIngressCoverage run.
+    dispatchViaRouter: function (spec) {
+      var input = spec || {};
+      var revision = input.bindingRevision || 1;
+      var taskId = input.portfolioTaskId || TASK;
+      return coordinate({
+        coordinatorSessionId: CANONICAL,
+        portfolioTaskId: taskId,
+        bindingRevision: revision,
+        idempotencyKey: taskId + "-r" + revision,
+        mode: "project_coordinator",
+        targetProject: { projectId: input.projectId || PROJECT },
+        objective: "Implement the approved change.",
+        title: "Implement the approved change.",
+      });
+    },
     dispatch: function (spec) {
       var input = spec || {};
       var revision = input.bindingRevision || 1;
@@ -397,6 +457,104 @@ test("carry-forward is REFUSED when there is no binding history to justify it", 
   assert.equal(result.ok, false);
   assert.equal(result.reason, "owner_implementation_scope_mismatch");
 });
+
+// REGRESSION, and the reason this file grew a second entry point. The carry-forward
+// above was verified only through `router.createProjectExecution`, which is handed a
+// coopTopicRef and a coopIngressId by the test. The live daemon is not: it calls
+// coordinateExternalTask, which runs `currentExecutionRoute` first, and that scan's
+// coverage check demanded EXACT revision equality against the durable owner-request
+// scope. So for any retry the router returned an empty route, admission bailed on
+// the missing Thread, and `approvalCarriesForward` was never reached -- the rule was
+// live in code and dead in production. These two cases fail without the router half
+// of the fix, and the harness above cannot express them.
+test("REGRESSION: a rev2 retry is routed AND admitted through the full router path",
+  function () {
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWithFollowUp(120, 400),
+      priorScope: { bindingRevision: 1 },
+      bindings: [bindingRecord(1, "failed")],
+    });
+
+    var result = h.dispatchViaRouter({ bindingRevision: 2 });
+
+    // The router ran, and it ran the coverage check rather than short-circuiting:
+    // the caller supplied no ingress and no Thread, so both values below exist only
+    // because currentExecutionRoute derived them from the rev1-scoped record.
+    assert.equal(h.routed.length, 1);
+    assert.equal(h.routed[0].coopIngressId, INGRESS,
+      "the router must propose the rev1 owner turn as covering the rev2 retry");
+    assert.deepEqual(h.routed[0].coopTopicRef, TOPIC,
+      "and carry that turn's own Thread, so nothing is minted");
+
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(h.diskEntry().implementationScope.bindingRevision, 2);
+    assert.equal(h.diskEntry().classification.source,
+      "owner_directed_execution_carry_forward");
+  });
+
+test("REGRESSION: an ever-completed task is routed by the router and REFUSED by admission",
+  function () {
+    // The other half of the asymmetry, and the check that the router widening did
+    // not become an authorization. The router proposes the same rev1 turn here --
+    // identity and monotonicity hold -- and admission alone kills it, because a
+    // completed revision consumed the approval. A change that frees both this and
+    // the case above is wrong.
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWithFollowUp(120, 400),
+      priorScope: { bindingRevision: 1 },
+      bindings: [bindingRecord(1, "completed", { completedAt: 3000 })],
+    });
+
+    var result = h.dispatchViaRouter({ bindingRevision: 3 });
+
+    assert.equal(h.routed.length, 1);
+    assert.equal(h.routed[0].coopIngressId, INGRESS,
+      "the router still proposes -- refusing here would hide the real reason");
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "owner_implementation_scope_mismatch");
+    assert.equal(h.diskEntry().implementationScope.bindingRevision, 1,
+      "a refused carry-forward must not move the durable scope");
+  });
+
+test("REGRESSION: the router still refuses to route a retry of ANOTHER task", function () {
+  // The widening is scoped to the revision only. A scope for a different task must
+  // not cover this work at any revision, so the route stays empty and the blocker
+  // stays truthful rather than borrowing an unrelated owner turn.
+  var h = harness({
+    storedIndex: 200452,
+    history: historyWithFollowUp(120, 400),
+    priorScope: { bindingRevision: 1, portfolioTaskId: "some-other-task" },
+    bindings: [bindingRecord(1, "failed")],
+  });
+
+  var result = h.dispatchViaRouter({ bindingRevision: 2 });
+
+  assert.equal(h.routed.length, 1);
+  assert.equal(h.routed[0].coopIngressId, undefined);
+  assert.equal(h.routed[0].coopTopicRef, undefined);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_decision_required");
+});
+
+test("REGRESSION: the router still refuses to walk an approval BACKWARDS a revision",
+  function () {
+    // Strict monotonicity is the shared predicate's job, and the router must honour
+    // it too: an approval spent on rev3 does not cover rev2, which the owner has
+    // already seen the outcome of.
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWithFollowUp(120, 400),
+      priorScope: { bindingRevision: 3 },
+      bindings: [bindingRecord(3, "failed")],
+    });
+
+    var result = h.dispatchViaRouter({ bindingRevision: 2 });
+
+    assert.equal(h.routed[0].coopIngressId, undefined);
+    assert.equal(result.ok, false);
+  });
 
 test("an exact re-dispatch of the approved revision is still a reuse, not a carry-forward",
   function () {

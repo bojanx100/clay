@@ -81,22 +81,91 @@ becomes `owner_directed_execution_carry_forward`, so a later reader can tell an
 owner-approved retry from an original approval. No schema change was needed —
 `classification.source` already round-trips.
 
+## Correction: the rule shipped dead, because the ROUTER never handed it a route
+
+**Read this before trusting the asymmetry table below.** The carry-forward
+described above was correct and *unreachable*. `a8500b9a3a` landed only the
+admission half. Measured live post-restart with it in place, a real
+board-exclusions rev2 dispatch still failed — `owner_implementation_decision_required`,
+a later failure than the original `thread_ref_required`, but a failure.
+
+`unscopedIngressCoverage` (`project-task-orchestrator-external-delegation.js`)
+rejected coverage unless
+`Number(scope.bindingRevision) === Number(input.bindingRevision)`. The durable
+owner-request scope for board-exclusions is pinned to rev1, so a rev2 dispatch got
+an **empty route** and `implementationAdmission` bailed on the missing Thread long
+before reaching `approvalCarriesForward`. Every retry arrives with a bumped
+revision — that is what a retry *is* — so exact revision equality in the router
+made the carry-forward unreachable for its only use case.
+
+Fixed by making coverage carry-forward-aware: a scope pinned to revision R also
+covers the same project's same task at a revision strictly **greater** than R.
+This deliberately gives up the "strictly narrower than the previous behaviour"
+property the old comment claimed; that comment is corrected in place rather than
+left asserting an invariant the code no longer has. It is safe because **the router
+only proposes**. Admission re-derives every authorization from the durable record,
+the canonical Coop event and the binding store, and owns the two conditions the
+router cannot see (terminal-unsuccessful, never-completed).
+
+Identity and monotonicity are **not** reimplemented in the router.
+`carryForwardEligible` was lifted out of the `coop-owner-requests` closure and
+exported, so the router and `scopeImplementation` answer "the same work, later?"
+from one predicate. Two copies of an authorization condition drift, and this bug is
+what that drift looks like from the outside.
+
+### Why the previous verification missed it, exactly
+
+`task-b6ec27bc` did drive the real ledger, the real transcript and the real binding
+store — and still missed this, because its harness called
+`router.createProjectExecution` **with `coopTopicRef` and `coopIngressId` already
+in hand**. The live daemon calls `coordinateExternalTask`, which runs
+`currentExecutionRoute` first. Supplying the route *is* skipping the bug.
+
+Standing lesson, and it is not about sandboxes: **a harness that supplies the
+output of the layer under test verifies nothing about that layer.** Real data does
+not save you if you enter below the seam that is broken. The regression added here
+drives `createExternalTaskCoordinator` with neither field set, so the route has to
+be derived — and it fails without the router fix.
+
 ## The asymmetry is the test
 
-Driven through the real router against the real ledger, transcript and binding
-store in a sandboxed `CLAY_HOME`:
+Re-measured through the **full** router + admission path
+(`createExternalTaskCoordinator`, no route supplied) against the real ledger,
+transcript and binding store copied into a sandboxed `CLAY_HOME`:
 
-| Item | rev1 binding | requested | Result |
-| --- | --- | --- | --- |
-| `webapp-automation-policy-board-exclusions` | `failed` | rev2 | **`{ok:true}`**, one envelope delivered |
-| `clay-voice-end-to-end-qa-2026-08-18` | `completed` | rev3 | **refused** `owner_implementation_scope_mismatch` |
+| Item | rev1 binding | requested | Router proposed | Admission |
+| --- | --- | --- | --- | --- |
+| `webapp-automation-policy-board-exclusions` | `failed` | rev2 | ingress `:459` + Thread `owner-65d0dc78…` | **`{ok:true}`**, one envelope, durable scope → rev2 `owner_directed_execution_carry_forward` |
+| `clay-voice-end-to-end-qa-2026-08-18` | `completed` | rev3 | **no route** | **refused** `owner_implementation_decision_required` |
 
-Success consumes an approval, so a completed rev1 must keep rev3 blocked. A
-change that unblocks both is wrong. `:498` ("Do another verification and tell me
-how to use it") is genuinely new work and needs its own approval.
+Success consumes an approval, so a completed rev1 must keep rev3 blocked. A change
+that unblocks both is wrong. `:498` ("Do another verification and tell me how to
+use it") is genuinely new work and needs its own approval.
 
-Both entries' offsets are equally stale and both resolve by identity — Voice is
-located and *then* refused. Locating a turn is not authorizing it.
+### Voice is refused EARLIER than the carry-forward, and that matters
+
+Be precise about what the live run proves. Voice rev3 is refused, but **not** by
+`approvalCarriesForward` — the router never proposes its turn at all. Ingress
+`:479`'s transcript event is a *question* ("also what about voice. we never tested
+that…") and carries no `coopImplementationDecision`, so `isImplementationIngress`
+is false and the scan skips it at every revision. Its durable ledger record *does*
+hold an implementation decision, classified later; the event does not.
+
+So on live data the never-completed condition is **not** the thing keeping Voice
+blocked, and a live green on board-exclusions is not evidence that the completed
+guard works. That half is proven only by
+`test/coop-owner-approval-carry-forward-admission.test.js`, where the owner turn
+carries a decision, the router *does* propose it, and admission alone refuses with
+`owner_implementation_scope_mismatch`. Both halves have to be asserted separately
+for exactly this reason.
+
+Pre-existing and untouched, but worth naming: `unscopedIngressCoverage`
+short-circuits to ok when the item is the **latest** owner ingress, so coverage —
+and therefore the revision check — is skipped entirely for the newest turn. Today
+`:503` is conversational so nothing is adopted, but if the owner's newest turn were
+an implementation ingress, any unscoped dispatch would adopt it regardless of task
+or revision. `admitUnscopedMainImplementation` re-derives it, so this is
+fail-closed rather than a hole; it is still a wider door than the scoped path.
 
 ## Standing lesson, extended
 
