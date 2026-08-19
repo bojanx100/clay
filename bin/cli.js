@@ -1941,6 +1941,11 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
 
   // Wait for daemon to be ready, then show CLI menu
   config.pid = child ? child.pid : null;
+  // Record the watcher itself, not just its daemon. A later `--dev` takeover has
+  // to stop this process too: shutting down only the daemon leaves this watcher
+  // to respawn it, and the two daemons then SIGTERM each other over the port
+  // forever (see the takeover in the dev entry path).
+  config.devWatcherPid = process.pid;
   saveConfig(config);
 
   var daemonReady = false;
@@ -1975,7 +1980,7 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
 
   // Clean exit on Ctrl+C
   var shuttingDown = false;
-  process.on("SIGINT", function () {
+  function shutdownWatcher() {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log("\n\x1b[38;2;0;183;133m[dev]\x1b[0m Shutting down...");
@@ -1994,7 +1999,15 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
       clearStaleConfig();
       process.exit(0);
     }
-  });
+  }
+
+  // SIGTERM as well as SIGINT: a takeover, a kill, or a supervising script all
+  // send SIGTERM, and without a handler this process died instantly and left its
+  // daemon running as an orphan -- still holding the port and still being
+  // SIGTERMed by, and SIGTERMing, whichever daemon started next.
+  process.on("SIGINT", shutdownWatcher);
+  process.on("SIGTERM", shutdownWatcher);
+  process.on("SIGHUP", shutdownWatcher);
 }
 
 // ==============================
@@ -2771,6 +2784,7 @@ function showSettingsMenu(config, ip) {
 // Main entry: daemon alive?
 // ==============================
 var { checkAndUpdate } = require("../lib/updater");
+var devWatcherTakeover = require("../lib/dev-watcher-takeover");
 var currentVersion = require("../package.json").version;
 
 (async function () {
@@ -2781,6 +2795,20 @@ var currentVersion = require("../package.json").version;
   if (_isDev) {
     var devConfig = loadConfig();
     var devAlive = devConfig ? await isDaemonAliveAsync(devConfig) : false;
+    // Stop the previous watcher FIRST. It respawns its daemon on any unexpected
+    // exit, so shutting the daemon down while the watcher lives just resurrects
+    // it -- and then both daemons race for the port, each SIGTERMing the other on
+    // bind, restarting every ~40s indefinitely.
+    var priorWatcher = devWatcherTakeover.priorWatcherToStop(devConfig, process.pid);
+    if (priorWatcher) {
+      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Stopping existing dev watcher (PID " +
+        priorWatcher + ")...");
+      try { process.kill(priorWatcher, "SIGTERM"); } catch (e) {}
+      for (var wk = 0; wk < 20; wk++) {
+        await new Promise(function (resolve) { setTimeout(resolve, 100); });
+        try { process.kill(priorWatcher, 0); } catch (e) { break; }
+      }
+    }
     if (devAlive) {
       console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Shutting down existing daemon...");
       await sendIPCCommand(socketPath(), { cmd: "shutdown" });
