@@ -206,6 +206,60 @@ wire. So stale `requestRef` indices are the sole remaining authorization blocker
 Repointing 502 back-pointers is a live-data repair inside the owner-request
 subsystem, which this change does not own. It is not worked around here.
 
+### Fixed, without repairing any data (`coop-owner-event-resolution.js`)
+
+A data repair was the wrong shape: coalescing runs during **serialization**, so
+the indices drift again on every restart and a one-time repoint would not hold.
+The index is derived positional data; `coopIngressId` is the immutable identity
+the ingress was stamped with. So `canonicalOwnerEvent` now resolves by identity
+and keeps the index only as a fast path.
+
+Equivalent-or-narrower in authority **by construction**, not by argument: every
+writer of `requestRef.eventIndex` records the index of the item carrying that
+exact ingress (`project-user-message-coop.recordOwnerRequest`, and
+`coop-owner-request-backfill` via `ingressEvents`), so the index always denoted
+the ingress-bearing event. The record must still claim the canonical Coop
+session, the resolved event must still be that session's own `user_message`
+carrying this exact ingress, and every topic and classification check is
+unchanged. A duplicated ingress resolves to nothing rather than a guess.
+
+Measured against the real transcript (37 974 items) and the real ledger:
+
+| | index only | with identity fallback |
+|---|---|---|
+| `canonicalOwnerEvent` resolves | **1** / 503 | **474** / 503 |
+| `implementationAuthorized` entries | **0** | **15** |
+
+Adversarial review caught a latent fail-open in the first cut: the resolver's
+cache was invalidated on `history.length` alone, and an in-place removal that
+also appends leaves the length unchanged, so a **deleted** owner turn kept
+authorizing dispatches (proven by execution). No current code path does that —
+every in-place removal in `lib/` truncates inside a synchronous rollback — but
+the invariant was undocumented and one redaction or in-memory compaction feature
+would have silently opened the gate. The resolver now verifies its cached hit
+still sits where it was indexed, and rebuilds once if not. Cost: ~1.8 ms per
+100 000 lookups over a 37 974-item history.
+
+**Expect one durable side effect on the first dispatch after this lands.**
+`replayImplementationDecision` writes to the owner ledger, and that write has
+been dormant while every index was stale. It will backfill an
+`implementationDecision` onto ~11 entries whose canonical event text carries an
+explicit decision, most of them weeks old. This is the pre-drift design being
+restored rather than new authority, but it is a durable mutation. The previously
+dead queue and named-approval paths also come back to life: on live state 1 owner
+turn matches `explicitQueueAuthorization`, 1 matches
+`explicitReadOnlyReviewAuthorization` and 6 match `explicitItemApproval` — all
+still bounded by their pending-at-authorization-time snapshots and exact task-key
+equality.
+
+Still not revived, and correctly so: the four pinned recovery migrations
+(`coop-threads-implementation-recovery`, `coop-main-ingress-recovery`, both
+`coop-urban-stay-*`) resolve through `history[EXPECTED.eventIndex]` against their
+own pinned indices and remain `*_event_missing` on every startup.
+`matchesRecoveredEntry` requires `exact.event === event` where `exact.event` is
+index-derived, so a fallback-resolved event can never satisfy it. Fail-closed and
+untouched — but that part of the coalescing outage is still not cleaned up.
+
 ## Escalated, not fixed: approval carry-forward on retry
 
 Deliberately not implemented here, for two reasons.

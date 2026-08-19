@@ -1680,3 +1680,102 @@ test("an unscoped Main decision is refused for a project the owner did not name"
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// Transcript delta coalescing rewrote the canonical transcript without repointing
+// the stored requestRef.eventIndex values. Measured on live state: of 503 owner
+// requests exactly ONE index still landed on its own ingress, 55 landed on an
+// unrelated event and 447 pointed past the end of the 37 831-item transcript.
+// Because implementationAuthorized requires the canonical event whenever a
+// requestRef exists -- and every entry has one -- no owner decision anywhere in
+// live state could be admitted. Resolving by the immutable coopIngressId instead
+// of the drifted index is what makes an owner-approved dispatch possible again.
+test("a stale requestRef index still resolves the owner turn by its ingress", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-stale-ref-"));
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var ingressId = "coop:coop-home:459";
+  var topicRef = { topicId: "owner-65d0dc78" };
+  var ownerEvent = {
+    type: "user_message",
+    text: "implement the board exclusions in clay",
+    coopIngressId: ingressId,
+    coopTopicRef: topicRef,
+  };
+  // The transcript as it exists now: the owner turn sits at index 2, while the
+  // record still points at the pre-coalescing position.
+  var history = [
+    { type: "tool_result" },
+    { type: "thinking_stop" },
+    ownerEvent,
+    { type: "tool_executing" },
+  ];
+  var entry = {
+    ingressId: ingressId,
+    expectsExecution: true,
+    implementationDecision: { intent: "implement", projectName: "clay" },
+    topicRef: topicRef,
+    projectRefs: [{ projectId: projectId }],
+    requestRef: { projectId: "system-lead", sessionStorageId: "coop-home", eventIndex: 200452 },
+    sessionRef: { projectId: "system-lead", sessionStorageId: "coop-home" },
+  };
+  var scoped = [];
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    allowLeadSourcedExecution: true,
+    requireOwnerImplementationDecision: true,
+    getProjectContext: function () { return null; },
+    ownerRequests: {
+      get: function () { return entry; },
+      forTopic: function (requested) {
+        return requested && requested.topicId === topicRef.topicId ? [entry] : [];
+      },
+      scopeImplementation: function (id, scope) {
+        scoped.push({ id: id, scope: scope });
+        return { ok: true, request: entry };
+      },
+    },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    getSessionManager: function () {
+      return { sessions: { forEach: function (fn) {
+        fn({ coopHome: true, storageId: "coop-home", history: history });
+      } } };
+    },
+  });
+
+  function dispatch() {
+    return router.createProjectExecution({
+      source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+      coopIngressId: ingressId,
+      coopTopicRef: topicRef,
+      portfolioTaskId: "webapp-automation-policy-board-exclusions",
+      bindingRevision: 1,
+      idempotencyKey: "board-exclusions-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: projectId },
+      objective: "Exclude the configured boards from automation policy.",
+    });
+  }
+
+  var result = dispatch();
+  // Authorization passes: the owner decision is found and scoped even though the
+  // recorded index points 200 000 events past the end of the transcript.
+  assert.notEqual(result.reason, "owner_implementation_decision_required");
+  assert.equal(scoped.length, 1, "the owner decision is admitted and scoped");
+  assert.deepEqual(scoped[0].scope.topicRef, topicRef);
+
+  // A duplicated ingress is ambiguous, and guessing which turn the owner meant
+  // would be the fail-open move. It fails closed instead.
+  history.push({ type: "user_message", text: "something else", coopIngressId: ingressId });
+  scoped.length = 0;
+  assert.equal(dispatch().reason, "owner_implementation_decision_required");
+  assert.equal(scoped.length, 0, "an ambiguous ingress must never be scoped");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
