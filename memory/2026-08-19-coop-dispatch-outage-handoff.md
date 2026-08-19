@@ -8,6 +8,13 @@ detail docs it points at.
 Status: **the outage is fixed in code and green in test. It has not been exercised
 against a running daemon.** That gap is the top item below, not a footnote.
 
+> **Superseded 18:05 UTC — it has now been exercised.** Admission passed live;
+> execution failed and closed the daemon's controlled-execution ingress
+> process-wide. Read `2026-08-19-first-live-dispatch-result.md` before attempting
+> another dispatch — it will be refused with `controlled_execution_recovery_required`
+> until the daemon is recovered. The "Not verified" and "Watch on the first
+> dispatch" sections below are answered there.
+
 ## What was actually wrong
 
 Three independent blockers stacked on the same path. Any one of them alone produced the
