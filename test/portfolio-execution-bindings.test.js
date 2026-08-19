@@ -298,7 +298,11 @@ test("restart-failed project coordinators terminalize ghost bindings without fal
   assert.equal(reconciled.reconciled[0].status, "failed");
   assert.equal(reconciled.reconciled[0].completedAt, 1234);
   assert.equal(store.get("portfolio-task", 1).status, "failed");
-  assert.equal(store.get("portfolio-task", 1).statusReason, undefined);
+  // The terminal record names why it ended, and supersedes the pre-terminal
+  // "session_archived" that only described why it stalled. Erasing this is what
+  // made a sweep-terminalized orphan look identical to a genuine task failure.
+  assert.equal(store.get("portfolio-task", 1).failureCode, "restart_recovery");
+  assert.equal(store.get("portfolio-task", 1).statusReason, "restart_recovery");
   assert.equal(store.get("portfolio-task", 1).attentionAt, undefined);
   assert.equal(session.orchestrationProjectCompletion.status, "pending",
     "restart recovery must not invent verified project completion");
@@ -468,4 +472,94 @@ test("malformed binding state fails closed without overwriting it", function () 
   assert.equal(store.getLoadError(), "malformed_state");
   assert.deepEqual(store.reserve(request(1)), { ok: false, reason: "malformed_state" });
   assert.equal(fs.readFileSync(file, "utf8"), "{not-json");
+});
+
+test("the same work refiled under a different portfolioTaskId is refused, not duplicated", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-"));
+  var file = path.join(dir, "bindings.json");
+  var clock = 10;
+  var store = createBindings({ file: file, now: function () { return clock++; } });
+
+  function withIdentity(taskId, revision, identity) {
+    return {
+      portfolioTaskId: taskId,
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT_ID },
+      bindingRevision: revision,
+      idempotencyKey: taskId + "-r" + revision,
+      candidateKey: identity,
+    };
+  }
+
+  var first = store.reserve(withIdentity("auto-issue-2522", 1, "launch:trialview/v2#2522"));
+  assert.equal(first.ok, true);
+  assert.equal(first.binding.workIdentity, "launch:trialview/v2#2522");
+
+  // A fresh attempt name for work already bound: previously invisible to every
+  // guard, because they all compared portfolioTaskId only.
+  var renamed = store.reserve(withIdentity("webapp-github-issue-2522", 1, "launch:trialview/v2#2522"));
+  assert.equal(renamed.ok, false);
+  assert.equal(renamed.reason, "duplicate_work_identity");
+  assert.equal(renamed.binding.portfolioTaskId, "auto-issue-2522");
+
+  // A terminal failure still blocks a rename; the retry belongs on a new
+  // revision of the original binding.
+  store.commit("auto-issue-2522", 1, { projectId: PROJECT_ID, sessionStorageId: "coordinator" });
+  store.complete("auto-issue-2522", 1, { eventId: "dead-1", terminalStatus: "failed" });
+  assert.equal(store.reserve(withIdentity("webapp-github-issue-2522", 1,
+    "launch:trialview/v2#2522")).reason, "duplicate_work_identity");
+  assert.equal(store.reserve(withIdentity("auto-issue-2522", 2,
+    "launch:trialview/v2#2522")).ok, true, "same id, next revision is the legitimate retry");
+
+  // Unrelated work is untouched, and identity survives reload.
+  assert.equal(store.reserve(withIdentity("other-task", 1, "launch:trialview/v2#9999")).ok, true);
+  var restarted = createBindings({ file: file, now: function () { return clock++; } });
+  assert.equal(restarted.get("auto-issue-2522", 1).workIdentity, "launch:trialview/v2#2522");
+  assert.equal(restarted.reserve(withIdentity("renamed-again", 1,
+    "launch:trialview/v2#2522")).reason, "duplicate_work_identity");
+});
+
+test("a terminal failure keeps its provenance instead of erasing it", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-"));
+  var file = path.join(dir, "bindings.json");
+  var clock = 10;
+  var store = createBindings({ file: file, now: function () { return clock++; } });
+
+  store.reserve(request(1, "project_coordinator"));
+  store.commit("portfolio-task", 1, { projectId: PROJECT_ID, sessionStorageId: "coordinator" });
+  var failed = store.complete("portfolio-task", 1, {
+    eventId: "event-1",
+    terminalStatus: "failed",
+    failureCode: "restart_recovery",
+  });
+  assert.equal(failed.ok, true);
+  assert.equal(failed.binding.status, "failed");
+  // The whole point: a sweep-terminalized orphan must stay distinguishable from
+  // a task that genuinely failed on its own merits.
+  assert.equal(failed.binding.failureCode, "restart_recovery");
+  assert.equal(failed.binding.statusReason, "restart_recovery");
+
+  var reloaded = createBindings({ file: file, now: function () { return clock++; } });
+  assert.equal(reloaded.get("portfolio-task", 1).failureCode, "restart_recovery");
+});
+
+test("a failure with no supplied code is still marked, and success stays clean", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-"));
+  var file = path.join(dir, "bindings.json");
+  var clock = 10;
+  var store = createBindings({ file: file, now: function () { return clock++; } });
+
+  store.reserve(request(1, "project_coordinator"));
+  store.commit("portfolio-task", 1, { projectId: PROJECT_ID, sessionStorageId: "coordinator" });
+  var bare = store.complete("portfolio-task", 1, { eventId: "event-1", terminalStatus: "failed" });
+  assert.equal(bare.binding.failureCode, "unspecified",
+    "an unexplained failure is labelled as such rather than left blank");
+
+  var second = createBindings({ file: file, now: function () { return clock++; } });
+  second.reserve(request(2, "project_coordinator"));
+  second.commit("portfolio-task", 2, { projectId: PROJECT_ID, sessionStorageId: "coordinator-2" });
+  var done = second.complete("portfolio-task", 2, { eventId: "event-2", terminalStatus: "completed" });
+  assert.equal(done.binding.status, "completed");
+  assert.equal(done.binding.failureCode, undefined, "a verified completion explains nothing");
+  assert.equal(done.binding.statusReason, undefined);
 });

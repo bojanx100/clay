@@ -193,3 +193,30 @@ test("execution admission verifies the approval link independently", function ()
   assert.equal(itemApproval.executionAdmission(input, request, {}, otherProject).reason,
     "owner_implementation_project_mismatch");
 });
+
+test("a cutover attention is pending for approval just like a staffing attention", function () {
+  var BOARD = "webapp-automation-policy-board-exclusions";
+  // Live state re-recorded this item as cutover_attention rather than
+  // staffing_attention. The snapshot used to skip that type outright, so the
+  // item could never be approved by name, never minted an owner Thread, and
+  // every dispatch failed thread_ref_required instead.
+  var cutover = attention(BOARD, 1000, { type: "cutover_attention" });
+  var snapshot = itemApproval.pendingApprovalSnapshotAt([cutover], 2000);
+  assert.equal(snapshot.ok, true);
+  assert.equal(snapshot.tasks.length, 1);
+  assert.equal(snapshot.tasks[0].portfolioTaskId, BOARD);
+
+  // Both types share one attention key, so resolution still clears it and a
+  // resolved item does not linger as approvable.
+  var resolved = itemApproval.pendingApprovalSnapshotAt([
+    cutover,
+    { type: "attention_resolved", attentionKey: BOARD + ":1", at: 1500, seq: 1500 },
+  ], 2000);
+  assert.deepEqual(resolved.tasks, []);
+
+  // The ordering guarantee is unchanged: attention raised after the approval
+  // was not already waiting, so it stays out of the snapshot.
+  assert.deepEqual(
+    itemApproval.pendingApprovalSnapshotAt([attention(BOARD, 3000, { type: "cutover_attention" })],
+      2000).tasks, []);
+});

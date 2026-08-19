@@ -116,3 +116,34 @@ test("missing or Lead-local targets produce visible attention with no fallback",
   assert.equal(lead.attention.fallbackAllowed, false);
   assert.equal(staffing.composeStaffing(item, route, { ownedPaths: "lib/project.js" }), null);
 });
+
+test("staffing carries a stable work identity so renamed attempts stay detectable", function () {
+  var routed = routing.routeWorkItem(makeItem("x").classification, {});
+
+  // The backlog's own candidateKey wins when present.
+  var launched = makeItem("Replace the Excel zoom slider");
+  launched.candidateKey = "launch:trialview/v2#2522";
+  assert.strictEqual(
+    staffing.composeStaffing(launched, routed, staffingOptions("src/viewer.ts")).workIdentity,
+    "launch:trialview/v2#2522");
+
+  // Without one, canonical GitHub coordinates give the same item the same
+  // identity no matter which ad-hoc portfolioTaskId a caller invents.
+  var plain = makeItem("Fix crash");
+  var first = staffing.composeStaffing(plain, routed, staffingOptions("lib/daemon.js"));
+  var renamed = staffing.composeStaffing(plain, routed,
+    staffingOptions("lib/daemon.js", { portfolioTaskId: "some-other-name-2026-08-19" }));
+  assert.strictEqual(first.workIdentity, "github:clay#1");
+  assert.strictEqual(renamed.workIdentity, first.workIdentity,
+    "a renamed attempt must not acquire a new work identity");
+  assert.notStrictEqual(renamed.portfolioTaskId, first.portfolioTaskId);
+
+  // A staffable item with neither key simply has no identity rather than a
+  // fabricated one, so the duplicate guard stays silent instead of guessing.
+  var internal = { id: "clay-internal-task", title: "No provenance", body: "",
+    labels: [], state: "open" };
+  internal.classification = routing.classifyWorkItem(internal);
+  var staffed = staffing.composeStaffing(internal, routed, staffingOptions("lib/x.js"));
+  assert.ok(staffed, "an id-bearing item is still staffable without a work identity");
+  assert.strictEqual(staffed.workIdentity, "");
+});

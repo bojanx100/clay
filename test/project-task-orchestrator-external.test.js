@@ -731,7 +731,12 @@ test("restart recovery closes an archived project coordinator binding after sess
   var binding = router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision);
   assert.equal(binding.status, "failed");
   assert.equal(binding.completedAt, 1234);
-  assert.equal(binding.statusReason, undefined);
+  // Recovery provenance survives end to end. It replaces the pre-terminal
+  // "session_archived" (why it stalled) with why it actually ended, so a binding
+  // swept by restart recovery stays tellable apart from a task that failed on
+  // its own merits -- previously both landed as a bare "failed" with no reason.
+  assert.equal(binding.failureCode, "restart_recovery");
+  assert.equal(binding.statusReason, "restart_recovery");
   assert.equal(binding.attentionAt, undefined);
   assert.equal(coordinator.orchestrationProjectCompletion.status, "pending",
     "a recovered failure is terminal but not a verified project completion");
