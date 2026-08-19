@@ -20,14 +20,32 @@
 // Usage:
 //   node scripts/coalesce-session-deltas.js --dry-run   # report only
 //   node scripts/coalesce-session-deltas.js             # migrate
+//   node scripts/coalesce-session-deltas.js --skip-active-seconds=600
 //
-// Stop the daemon before migrating, or it may re-save a file from memory mid-run.
+// This rewrites a file by read -> transform -> rename, so anything the daemon
+// appends between the read and the rename would be lost. Files written within
+// SKIP_ACTIVE_SECONDS are therefore left alone: those are the ones the daemon
+// is actively saving, and it already coalesces them itself on every durable
+// save. That makes the migration safe to run against a live daemon; it only
+// has to reach the transcripts the daemon never re-saves.
 
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
 
 var dryRun = process.argv.indexOf("--dry-run") !== -1;
+
+function numericFlag(name, fallback) {
+  var argv = process.argv;
+  for (var i = 0; i < argv.length; i++) {
+    if (argv[i].indexOf(name + "=") !== 0) continue;
+    var parsed = Number(argv[i].slice(name.length + 1));
+    if (isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return fallback;
+}
+
+var skipActiveMs = numericFlag("--skip-active-seconds", 300) * 1000;
 var sessionsDir = path.join(os.homedir(), ".clay", "sessions");
 var backupDir = path.join(os.homedir(), ".clay",
   "session-backups-" + new Date().toISOString().replace(/[:.]/g, "-"));
@@ -82,12 +100,22 @@ function coalesce(lines) {
 }
 
 var files = walk(sessionsDir, []);
-var totalFiles = 0, totalRemoved = 0, totalSaved = 0;
+var totalFiles = 0, totalRemoved = 0, totalSaved = 0, skippedActive = 0;
+var startedAt = Date.now();
 
 for (var f = 0; f < files.length; f++) {
   var file = files[f];
-  var sizeBefore;
-  try { sizeBefore = fs.statSync(file).size; } catch (e) { continue; }
+  var sizeBefore, modifiedAt;
+  try {
+    var stat = fs.statSync(file);
+    sizeBefore = stat.size;
+    modifiedAt = stat.mtimeMs;
+  } catch (e) { continue; }
+
+  if (skipActiveMs > 0 && startedAt - modifiedAt < skipActiveMs) {
+    skippedActive++;
+    continue;
+  }
 
   var raw;
   try { raw = fs.readFileSync(file, "utf8"); } catch (e) {
@@ -123,6 +151,10 @@ for (var f = 0; f < files.length; f++) {
 console.log("");
 console.log((dryRun ? "[dry run] would drop " : "dropped ") + totalRemoved +
   " delta line(s) across " + totalFiles + " file(s)");
+if (skippedActive) {
+  console.log("skipped " + skippedActive + " recently-written file(s); the daemon " +
+    "coalesces those itself on its next durable save");
+}
 if (!dryRun && totalFiles) {
   console.log("reclaimed " + (totalSaved / (1024 * 1024)).toFixed(1) + " MB");
   console.log("originals backed up to " + backupDir);
