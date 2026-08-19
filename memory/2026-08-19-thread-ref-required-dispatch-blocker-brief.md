@@ -103,6 +103,67 @@ its own turn `:459` with its own Thread `owner-65d0dc78…` (was: `:482` with a
 null Thread); `:482` still routes correctly for the task it *does* authorize;
 rev2 now returns no route and reports the truthful reason.
 
+## Blocking coupling: every `requestRef.eventIndex` is stale
+
+Measured after the fix landed, while answering whether this work depends on the
+wedged `coop-owner-requests` startup migration. It does not depend on the
+*migration* — but it does depend on the same underlying drift, and that turns out
+to block dispatch outright.
+
+`canonicalOwnerEvent` (`server-cross-project.js:610`) resolves an owner turn
+**only** through `entry.requestRef.eventIndex`, with no fallback to scanning by
+`coopIngressId`:
+
+```js
+var event = history[ref.eventIndex];
+if (!event || event.type !== "user_message" || event.coopIngressId !== ingressId) return null;
+```
+
+Across the 503 live owner-request entries:
+
+| `requestRef.eventIndex` resolves to | Count |
+|---|---|
+| the correct ingress | **1** |
+| a wrong event (`tool_executing`, `tool_result`, `thinking_stop`) | 55 |
+| past the end of the 37 831-item transcript | 447 |
+
+Same cause as the wedged migrations (`cf7f197ee1`, transcript delta coalescing,
+~218k → 37 831 items): absolute event indices survived, the coordinate system did
+not. Ingress `:459` records index 200452; it actually sits at 31207.
+
+Consequence in `implementationAdmission`:
+
+```js
+var implementationAuthorized = entry.expectsExecution === true &&
+  !!entry.implementationDecision && !withdrawn &&
+  (!entry.requestRef || !!canonicalEvent);
+```
+
+Every entry has a `requestRef` (measured: 0 without), so `!entry.requestRef` is
+false and `canonicalEvent` is null — `implementationAuthorized` is **false for
+every owner-request entry in live state**. Verified end to end by driving the
+real router against the real ledger and transcript, with the correct ingress, the
+correct Thread and the **authorized** revision 1:
+
+```
+rev1 WITH correct Thread + correct ingress => {"ok":false,"reason":"owner_implementation_decision_required"}
+```
+
+Isolated to this single cause by repointing **only** `requestRef.eventIndex`
+(200452 → 31207) through a read-only overlay, writing nothing to disk:
+
+```
+rev1 with requestRef.eventIndex CORRECTED => {"ok":false,"reason":"coordinator_claim_unavailable"}
+```
+
+`coordinator_claim_unavailable` is raised at line 1236, strictly after the
+`implementationAdmission` call at 1219 — authorization **passed**, and what
+remains is control-plane coordinator claiming that the test harness does not
+wire. So stale `requestRef` indices are the sole remaining authorization blocker.
+
+Repointing 502 back-pointers is a live-data repair inside the owner-request
+subsystem, which this change does not own. It is not worked around here.
+
 ## Escalated, not fixed: approval carry-forward on retry
 
 Deliberately not implemented here, for two reasons.
