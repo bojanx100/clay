@@ -7,12 +7,17 @@ var net = require("net");
 var os = require("os");
 var path = require("path");
 
+var compaction = require("../lib/project-session-compaction");
 var executionFence = require("../lib/coop-control-fence");
 var executions = require("../lib/coop-control-executions");
 var handoffs = require("../lib/coop-control-handoff");
 var startupModule = require("../lib/coop-control-startup");
 var storeModule = require("../lib/coop-control-store");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
+
+var NO_EXACT_TARGET = "An active controlled execution has no exact checkpointable target session.";
+var DRAIN_BEFORE_STARTUP =
+  "Controlled execution ingress cannot drain before startup recovery completes.";
 
 var SOURCE = { projectId: "system-lead", sessionStorageId: "coop-home" };
 var PROJECT_A = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
@@ -39,9 +44,21 @@ function harness(options) {
 
   function manager(projectId) {
     if (!managers[projectId]) {
-      var sm = { sessions: new Map(), saves: 0,
+      var nextLocalId = 1000;
+      var sm = { sessions: new Map(), saves: 0, recorded: [],
         saveSessionFile: function () { sm.saves += 1; },
         broadcastSessionList: function () {},
+        // Enough of the real SessionManager surface for the compaction module.
+        createSessionRaw: function (created) {
+          var session = Object.assign({ localId: nextLocalId++, history: [] }, created);
+          sm.sessions.set(session.localId, session);
+          return session;
+        },
+        sendAndRecord: function (session, event) {
+          sm.recorded.push({ localId: session.localId, event: event });
+          if (Array.isArray(session.history)) session.history.push(event);
+        },
+        switchSession: function () {},
       };
       managers[projectId] = sm;
       router.registerProjectResolver({
@@ -175,9 +192,143 @@ availableTest("multi-project preparation is a barrier and refuses partial checkp
     assert.throws(function () { h.router.prepareControlledRestart(); }, function (error) {
       return error && error.code === "COOP_CONTROL_RESTART_CHECKPOINT_REQUIRED";
     });
-    assert.equal(h.router.controlledIngressState(), "recovery_required");
+    // Read-only refusal: nothing durable was written, so ingress must return to
+    // exactly where it was rather than latching recovery_required.
+    assert.equal(h.router.controlledIngressState(), "open");
     assert.equal(h.store.listHandoffs().length, 0,
       "preflight must reject before persisting any project handoff");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// DEFECT A. Compaction mints a fresh sessionStorageId and moves
+// orchestrationPolicy -- control metadata included -- onto it, while nothing
+// repoints coop_control_incarnations. Live state proved the consequence: the
+// control plane kept reporting the execution running while zero turns ran, and
+// the next graceful restart could no longer resolve an exact checkpointable
+// target. Compaction of a control-plane-bound session is refused outright, so
+// the execution keeps the exact session identity the control plane pins.
+availableTest("compaction cannot re-home a control-plane-bound execution's session", function () {
+  var h = harness();
+  try {
+    var active = h.addExecution({ taskId: "compaction-orphan-coordinator", projectId: PROJECT_A,
+      sessionStorageId: "compaction-orphan-coordinator" });
+    active.session.vendor = "codex";
+    active.session.history.push({ type: "user_message", text: "Do the controlled work", _ts: 1 });
+    h.router.completeControlledStartup();
+    var sm = h.manager(PROJECT_A);
+    var started = [];
+    var api = compaction.attachSessionCompaction({
+      cwd: h.dir,
+      sm: sm,
+      sdk: { startQuery: function (session) { started.push(session); } },
+      sendToSession: function () {},
+    });
+
+    var continuation = api.compactAndContinue(active.session, { reason: "empty_turn" });
+
+    assert.equal(continuation, null, "a controlled execution's session must not compact");
+    assert.equal(started.length, 0, "no successor provider turn may start");
+    assert.equal(sm.sessions.size, 1, "no successor session may be created");
+    assert.equal(active.session.hidden, undefined, "the bound session stays live");
+    assert.equal(active.session.orchestrationPolicy.portfolioExecution.control.executionId,
+      active.token.executionId, "control metadata stays on the pinned session");
+    assert.ok(sm.recorded.some(function (item) {
+      return item.event.type === "error" &&
+        String(item.event.text).indexOf(active.token.executionId) !== -1;
+    }), "the refusal must be recorded on the session, not silent");
+
+    // The point of the refusal: the control plane still resolves an exact
+    // checkpointable target, so graceful restart still works.
+    var prepared = h.router.prepareControlledRestart();
+    assert.equal(prepared.preparedHandoffs, 1);
+    assert.equal(h.store.listHandoffs().length, 1);
+    assert.equal(h.store.listHandoffs()[0].state, "prepared");
+    assert.equal(h.store.listHandoffs()[0].from_session_id, "compaction-orphan-coordinator");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// DEFECT B, read-only direction, plus the truthfulness of the reported reason.
+// A session already re-homed on disk by an older build is the exact live shape:
+// the successor carries the control metadata, the incarnation row still pins the
+// predecessor. Preflight must refuse -- it is fail-closed on purpose -- but it
+// must refuse the SAME way every time and must not close ingress behind it.
+availableTest("a re-homed controlled session refuses restart truthfully and repeatably", function () {
+  var h = harness();
+  try {
+    var active = h.addExecution({ taskId: "rehomed-coordinator", projectId: PROJECT_A,
+      sessionStorageId: "rehomed-coordinator" });
+    h.router.completeControlledStartup();
+    var sm = h.manager(PROJECT_A);
+    // Replay what compaction used to leave behind: metadata moved to a fresh
+    // storageId, predecessor hidden, runtime fence left behind with it.
+    var successor = { localId: 2, storageId: "rehomed-coordinator-successor", history: [],
+      compactedFromStorageId: active.ref.sessionStorageId,
+      orchestrationPolicy: active.session.orchestrationPolicy };
+    delete active.session.orchestrationPolicy;
+    active.session.hidden = true;
+    sm.sessions.set(successor.localId, successor);
+
+    var messages = [];
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try { h.router.prepareControlledRestart(); messages.push("prepared"); }
+      catch (error) {
+        messages.push(error.message);
+        assert.equal(error.code, "COOP_CONTROL_RESTART_CHECKPOINT_REQUIRED");
+      }
+      assert.equal(h.router.controlledIngressState(), "open",
+        "a read-only preflight refusal must leave ingress recoverable");
+    }
+    assert.deepEqual(messages, [NO_EXACT_TARGET, NO_EXACT_TARGET, NO_EXACT_TARGET],
+      "the true cause must not be masked by the startup-drain guard");
+    assert.equal(h.store.listHandoffs().length, 0);
+
+    // The sanctioned in-process repair stays reachable: it now answers with its
+    // own domain refusal instead of the ingress gate's recovery_required.
+    var migrated = h.router.migrateControlPlaneBinding({});
+    assert.notEqual(migrated.reason, "controlled_execution_recovery_required");
+    assert.notEqual(h.router.dismissProjectExecution({}).reason,
+      "controlled_execution_recovery_required");
+  } finally {
+    h.cleanup();
+  }
+});
+
+// DEFECT B, durable direction. The latch is right when it is earned: once one
+// prepareRestartHandoff has committed a handoff, a checkpoint and a successor
+// epoch, a later failure leaves partial durable restart state behind and ingress
+// must stay closed until explicit recovery. The startup-drain message the next
+// attempt reports is then TRUE.
+availableTest("a partial prepareRestartHandoff failure still latches ingress", function () {
+  var commits = 0;
+  var h = harness({ faults: { beforeExecutionCommit: function (event) {
+    if (event.operation !== "prepare_restart_handoff") return;
+    commits += 1;
+    if (commits === 2) throw new Error("simulated durable handoff failure");
+  } } });
+  try {
+    h.addExecution({ taskId: "partial-handoff-a", projectId: PROJECT_A,
+      sessionStorageId: "partial-handoff-a" });
+    h.addExecution({ taskId: "partial-handoff-b", projectId: PROJECT_B,
+      sessionStorageId: "partial-handoff-b" });
+    h.router.completeControlledStartup();
+
+    assert.throws(function () { h.router.prepareControlledRestart(); }, function (error) {
+      return error && error.code === "COOP_CONTROL_RESTART_CHECKPOINT_REQUIRED";
+    });
+    assert.equal(commits, 2);
+    assert.equal(h.store.listHandoffs().length, 1,
+      "the first handoff really did commit, so durable partial state exists");
+    assert.equal(h.router.controlledIngressState(), "recovery_required");
+    assert.equal(h.router.createProjectExecution({}).reason,
+      "controlled_execution_recovery_required");
+
+    assert.throws(function () { h.router.prepareControlledRestart(); }, function (error) {
+      return error.message === DRAIN_BEFORE_STARTUP;
+    }, "once latched, the startup-drain refusal is the true one");
   } finally {
     h.cleanup();
   }

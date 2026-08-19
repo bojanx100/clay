@@ -403,3 +403,177 @@ test("compaction moves a settled coordinator graph and retargets worker lineage"
   assert.strictEqual(worker.orchestrationParent.sessionStorageId, continuation.storageId);
   assert.ok(saved.indexOf(worker) !== -1);
 });
+
+// DEFECT A. A Coop-controlled execution is fenced to one exact session
+// identity that the control plane pins durably. Compaction mints a new
+// storageId and MOVES orchestrationPolicy -- control metadata included -- onto
+// it while nothing repoints the control plane, which orphaned a live execution
+// and then bricked graceful restart. Refuse instead of re-homing.
+test("compaction refuses a session bound to a Coop-controlled execution", function () {
+  var sessions = new Map();
+  var source = {
+    localId: 1,
+    storageId: "351a861b-pre-compaction",
+    title: "Controlled coordinator",
+    vendor: "codex",
+    history: [{ type: "user_message", text: "Do the controlled work", _ts: 1 }],
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "webapp-automation-policy-board-exclusions",
+        bindingRevision: 2,
+        mode: "project_coordinator",
+        status: "running",
+        control: {
+          executionId: "exec:9091916b",
+          incarnationId: "inc:9fdab3e9",
+          epoch: 1,
+          role: "coordinator",
+          authorityId: "auth:1234",
+        },
+      },
+    },
+  };
+  sessions.set(source.localId, source);
+  var created = 0;
+  var recorded = [];
+  var started = 0;
+  var sm = {
+    sessions: sessions,
+    createSessionRaw: function (opts) {
+      created += 1;
+      var session = Object.assign({ localId: 2, history: [] }, opts);
+      sessions.set(session.localId, session);
+      return session;
+    },
+    sendAndRecord: function (session, event) { recorded.push(event); },
+    saveSessionFile: function () {},
+    switchSession: function () {},
+    broadcastSessionList: function () {},
+  };
+  var api = compaction.attachSessionCompaction({
+    cwd: process.cwd(),
+    sm: sm,
+    sdk: { startQuery: function () { started += 1; } },
+    sendToSession: function () {},
+  });
+
+  var continuation = api.compactAndContinue(source, { reason: "empty_turn" });
+
+  assert.strictEqual(continuation, null);
+  assert.strictEqual(created, 0);
+  assert.strictEqual(started, 0);
+  assert.strictEqual(sessions.size, 1);
+  assert.strictEqual(source.hidden, undefined);
+  assert.strictEqual(source.compactedIntoLocalId, undefined);
+  assert.strictEqual(source.orchestrationPolicy.portfolioExecution.control.executionId,
+    "exec:9091916b");
+  assert.ok(recorded.some(function (item) {
+    return item.type === "error" && String(item.text).indexOf("exec:9091916b") !== -1;
+  }), "the refusal must be recorded on the session rather than failing silently");
+});
+
+test("an uncontrolled orchestration policy still compacts", function () {
+  var sessions = new Map();
+  var source = {
+    localId: 1,
+    storageId: "plain-coordinator",
+    vendor: "codex",
+    history: [{ type: "user_message", text: "Keep going", _ts: 1 }],
+    orchestrationPolicy: { portfolioExecution: { portfolioTaskId: "plain", status: "running" } },
+  };
+  sessions.set(source.localId, source);
+  var sm = {
+    sessions: sessions,
+    createSessionRaw: function (opts) {
+      var session = Object.assign({ localId: 2, history: [] }, opts);
+      sessions.set(session.localId, session);
+      return session;
+    },
+    sendAndRecord: function () {},
+    saveSessionFile: function () {},
+    switchSession: function () {},
+    broadcastSessionList: function () {},
+  };
+  var api = compaction.attachSessionCompaction({
+    cwd: process.cwd(),
+    sm: sm,
+    sdk: { startQuery: function () {} },
+    sendToSession: function () {},
+  });
+
+  var continuation = api.compactAndContinue(source, { reason: "empty_turn" });
+
+  assert.ok(continuation);
+  assert.strictEqual(continuation.orchestrationPolicy.portfolioExecution.portfolioTaskId, "plain");
+});
+
+test("Codex empty zero-usage turn does not announce compaction for a controlled execution", function () {
+  var recorded = [];
+  var compactCalls = 0;
+  var sm = {
+    modelsByVendor: { codex: ["gpt-5.5"] },
+    availableModels: ["gpt-5.5"],
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+    sendToSession: function () {},
+    sendAndRecord: function (session, obj) {
+      recorded.push(obj);
+      session.history.push(obj);
+    },
+  };
+  var processor = processorModule.attachMessageProcessor({
+    sm: sm,
+    send: function () {},
+    slug: "test",
+    isMate: false,
+    mateDisplayName: "",
+    pushModule: null,
+    getNotificationsModule: function () { return null; },
+    getSDK: function () { return null; },
+    adapter: { vendor: "codex" },
+    cwd: process.cwd(),
+    onProcessingChanged: function () {},
+    onTurnDone: function () {},
+    onAutoTitle: function () {},
+    opts: {
+      compactAndContinue: function () { compactCalls++; return { localId: 2 }; },
+    },
+    discoverSkillDirs: function () { return []; },
+    mergeSkills: function () { return []; },
+  });
+  var session = {
+    localId: 1,
+    vendor: "codex",
+    history: [{ type: "user_message", text: "hello", _ts: 1 }],
+    orchestrationPolicy: {
+      portfolioExecution: { control: { executionId: "exec:9091916b", role: "coordinator" } },
+    },
+    blocks: {},
+    sentToolResults: {},
+    pendingPermissions: {},
+    pendingElicitations: {},
+    pendingAskUser: {},
+    activeTaskToolIds: {},
+    taskIdMap: {},
+    isProcessing: true,
+    responsePreview: "",
+    streamedText: false,
+  };
+
+  processor.processSDKMessage(session, { yokeType: "turn_start" });
+  processor.processSDKMessage(session, {
+    yokeType: "result",
+    cost: null,
+    usage: null,
+    modelUsage: { "gpt-5.5": { contextWindow: null } },
+    sessionId: "thread-1",
+  });
+
+  assert.strictEqual(compactCalls, 0);
+  assert.ok(!recorded.some(function (item) {
+    return String(item.text || "").indexOf("Clay is compacting") !== -1;
+  }), "no compaction may be announced when compaction will be refused");
+  assert.ok(recorded.some(function (item) {
+    return item.type === "error" && String(item.text || "").indexOf("empty response") !== -1;
+  }), "the wedged provider must still be reported");
+});
