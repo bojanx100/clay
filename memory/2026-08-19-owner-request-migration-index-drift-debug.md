@@ -114,6 +114,45 @@ Same problem family as `2026-08-17-recovery-applied-first-ordering-debug.md`: a
 finite repair whose *precondition* is more fragile than its *effect* wedges forever
 once the world moves, long after the repair itself is done.
 
+## Unwedging this revealed four siblings with the same disease
+
+`migrateLeadOwnerRequestHistory` runs `coop-recovered-thread-admission` **only if** the
+owner-request migration returned ok, and returns early otherwise. So for as long as
+`coop-owner-requests` failed closed, the next migration family never ran and could not
+report anything. Retiring the owner-request defaults lets it run — and it fails:
+
+```
+coop-recovered-thread-admission:voice               recovery_canonical_event_missing
+coop-recovered-thread-admission:threads             threads_recovery_event_missing
+coop-recovered-thread-admission:urbanStayAutoLaunch urban_stay_recovery_event_missing
+coop-recovered-thread-admission:urbanStayPolicy     urban_stay_policy_recovery_event_missing
+```
+
+Same root cause, different modules. They pin the same kind of absolute coordinate into
+the same transcript:
+
+| module | pinned eventIndex |
+| --- | --- |
+| `coop-main-ingress-recovery.js` | 166989, 167058, 167144 |
+| `coop-threads-implementation-recovery.js` | 169577 |
+| `coop-urban-stay-autolaunch-recovery.js` | 177321 |
+| `coop-urban-stay-policy-recovery.js` | 178408 |
+
+All are past the end of a 37,831-item history.
+
+Disambiguated deliberately, because each of those codes is overloaded — the same string
+is returned both for "no canonical coop session in the session manager" and for "no
+event at the pinned index". Driving all four with an `sm` containing exactly one
+session with `coopHome: true` and `sessionStorageId` equal to their shared
+`CANONICAL_SESSION_ID` (`871a194b-…`) still yields `*_event_missing`, so the session
+lookup is not the cause; the index is.
+
+These four last reported `ok:true, allNoop:true` at 2026-08-19T10:13:07Z — the same
+last-good boot as the owner-request migration. They broke at the same instant, for the
+same reason, and the early return hid it. Not fixed here (outside this task's owned
+paths) and worth its own pass: overloading one code for two very different causes is
+what made them expensive to diagnose too.
+
 ## Known remaining exposure (not fixed here)
 
 The ledger stores the same kind of coordinate, and it has the same disease at scale.
