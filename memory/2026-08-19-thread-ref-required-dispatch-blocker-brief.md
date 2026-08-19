@@ -123,7 +123,7 @@ rev2 now returns no route and reports the truthful reason.
    Main scope always cleared `projectRefs`, but this branch is now the ordinary
    path rather than a corner reachable only by a caller holding a Thread.
 
-### Adversarial-review finding worth acting on next
+### Adversarial-review finding: still open, and one failed attempt on record
 
 `explicitImplementationDecision` is the **only** substantive authorization check
 on the unscoped-Main path — `expectsExecution` is derived from the same decision
@@ -135,15 +135,67 @@ refused.
 
 This is pre-existing and reachable before fix 4 (the topic-mismatch guard already
 carried `&& !unscopedMain`, so any caller-supplied `coopTopicRef` reached it), but
-fix 4 removes the last input a caller needed, making it the default path. It was
-deliberately **not** changed here: that classifier also drives ingress
-classification and Thread creation, so tightening it is its own decision with its
-own blast radius. Treat it as the next item on this path.
+fix 4 removes the last input a caller needed, making it the default path.
 
-Minor, same area: `ownerThreadRefFor` discards `ensureOwnerThread`'s refusal code,
-so `owner_thread_closed` and `owner_thread_identity_conflict` still surface as
-`thread_ref_required` — the same misdiagnosis class this file already documents
-costing two days. Plumbing a reason through the route is a separate change.
+#### A regex tightening was attempted, measured, and reverted — do not retry it
+
+Tightened with three guards: a question guard, a "subject + state verb" statement
+guard, and a noun-compound blocklist scoped to `build`/`code`/`ship`/`deploy`. It
+passed the full suite (2976 tests) and looked right. Measured against a 170-case
+labelled corpus it was **net-negative**:
+
+| | count |
+|---|---|
+| real owner commands newly **refused** | **46** / 100 |
+| chatter cases newly closed | 20 / 70 |
+
+Reverted. The failure modes are not symmetric in cost but they are symmetric in
+kind, and a false refusal lands the owner back in this exact document's dead end —
+reported as `owner_implementation_decision_required`, which says the owner never
+asked rather than "rephrase that".
+
+Three concrete reasons it failed, worth keeping so the next attempt does not
+rediscover them:
+
+1. **A determiner does not distinguish an object from a subject.** The statement
+   guard exempted turns opening with `the/a/this/it/...` to protect
+   "fix **the** thing that is broken". But that only protects the
+   determiner-led variant: `fix login that fails in clay` was refused, while
+   `fix all tests are failing` was still admitted. The discriminator is wrong at
+   the root, not mistuned.
+2. **The noun-compound blocklist tested the modifier, not the head.** `/^([\w-]+)/`
+   takes the first word of the object, so it fired on `build [status] badge`,
+   `ship [error] tracking`, `deploy [config] change` — 24 refusals, and the most
+   productive way an owner names a target (`VERB <domain-noun> <artifact-noun>`).
+3. **Past participles are adjectives here.** Putting `broken`/`failed` in the
+   state-verb list refused `fix broken tests in clay`, `fix failed migrations`.
+
+And the fail-open was only half closed anyway: `build succeeded`, `deploy timed
+out`, `fix needed`, `code needs review` all still parsed as decisions, because the
+reporting register (`needs`, past-tense outcome verbs) was never covered. Cost paid
+without the benefit.
+
+Also note the trap in how it was verified: the new test file's 19 "must still
+work" commands were all determiner-led, pronoun-led or single-word, so it could not
+see the 46 regressions, and `npm test` was green throughout. Any future attempt
+must be measured against a corpus that deliberately includes
+`VERB <bare-noun> <noun>` objects.
+
+#### The fix shape that is likely to work
+
+Stop trying to make the wording carry the authorization alone. Everywhere else in
+this subsystem the owner's words only **identify** work that was independently
+recorded as waiting — `coop-queue-authorization` and `coop-item-approval` both
+resolve against a pending snapshot taken at the authorization timestamp and then
+demand exact task-key equality. The unscoped-Main path is the one place where the
+wording is asked to be the whole gate, which is why one regex is load-bearing.
+
+Giving it the same second factor — the dispatched `portfolioTaskId:bindingRevision`
+must have been pending when the owner's turn landed — makes `build system is broken
+in clay` harmless without needing to parse it, because it could then only ever
+staff work already queued for the owner. That is a design change rather than a
+regex fix, and it needs a decision about what happens when nothing is pending yet
+(today's typed-dispatch-names-its-own-destination case), so it wants its own pass.
 
 ## Blocking coupling: every `requestRef.eventIndex` is stale
 
@@ -260,9 +312,13 @@ own pinned indices and remain `*_event_missing` on every startup.
 index-derived, so a fallback-resolved event can never satisfy it. Fail-closed and
 untouched — but that part of the coalescing outage is still not cleaned up.
 
-## Escalated, not fixed: approval carry-forward on retry
+## Approval carry-forward on retry — SINCE IMPLEMENTED (`a8500b9a3a`)
 
-Deliberately not implemented here, for two reasons.
+The rule below was escalated rather than built, and was then implemented to this
+exact shape in `a8500b9a3a`. Kept for the reasoning; see that commit and
+`memory/2026-08-19-owner-approval-carry-forward.md` for what shipped.
+
+Deliberately not implemented *at the time*, for two reasons.
 
 *Boundary:* a carry-forward must be **durably recorded** to be explicit rather
 than implicit, and `scopeImplementation` is first-scope-wins by design

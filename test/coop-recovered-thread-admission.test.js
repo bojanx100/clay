@@ -204,10 +204,39 @@ test("failure codes are classified as terminal or retryable", function () {
       [true, true, true, true]);
   });
 
+  // A pinned eventIndex that no longer exists is terminal, not retryable. Delta
+  // coalescing renumbered the canonical transcript and put all four pinned
+  // coordinates past its end; a coordinate that is gone cannot come back, so
+  // retrying on every boot forever only hides the real state.
+  withStubs({
+    voice: { ok: false, code: "recovery_canonical_event_missing" },
+    threads: { ok: false, code: "threads_recovery_event_missing" },
+    urbanStayAutoLaunch: { ok: false, code: "urban_stay_recovery_event_missing" },
+    urbanStayPolicy: { ok: false, code: "urban_stay_policy_recovery_event_missing" },
+  }, function (result) {
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.migrations.map(function (entry) { return entry.terminal; }),
+      [true, true, true, true]);
+  });
+
+  // The causes that genuinely do succeed on a later run stay retryable. These
+  // used to share the _event_missing code, which is why it could not be marked
+  // terminal and why this family was expensive to diagnose.
+  withStubs({
+    voice: { ok: false, code: "recovery_canonical_session_unavailable" },
+    threads: { ok: false, code: "threads_recovery_session_unavailable" },
+    urbanStayAutoLaunch: { ok: false, code: "urban_stay_recovery_session_unavailable" },
+    urbanStayPolicy: { ok: false, code: "urban_stay_policy_recovery_session_unavailable" },
+  }, function (result) {
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.migrations.map(function (entry) { return entry.terminal; }),
+      [false, false, false, false]);
+  });
+
   withStubs({
     voice: { ok: false, code: "recovery_dependencies_unavailable" },
     threads: { ok: false, code: "threads_recovery_persistence_failed" },
-    urbanStayAutoLaunch: { ok: false, code: "urban_stay_recovery_event_missing" },
+    urbanStayAutoLaunch: { ok: false, code: "urban_stay_recovery_session_mismatch" },
     urbanStayPolicy: { ok: false, code: "urban_stay_policy_recovery_session_ambiguous" },
   }, function (result) {
     assert.equal(result.ok, false);

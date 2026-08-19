@@ -172,3 +172,39 @@ feature that navigates from an owner request to its transcript event will land o
 wrong event or off the end. Rebuilding those refs by identity (`coopIngressId` /
 `coopIngressSequence`) is the follow-up, and the 55 wrong-but-in-range cases are the
 dangerous ones — they fail silently rather than obviously.
+
+## Follow-up done: the four siblings no longer retry forever
+
+The four recovery migrations above were retried on **every** boot and always failed,
+because `*_event_missing` was classified retryable. It could not simply be marked
+terminal, because each module returned that one code for **three** different causes:
+
+| cause | can a later boot succeed? |
+| --- | --- |
+| `sm.sessions` not iterable (dependencies not loaded) | yes |
+| no canonical `coopHome` session found yet | yes |
+| `history[EXPECTED.eventIndex]` absent (pinned coordinate gone) | **no** |
+
+Overloading them is what made this family expensive to diagnose, and it is also what
+kept the classification wrong: the two transient causes forced the permanent one to be
+treated as retryable.
+
+Fixed by splitting them. The two session-lookup causes now report
+`*_recovery_session_unavailable` (still retryable, which is correct — a session really
+can load later), leaving `*_event_missing` to mean exactly one thing: the pinned
+coordinate does not exist. That is genuinely terminal — the transcript only shrinks, and
+the next renumber moves the coordinate again — so `_event_missing` joins
+`TERMINAL_CODE_SUFFIXES` and the four migrations stop being retried.
+
+They are terminal rather than repaired on purpose. All four last reported
+`ok:true, allNoop:true` at the same last-good boot, so the recovery they encode had
+already been applied; repointing them by identity would re-run historical one-off
+repairs against current state, which is a far larger risk than letting a completed
+migration report terminal. Compare the live dispatch path, where the same drift WAS
+worth resolving by identity (`coop-owner-event-resolution.js`) because it gates ongoing
+work rather than replaying a past incident.
+
+Still open from the section above: the 502 stale `requestRef.eventIndex` values on disk.
+The dispatch path no longer cares — it resolves by `coopIngressId` — but any other
+feature that navigates from an owner request to its transcript event still lands on the
+wrong event or off the end, and the 55 wrong-but-in-range cases still fail silently.
