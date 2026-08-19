@@ -46,6 +46,13 @@ test("YOKE registry returns null for an unknown vendor", function() {
   assert.strictEqual(yoke.getVendorInfo("nope"), null);
 });
 
+test("default vendor prefers Claude, then Codex, then Kiro", function() {
+  assert.strictEqual(yoke.resolveDefaultVendor({ kiro: {} }), "kiro");
+  assert.strictEqual(yoke.resolveDefaultVendor({ kiro: {}, codex: {} }), "codex");
+  assert.strictEqual(yoke.resolveDefaultVendor({ kiro: {}, codex: {}, claude: {} }), "claude");
+  assert.strictEqual(yoke.resolveDefaultVendor([]), "claude");
+});
+
 test("every YOKE vendor supports GUI sessions", function() {
   for (var i = 0; i < SUPPORTED_VENDORS.length; i++) {
     assert.notStrictEqual(yoke.getVendorInfo(SUPPORTED_VENDORS[i]).sessionModes.indexOf("gui"), -1);
