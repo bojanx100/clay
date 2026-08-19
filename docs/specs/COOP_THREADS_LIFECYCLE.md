@@ -186,60 +186,31 @@ inconsistent scope is rejected rather than inferred from cached selection
 state. The same snapshot is carried by reconnect input sync, voice/STT, queued
 and scheduled sends.
 
-The repair is applied automatically by the startup migration. There is no owner
-message and no daemon restart in the procedure: the owner-gated
-`coop_main_ingress_recovery` WebSocket lever has been retired. It was a
-pre-admission lever that refused any ingress whose execution was already
-admitted, and live ingress 360 now carries an admitted implementation decision
-and a coordinator link, so the lever could only ever answer
-`execution_already_admitted`. Removing duplicate membership therefore belongs
-solely to the startup migration, which alone proves the canonical event
-digests.
+The finite recovery family that applied this repair is **retired** (2026-08-19).
+`coop-main-ingress-recovery.js`, `coop-threads-implementation-recovery.js`,
+`coop-urban-stay-autolaunch-recovery.js`, `coop-urban-stay-policy-recovery.js`
+and the `coop-recovered-thread-admission.js` startup registry are deleted, along
+with their live routing and replay aliases. The `coopComposerScope` rules above
+are unaffected — they are ordinary ingress behaviour, not part of the repair.
 
-The migration only accepts ingresses 360, 361, and 362 from source Thread
-`auto-cfc74233f22b687493f5efc4`. Before writing, it proves each immutable
-canonical user event digest and identity, ambiguity, the matching ledger
-request/event reference, turn membership, Project scope, and the absence of
-unrelated admitted tasks, sessions, or coordinators. It then creates (or
-verifies) exactly one open `Voice` Thread with id
-`recovery-voice-ingresses-360-362` and retopics only those turn references and
-ledger records. It never rewrites canonical history, source execution links,
-or the owner-direct Voice session. A replay succeeds with zero moves and zero
-ledger writes; any evidence mismatch fails closed and makes no recovery change.
+Every repair the family performed is durably applied and was verified against
+live state before deletion: owner-request turns 360/361/362 (Voice), 371
+(Threads), 406 (Urban Stay autolaunch) and 409 (Urban Stay policy) all carry
+their `topicRef`, `implementationDecision` and `projectRefs`, and all four
+target Threads exist in the Topic index as `status: open` /
+`threadState: handed_off`. Re-running the family with only its coordinate
+repaired returns `ok: true, noop: true` and writes nothing.
 
-A handed off target Thread blocks the repair only while it still has to create
-that Thread or move a turn into it for the first time. When every remaining
-turn already lives in the target, the handoff is the expected state rather
-than a conflict: the migration deletes any stale duplicate membership left in
-the source, creating nothing, populating nothing, and moving no ledger record.
-The target must still be titled `Voice` and be open, and every other proof is
-unchanged.
+They were retired rather than re-pinned because each pinned an absolute
+transcript `eventIndex` (166989..178408) that died when `cf7f197ee1` coalesced
+the canonical Coop transcript from ~218k to ~38k items, so all four failed
+closed on every boot and could never self-heal. This is the same disease and the
+same remedy as the owner-request migrations retired under `6a5b4b046c`.
 
-### Applied-first ordering for every finite recovery (2026-08-17)
+**Standing rule, unchanged and reinforced:** never pin an absolute transcript
+offset in anything that outlives one session. A one-time repair must resolve its
+target by stable identity (`coopIngressId` / `coopIngressSequence`) and use a
+digest only to prove content. The general verification gate is not weakened by
+either retirement: it still fails closed for any future migration.
 
-Each finite recovery in this family (`coop-main-ingress-recovery.js`,
-`coop-threads-implementation-recovery.js`,
-`coop-urban-stay-autolaunch-recovery.js`,
-`coop-urban-stay-policy-recovery.js`) proves immutable evidence — canonical
-session identity, event identity, digest, and ambiguity — and then the durable
-owner-request ledger record, and returns an idempotent success **before** it
-touches any mutable Thread state. Once the ledger carries the admitted
-decision the repair is finished, and its output is durable, so closing,
-renaming, moving, or releasing the handoff of the Thread it created — the
-intended end of that Thread's lifecycle — must return a no-op success rather
-than wedge the migration on every later restart. Delegating the same ingress's
-work under a different TopicRef through `implementationScope` is downstream
-progress and is likewise never re-proven by the applied verdict; the routing
-and replay aliases, which grant live authority instead of reporting a finished
-write, still require that exact scope. Before the decision is written the
-repair must still create or verify the Thread, so mutable drift on that path
-keeps failing closed.
-
-The startup registry (`coop-recovered-thread-admission.js`) reports one entry
-per migration with `key`, `ok`, `noop`, `terminal`, `code`, and each module's
-change flags, so a finished family is legible from a single startup log line
-instead of only from the absence of failures. `terminal` marks a failure that
-can never self-heal because immutable canonical evidence no longer matches the
-pinned fingerprint (digest, event identity, event route or topic, ambiguity);
-every other failure — dependencies not loaded yet, persistence, mutable ledger
-or Thread drift, an exception — is retryable on a later restart.
+See `memory/2026-08-19-recovered-thread-admission-retirement.md`.

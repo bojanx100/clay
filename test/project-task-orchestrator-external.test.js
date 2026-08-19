@@ -6,8 +6,6 @@ var path = require("path");
 
 var externalOrchestration = require("../lib/project-task-orchestrator-external");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
-var mainIngressRecovery = require("../lib/coop-main-ingress-recovery");
-var threadsRecovery = require("../lib/coop-threads-implementation-recovery");
 var createExternalTaskCoordinator = externalOrchestration.createExternalTaskCoordinator;
 var attachPortfolioExecutionTarget = externalOrchestration.attachPortfolioExecutionTarget;
 var terminalStatusForTurn =
@@ -268,95 +266,6 @@ test("an older unscoped Main command cannot authorize a later owner turn", funct
     coopTopicRef: { topicId: "auto-stale-main" },
   }).ok, true);
   assert.equal(delivered.coopIngressId, undefined);
-});
-
-test("the exact recovered Voice command routes through its canonical ProjectRef", function () {
-  var history = [];
-  history[166989] = {
-    type: "user_message",
-    text: "Create a dedicated Voice conversational mode Thread for Clay, detach Voice work from Webapp, " +
-      "use session 18104cdc-5aff-4328-9afc-88bb709dd21d as read-only context, and implement it.",
-    coopIngressId: "coop:871a194b-8879-40f7-a1fe-656e48e722af:360",
-    coopIngressSequence: 360,
-    coopIngressKind: "text",
-    coopTopicRef: { topicId: mainIngressRecovery.SOURCE_THREAD_ID },
-    coopThreadRef: { threadId: mainIngressRecovery.SOURCE_THREAD_ID },
-    coopProjectRef: null,
-    coopImplementationDecision: null,
-    _ts: 1786840579387,
-  };
-  var source = { localId: 1, storageId: mainIngressRecovery.CANONICAL_SESSION_ID,
-    history: history };
-  var delivered = null;
-  var coordinate = createExternalTaskCoordinator({
-    sessionForInput: function () { return source; },
-    projectId: function () { return "system-lead"; },
-    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
-  });
-  var targetTopic = { topicId: mainIngressRecovery.TARGET_THREAD_ID };
-
-  var result = coordinate({
-    coordinatorSessionId: mainIngressRecovery.CANONICAL_SESSION_ID,
-    portfolioTaskId: "clay-voice-conversational-mode-2026-08-16",
-    bindingRevision: 1,
-    idempotencyKey: "clay-voice-conversational-mode-2026-08-16-r1",
-    mode: "project_coordinator",
-    targetProject: { projectId: mainIngressRecovery.CLAY_PROJECT_ID },
-    coopTopicRef: targetTopic,
-    objective: "Implement the approved Voice conversational mode.",
-  });
-
-  assert.equal(result.ok, true);
-  assert.equal(delivered.coopIngressId,
-    "coop:871a194b-8879-40f7-a1fe-656e48e722af:360");
-  assert.deepEqual(delivered.coopTopicRef, targetTopic);
-  assert.deepEqual(delivered.targetProject,
-    { projectId: mainIngressRecovery.CLAY_PROJECT_ID });
-});
-
-test("the exact current Threads direction routes through its canonical ThreadRef", function () {
-  var history = [];
-  history[threadsRecovery.EXPECTED.eventIndex] = {
-    type: "user_message",
-    text: "Also when are we starting threads work?\n\n" +
-      "Concil is repeted several times in sidebar.\n\n" +
-      "Voce is a thread and should have started work by now. \n\n" +
-      "A bunch of issues there... move on it",
-    coopIngressId: threadsRecovery.EXPECTED.ingressId,
-    coopIngressSequence: threadsRecovery.EXPECTED.sequence,
-    coopIngressKind: "text",
-    coopTopicRef: null,
-    coopThreadRef: null,
-    coopProjectRef: null,
-    coopImplementationDecision: null,
-    _ts: 1786877151125,
-  };
-  var source = { localId: 1, storageId: threadsRecovery.CANONICAL_SESSION_ID,
-    history: history };
-  var delivered = null;
-  var coordinate = createExternalTaskCoordinator({
-    sessionForInput: function () { return source; },
-    projectId: function () { return "system-lead"; },
-    createProjectExecution: function (input) { delivered = input; return { ok: true }; },
-  });
-  var targetTopic = { topicId: threadsRecovery.THREAD_ID };
-
-  var result = coordinate({
-    coordinatorSessionId: threadsRecovery.CANONICAL_SESSION_ID,
-    portfolioTaskId: "clay-threads-v2-implementation-2026-08-16",
-    bindingRevision: 1,
-    idempotencyKey: "clay-threads-v2-implementation-20260816-r1-owner-directed",
-    mode: "project_coordinator",
-    targetProject: { projectId: threadsRecovery.CLAY_PROJECT_ID },
-    coopTopicRef: targetTopic,
-    objective: "Implement the accepted Threads V2 direction.",
-  });
-
-  assert.equal(result.ok, true);
-  assert.equal(delivered.coopIngressId, threadsRecovery.EXPECTED.ingressId);
-  assert.deepEqual(delivered.coopTopicRef, targetTopic);
-  assert.deepEqual(delivered.targetProject,
-    { projectId: threadsRecovery.CLAY_PROJECT_ID });
 });
 
 test("queue-wide approval preserves the queued task's original ThreadRef and ingress", function () {
