@@ -88,6 +88,30 @@ node scripts/hide-handoff-sessions.js --apply
 
 Stop the Clay daemon before using `--apply`.
 
+## Control Store Safety
+
+### `snapshot-control-store.js`
+
+Takes a consistent, single-file snapshot of the Coop control store
+(`~/.clay/lead/coop-control.sqlite`). **Run this before any control-plane
+repair.** Do not hand-copy the `.sqlite` file: the store is WAL-mode, so a
+main-file-only copy silently omits every committed row that has not been
+checkpointed.
+
+```sh
+node scripts/snapshot-control-store.js --label pre-orphan-reconcile
+node scripts/snapshot-control-store.js --audit
+```
+
+The source is opened read-only and is never modified, so this is safe to run
+while the daemon is up. Snapshots land in `~/.clay/control-store-snapshots/`;
+the script refuses to write beside the live store. Output reports how many rows
+were captured and how many a main-file-only copy would have lost.
+
+`--audit` lists the legacy hand-made `coop-control.sqlite.pre-*.bak` files with
+how far behind the live store each one is. All of them are stale and none should
+be used to restore; see [DIAGNOSTICS.md](../docs/guides/DIAGNOSTICS.md).
+
 ## Other Utilities
 
 ### `check-client-imports.js`

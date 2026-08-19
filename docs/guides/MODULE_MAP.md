@@ -327,6 +327,7 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 | `scripts/lead-gatekeeping-eval.js` | Deterministic runtime-trace adapter for the connect-never-gatekeep evaluator; reads the privacy-safe `~/.clay/lead/gatekeeping-eval-traces.json` artifact (or `--traces`), prints/appends `gatekeeping_eval`, and records an unmeasurable baseline when no trace exists |
 | `scripts/lead-backtest.js` | Backtest runner: fetches closed issues + merged PRs (per-repo gh credentials), joins on branch/title issue refs, prints the scored comparison, appends `backtest_report` summary to the lead ledger |
 | `scripts/run-tests.js` | Deterministic Node test runner that strips live Coop control-kernel activation flags before loading the test suite |
+| `scripts/snapshot-control-store.js` | Consistent single-file snapshot of the WAL-mode Coop control store via `VACUUM INTO` (run before any control-plane repair; opens the source read-only); `--audit` reports the stale legacy `coop-control.sqlite.pre-*.bak` files as unsafe to restore |
 | `.claude/skills/lead-tick` | The Lead's operating procedure as a skill: one tick = scan portfolio, staff/propose, verify against the gate, report via typed events |
 
 ### YOKE Adapters (lib/yoke/)

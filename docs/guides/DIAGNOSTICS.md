@@ -135,6 +135,62 @@ canaries stay completely quiet while it happens. JSONL, append-only, written by
    A quiet canary is NOT proof of health: every 2026-08-17/18 entry in the table
    below was found with all canaries clean, so pair them with the live stores
    (`~/.clay/lead/*.json`) when the symptom is "nothing is happening".
+6. **Before any control-plane repair, take a snapshot the safe way** — see the
+   next section. Do not hand-copy `coop-control.sqlite`.
+
+## Snapshotting the control store (READ THIS BEFORE ANY REPAIR)
+
+`~/.clay/lead/coop-control.sqlite` runs in **WAL mode**. Copying the `.sqlite`
+file alone captures only what was last checkpointed, which can be a day or more
+behind the committed state. That is the single most dangerous mistake available
+here: the copy looks like a successful backup and silently omits data.
+
+Take a snapshot with the script, never by hand:
+
+```sh
+node scripts/snapshot-control-store.js --label pre-<what-you-are-about-to-do>
+```
+
+It writes one self-contained file to `~/.clay/control-store-snapshots/`, opens the
+live store **read-only**, and never modifies `~/.clay/lead/`. It is safe to run
+while the daemon is up. The output states how many executions it captured and how
+many a main-file-only copy would have missed — if that second number is not zero,
+you have just seen the defect first-hand. Example from 2026-08-19:
+
+```
+[snapshot] executions   : 150 (live at snapshot time: 150)
+[snapshot] a main-file-only .bak would have captured 138 executions  <-- 12 row(s) would have been lost
+```
+
+**Why `VACUUM INTO`.** It runs in one read transaction, so the file it emits is a
+transactionally consistent image *including every committed WAL frame*, even under
+a live writer — and it emits a single file, so there is no `-wal`/`-shm` sidecar
+for the next operator to forget. Copying the three-file trio is fine for *reading*
+an already-quiesced directory, but it is **not** atomic under a live writer: the
+three copies are separate syscall sequences and a commit landing between them
+yields a torn set.
+
+To restore, stop the daemon and move the snapshot into place as
+`coop-control.sqlite`, having first removed any stale `-wal`/`-shm` beside it.
+
+### The legacy `.bak` files in `~/.clay/lead/` are NOT safe to restore
+
+Eleven `coop-control.sqlite.pre-*.bak` files predate this script. **All eleven are
+main-file-only and all eleven are missing committed rows.** They are kept (they are
+not ours to delete, and one may be the only copy of something) but must not be
+treated as authoritative. Audit them at any time:
+
+```sh
+node scripts/snapshot-control-store.js --audit
+```
+
+which prints each file, its execution count, and how many rows it is missing
+relative to the live store. As of 2026-08-19 the spread was 138–149 against a live
+150; the worst was `pre-compaction-orphan-reconcile-20260819T184100Z.bak`, taken
+immediately before a durable one-way write and ~34 h stale — it did not contain
+the row it was made to protect.
+
+Background: `memory/2026-08-19-first-live-dispatch-result.md`, *New defect 3*.
 
 ## History (what these logs have caught)
 
