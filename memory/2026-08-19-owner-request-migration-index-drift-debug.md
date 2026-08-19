@@ -173,7 +173,12 @@ wrong event or off the end. Rebuilding those refs by identity (`coopIngressId` /
 `coopIngressSequence`) is the follow-up, and the 55 wrong-but-in-range cases are the
 dangerous ones — they fail silently rather than obviously.
 
-## Follow-up done: the four siblings no longer retry forever
+## Follow-up: the four siblings — SUPERSEDED, read the correction at the end first
+
+> The fix described in this section (`64535b69a4`) did **not** achieve what it claimed,
+> and the modules it describes were retired outright in `441900d65c`. The analysis of the
+> overloaded code is still accurate and worth keeping; the conclusion is wrong. See
+> "Correction" below.
 
 The four recovery migrations above were retried on **every** boot and always failed,
 because `*_event_missing` was classified retryable. It could not simply be marked
@@ -208,3 +213,34 @@ Still open from the section above: the 502 stale `requestRef.eventIndex` values 
 The dispatch path no longer cares — it resolves by `coopIngressId` — but any other
 feature that navigates from an owner request to its transcript event still lands on the
 wrong event or off the end, and the 55 wrong-but-in-range cases still fail silently.
+
+### Correction (`441900d65c` supersedes `64535b69a4`)
+
+Two things wrong with the section above, both worth recording because they are easy
+mistakes to repeat.
+
+**1. `terminal` is a reported flag, not a control-flow one.** Nothing consumes it to skip
+a migration on a later boot. So splitting the overloaded code and adding `_event_missing`
+to `TERMINAL_CODE_SUFFIXES` made the *classification* honest but changed no behaviour:
+a sandboxed boot at that tip still ran all four migrations and still wrote all four
+failure lines. "The four migrations stop being retried" was simply not true. The lesson:
+verify a boot-path fix by booting, not by asserting the flag the code sets.
+
+**2. The harm was mis-identified.** It was never the retry cost — it was that each restart
+appended four failures to `~/.clay/recovery-events-dev.log`, the canary
+[DIAGNOSTICS.md](../docs/guides/DIAGNOSTICS.md) sends operators to *first*. Unbounded
+noise in the first place an operator looks is the actual defect, and reclassifying the
+failure does nothing about it.
+
+The real remedy was the same one already applied to the owner-request migrations in
+`6a5b4b046c`: retire them. `441900d65c` removes all five modules, having first verified
+against live state that retirement is a provable no-op — all four targets are durably
+applied (owner-request turns 360/361/362, 371, 406, 409 carry their `topicRef`,
+`implementationDecision` and `projectRefs`; all four Threads are `status:open` /
+`threadState:handed_off`), and driving each module against the live ledger with only the
+coordinate repaired returns `ok:true noop:true` with every change flag false.
+
+The instinct in the superseded section — terminal rather than repointed, because
+repointing would replay historical one-off repairs against current state — was right, and
+it is why retirement rather than repair was the correct end state. It just needed to go
+one step further than a flag.
