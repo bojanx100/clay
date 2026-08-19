@@ -137,9 +137,13 @@ just no longer confiscates the recovery tools on the way out.
   `coop_control_incarnations.session_storage_id`. Reachability is restored, but
   for a pre-existing orphan the practical in-process route is to terminalize the
   execution (dismiss/complete) and let startup recovery reconcile.
-- `~/.clay/lead/` holds nine `pre-*-recovery` / `pre-terminal-reconcile` sqlite
-  backups. Hand-repairing this class of orphan was established practice. Defect
-  A is the class that should stop generating them.
+- `~/.clay/lead/` holds eleven `pre-*` sqlite backups (this note previously said
+  "nine"; measured with `node scripts/snapshot-control-store.js --audit`, it is
+  eleven). Hand-repairing this class of orphan was established practice. Defect
+  A is the class that should stop generating them. Every one of those eleven is
+  main-file-only and therefore missing committed WAL rows — see
+  [`2026-08-19-first-live-dispatch-result.md`](./2026-08-19-first-live-dispatch-result.md)
+  *New defect 3*, and use `scripts/snapshot-control-store.js` instead.
 
 ## Counter-correction: `provider_start_failed` was not the runtime's verdict
 

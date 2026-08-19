@@ -115,22 +115,77 @@ That may be a second, independent bug upstream of this one.
 The daemon was recovered under explicit owner approval (sessions titled
 *"Approve and run clay-controlled-recovery-and-proje…"* and *"Repair controlled
 recovery and project retries"*). PID 60732 now serves an open ingress with zero
-incomplete executions. Three corrections and two new defects came out of it.
+incomplete executions. Three corrections and two new defects came out of it —
+one of those "corrections" has since been retracted as itself wrong, and a third
+defect (the backup convention) was found while disproving it.
 
-### Correction: the zero-turn execution was not caused by compaction
+### RETRACTED correction: "the zero-turn execution was not caused by compaction"
 
-Above I attributed the execution never running to the compaction orphan. That was
-wrong, and stated too confidently. Recovery's own verdict is in the store:
+> **This section is wrong and has been retracted.** It is kept, rather than
+> deleted, so the record explains its own history. The disproof is in
+> [`2026-08-19-compaction-orphan-and-restart-latch.md`](./2026-08-19-compaction-orphan-and-restart-latch.md),
+> section *"Counter-correction: `provider_start_failed` was not the runtime's
+> verdict"*. The original compaction-orphan diagnosis, further up this note,
+> **stands**.
+
+What this section claimed, in commit `28e7d56da3`: that the compaction attribution
+was wrong, that "recovery's own verdict is in the store" as
 
 ```
 inc:9fdab3e9… epoch 1  start_state=failed  failure_code=provider_start_failed
 ```
 
-The coordinator produced no turn because **the provider never started the query**
-(`provider_start_failed`, raised in `sdk-bridge-query-start.js`). The compaction
-happened in the same instant and I read correlation as causation. The session's
-own tail confirms it — `thinking_stop`, *"Session was interrupted by a Clay
-restart"*, `done code 1`, all stamped 17:56:19.
+and therefore that the coordinator produced no turn because **the provider never
+started the query** (`provider_start_failed`, raised in `sdk-bridge-query-start.js`).
+
+**Why that was wrong.** The reasoning was circular. `failure_code=provider_start_failed`
+is not the runtime's verdict — it is the *owner's hand-reconcile write*, made at
+18:41Z on 2026-08-19 to clear the orphan. The section cited an artifact of the
+repair as proof of the cause.
+
+The pre-reconcile state settles it. The main-file-only `.bak` snapshots are stale
+(see *Defect: the sqlite backup convention silently loses data*, below), so this
+was read from the full WAL trio in `~/.clay/backups-orphan-reconcile-1787164884587/`
+(`.sqlite` + `-wal` + `-shm` copied together into a scratch dir). Independently
+re-read and confirmed value-for-value:
+
+```
+exec:9091916b06b6cb7b9880cca0f748c1b4b36c383ff449b2b4
+    portfolio_task_id = webapp-automation-policy-board-exclusions
+    binding_revision  = 2      mode = project_coordinator
+    status            = running        current_epoch = 1
+    finished_at       = NULL
+    created_at        = 2026-08-19T15:56:12.603Z
+    updated_at        = 2026-08-19T15:56:15.835Z
+
+inc:9fdab3e9-9c04-43f9-878b-3ca7a3a63c8b
+    epoch              = 1
+    start_state        = started        failure_code = NULL
+    session_project_id = b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9
+    session_storage_id = 351a861b-521f-4691-9edb-5ce70f90fefc   (PRE-compaction)
+    started_at         = 2026-08-19T15:56:15.835Z
+
+role lease   HELD — coordinator / epoch 1, acquired 2026-08-19T15:56:12.603Z
+handoffs     0 rows for this execution
+```
+
+`start_state='started'` with `failure_code=NULL` is only reachable through
+`markExecutionStarted`, which `requireState(ref, { ready: true })` gates
+(`lib/coop-control-execution-store.js:364-374`) — so reserve → bind → barrier →
+start all completed and **the provider start succeeded**. A genuine
+`provider_start_failed` routes `sdk-bridge-query-start` → `abandonSession` →
+`terminalize(ref, "failed", "failed", "provider_start_failed")`, which sets
+`status='failed'`, sets `finished_at`, and **deletes the role lease**
+(`lib/coop-control-execution-store.js:376-392`). None of that was present: the
+execution was still `running` with `finished_at=NULL`, and the lease was still held.
+
+The session tail cited as confirmation (`thinking_stop`, *"Session was interrupted
+by a Clay restart"*, `done code 1`) is consistent with the compaction re-home and
+the later recovery; it does not distinguish the two hypotheses.
+
+**The cause stands as originally documented:** the session compacted, minting a new
+storage id, while `coop_control_incarnations` kept pinning the dead pre-compaction
+id `351a861b…`.
 
 ### Confirmed: a plain restart really would not have cleared it
 
@@ -148,12 +203,18 @@ looped.
 
 ### Still true: the compaction orphan is real, and it is why the slot is stuck
 
-The orphan was the wrong answer for *why nothing ran*. It is the right answer for
-*why the portfolio slot cannot be freed*. The binding's `coordinator` points at
-the pre-compaction session `351a861b…`, which carries **no**
-`portfolioExecution` metadata at all; the metadata — correctly reading
-`status: failed`, `reason: provider_start_failed`, `terminalAt` set — lives on the
-successor `e30ec128…`.
+*(This section was published alongside the retracted correction above and its
+substance is correct — it is preserved unchanged in claim, with only the retracted
+framing removed.)*
+
+The compaction orphan is the answer both for *why nothing ran* and for *why the
+portfolio slot cannot be freed*; the two are the same re-home seen from the control
+store and from the binding store. The binding's `coordinator` points at the
+pre-compaction session `351a861b…`, which carries **no** `portfolioExecution`
+metadata at all; the metadata lives on the successor `e30ec128…`. (That metadata
+reads `status: failed`, `reason: provider_start_failed`, `terminalAt` set — but note
+those values are the *hand reconcile's* write, not a runtime verdict; see the
+retraction above.)
 
 So `reconcileStrandedCompletions` can never terminalize this binding.
 `completionEvidence` looks up the binding's coordinator, finds nothing, and
@@ -195,6 +256,48 @@ execution that ran zero turns.
 in the webapp config still holds the pre-existing local
 `["Dev Complete","Ready for production","Done"]`, last written 18 Aug 23:42, and
 no Clay-side regression test exists yet. Nothing has been verified against TRIAGE.
+
+### New defect 3 — the sqlite backup convention silently loses data
+
+Found while reading the pre-reconcile state to disprove the retracted correction
+above.
+
+`~/.clay/lead/` holds eleven hand-made `coop-control.sqlite.pre-*.bak` snapshots
+(the count "nine" used in earlier notes is wrong — measured, it is eleven), each
+taken before a risky control-plane repair. Every one copies **only the main
+database file**. The store is WAL-mode (`PRAGMA journal_mode` = `wal`) and had not
+checkpointed since 18 Aug, so the main file is badly stale. Measured against the
+live store with the WAL applied (150 executions), *every* one of the eleven is
+behind:
+
+```
+execs  missing  file
+  138       12  coop-control.sqlite.pre-compaction-orphan-reconcile-20260819T184100Z.bak
+  138       12  coop-control.sqlite.pre-migration-retirement-20260819T133500Z.bak
+  147        3  coop-control.sqlite.pre-explicit-recovery-20260818T185933Z.bak
+  147        3  coop-control.sqlite.pre-frozen-recovery-20260818T191100Z.bak
+  147        3  coop-control.sqlite.pre-second-recovery-20260818T190650Z.bak
+  147        3  coop-control.sqlite.pre-single-daemon-recovery-20260818T191430Z.bak
+  147        3  coop-control.sqlite.pre-terminal-reconcile-20260818T191800Z.bak
+  149        1  coop-control.sqlite.pre-active-recovery-20260818T193000Z.bak
+  149        1  coop-control.sqlite.pre-controlled-restart-20260819T092413Z.bak
+  149        1  coop-control.sqlite.pre-fix-activation-restart-20260819T122856Z.bak
+  149        1  coop-control.sqlite.pre-orphan-recovery-20260818T211517Z.bak
+```
+
+The worst case is `pre-compaction-orphan-reconcile-20260819T184100Z.bak`: taken
+immediately before a durable one-way write, ~34 h stale, and it does not even
+contain the row it was meant to protect. Restoring from any of these would
+silently destroy data while looking like a successful rollback — the worst
+property a backup can have.
+
+No code creates these files; it is a hand convention agents copied from precedent
+in `memory/`. The fix is therefore procedural plus executable, not a store change:
+`scripts/snapshot-control-store.js` takes a single consistent snapshot with
+`VACUUM INTO`, and `--audit` reports the legacy files as UNSAFE. The procedure is
+documented in [`docs/guides/DIAGNOSTICS.md`](../docs/guides/DIAGNOSTICS.md).
+The stale files are **left in place** — they are not ours to delete, and one may be
+the only copy of something.
 
 ### Not done, deliberately
 
