@@ -3,12 +3,13 @@ var assert = require("node:assert");
 
 var createSDKBridge = require("../lib/sdk-bridge").createSDKBridge;
 
-function createBridge(sessionManager) {
+function createBridge(sessionManager, onProcessingChanged) {
   return createSDKBridge({
     cwd: process.cwd(),
     sessionManager: sessionManager || {},
     adapter: { vendor: "codex" },
     send: function () {},
+    onProcessingChanged: onProcessingChanged || function () {},
   });
 }
 
@@ -147,4 +148,58 @@ test("an old stream ending cannot stop its replacement query", async function() 
   assert.strictEqual(session.isProcessing, true);
   assert.strictEqual(session.queryInstance, replacement);
   assert.strictEqual(recorded.length, 0);
+});
+
+test("accepted pushes track turns queued behind the active turn", function() {
+  var bridge = createBridge();
+  var session = {
+    localId: 12,
+    queryInstance: { pushMessage: function() { return true; } },
+    _awaitingTurnResult: true,
+    _queuedTurnCount: 0,
+  };
+
+  assert.strictEqual(bridge.pushMessage(session, "follow up"), true);
+  assert.strictEqual(session._awaitingTurnResult, true);
+  assert.strictEqual(session._queuedTurnCount, 1);
+});
+
+test("a result keeps processing active while a queued turn continues", function() {
+  var recorded = [];
+  var direct = [];
+  var processingChanges = 0;
+  var bridge = createBridge({
+    sendAndRecord: function(session, msg) { recorded.push(msg); },
+    sendToSession: function(session, msg) { direct.push(msg); },
+    broadcastSessionList: function() {},
+  }, function() { processingChanges++; });
+  var session = {
+    localId: 13,
+    isProcessing: true,
+    _awaitingTurnResult: true,
+    _queuedTurnCount: 1,
+    pendingAskUser: {},
+    pendingPermissions: {},
+    pendingElicitations: {},
+    activeTaskToolIds: {},
+    taskIdMap: {},
+    responsePreview: "first reply",
+    history: [],
+    turnCount: 0,
+  };
+
+  bridge.processSDKMessage(session, { yokeType: "result", cost: 1, duration: 10 });
+
+  assert.strictEqual(session.isProcessing, true);
+  assert.strictEqual(session._awaitingTurnResult, true);
+  assert.strictEqual(session._queuedTurnCount, 0);
+  assert.strictEqual(processingChanges, 0);
+  assert.deepStrictEqual(direct[direct.length - 1], { type: "status", status: "processing" });
+
+  bridge.processSDKMessage(session, { yokeType: "result", cost: 1, duration: 10 });
+
+  assert.strictEqual(session.isProcessing, false);
+  assert.strictEqual(session._awaitingTurnResult, false);
+  assert.strictEqual(processingChanges, 1);
+  assert.strictEqual(recorded[recorded.length - 1].type, "done");
 });
