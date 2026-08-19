@@ -464,3 +464,163 @@ test("historical reconciliation rejects non-visible response evidence without mu
   assert.equal(result.reason, "invalid_response_ref");
   assert.equal(ledger.get("coop:" + COOP + ":1").response.state, "unanswered");
 });
+
+// Delta coalescing (cf7f197ee1) joins contiguous `delta` runs when a transcript
+// is serialized, so the history reloaded on the next boot is shorter than the
+// one a migration's absolute eventIndex values were pinned against. That is what
+// wedged the two 2026-08-15 owner-request migrations: indices 147824..152906
+// pinned against a ~218k-item transcript, reloaded as 37,831 items. These tests
+// pin the fail-closed behaviour for both shapes of that drift.
+function coalesceDeltas(history) {
+  var out = [];
+  var pending = null;
+  for (var i = 0; i < history.length; i++) {
+    var entry = history[i];
+    if (entry.type === "delta" && typeof entry.text === "string") {
+      if (pending) pending.text += entry.text;
+      else { pending = { type: "delta", text: entry.text, _ts: entry._ts }; out.push(pending); }
+      continue;
+    }
+    pending = null;
+    out.push(entry);
+  }
+  return out;
+}
+
+test("startup migration fails closed when coalescing shifts pinned indices onto other events",
+  function () {
+    var request = ingress(283, { text: "what now?" });
+    var response = { type: "delta_replace", text: "Answered.", _ts: 300000 };
+    // Pre-coalescing shape: a three-chunk delta run ahead of the request.
+    var uncoalesced = [
+      { type: "delta", text: "a", _ts: 1 }, { type: "delta", text: "b", _ts: 2 },
+      { type: "delta", text: "c", _ts: 3 }, request, response,
+    ];
+    var migrations = [{
+      migrationId: "coalescing-shifted-indices",
+      sessionStorageId: COOP,
+      requests: [{ sequence: 283, eventIndex: 3, digest: digestEvent(request) }],
+      evidence: { answered: [{ sequence: 283, responseEventIndex: 4,
+        responseDigest: digestEvent(response) }] },
+    }];
+    // Sanity: the evidence verifies against the transcript it was pinned against.
+    var okLedger = ledgerFor();
+    assert.equal(backfill.migrateOwnerRequestHistory(okLedger,
+      { sessions: new Map([[1, { storageId: COOP, coopHome: true, history: uncoalesced }]]) },
+      { migrations: migrations }).ok, true);
+
+    // After coalescing the run collapses to one entry, so index 3 is now the
+    // response and index 4 is off the end. The request is still present at
+    // index 1 with an unchanged digest -- only the coordinate moved.
+    var coalesced = coalesceDeltas(uncoalesced);
+    assert.equal(coalesced.length, 3);
+    assert.equal(digestEvent(coalesced[1]), digestEvent(request));
+
+    var ledger = ledgerFor();
+    var result = backfill.migrateOwnerRequestHistory(ledger,
+      { sessions: new Map([[1, { storageId: COOP, coopHome: true, history: coalesced }]]) },
+      { migrations: migrations });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "migration_evidence_changed");
+    assert.equal(result.migrations[0].reason, "request_evidence_changed");
+    assert.equal(result.migrations[0].migrationId, "coalescing-shifted-indices");
+    assert.equal(ledger.get(request.coopIngressId), null,
+      "a migration that cannot verify its coordinates must not touch the ledger");
+  });
+
+test("startup migration fails closed when pinned indices run past a shortened transcript",
+  function () {
+    var request = ingress(281, { text: "ok set it to implement..." });
+    var ledger = ledgerFor();
+    var result = backfill.migrateOwnerRequestHistory(ledger,
+      { sessions: new Map([[1, { storageId: COOP, coopHome: true, history: [request] }]]) },
+      { migrations: [{
+        migrationId: "2026-08-15-coop-bootstrap-responses",
+        sessionStorageId: COOP,
+        // The exact live coordinate that coalescing invalidated.
+        requests: [{ sequence: 281, eventIndex: 147824, digest: digestEvent(request) }],
+        evidence: {},
+      }] });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.migrations[0].reason, "request_evidence_changed");
+    assert.equal(ledger.get(request.coopIngressId), null);
+  });
+
+test("retired defaults leave startup migration clean instead of wedged", function () {
+  // Both 2026-08-15 owner-request migrations are retired: they had already
+  // applied, and their pinned coordinates cannot verify after coalescing.
+  // Shipping zero defaults must report ok rather than failing closed forever.
+  assert.deepEqual(require("../lib/coop-owner-request-migrations").defaults, []);
+
+  var request = ingress(281, { text: "ok set it to implement..." });
+  var ledger = ledgerFor();
+  var result = backfill.migrateOwnerRequestHistory(ledger,
+    { sessions: new Map([[1, { storageId: COOP, coopHome: true, history: [request] }]]) },
+    { sessionStorageId: COOP });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.migrations, []);
+  assert.equal(backfill.describeMigrationFailure(result), null);
+});
+
+test("already-answered requests make the retired migrations a provable no-op", function () {
+  // The retirement argument rests on markAnswered's "first answer wins" rule:
+  // whatever coordinate a re-run would supply, an answered record is untouched.
+  var request = ingress(283, { text: "what now?" });
+  var response = { type: "delta_replace", text: "Answered.", _ts: 300000 };
+  var history = [request, response];
+  var ledger = ledgerFor();
+  var session = { storageId: COOP, coopHome: true, history: history };
+  var evidence = { answered: [{ sequence: 283, responseEventIndex: 1,
+    responseDigest: digestEvent(response) }] };
+  recordAuditPopulation(ledger, history);
+  assert.equal(ledger.get(request.coopIngressId).response.state, "unanswered");
+
+  assert.equal(backfill.reconcileOwnerRequestEvidence(ledger, session, evidence).ok, true);
+  var answeredAt = ledger.get(request.coopIngressId).response.answeredAt;
+  assert.equal(ledger.get(request.coopIngressId).response.responseRef.eventIndex, 1);
+
+  var again = backfill.reconcileOwnerRequestEvidence(ledger, session, evidence);
+  assert.equal(again.ok, true);
+  assert.deepEqual(again.counts, { answered: 0, superseded: 0, informational: 0, unchanged: 1 });
+  assert.equal(ledger.get(request.coopIngressId).response.answeredAt, answeredAt);
+  assert.equal(ledger.get(request.coopIngressId).response.responseRef.eventIndex, 1);
+});
+
+// The wedged migration reported only the generic "migration_evidence_changed" to
+// ~/.clay/recovery-events-dev.log for two boots, so the discriminating inner
+// reason had to be re-derived by hand against the live store. It must reach the
+// canary from now on.
+test("failure detail carries the discriminating inner reason to the canary", function () {
+  var detail = backfill.describeMigrationFailure({
+    ok: false, reason: "migration_evidence_changed",
+    backfill: { ok: false, reason: "migration_evidence_changed", counts: {} },
+    migrations: [{ migrationId: "2026-08-15-lead-tick-response-linkage",
+      ok: false, reason: "response_evidence_changed" }],
+  });
+
+  assert.deepEqual(detail, { reason: "migration_evidence_changed",
+    migrations: [{ migrationId: "2026-08-15-lead-tick-response-linkage",
+      reason: "response_evidence_changed" }] });
+  assert.ok(JSON.stringify(detail).indexOf("response_evidence_changed") !== -1);
+});
+
+test("failure detail keeps reporting backfill-only causes and drops passing entries", function () {
+  assert.equal(backfill.describeMigrationFailure({
+    ok: false, backfill: { ok: false, reason: "coop_session_missing" }, migrations: [],
+  }), "coop_session_missing");
+
+  assert.equal(backfill.describeMigrationFailure({
+    ok: false, reason: "coop_session_missing", migrations: [],
+  }), "coop_session_missing");
+
+  var mixed = backfill.describeMigrationFailure({
+    ok: false, reason: "migration_evidence_changed",
+    migrations: [{ migrationId: "applied", ok: true, counts: {} },
+      { migrationId: "wedged", ok: false, reason: "request_evidence_changed" }],
+  });
+  assert.deepEqual(mixed.migrations,
+    [{ migrationId: "wedged", reason: "request_evidence_changed" }]);
+});
