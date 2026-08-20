@@ -330,6 +330,15 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 | `scripts/snapshot-control-store.js` | Consistent single-file snapshot of the WAL-mode Coop control store via `VACUUM INTO` (run before any control-plane repair; opens the source read-only); `--audit` reports the stale legacy `coop-control.sqlite.pre-*.bak` files as unsafe to restore |
 | `.claude/skills/lead-tick` | The Lead's operating procedure as a skill: one tick = scan portfolio, staff/propose, verify against the gate, report via typed events |
 
+### Repo Hygiene Guards
+
+| Module | Purpose |
+|--------|---------|
+| `scripts/commit-message-rules.js` | **Single source of truth** for the CLAUDE.md commit-message rules (no `Co-Authored-By`, Conventional Commits subject). Pure, no I/O, so the hook and the test cannot drift apart - do not restate the rules anywhere else |
+| `scripts/check-commit-message.js` | CLI over those rules: `<file>` (hook mode), `--message <text>`, `--history` (validates only unpushed commits, the ones still amendable) |
+| `.githooks/commit-msg` | Versioned `commit-msg` hook, so the guard reaches every worktree instead of one unversioned `.git/hooks/`. Enable once per clone: `git config core.hooksPath .githooks` (linked worktrees inherit it; a fresh clone does not) |
+| `test/commit-message-guard.test.js` | Zero-setup backstop in `npm test`: unit-tests the rules and fails on any unpushed commit that breaks them. Never scans pushed history, which already violates the rules and must not be rewritten |
+
 ### YOKE Adapters (lib/yoke/)
 
 YOKE is the vendor-agnostic interface layer. Each adapter implements the same contract (init, createQuery, etc.) for a specific agent runtime.
