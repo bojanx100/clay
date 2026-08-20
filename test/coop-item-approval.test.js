@@ -31,6 +31,9 @@ test("owner approval wording is recognized only in narrow referential forms", fu
   // hypothetical approval, and must not be allowed to pollute task matching.
   assert.deepEqual(approval("approve voice rev2, the mcp clay extension should be there"),
     { subject: "voice rev2" });
+  assert.deepEqual(approval("Approve clay-coop-foreground-continuation-fix rev1.\n\n" +
+    "Write me a manual handoff for anything you cannot start."),
+  { subject: "clay-coop-foreground-continuation-fix rev1" });
 
   // Questions, deferrals and negations are not approvals.
   assert.equal(approval("did you approve the eligibility fix?"), null);
@@ -248,7 +251,7 @@ test("execution admission verifies the approval link independently", function ()
     "owner_implementation_project_mismatch");
 });
 
-test("a mixed approval and handoff cannot scope work without prior matching attention", function () {
+test("an exact task-and-revision approval scopes work without prior attention", function () {
   var taskId = "clay-coop-foreground-continuation-fix";
   var ingressId = "coop:canonical-coop:533";
   var event = {
@@ -280,21 +283,74 @@ test("a mixed approval and handoff cannot scope work without prior matching atte
   var result = itemApproval.executionAdmission({ coopApprovalIngressId: ingressId }, request, {}, {
     ownerRequests: {
       get: function (candidate) { return candidate === ingressId ? entry : null; },
-      scopeImplementation: function () { scopeAttempts++; return { ok: true }; },
+      scopeImplementation: function (candidate, scope) {
+        scopeAttempts++;
+        entry.expectsExecution = true;
+        entry.implementationDecision = scope.implementationDecision;
+        entry.implementationScope = scope;
+        return { ok: true, request: entry };
+      },
     },
     canonicalOwnerEvent: function () { return event; },
     // No staffing_attention or cutover_attention existed before this approval.
-    // An approval phrase is referential; it cannot create its own pending item.
+    // The exact stable task id plus explicit revision is the bounded reference.
     readLeadEvents: function () { return []; },
   });
 
-  assert.ok(itemApproval.explicitItemApproval(event.text),
-    "the approval clause is recognized but does not itself grant execution authority");
-  assert.deepEqual(result, { ok: false, reason: "owner_approval_no_pending_item" });
-  assert.equal(scopeAttempts, 0, "no implementation scope may be written without a prior match");
-  assert.equal(entry.expectsExecution, false);
-  assert.equal(entry.implementationDecision, null);
-  assert.equal(entry.implementationScope, null);
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.itemApproval.reference, "exact_task_revision");
+  assert.equal(result.itemApproval.ingressId, ingressId);
+  assert.equal(scopeAttempts, 1, "the exact approval must be ingested once");
+  assert.equal(entry.expectsExecution, true);
+  assert.equal(entry.implementationDecision.source, "explicit_item_approval");
+  assert.deepEqual(entry.implementationScope.projectRef, { projectId: CLAY_CHROME_ID });
+  assert.equal(entry.implementationScope.portfolioTaskId, taskId);
+  assert.equal(entry.implementationScope.bindingRevision, 1);
+});
+
+test("an exact approval cannot widen task, revision, or approval-class gates", function () {
+  var taskId = "clay-coop-foreground-continuation-fix";
+  var ingressId = "coop:canonical-coop:533";
+  var request = {
+    portfolioTaskId: taskId,
+    bindingRevision: 1,
+    idempotencyKey: taskId + "-r1",
+    targetProject: { projectId: CLAY_ID },
+    coopTopicRef: { topicId: "owner-foreground-continuation" },
+    mode: "project_coordinator",
+  };
+  var deps = admissionHarness({
+    event: {
+      text: "Approve " + taskId + " rev1.",
+      coopIngressId: ingressId,
+      _ts: 2000,
+    },
+    entry: { ingressId: ingressId },
+    events: [],
+  });
+  var input = { coopApprovalIngressId: ingressId };
+
+  assert.equal(itemApproval.executionAdmission(input,
+    Object.assign({}, request, { portfolioTaskId: "clay-other-task" }), {}, deps).reason,
+  "owner_approval_task_mismatch");
+  assert.equal(itemApproval.executionAdmission(input,
+    Object.assign({}, request, { bindingRevision: 2 }), {}, deps).reason,
+  "owner_approval_task_mismatch");
+  ["blocked", "destructive", "spendRequired", "budgetException"].forEach(function (gate) {
+    var gated = Object.assign({}, request);
+    gated[gate] = true;
+    assert.equal(itemApproval.executionAdmission(input, gated, {}, deps).reason,
+      "owner_approval_disallowed_item", gate + " must remain fail-closed");
+  });
+
+  deps = admissionHarness({
+    event: { text: "Approve the continuation fix.", coopIngressId: ingressId, _ts: 2000 },
+    entry: { ingressId: ingressId },
+    events: [],
+  });
+  assert.equal(itemApproval.executionAdmission(input, request, {}, deps).reason,
+    "owner_approval_no_pending_item",
+  "a fuzzy approval still needs a pre-existing attention snapshot");
 });
 
 test("a cutover attention is pending for approval just like a staffing attention", function () {

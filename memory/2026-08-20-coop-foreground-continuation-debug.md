@@ -15,12 +15,17 @@ new message.
 - The canonical owner ingress `coop:871a194b-8879-40f7-a1fe-656e48e722af:533`
   was recorded as conversational with `expectsExecution: false`. That is
   correct historical admission evidence and was not changed or backfilled.
-- Its first clause was `Approve clay-coop-foreground-continuation-fix rev1.`
-  followed by a separate handoff request. Although the narrow named-approval
-  parser recognizes the first clause, no matching pre-approval
-  `staffing_attention` or `cutover_attention` exists in the Lead ledger. The
-  request remains conversational with no decision or scope; this is
-  fail-closed admission evidence, not permission to backfill authority.
+- **RETRACTED 2026-08-21:** ~~Its first clause was `Approve
+  clay-coop-foreground-continuation-fix rev1.` followed by a separate handoff
+  request. Although the narrow named-approval parser recognizes the first
+  clause, no matching pre-approval `staffing_attention` or
+  `cutover_attention` exists in the Lead ledger. The request remains
+  conversational with no decision or scope; this is fail-closed admission
+  evidence, not permission to backfill authority.~~ This conclusion collapsed
+  a fuzzy approval and a complete stable task-and-revision reference into one
+  rule. The owner supplied the exact `portfolioTaskId` and revision; requiring
+  a separate attention event made authorization depend on whether Coop had
+  emitted bookkeeping before the owner spoke.
 - The preceding ingress 532 was scoped to unrelated
   `clay-register-clay-chrome-project` work. It is not evidence for the
   foreground-continuation task and must never be adopted as a fallback.
@@ -50,6 +55,26 @@ query alone does not. Owner ingress and Lead-mode gates are unchanged. The
 foreground-drain callback schedules a normal typed `↻ Lead tick`, which keeps
 the existing exact ProjectRef and admission paths intact.
 
+### Approval-ingestion and retry correction (2026-08-21)
+
+`coop-item-approval` now treats a complete stable `portfolioTaskId` plus one
+explicit revision as the bounded approval reference. Fuzzy names still require
+a pre-approval attention snapshot, and task/revision mismatches plus blocked,
+destructive, spend, and budget-exception inputs still fail closed. Parsing also
+stops at the first sentence/clause, so ingress 533's separate handoff request no
+longer contaminates task identity. The router searches backward for the newest
+approval covering the requested task instead of allowing a later unrelated
+approval to shadow it.
+
+Voice rev4 exposed a second routing defect. The durable rev3 owner scope was
+correct and the rev3 binding was terminal `failed`, but its Thread also held
+other executable owner requests. `ledgerImplementationRoute` counted all of
+them before checking their typed scopes and returned no route. It now filters
+canonical candidates by exact ProjectRef/task/revision (including the existing
+strictly-newer carry-forward predicate) before enforcing uniqueness. A unique
+first-dispatch record with no scope retains the old fail-closed path; multiple
+unscoped records remain ambiguous.
+
 ## Regression proof
 
 `test/coop-foreground-turn-interrupt.test.js` now drives the actual
@@ -62,6 +87,13 @@ passing tests and 1 failing test. The new regression failed because the
 schedule count stayed `0` instead of `1`. After restoring the repair, the same
 file passed 3 of 3 tests.
 
+For the 2026-08-21 approval and retry regressions, the two focused files passed
+31 and failed 5 before the production changes. The failures were exact ingress
+533 clause parsing, exact approval ingestion, approval safety-result routing,
+multi-request Voice-style carry-forward routing, and older-approval shadowing.
+With the repair, the same files pass 36/36. The broader foreground, approval,
+cross-project, and orchestration selection passes 139/139.
+
 ## Validation boundary
 
 The focused control, scheduling, and restart suites verify continuation,
@@ -71,4 +103,6 @@ mutate the owner-request ledger; live activation and canary observation remain
 the deployment verification step.
 
 `NODE_PATH=/Users/bojansubotic/Desktop/clay/node_modules npm test` completed
-with exit code 0 across the repository's 297-file default suite.
+with exit code 0: 3,022/3,022 tests passed across the 297-file default suite,
+then 404/404 passed across the 30-file controlled-execution suite. This does
+not replace the live activation and canary checks described above.

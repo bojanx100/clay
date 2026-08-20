@@ -152,6 +152,33 @@ function harness(options) {
     });
     assert.equal(scoped.ok, true, "prior scope must be established");
   }
+  (opts.additionalScopes || []).forEach(function (additional) {
+    ownerRequests.record({
+      ingressId: additional.ingressId,
+      ingressSequence: additional.ingressSequence,
+      sessionRef: { projectId: "system-lead", sessionStorageId: CANONICAL },
+      requestRef: {
+        projectId: "system-lead",
+        sessionStorageId: CANONICAL,
+        eventIndex: additional.eventIndex,
+      },
+    });
+    ownerRequests.classify(additional.ingressId, {
+      kind: "existing_topic",
+      source: "owner_named_approval",
+      topicRef: TOPIC,
+      projectRefs: [{ projectId: additional.projectId }],
+      implementationDecision: { intent: "implement", source: "explicit_item_approval", at: 4000 },
+    });
+    var extraScoped = ownerRequests.scopeImplementation(additional.ingressId, {
+      projectRef: { projectId: additional.projectId },
+      topicRef: TOPIC,
+      portfolioTaskId: additional.portfolioTaskId,
+      bindingRevision: additional.bindingRevision,
+      idempotencyKey: additional.portfolioTaskId + "-r" + additional.bindingRevision,
+    });
+    assert.equal(extraScoped.ok, true, "additional scope must be established");
+  });
 
   var delivered = [];
   var leadSessions = new Map([[1, {
@@ -230,7 +257,7 @@ function harness(options) {
       var input = spec || {};
       var revision = input.bindingRevision || 1;
       var taskId = input.portfolioTaskId || TASK;
-      return coordinate({
+      var request = {
         coordinatorSessionId: CANONICAL,
         portfolioTaskId: taskId,
         bindingRevision: revision,
@@ -239,7 +266,9 @@ function harness(options) {
         targetProject: { projectId: input.projectId || PROJECT },
         objective: "Implement the approved change.",
         title: "Implement the approved change.",
-      });
+      };
+      if (input.coopTopicRef) request.coopTopicRef = input.coopTopicRef;
+      return coordinate(request);
     },
     dispatch: function (spec) {
       var input = spec || {};
@@ -551,6 +580,90 @@ test("REGRESSION: a rev2 retry is routed AND admitted through the full router pa
     assert.equal(h.diskEntry().classification.source,
       "owner_directed_execution_carry_forward");
   });
+
+test("REGRESSION: a Thread with multiple approvals routes the one covering the retry",
+  function () {
+    var otherIngress = "coop:" + CANONICAL + ":458";
+    var history = historyWith(120, 400, {
+      text: "Approve " + TASK + " rev3.",
+    });
+    history[80] = ownerTurn({
+      coopIngressId: otherIngress,
+      text: "Approve unrelated-task rev1.",
+      _ts: 4000,
+    });
+    history[300] = {
+      type: "user_message",
+      coopIngressId: "coop:" + CANONICAL + ":503",
+      coopComposerScope: "main",
+      text: "thanks, that makes sense",
+      _ts: 6000,
+    };
+    var h = harness({
+      storedIndex: 120,
+      history: history,
+      priorScope: { bindingRevision: 3 },
+      bindings: [bindingRecord(3, "failed")],
+      additionalScopes: [{
+        ingressId: otherIngress,
+        ingressSequence: 458,
+        eventIndex: 80,
+        projectId: OTHER_PROJECT,
+        portfolioTaskId: "unrelated-task",
+        bindingRevision: 1,
+      }],
+    });
+
+    var result = h.dispatchViaRouter({ bindingRevision: 4, coopTopicRef: TOPIC });
+
+    assert.equal(h.routed[0].coopIngressId, INGRESS,
+      "the router must select the one durable scope covering this typed retry");
+    assert.deepEqual(h.routed[0].coopTopicRef, TOPIC);
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(h.diskEntry().implementationScope.bindingRevision, 4);
+  });
+
+test("an older exact approval is not shadowed by a later unrelated approval", function () {
+  var taskId = "clay-coop-foreground-continuation-fix";
+  var approvalIngress = "coop:" + CANONICAL + ":533";
+  var source = { storageId: CANONICAL, history: [{
+    type: "user_message",
+    text: "Approve " + taskId + " rev1.\n\nWrite the remaining handoff.",
+    coopIngressId: approvalIngress,
+    coopComposerScope: "main",
+    _ts: 5000,
+  }, {
+    type: "user_message",
+    text: "Approve unrelated-task rev2.",
+    coopIngressId: "coop:" + CANONICAL + ":535",
+    coopComposerScope: "main",
+    _ts: 6000,
+  }] };
+  var delivered = null;
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    readLeadEvents: function () { return []; },
+    ensureOwnerThread: function (request) {
+      assert.equal(request.ingressId, approvalIngress);
+      return { ok: true, topicRef: TOPIC };
+    },
+    createProjectExecution: function (request) { delivered = request; return { ok: true }; },
+  });
+
+  var result = coordinate({
+    coordinatorSessionId: CANONICAL,
+    portfolioTaskId: taskId,
+    bindingRevision: 1,
+    idempotencyKey: taskId + "-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: OTHER_PROJECT },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(delivered.coopApprovalIngressId, approvalIngress);
+  assert.deepEqual(delivered.coopTopicRef, TOPIC);
+});
 
 test("REGRESSION: an ever-completed task is routed by the router and REFUSED by admission",
   function () {
