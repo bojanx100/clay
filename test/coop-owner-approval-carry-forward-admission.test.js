@@ -101,6 +101,7 @@ function bindingRecord(revision, status, extra) {
     provider: "codex",
     model: "gpt-5.6-luna",
     status: status,
+    completedAt: status === "failed" ? 6000 : undefined,
     createdAt: 1000,
     updatedAt: 2000,
     coordinator: { projectId: PROJECT, sessionStorageId: "coordinator-session" },
@@ -275,18 +276,19 @@ function harness(options) {
       var input = spec || {};
       var revision = input.bindingRevision || 1;
       var taskId = input.portfolioTaskId || TASK;
-      return router.createProjectExecution({
+      var request = {
         source: { projectId: "system-lead", sessionStorageId: CANONICAL },
         portfolioTaskId: taskId,
         bindingRevision: revision,
         idempotencyKey: taskId + "-r" + revision,
         mode: "project_coordinator",
         targetProject: { projectId: input.projectId || PROJECT },
-        coopTopicRef: TOPIC,
         coopIngressId: INGRESS,
         objective: "Implement the approved change.",
         title: "Implement the approved change.",
-      });
+      };
+      if (input.omitTopic !== true) request.coopTopicRef = TOPIC;
+      return router.createProjectExecution(request);
     },
     storedIndex: function () {
       var entry = ownerRequests.get(INGRESS);
@@ -428,6 +430,60 @@ test("carry-forward is REFUSED when a matching scope completed after approval",
     assert.equal(result.ok, false);
     assert.equal(result.reason, "owner_implementation_scope_mismatch");
   });
+
+test("carry-forward is REFUSED without timestamped failure evidence after approval",
+  function () {
+    [{ completedAt: null }, { completedAt: 4000 }].forEach(function (failureEvidence) {
+      var h = harness({
+        storedIndex: 200452,
+        history: historyWith(120, 400),
+        priorScope: { bindingRevision: 3 },
+        bindings: [bindingRecord(3, "failed", failureEvidence)],
+      });
+      var result = h.dispatch({ bindingRevision: 4 });
+      assert.equal(result.ok, false, JSON.stringify(failureEvidence));
+      assert.equal(result.reason, "owner_implementation_scope_mismatch");
+      assert.equal(h.diskEntry().implementationScope.bindingRevision, 3,
+        "unproven failure evidence must not move durable authorization");
+    });
+  });
+
+test("carry-forward is REFUSED by ambiguous post-approval completion evidence",
+  function () {
+    [
+      { coopTopicRef: null },
+      { targetProject: null },
+    ].forEach(function (ambiguousEvidence) {
+      var h = harness({
+        storedIndex: 200452,
+        history: historyWith(120, 400),
+        priorScope: { bindingRevision: 3 },
+        bindings: [
+          bindingRecord(2, "completed", Object.assign({ completedAt: 6000 },
+            ambiguousEvidence)),
+          bindingRecord(3, "failed"),
+        ],
+      });
+      var result = h.dispatch({ bindingRevision: 4 });
+      assert.equal(result.ok, false, JSON.stringify(ambiguousEvidence));
+      assert.equal(result.reason, "owner_implementation_scope_mismatch");
+      assert.equal(h.diskEntry().implementationScope.bindingRevision, 3,
+        "ambiguous completion evidence must not move durable authorization");
+    });
+  });
+
+test("a scoped retry with no expected TopicRef fails closed instead of throwing", function () {
+  var h = harness({
+    storedIndex: 200452,
+    history: historyWith(120, 400),
+    priorScope: { bindingRevision: 3 },
+    bindings: [bindingRecord(3, "failed")],
+  });
+  var result = h.dispatch({ bindingRevision: 4, omitTopic: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "thread_ref_required");
+  assert.equal(h.diskEntry().implementationScope.bindingRevision, 3);
+});
 
 test("carry-forward is REFUSED when the approved revision has not finished", function () {
   // Nothing to retry yet: an active revision has not failed.

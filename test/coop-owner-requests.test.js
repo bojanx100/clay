@@ -569,13 +569,14 @@ test("markAnswered returns the exact response shape that reload produces", funct
 //
 // An owner approval is scoped to a task AT A REVISION. First scope wins, so a
 // retry that bumps the revision loses it. Carry-forward is the owner's narrow
-// exception, and it is split: this module proves the retry is the same work at a
-// strictly later revision, while the caller proves from the binding store that
-// the approved revision failed and that nothing has ever completed. Both halves
-// must hold.
+// exception, and it is split: this module proves the retry is the same work at
+// exactly the next revision in the same ProjectRef and TopicRef, while the caller
+// proves from the binding store that the exact approved revision failed and no
+// matching completion consumed the approval. Both halves must hold.
 
 function scopedLedger(revision, taskId, projectId) {
-  var ledger = makeLedger();
+  var file = tempFile();
+  var ledger = makeLedger({ file: file });
   var id = "coop:" + COOP_SESSION + ":182";
   ledger.record(ingress(182));
   ledger.classify(id, {
@@ -592,7 +593,7 @@ function scopedLedger(revision, taskId, projectId) {
     idempotencyKey: (taskId || "carry-task") + "-r" + revision,
   });
   assert.equal(scoped.ok, true);
-  return { ledger: ledger, id: id };
+  return { ledger: ledger, id: id, file: file };
 }
 
 function rescope(fixture, revision, extra) {
@@ -632,8 +633,8 @@ test("a bumped revision without the carry-forward flag is still refused", functi
 
 test("the carry-forward flag cannot walk an approval backwards or sideways", function () {
   // The flag is not a bypass: this module independently proves the retry is the
-  // same work at a strictly later revision, so a caller asking for anything else
-  // is refused here even with the flag set.
+  // same work at exactly the next revision, so a caller asking for anything
+  // else is refused here even with the flag set.
   [
     { revision: 1, extra: {}, why: "same revision" },
     { revision: 2, extra: { portfolioTaskId: "other-task", idempotencyKey: "other-task-r2" },
@@ -648,6 +649,21 @@ test("the carry-forward flag cannot walk an approval backwards or sideways", fun
     assert.equal(result.reason, "owner_implementation_scope_mismatch");
     assert.equal(fixture.ledger.get(fixture.id).implementationScope.bindingRevision, 3);
   });
+});
+
+test("the carry-forward flag cannot rewrite the durable Thread scope", function () {
+  var fixture = scopedLedger(1);
+  var before = fs.readFileSync(fixture.file, "utf8");
+
+  var result = rescope(fixture, 2, {
+    carryForward: true,
+    topicRef: OTHER_TOPIC,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_scope_mismatch");
+  assert.equal(fs.readFileSync(fixture.file, "utf8"), before,
+    "a cross-Thread refusal must leave the durable ledger byte-stable");
 });
 
 test("an identical rescope is a reuse even when carry-forward is offered", function () {

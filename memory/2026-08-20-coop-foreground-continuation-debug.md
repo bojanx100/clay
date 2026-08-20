@@ -143,6 +143,19 @@ failing**. The combined foreground, exact-approval, carry-forward, graceful
 restart, and binding-reconciliation command passed **69/69**. `npm test` also
 completed successfully across its default and controlled-execution passes.
 
+The independent fail-closed review then found four omissions in that first
+predicate: failed evidence did not require a finite post-approval terminal
+timestamp; an unscoped post-approval completion could be ignored as if it were
+different work; a missing expected TopicRef was dereferenced rather than
+refused; and the lower durable writer did not independently prevent a
+cross-Thread carry-forward. Before the safeguards, the admission file reported
+**28 passing / 2 failing** and the isolated lower-writer regression reported
+**0 passing / 1 failing**. After them, the same checks passed **30/30** and
+**1/1**. The missing-TopicRef production path was already fail-closed at the
+earlier Thread gate; it is retained as a guard against future gate reordering
+rather than counted as a pre-fix failure. The final full run passed
+**3,030/3,030** default tests and **411/411** controlled-execution tests.
+
 ## Validation boundary
 
 The focused control, scheduling, and restart suites verify continuation,
