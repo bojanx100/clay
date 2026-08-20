@@ -91,3 +91,12 @@ test("slide breaks support selectable H1 through H3 levels with H2 auto-detectio
   assert.match(slides, /headingTag = "H" \+ level/);
   assert.match(slides, /markdownSlidePreferredLevel/);
 });
+
+test("Markdown actions are available before rendered preview is enabled", function () {
+  var browser = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser.js"), "utf8");
+
+  assert.match(browser, /function markdownElementForActions\(\)/);
+  assert.match(browser, /preview\.innerHTML = renderMarkdown\(currentContent\)/);
+  assert.match(browser, /function ensureRenderedMarkdown\(\)[\s\S]*isRendered = true;[\s\S]*renderBody\(\)/);
+  assert.match(browser, /renderBtn\.title = "Render markdown";[\s\S]*pdfBtn\.classList\.remove\("hidden"\);[\s\S]*formattedCopyBtn\.classList\.remove\("hidden"\);[\s\S]*syncMarkdownSlidesButton\(markdownElementForActions\(\)\)/);
+});
