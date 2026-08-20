@@ -1,3 +1,19 @@
+# [3.3.0-beta.2](https://github.com/chadbyte/clay/compare/v3.3.0-beta.1...v3.3.0-beta.2) (2026-08-20)
+
+
+### Bug Fixes
+
+* **markdown:** show actions before preview ([650f18c](https://github.com/chadbyte/clay/commit/650f18c20ef80cc5d811c10c6999e8ac4734b21f))
+* **sessions:** keep stop active for queued turns ([fa28379](https://github.com/chadbyte/clay/commit/fa28379b38bff34df66e789ea2ba26bbe642e928))
+* **sessions:** prevent stalled message delivery ([b40c21f](https://github.com/chadbyte/clay/commit/b40c21fa7a3ab49518339cc7dc918402ead5e1e8))
+* **yoke:** resolve default vendor by shared preference order ([490b14e](https://github.com/chadbyte/clay/commit/490b14e6b8fb7f36398c0ef52ee22af478e38b81))
+
+
+### Features
+
+* **git:** add agent-aware project controls ([6d009bd](https://github.com/chadbyte/clay/commit/6d009bd8b9f83d2fce7572e4192c2c6693cb923e))
+* **markdown:** add fullscreen slide presentations ([fa11163](https://github.com/chadbyte/clay/commit/fa11163db7fc200e71a04dfe90898b02a4aea563))
+
 # [3.3.0-beta.1](https://github.com/chadbyte/clay/compare/v3.2.2-beta.3...v3.3.0-beta.1) (2026-08-18)
 
 
