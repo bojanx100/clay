@@ -1,3 +1,27 @@
+# [3.3.0](https://github.com/chadbyte/clay/compare/v3.2.1...v3.3.0) (2026-08-20)
+
+
+### Bug Fixes
+
+* **markdown:** show actions before preview ([650f18c](https://github.com/chadbyte/clay/commit/650f18c20ef80cc5d811c10c6999e8ac4734b21f))
+* **sessions:** keep stop active for queued turns ([fa28379](https://github.com/chadbyte/clay/commit/fa28379b38bff34df66e789ea2ba26bbe642e928))
+* **sessions:** prevent stalled message delivery ([b40c21f](https://github.com/chadbyte/clay/commit/b40c21fa7a3ab49518339cc7dc918402ead5e1e8))
+* **split:** align pair arrow and deduplicate banners ([f5fdfc2](https://github.com/chadbyte/clay/commit/f5fdfc2ddbb0fe0c3ee6dd6725e9be14bf59c711))
+* **split:** align pane chrome with native sessions ([d9a800b](https://github.com/chadbyte/clay/commit/d9a800b49c83cec4052cb898778ae283ee0a00fb))
+* **yoke:** resolve default vendor by shared preference order ([490b14e](https://github.com/chadbyte/clay/commit/490b14e6b8fb7f36398c0ef52ee22af478e38b81))
+
+
+### Features
+
+* **git:** add agent-aware project controls ([6d009bd](https://github.com/chadbyte/clay/commit/6d009bd8b9f83d2fce7572e4192c2c6693cb923e))
+* **markdown:** add fullscreen slide presentations ([fa11163](https://github.com/chadbyte/clay/commit/fa11163db7fc200e71a04dfe90898b02a4aea563))
+* **pair:** add Fable worker delegation flow ([9bcebf3](https://github.com/chadbyte/clay/commit/9bcebf36624ad9a24a726cf9f799852a188fe058))
+
+
+### Performance Improvements
+
+* **daemon:** share periodic project sync loop ([263ba33](https://github.com/chadbyte/clay/commit/263ba33a6501c195e14befe72beae4964710b95e))
+
 # [3.3.0-beta.2](https://github.com/chadbyte/clay/compare/v3.3.0-beta.1...v3.3.0-beta.2) (2026-08-20)
 
 
