@@ -10,6 +10,8 @@ var automationAuthorization = require("../lib/project-automation-execution-autho
 var automationCandidates = require("../lib/project-automation-candidates");
 var automationIdentity = require("../lib/project-automation-identity");
 var createTopicIndex = require("../lib/coop-topic-index").createTopicIndex;
+var createExternalTaskCoordinator =
+  require("../lib/project-task-orchestrator-external-delegation").createExternalTaskCoordinator;
 var activeExecutionMetadata =
   require("../lib/coop-control-execution-target").activeExecutionMetadata;
 var executionBrief = require("../lib/coop-control-execution-target").executionBrief;
@@ -43,6 +45,12 @@ test("explicit owner implementation decisions are recognized separately from the
   });
   assert.deepEqual(lifecycle.explicitImplementationDecision("Can you fix this in Clay?"), {
     intent: "fix", projectName: "Clay",
+  });
+  // Exact owner ingress 509. Voice transcription produced "con you"; the
+  // known request prefix is normalized, while the verb still has to be an
+  // explicit implementation action.
+  assert.deepEqual(lifecycle.explicitImplementationDecision("con you fix that?"), {
+    intent: "fix", projectName: "",
   });
   assert.deepEqual(lifecycle.explicitImplementationDecision("ok set it to implement..."), {
     intent: "implement", projectName: "",
@@ -1337,69 +1345,124 @@ test("review admission preserves exact owner project scoping", function () {
   } finally { fs.rmSync(scoped.dir, { recursive: true, force: true }); }
 });
 
-test("a named owner approval admits the exact pending task it named", function () {
+test("owner ingress 508 resolves approval to exact scope and starts one canonical worker", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-ingress-508-"));
   var delivered = [];
   var handedOff = [];
-  var approvalIngress = "coop:canonical-coop:455";
-  // The Thread the approval route mints for the approved work. Owner
-  // provenance, bound to the approval turn.
-  var approvalTopic = { topicId: "owner-2f4c9d1a8b3e5f7061c2d4e6" };
-  var entries = [{
-    ingressId: approvalIngress,
-    ingressSequence: 455,
-    receivedAt: 2000,
-    topicRef: null,
-    projectRefs: [],
-    expectsExecution: false,
-    implementationDecision: null,
-    response: { state: "answered" },
-    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+  var approvalIngress = "coop:canonical-coop:508";
+  var portfolioTaskId = "clay-voice-end-to-end-qa-2026-08-18";
+  var idempotencyKey = portfolioTaskId + "-r2";
+  var history = [{
+    type: "user_message",
+    text: "approve voice rev2, the mcp clay extension should be there",
+    coopIngressId: approvalIngress,
+    coopIngressSequence: 508,
+    coopComposerScope: "main",
+    clientMessageId: "ingress-508",
+    _ts: 2000,
   }];
-  var approved = executionRouter(entries, delivered, handedOff, {
-    history: [{
-      type: "user_message",
-      text: "approve eligibility fix",
-      coopIngressId: approvalIngress,
-      coopComposerScope: "main",
-      _ts: 2000,
-    }],
-    // Recorded BEFORE the approval, which is what makes it approvable at all.
-    leadEvents: [{
+  // Reproduces the real ambiguity: the append-only ledger still held Voice
+  // attention for three revisions when the owner named rev2.
+  var leadEvents = [1, 2, 3].map(function (revision, index) {
+    return {
       type: "staffing_attention",
-      attentionKey: "clay-lead-project-policy-eligibility:1",
-      itemId: "clay-lead-project-policy-eligibility",
-      portfolioTaskId: "clay-lead-project-policy-eligibility",
-      bindingRevision: 1,
-      seq: 40,
-      at: 1000,
-    }],
+      attentionKey: portfolioTaskId + ":" + revision,
+      itemId: portfolioTaskId,
+      portfolioTaskId: portfolioTaskId,
+      bindingRevision: revision,
+      seq: index + 1,
+      at: 1000 + index,
+    };
+  });
+  var ownerLedger = require("../lib/coop-owner-requests").attachCoopOwnerRequests({
+    file: path.join(dir, "owner-requests.json"),
+  });
+  var topicIndex = createTopicIndex({ file: path.join(dir, "topics.json") });
+  ownerLedger.record({
+    ingressId: approvalIngress,
+    ingressSequence: 508,
+    ingressKind: "text",
+    sessionRef: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+    receivedAt: 2000,
+  });
+  ownerLedger.classify(approvalIngress, {
+    kind: "conversational",
+    source: "ingress_route",
+    at: 2000,
+  });
+  var invalidScope = ownerLedger.scopeImplementation(approvalIngress, {
+    projectRef: { projectId: PROJECT },
+    portfolioTaskId: portfolioTaskId,
+    bindingRevision: 2,
+    idempotencyKey: idempotencyKey,
+    implementationDecision: {
+      intent: "implement", source: "explicit_item_approval", at: 2000,
+    },
+  });
+  assert.equal(invalidScope.reason, "invalid_owner_implementation_scope");
+  assert.equal(ownerLedger.get(approvalIngress).implementationDecision, null,
+    "an invalid approval scope must not leave broad execution authority behind");
+  var approved = executionRouter([], delivered, handedOff, {
+    dir: dir,
+    ownerRequests: ownerLedger,
+    history: history,
+    leadEvents: leadEvents,
+    onThreadHandedOff: function (input) {
+      return topicIndex.linkExecution(input.topicRef, {
+        projectRef: input.projectRef,
+        sessionRef: input.sessionRef,
+      });
+    },
+  });
+  var source = { localId: 1, storageId: "canonical-coop", coopHome: true, history: history };
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: ownerLedger,
+    readLeadEvents: function () { return leadEvents; },
+    ensureOwnerThread: function (input) { return topicIndex.ensureOwnerThread(input); },
+    createProjectExecution: approved.router.createProjectExecution,
   });
   try {
     var request = {
-      source: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
-      portfolioTaskId: "clay-lead-project-policy-eligibility",
-      bindingRevision: 1,
-      idempotencyKey: "clay-lead-project-policy-eligibility-r1",
+      coordinatorSessionId: "canonical-coop",
+      portfolioTaskId: portfolioTaskId,
+      bindingRevision: 2,
+      idempotencyKey: idempotencyKey,
       mode: "project_coordinator",
       targetProject: { projectId: PROJECT },
-      coopTopicRef: approvalTopic,
-      coopApprovalIngressId: approvalIngress,
-      objective: "Honor project auto-launch eligibility policy before Lead scoring.",
+      title: "Verify Clay Voice end to end",
+      objective: "Verify Clay Voice end to end through the connected extension.",
     };
-    var result = approved.router.createProjectExecution(request);
-    assert.equal(result.ok, true, "the approval must admit the work it named");
+    // No ingress, approval ref, ThreadRef, or ProjectRef route is supplied. The
+    // production coordinator must discover all approval linkage itself.
+    var result = coordinate(request);
+    assert.equal(result.ok, true, JSON.stringify(result));
     assert.deepEqual(result.binding.targetProject, { projectId: PROJECT });
     assert.equal(delivered.length, 1);
     assert.equal(delivered[0].payload.coopApprovalIngressId, approvalIngress);
+    assert.equal(delivered[0].destination.projectId, PROJECT);
 
-    // A revision the owner never approved is refused on the same evidence.
-    var bumped = Object.assign({}, request, {
-      bindingRevision: 2,
-      idempotencyKey: "clay-lead-project-policy-eligibility-r2",
+    var classified = ownerLedger.get(approvalIngress);
+    assert.deepEqual(classified.implementationDecision, {
+      intent: "implement", source: "explicit_item_approval", at: 2000,
     });
-    var refused = approved.router.createProjectExecution(bumped);
-    assert.equal(refused.ok, false);
-    assert.equal(refused.reason, "owner_approval_task_mismatch");
-    assert.equal(delivered.length, 1, "nothing new may be dispatched");
+    assert.equal(classified.classification.kind, "existing_topic");
+    assert.equal(classified.classification.source, "owner_named_approval");
+    assert.equal(classified.expectsExecution, true);
+    assert.deepEqual(classified.implementationScope, {
+      projectRef: { projectId: PROJECT },
+      topicRef: classified.topicRef,
+      portfolioTaskId: portfolioTaskId,
+      bindingRevision: 2,
+      idempotencyKey: idempotencyKey,
+    });
+    assert.equal(topicIndex.resolve(classified.topicRef, true).thread.relatedExecutions.length, 1);
+
+    var replayed = coordinate(request);
+    assert.equal(replayed.ok, true);
+    assert.equal(replayed.reused, true);
+    assert.equal(delivered.length, 1, "approval replay must not start a duplicate worker");
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
 });

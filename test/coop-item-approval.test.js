@@ -26,6 +26,10 @@ test("owner approval wording is recognized only in narrow referential forms", fu
   assert.deepEqual(approval("approve it"), { subject: "" });
   assert.deepEqual(approval("ok, approve the eligibility fix"),
     { subject: "eligibility fix" });
+  // Exact owner ingress 508. The second clause is runtime context, not a
+  // hypothetical approval, and must not be allowed to pollute task matching.
+  assert.deepEqual(approval("approve voice rev2, the mcp clay extension should be there"),
+    { subject: "voice rev2" });
 
   // Questions, deferrals and negations are not approvals.
   assert.equal(approval("did you approve the eligibility fix?"), null);
@@ -33,6 +37,7 @@ test("owner approval wording is recognized only in narrow referential forms", fu
   assert.equal(approval("do not approve that"), null);
   assert.equal(approval("don't approve the eligibility fix"), null);
   assert.equal(approval("approve it later"), null);
+  assert.equal(approval("approve it, but we should wait"), null);
   assert.equal(approval("maybe approve the eligibility fix"), null);
   assert.equal(approval("if you approve it we can start"), null);
   // Must OPEN with the verb, so a narrative mention is not authorization.
@@ -54,6 +59,24 @@ test("a named approval binds the exact pending revision that was waiting", funct
   assert.equal(resolved.ok, true);
   assert.equal(resolved.task.portfolioTaskId, ELIGIBILITY);
   assert.equal(resolved.task.bindingRevision, 1);
+});
+
+test("an explicit revision disambiguates repeated attention for one task", function () {
+  var voice = "clay-voice-end-to-end-qa-2026-08-18";
+  var snapshot = itemApproval.pendingApprovalSnapshotAt([
+    attention(voice, 1000, { bindingRevision: 2, attentionKey: voice + ":2" }),
+    attention(voice, 1100, { bindingRevision: 3, attentionKey: voice + ":3" }),
+    attention(voice, 1200, { bindingRevision: 1, attentionKey: voice + ":1" }),
+  ], 2000);
+
+  var resolved = itemApproval.resolveApprovedTask(snapshot, "voice rev2");
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.task.portfolioTaskId, voice);
+  assert.equal(resolved.task.bindingRevision, 2);
+  assert.equal(itemApproval.resolveApprovedTask(snapshot, "voice").reason,
+    "owner_approval_ambiguous");
+  assert.equal(itemApproval.resolveApprovedTask(snapshot, "voice rev2 rev3").reason,
+    "owner_approval_ambiguous");
 });
 
 test("an item that started waiting after the approval can never be swept in", function () {
@@ -145,8 +168,29 @@ function admissionHarness(overrides) {
     projectRefs: [],
     response: { state: "answered" },
   }, options.entry || {});
+  var ownerRequests = {
+    get: function () { return entry; },
+    forTopic: function () { return [entry]; },
+    scopeImplementation: function (ingressId, scope) {
+      if (ingressId !== entry.ingressId || !scope.implementationDecision ||
+          !scope.projectRef || !scope.topicRef || !scope.portfolioTaskId ||
+          !scope.bindingRevision || !scope.idempotencyKey) {
+        return { ok: false, reason: "invalid_owner_implementation_scope" };
+      }
+      entry.implementationDecision = scope.implementationDecision;
+      entry.implementationScope = {
+        projectRef: scope.projectRef,
+        topicRef: scope.topicRef,
+        portfolioTaskId: scope.portfolioTaskId,
+        bindingRevision: scope.bindingRevision,
+        idempotencyKey: scope.idempotencyKey,
+      };
+      entry.expectsExecution = true;
+      return { ok: true, request: entry };
+    },
+  };
   return {
-    ownerRequests: { get: function () { return entry; }, forTopic: function () { return [entry]; } },
+    ownerRequests: ownerRequests,
     canonicalOwnerEvent: function () { return options.noEvent ? null : event; },
     readLeadEvents: function () {
       return options.events || [attention(ELIGIBILITY, 1000)];
@@ -158,7 +202,9 @@ test("execution admission verifies the approval link independently", function ()
   var request = {
     portfolioTaskId: ELIGIBILITY,
     bindingRevision: 1,
+    idempotencyKey: ELIGIBILITY + "-r1",
     targetProject: { projectId: CLAY_ID },
+    coopTopicRef: { topicId: "owner-eligibility" },
     mode: "project_coordinator",
   };
   var input = { coopApprovalIngressId: "coop:canonical-coop:455" };
@@ -167,6 +213,13 @@ test("execution admission verifies the approval link independently", function ()
   assert.equal(admitted.ok, true);
   assert.equal(admitted.itemApproval.attentionKey, ELIGIBILITY + ":1");
   assert.equal(admitted.itemApproval.ingressId, "coop:canonical-coop:455");
+  assert.deepEqual(admitted.request.implementationScope, {
+    projectRef: { projectId: CLAY_ID },
+    topicRef: { topicId: "owner-eligibility" },
+    portfolioTaskId: ELIGIBILITY,
+    bindingRevision: 1,
+    idempotencyKey: ELIGIBILITY + "-r1",
+  });
 
   // No cited approval leaves the existing fail-closed default in charge.
   assert.equal(itemApproval.executionAdmission({}, request, {}, admissionHarness()), null);
