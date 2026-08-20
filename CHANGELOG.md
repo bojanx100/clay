@@ -1,3 +1,10 @@
+## [3.3.1](https://github.com/chadbyte/clay/compare/v3.3.0...v3.3.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **release:** align alias package provenance ([e03bb3d](https://github.com/chadbyte/clay/commit/e03bb3d185ef7d92b78d0fee4ce7202f10ee9cf1))
+
 ## [3.3.1-beta.1](https://github.com/chadbyte/clay/compare/v3.3.0...v3.3.1-beta.1) (2026-08-20)
 
 
