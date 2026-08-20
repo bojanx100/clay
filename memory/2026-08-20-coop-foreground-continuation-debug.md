@@ -75,6 +75,24 @@ next-revision carry-forward predicate) before enforcing uniqueness. A unique
 first-dispatch record with no scope retains the old fail-closed path; multiple
 unscoped records remain ambiguous.
 
+**RETRACTED after live acceptance:** ~~Filtering candidates by typed scope made
+the Voice rev4 route reachable in production.~~ It made the synthetic route
+reachable only when `requestRef.eventIndex` still landed on the approval turn.
+The live owner-request record for ingress 535 carried a drifted numeric offset,
+so `ledgerImplementationRoute` discarded the otherwise exact candidate before
+scope filtering. Admission already used `coop-owner-event-resolution` to recover
+the immutable `coopIngressId`; the earlier router did not. After activation,
+the exact rev4 dispatch therefore still returned
+`owner_implementation_decision_required`, which correctly failed the live
+acceptance test.
+
+The router now uses the same identity resolver after verifying the owner-request
+record's canonical session references. It retains the numeric offset as a fast
+path, requires a unique matching owner `user_message`, and refuses missing or
+duplicated ingress identities. Typed ProjectRef, TopicRef, task, next-revision,
+terminal-failure, and post-approval-completion gates remain downstream and
+unchanged.
+
 ### Carry-forward scope correction plan (2026-08-21)
 
 **Confirmed root cause:** `approvalCarriesForward` in
@@ -155,6 +173,15 @@ cross-Thread carry-forward. Before the safeguards, the admission file reported
 earlier Thread gate; it is retained as a guard against future gate reordering
 rather than counted as a pre-fix failure. The final full run passed
 **3,030/3,030** default tests and **411/411** controlled-execution tests.
+
+Live activation then exposed the router-offset omission described above. With
+the new Voice-shaped test retained and only the router identity-resolution
+change reverted, the admission file reported **30 passing / 1 failing**; the
+failure was the stale-offset, multi-approval rev3-to-rev4 route. Restoring the
+repair produced **31/31**, and the two router suites passed **60/60**. The final
+repository run passed **3,031/3,031** default tests and **412/412**
+controlled-execution tests. Those counts prove the code paths and fail-closed
+guards; the subsequent exact live rev4 dispatch is the deployment check.
 
 ## Validation boundary
 

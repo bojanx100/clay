@@ -202,7 +202,8 @@ test("a durable owner classification restores an unmarked Main ingress for its e
   assert.equal(delivered.coopIngressId, undefined);
 });
 
-test("ledger recovery refuses ambiguous or unverifiable implementation records", function () {
+test("ledger recovery resolves stale offsets but refuses ambiguous or unverifiable records",
+  function () {
   var topic = { topicId: "owner-admission-thread" };
   var source = { localId: 1, storageId: "canonical-coop", history: [{
     type: "user_message", text: "solve it", coopIngressId: "coop:canonical-coop:461",
@@ -238,8 +239,17 @@ test("ledger recovery refuses ambiguous or unverifiable implementation records",
   candidates.splice(1, 1);
   candidates[0].requestRef.eventIndex = 99;
   coordinate(request);
+  assert.equal(delivered.coopIngressId, "coop:canonical-coop:461",
+    "a stale offset recovers the unique canonical event by immutable ingress id");
+
+  source.history = [{
+    type: "user_message", text: "different turn",
+    coopIngressId: "coop:canonical-coop:999",
+  }];
+  delivered = null;
+  coordinate(request);
   assert.equal(delivered.coopIngressId, undefined,
-    "a record without its exact canonical event chooses no ingress");
+    "a record with no canonical ingress match chooses no ingress");
 });
 
 test("an older unscoped Main command cannot authorize a later owner turn", function () {

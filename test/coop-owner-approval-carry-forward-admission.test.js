@@ -742,6 +742,50 @@ test("REGRESSION: a Thread with multiple approvals routes the one covering the r
     assert.equal(h.diskEntry().implementationScope.bindingRevision, 4);
   });
 
+test("REGRESSION: a stale approval offset still routes the matching Thread retry",
+  function () {
+    var otherIngress = "coop:" + CANONICAL + ":458";
+    var history = historyWith(120, 400, {
+      text: "Approve " + TASK + " rev3.",
+    });
+    history[80] = ownerTurn({
+      coopIngressId: otherIngress,
+      text: "Approve unrelated-task rev1.",
+      _ts: 4000,
+    });
+    history[300] = {
+      type: "user_message",
+      coopIngressId: "coop:" + CANONICAL + ":503",
+      coopComposerScope: "main",
+      text: "thanks, that makes sense",
+      _ts: 6000,
+    };
+    var h = harness({
+      // The durable offset lands on a real, unrelated history item. The router
+      // must resolve the immutable ingress identity before scope filtering.
+      storedIndex: 37,
+      history: history,
+      priorScope: { bindingRevision: 3 },
+      bindings: [bindingRecord(3, "failed")],
+      additionalScopes: [{
+        ingressId: otherIngress,
+        ingressSequence: 458,
+        eventIndex: 80,
+        projectId: OTHER_PROJECT,
+        portfolioTaskId: "unrelated-task",
+        bindingRevision: 1,
+      }],
+    });
+
+    var result = h.dispatchViaRouter({ bindingRevision: 4, coopTopicRef: TOPIC });
+
+    assert.equal(h.routed[0].coopIngressId, INGRESS,
+      "the router must recover the matching approval by immutable ingress id");
+    assert.deepEqual(h.routed[0].coopTopicRef, TOPIC);
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(h.diskEntry().implementationScope.bindingRevision, 4);
+  });
+
 test("an older exact approval is not shadowed by a later unrelated approval", function () {
   var taskId = "clay-coop-foreground-continuation-fix";
   var approvalIngress = "coop:" + CANONICAL + ":533";
