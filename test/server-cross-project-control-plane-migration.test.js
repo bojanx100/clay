@@ -242,7 +242,15 @@ function buildHarness(options) {
     deliverCrossProjectEnvelope: function (envelope) {
       deliveries.push(envelope);
       if (typeof opts.deliver === "function") return opts.deliver(envelope, deliveries);
-      if (envelope.payload.type === "portfolio_execution_message") return { ok: true };
+      if (envelope.payload.type === "portfolio_execution_message") {
+        return {
+          ok: true,
+          sessionRef: {
+            projectId: TARGET_ID,
+            sessionStorageId: "task-coordinator-r" + envelope.bindingRevision,
+          },
+        };
+      }
       return {
         ok: true,
         created: true,
@@ -421,6 +429,46 @@ test("production revision 10 replay: dispatch and steering fail closed until the
   assert.deepEqual(persisted.projectCoordinator, PRIOR_ROOT_REF);
   assert.equal(persisted.controlPlaneMigration.idempotencyKey, migrationKey);
   assert.deepEqual(persisted.controlPlaneMigration.from, PRIOR_ROOT_REF);
+});
+
+test("resident steering reports attention when delivery cannot identify the resumed task worker", function () {
+  var h = buildHarness({
+    deliver: function (envelope) {
+      if (envelope.payload.type === "portfolio_execution_message") return { ok: true };
+      return {
+        ok: true,
+        created: true,
+        sessionRef: {
+          projectId: TARGET_ID,
+          sessionStorageId: "task-coordinator-r" + envelope.bindingRevision,
+        },
+        projectCoordinatorRef: envelope.payload.targetProjectCoordinator || null,
+      };
+    },
+  });
+  var migrationKey = "cleanup-migration-unverified-steer";
+  assert.equal(h.router.migrateControlPlaneBinding(migrationInput(CLEANUP_TASK, 10,
+    PRIOR_ROOT_REF, migrationKey)).ok, true);
+  var dispatched = h.router.createProjectExecution(dispatchInput(CLEANUP_TASK, 10,
+    "clay-coop-nonempty-control-groups-activation-20260815-r10"));
+  assert.equal(dispatched.ok, true, JSON.stringify(dispatched));
+
+  var result = h.router.messageProjectExecution({
+    source: COOP_REF,
+    targetProject: { projectId: TARGET_ID },
+    targetCoordinator: PRIOR_ROOT_REF,
+    portfolioTaskId: CLEANUP_TASK,
+    bindingRevision: 10,
+    idempotencyKey: "cleanup-steer-unverified-target",
+    text: "Continue the cleanup work.",
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.attention, true);
+  assert.equal(result.reason, "target_reactivation_unverified");
+  var binding = h.router.getExecutionBinding(CLEANUP_TASK, 10);
+  assert.equal(binding.status, "active");
+  assert.equal(binding.statusReason, "target_reactivation_unverified");
 });
 
 test("the migration task's own stranded pre-task revision migrates with an explicit no-prior identity", function () {

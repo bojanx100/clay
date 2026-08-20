@@ -1137,6 +1137,134 @@ test("project-coordinator needs-input turns stay active and resume through typed
   assert.equal(projectRollup.workState, "needs_input");
 });
 
+test("resident control-plane steering visibly resumes the exact blocked task coordinator", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-resident-control-plane-steer-"));
+  var targetProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var coopId = "871a194b-8879-40f7-a1fe-656e48e722af";
+  var rootId = "457f9fa1-7024-40cc-acee-2cef6b2b8445";
+  var childId = "b66e172f-c524-4ecc-aa36-3355d8c21e1a";
+  var taskId = "clay-voice-end-to-end-qa-2026-08-18";
+  var rootTaskId = "task-resident-voice-qa";
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.storageId = coopId;
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    getSessionManager: function () { return target.sm; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    getSessionManager: function () { return lead.sm; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  var root = {
+    localId: 2,
+    storageId: rootId,
+    title: "Clay coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: coopId, since: 1 },
+    orchestrationTasks: [{
+      taskId: rootTaskId,
+      clientRef: "portfolio:" + taskId + ":2",
+      externalTaskCoordinator: true,
+      status: "needs_input",
+      currentActivity: "Task coordinator needs owner input",
+      workerSessionRef: { projectId: targetProjectId, sessionStorageId: childId },
+      workerStorageId: childId,
+    }],
+    orchestrationEvents: [],
+    orchestrationPolicy: {
+      coopControlPlane: {
+        version: 1,
+        role: "project_coordinator",
+        projectRef: { projectId: targetProjectId },
+      },
+    },
+    history: [],
+    isProcessing: false,
+  };
+  lead.sessions.set(root.localId, root);
+  var child = {
+    localId: 9,
+    storageId: childId,
+    title: "Voice QA task coordinator",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    projectCoordinatorRef: { projectId: "system-lead", sessionStorageId: rootId },
+    projectCoordinatorProjectRef: { projectId: targetProjectId },
+    controlPlaneParent: {
+      taskId: rootTaskId,
+      projectCoordinatorRef: { projectId: "system-lead", sessionStorageId: rootId },
+    },
+    coopControlledBy: { coopSessionStorageId: rootId, since: 1 },
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: taskId,
+        bindingRevision: 2,
+        idempotencyKey: "voice-qa-r2",
+        mode: "project_coordinator",
+        targetProject: { projectId: targetProjectId },
+        status: "needs_input",
+        reason: "independent_review_required",
+      },
+    },
+    orchestrationTasks: [],
+    orchestrationEvents: [],
+    history: [{
+      type: "delta",
+      text: "WORKER_STATUS: needs_input\nESCALATION_REQUIRED: yes",
+    }],
+    isProcessing: false,
+  };
+  target.sessions.set(child.localId, child);
+  assert.equal(router.bindingStore.reserve({
+    source: { projectId: "system-lead", sessionStorageId: coopId },
+    targetProject: { projectId: targetProjectId },
+    portfolioTaskId: taskId,
+    bindingRevision: 2,
+    idempotencyKey: "voice-qa-r2",
+    mode: "project_coordinator",
+  }).ok, true);
+  assert.equal(router.bindingStore.commit(taskId, 2, {
+    projectId: targetProjectId,
+    sessionStorageId: childId,
+  }, {
+    projectCoordinatorRef: { projectId: "system-lead", sessionStorageId: rootId },
+  }).ok, true);
+  assert.equal(portfolioSession(target, taskId), child);
+  var startsBefore = target.starts.length;
+
+  var steered = lead.api.steerProjectCoordinatorFromTool({
+    coordinatorSessionId: coopId,
+    targetProject: { projectId: targetProjectId },
+    targetCoordinator: { projectId: "system-lead", sessionStorageId: rootId },
+    portfolioTaskId: taskId,
+    bindingRevision: 2,
+    idempotencyKey: "voice-qa-resume-after-review",
+    message: "Independent review is now available. Resume the exact Voice QA worker.",
+  });
+
+  assert.equal(steered.isError, undefined, steered.content[0].text);
+  assert.equal(target.sessions.size, 1, "steering never creates a second or Lead-local worker");
+  assert.equal(child.orchestrationPolicy.portfolioExecution.status, "running");
+  assert.equal(child.isProcessing, true);
+  assert.equal(target.starts.length, startsBefore + 1);
+  assert.equal(target.starts.at(-1).session, child);
+  assert.equal(root.orchestrationTasks[0].status, "running");
+  assert.equal(root.orchestrationTasks[0].currentActivity, "Task coordinator is running");
+  assert.equal(root.orchestrationEvents.at(-1).type, "task_coordinator_started");
+  assert.equal(root.orchestrationEvents.at(-1).taskId, rootTaskId);
+});
+
 test("steering an idle project coordinator starts a new turn even with a stale query instance", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-steer-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
