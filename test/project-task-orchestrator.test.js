@@ -1254,7 +1254,8 @@ test("resident control-plane steering visibly resumes the exact blocked task coo
   });
 
   assert.equal(steered.isError, undefined, steered.content[0].text);
-  assert.equal(target.sessions.size, 1, "steering never creates a second or Lead-local worker");
+  assert.equal(target.sessions.size, 1, "steering does not create a second target worker");
+  assert.equal(lead.sessions.size, 2, "steering does not create a Lead-local worker");
   assert.equal(child.orchestrationPolicy.portfolioExecution.status, "running");
   assert.equal(child.isProcessing, true);
   assert.equal(target.starts.length, startsBefore + 1);
