@@ -268,6 +268,16 @@
             <kbd>&#8629;</kbd><span>open</span>
           </div>
         </div>
+        <div id="sidebar-panel-git" class="sidebar-panel hidden">
+          <div class="git-panel-titlebar">
+            <button id="git-panel-refresh" type="button" title="Refresh Git status"><i data-lucide="refresh-cw"></i></button>
+            <span>Git</span>
+            <button id="git-panel-close" type="button" title="Close Git panel"><i data-lucide="x"></i></button>
+          </div>
+          <div id="git-panel-body" class="git-panel-body">
+            <div class="git-panel-loading"><span class="git-panel-spinner"></span> Reading repository</div>
+          </div>
+        </div>
       </div>
     </div>
     <div id="sidebar-resize-handle"></div>
@@ -642,6 +652,8 @@
       </span>
       <button class="file-viewer-btn hidden" id="file-viewer-render" title="Toggle rendered view"><i data-lucide="book-open"></i></button>
       <button class="file-viewer-btn hidden" id="file-viewer-pdf" title="Export PDF"><i data-lucide="file-down"></i></button>
+      <button class="file-viewer-btn hidden" id="file-viewer-slides" title="Present as slides" aria-label="Present Markdown as slides" aria-pressed="false"><i data-lucide="presentation"></i></button>
+      <button class="file-viewer-btn file-viewer-slide-level hidden" id="file-viewer-slide-level" title="Split slides by heading level" aria-haspopup="menu" aria-expanded="false"><span>H1</span><i data-lucide="chevron-down"></i></button>
       <button class="file-viewer-btn hidden" id="file-viewer-history" title="Edit history"><i data-lucide="clock"></i></button>
       <button class="file-viewer-btn" id="file-viewer-refresh" title="Refresh"><i data-lucide="refresh-cw"></i></button>
       <button class="file-viewer-btn" id="file-viewer-copy" title="Copy contents" aria-label="Copy contents"><i data-lucide="copy"></i></button>
@@ -1699,21 +1711,6 @@
     </div>
     <div class="mcp-content" id="mcp-content">
       <p class="mcp-no-servers">No MCP servers detected. Configure in Clay Chrome Extension.</p>
-    </div>
-  </div>
-</div>
-
-<!-- Email Defaults Modal -->
-<div id="email-defaults-modal" class="hidden">
-  <div class="confirm-backdrop"></div>
-  <div class="confirm-dialog mcp-dialog">
-    <div class="mcp-header">
-      <span class="mcp-title"><i data-lucide="mail"></i> Email</span>
-      <button class="skills-close" id="email-defaults-close"><i data-lucide="x"></i></button>
-    </div>
-    <div class="mcp-content" id="email-defaults-content">
-      <p class="mcp-desc">Toggle email accounts to auto-enable them for every new session in this project.</p>
-      <div id="email-defaults-list"></div>
     </div>
   </div>
 </div>
