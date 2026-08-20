@@ -1,3 +1,10 @@
+## [3.3.2-beta.1](https://github.com/chadbyte/clay/compare/v3.3.1...v3.3.2-beta.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **worker:** delegate follow-up implementation ([d00c2e7](https://github.com/chadbyte/clay/commit/d00c2e73b9428bd4d09e7a879c8ff44be3f2ddbe))
+
 ## [3.3.1](https://github.com/chadbyte/clay/compare/v3.3.0...v3.3.1) (2026-08-20)
 
 
