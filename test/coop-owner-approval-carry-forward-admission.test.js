@@ -421,6 +421,65 @@ test("carry-forward is REFUSED for superseded, unrouted and deleted revisions", 
   });
 });
 
+// PIN, not a proposal. `approvalCarriesForward` requires the scoped revision's
+// status to be in { failed, cancelled }, and this fixes the outcome for all four
+// statuses that argument has ever been had about, so that changing ANY of them
+// has to be a deliberate edit visible in a diff rather than a side effect of
+// touching the gate for some other reason.
+//
+// Measured by driving the real gate against copies of the live binding store and
+// owner ledger and changing ONLY the status (see dd65f86ef1 / 4fdd2bdb00).
+//
+// Why `superseded` is excluded, and must stay excluded: superseded means
+// withdrawn or replaced. Admitting it would let ordinary binding churn
+// manufacture authorization -- anything able to supersede a revision could then
+// mint the owner's "yes" for a newer one.
+//
+// The nuance that was considered and DELIBERATELY not acted on: a
+// reconciler-written supersede of an execution that ran zero turns is arguably
+// not an owner withdrawal, and `statusReason` does carry that distinction (e.g.
+// `compaction_orphan_reconciled`). Acting on it would WIDEN an authorization
+// gate, which is an owner-authority decision -- not one to take from inside a
+// test or a neighbouring bug fix. Re-approving costs the owner one sentence and
+// keeps the gate strict. If that call is ever made it belongs in its own change
+// with its own reasoning, and this test is what will force it to say so.
+test("PIN: carry-forward across all four statuses, current strict behaviour", function () {
+  var expected = [
+    // The approved revision ended terminal-unsuccessful and the owner watched it
+    // fail. This is the narrow exception the rule exists for.
+    { status: "failed", carries: true },
+    { status: "cancelled", carries: true },
+    // Withdrawn or replaced -- bookkeeping, not a watched failure.
+    { status: "superseded", carries: false },
+    // Success CONSUMES the approval. Retrying delivered work needs a fresh yes.
+    { status: "completed", carries: false },
+  ];
+  expected.forEach(function (item) {
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWith(120, 400),
+      priorScope: { bindingRevision: 1 },
+      bindings: [bindingRecord(1, item.status,
+        item.status === "completed" ? { completedAt: 3000 } : null)],
+    });
+    var result = h.dispatch({ bindingRevision: 2 });
+    assert.equal(result.ok, item.carries,
+      item.status + " must " + (item.carries ? "" : "NOT ") + "carry an approval forward");
+    if (item.carries) {
+      assert.equal(h.diskEntry().implementationScope.bindingRevision, 2,
+        item.status + " must move the durable scope to the retried revision");
+      assert.equal(h.diskEntry().classification.source,
+        "owner_directed_execution_carry_forward",
+        item.status + " must record the carry-forward durably, not implicitly");
+    } else {
+      assert.equal(result.reason, "owner_implementation_scope_mismatch",
+        item.status + " must be refused by the scope gate");
+      assert.equal(h.diskEntry().implementationScope.bindingRevision, 1,
+        "a refused carry-forward must not move the durable scope");
+    }
+  });
+});
+
 test("carry-forward is REFUSED when the requested revision is not newer", function () {
   var h = harness({
     storedIndex: 200452,
