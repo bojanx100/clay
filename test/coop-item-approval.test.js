@@ -4,6 +4,7 @@ var assert = require("node:assert/strict");
 var itemApproval = require("../lib/coop-item-approval");
 
 var CLAY_ID = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+var CLAY_CHROME_ID = "f2b7c47a-bb03-5b3d-89ff-dd32ddb2be53";
 var ELIGIBILITY = "clay-lead-project-policy-eligibility";
 
 function attention(taskId, at, extra) {
@@ -245,6 +246,55 @@ test("execution admission verifies the approval link independently", function ()
   });
   assert.equal(itemApproval.executionAdmission(input, request, {}, otherProject).reason,
     "owner_implementation_project_mismatch");
+});
+
+test("a mixed approval and handoff cannot scope work without prior matching attention", function () {
+  var taskId = "clay-coop-foreground-continuation-fix";
+  var ingressId = "coop:canonical-coop:533";
+  var event = {
+    type: "user_message",
+    text: "Approve clay-coop-foreground-continuation-fix rev1.\n\n" +
+      "Please hand the completed worker to the owning coordinator.",
+    coopIngressId: ingressId,
+    coopComposerScope: "main",
+    _ts: 533000,
+  };
+  var entry = {
+    ingressId: ingressId,
+    receivedAt: 533000,
+    projectRefs: [],
+    expectsExecution: false,
+    implementationDecision: null,
+    implementationScope: null,
+    response: { state: "answered" },
+  };
+  var scopeAttempts = 0;
+  var request = {
+    portfolioTaskId: taskId,
+    bindingRevision: 1,
+    idempotencyKey: taskId + "-r1",
+    targetProject: { projectId: CLAY_CHROME_ID },
+    coopTopicRef: { topicId: "owner-foreground-continuation" },
+    mode: "project_coordinator",
+  };
+  var result = itemApproval.executionAdmission({ coopApprovalIngressId: ingressId }, request, {}, {
+    ownerRequests: {
+      get: function (candidate) { return candidate === ingressId ? entry : null; },
+      scopeImplementation: function () { scopeAttempts++; return { ok: true }; },
+    },
+    canonicalOwnerEvent: function () { return event; },
+    // No staffing_attention or cutover_attention existed before this approval.
+    // An approval phrase is referential; it cannot create its own pending item.
+    readLeadEvents: function () { return []; },
+  });
+
+  assert.ok(itemApproval.explicitItemApproval(event.text),
+    "the approval clause is recognized but does not itself grant execution authority");
+  assert.deepEqual(result, { ok: false, reason: "owner_approval_no_pending_item" });
+  assert.equal(scopeAttempts, 0, "no implementation scope may be written without a prior match");
+  assert.equal(entry.expectsExecution, false);
+  assert.equal(entry.implementationDecision, null);
+  assert.equal(entry.implementationScope, null);
 });
 
 test("a cutover attention is pending for approval just like a staffing attention", function () {

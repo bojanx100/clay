@@ -15,6 +15,15 @@ new message.
 - The canonical owner ingress `coop:871a194b-8879-40f7-a1fe-656e48e722af:533`
   was recorded as conversational with `expectsExecution: false`. That is
   correct historical admission evidence and was not changed or backfilled.
+- Its first clause was `Approve clay-coop-foreground-continuation-fix rev1.`
+  followed by a separate handoff request. Although the narrow named-approval
+  parser recognizes the first clause, no matching pre-approval
+  `staffing_attention` or `cutover_attention` exists in the Lead ledger. The
+  request remains conversational with no decision or scope; this is
+  fail-closed admission evidence, not permission to backfill authority.
+- The preceding ingress 532 was scoped to unrelated
+  `clay-register-clay-chrome-project` work. It is not evidence for the
+  foreground-continuation task and must never be adopted as a fallback.
 - The canonical transcript records the foreground result at event 42686 and
   `done` at 42687. The next owner ingress is event 42688, about 34 seconds
   later. No `scheduled_message_queued` Lead tick appears in that interval.
