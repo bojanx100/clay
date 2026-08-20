@@ -71,9 +71,41 @@ correct and the rev3 binding was terminal `failed`, but its Thread also held
 other executable owner requests. `ledgerImplementationRoute` counted all of
 them before checking their typed scopes and returned no route. It now filters
 canonical candidates by exact ProjectRef/task/revision (including the existing
-strictly-newer carry-forward predicate) before enforcing uniqueness. A unique
+next-revision carry-forward predicate) before enforcing uniqueness. A unique
 first-dispatch record with no scope retains the old fail-closed path; multiple
 unscoped records remain ambiguous.
+
+### Carry-forward scope correction plan (2026-08-21)
+
+**Confirmed root cause:** `approvalCarriesForward` in
+`server-cross-project.js` scans every binding for the task and rejects as soon
+as it finds any `completed` status. That made Voice rev4 fail even though its
+authorizing rev3 was terminal `failed`: an older rev1 completion happened
+before the rev3 approval. The same scan did not prove that the binding it used
+was for the approved ProjectRef and Thread scope, so it was too broad both for
+completion consumption and for outcome evidence.
+
+**RETRACTED:** ~~A carry-forward must be refused whenever any revision of the
+task has ever completed.~~ Completion only consumes an approval when it is a
+completion in the approved target/scope at or after that approval. A completion
+that predates a new, explicit approval cannot consume the later approval.
+
+**Plan before edit:**
+
+1. Require the requested retry to preserve the approved ProjectRef, task, and
+   TopicRef, and to advance exactly one revision.
+2. Derive the failed terminal outcome from the exact approved binding in that
+   same scope; fail closed on missing, withdrawn, cancelled, superseded, or
+   ambiguous evidence.
+3. Treat only same-scope `completed` bindings with a completion timestamp at or
+   after the approval timestamp as consumption; a missing completion timestamp
+   for a completed binding remains fail-closed.
+4. Extend the real ledger/binding/router regression harness for older
+   completion-before-approval admission and for completed-after-approval,
+   withdrawn, superseded, changed-project, changed-task, and changed-scope
+   refusal. Revert the production predicate in an isolated worktree to prove
+   the new admission test fails, then restore it and run targeted plus full
+   suites.
 
 ## Regression proof
 
@@ -93,6 +125,23 @@ For the 2026-08-21 approval and retry regressions, the two focused files passed
 multi-request Voice-style carry-forward routing, and older-approval shadowing.
 With the repair, the same files pass 36/36. The broader foreground, approval,
 cross-project, and orchestration selection passes 139/139.
+
+### Carry-forward scope-correction proof (2026-08-21)
+
+The Voice-shaped regression uses a real owner-request ledger, a real durable
+binding store, and the normal router-to-admission path. It records a completed
+rev1 for the old Clay ProjectRef before the owner approves a failed rev3 in the
+canonical clay-chrome ProjectRef, then asks for rev4. No route, ingress, or
+result is hand-supplied.
+
+With the production carry-forward predicate temporarily reverted while the new
+tests remained in place, `test/coop-owner-approval-carry-forward-admission.test.js`
+reported **23 passing / 4 failing**. The four failures were the older-completion
+admission, cancelled withdrawal, skipped-revision, and changed ProjectRef or
+Thread evidence cases. Restoring the predicate produced **27 passing / 0
+failing**. The combined foreground, exact-approval, carry-forward, graceful
+restart, and binding-reconciliation command passed **69/69**. `npm test` also
+completed successfully across its default and controlled-execution passes.
 
 ## Validation boundary
 

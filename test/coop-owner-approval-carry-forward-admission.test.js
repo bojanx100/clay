@@ -18,9 +18,10 @@ var createBindings = require("../lib/portfolio-execution-bindings")
 // An owner approval is spent on a task AT A REVISION, so a retry that bumps the
 // revision loses it -- correctly, because otherwise one "yes" would authorize
 // arbitrarily rewritten work. The owner's rule admits a narrow exception needing
-// ALL of: same project, same task, strictly newer revision, the approved
-// revision ended terminal-unsuccessful, and no revision of the task has EVER
-// completed. Success consumes an approval.
+// ALL of: same project, same task, same Thread scope, exactly the next revision,
+// the approved revision ended failed, and no same-scope revision completed at or
+// after the explicit approval. A completion before a later approval cannot
+// consume it.
 //
 // These cases also pin the interaction with stale `requestRef.eventIndex`
 // resolution (see coop-owner-event-resolution, which resolves an owner turn by
@@ -372,7 +373,7 @@ test("an already-correct offset is used directly", function () {
   assert.equal(h.storedIndex(), 120);
 });
 
-test("carry-forward is permitted when the approved revision ended terminal-unsuccessful",
+test("carry-forward is permitted when the exact approved revision failed",
   function () {
     var h = harness({
       storedIndex: 200452,
@@ -388,34 +389,42 @@ test("carry-forward is permitted when the approved revision ended terminal-unsuc
       "the carry-forward must be durably recorded, not implicit");
   });
 
-test("carry-forward is REFUSED when any revision of the task has ever completed",
+test("REGRESSION: an older completion before a later approved scope does not consume it",
   function () {
-    // Success consumes the approval. This is the asymmetry that keeps a retry of
-    // already-delivered work blocked while a retry of failed work proceeds.
+    // Voice has this exact history: rev1 completed for Clay before the owner
+    // explicitly approved failed rev3 for clay-chrome. The old task-wide scan
+    // saw rev1 and rejected rev4 before it checked either scope or time.
     var h = harness({
       storedIndex: 200452,
       history: historyWith(120, 400),
-      priorScope: { bindingRevision: 1 },
-      bindings: [bindingRecord(1, "completed", { completedAt: 3000 })],
+      priorScope: { bindingRevision: 3 },
+      bindings: [
+        bindingRecord(1, "completed", {
+          targetProject: { projectId: OTHER_PROJECT },
+          completedAt: 4000,
+        }),
+        bindingRecord(3, "failed", { completedAt: 6000 }),
+      ],
     });
-    var result = h.dispatch({ bindingRevision: 3 });
-    assert.equal(result.ok, false);
-    assert.equal(result.reason, "owner_implementation_scope_mismatch");
-    assert.equal(h.diskEntry().implementationScope.bindingRevision, 1,
-      "a refused carry-forward must not move the durable scope");
+    var result = h.dispatch({ bindingRevision: 4 });
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(h.diskEntry().implementationScope.bindingRevision, 4);
   });
 
-test("carry-forward is REFUSED when a LATER revision completed but the approved one failed",
+test("carry-forward is REFUSED when a matching scope completed after approval",
   function () {
-    // "No revision has ever completed" is a statement about the whole task, not
-    // just the approved revision.
+    // The completion timestamp, not revision ordering, consumes approval. A
+    // still-running earlier revision can finish after the owner approved rev3.
     var h = harness({
       storedIndex: 200452,
       history: historyWith(120, 400),
-      priorScope: { bindingRevision: 1 },
-      bindings: [bindingRecord(1, "failed"), bindingRecord(2, "completed", { completedAt: 3000 })],
+      priorScope: { bindingRevision: 3 },
+      bindings: [
+        bindingRecord(2, "completed", { completedAt: 6000 }),
+        bindingRecord(3, "failed", { completedAt: 6000 }),
+      ],
     });
-    var result = h.dispatch({ bindingRevision: 3 });
+    var result = h.dispatch({ bindingRevision: 4 });
     assert.equal(result.ok, false);
     assert.equal(result.reason, "owner_implementation_scope_mismatch");
   });
@@ -451,7 +460,7 @@ test("carry-forward is REFUSED for superseded, unrouted and deleted revisions", 
 });
 
 // PIN, not a proposal. `approvalCarriesForward` requires the scoped revision's
-// status to be in { failed, cancelled }, and this fixes the outcome for all four
+// status to be `failed`, and this fixes the outcome for all four
 // statuses that argument has ever been had about, so that changing ANY of them
 // has to be a deliberate edit visible in a diff rather than a side effect of
 // touching the gate for some other reason.
@@ -474,11 +483,11 @@ test("carry-forward is REFUSED for superseded, unrouted and deleted revisions", 
 // with its own reasoning, and this test is what will force it to say so.
 test("PIN: carry-forward across all four statuses, current strict behaviour", function () {
   var expected = [
-    // The approved revision ended terminal-unsuccessful and the owner watched it
-    // fail. This is the narrow exception the rule exists for.
+    // The approved revision failed and the owner watched it fail. This is the
+    // narrow exception the rule exists for.
     { status: "failed", carries: true },
-    { status: "cancelled", carries: true },
     // Withdrawn or replaced -- bookkeeping, not a watched failure.
+    { status: "cancelled", carries: false },
     { status: "superseded", carries: false },
     // Success CONSUMES the approval. Retrying delivered work needs a fresh yes.
     { status: "completed", carries: false },
@@ -521,6 +530,18 @@ test("carry-forward is REFUSED when the requested revision is not newer", functi
   assert.equal(result.reason, "owner_implementation_scope_mismatch");
 });
 
+test("carry-forward is REFUSED when the requested revision skips the next revision", function () {
+  var h = harness({
+    storedIndex: 200452,
+    history: historyWith(120, 400),
+    priorScope: { bindingRevision: 1 },
+    bindings: [bindingRecord(1, "failed")],
+  });
+  var result = h.dispatch({ bindingRevision: 3 });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_scope_mismatch");
+});
+
 test("carry-forward is REFUSED across a different task", function () {
   var h = harness({
     storedIndex: 200452,
@@ -531,6 +552,48 @@ test("carry-forward is REFUSED across a different task", function () {
   var result = h.dispatch({ bindingRevision: 2 });
   assert.equal(result.ok, false);
   assert.equal(result.reason, "owner_implementation_scope_mismatch");
+});
+
+test("carry-forward is REFUSED when the retry changes the approved task", function () {
+  var h = harness({
+    storedIndex: 200452,
+    history: historyWith(120, 400),
+    priorScope: { bindingRevision: 3 },
+    bindings: [bindingRecord(3, "failed")],
+  });
+  var result = h.dispatch({ portfolioTaskId: "some-other-task", bindingRevision: 4 });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_scope_mismatch");
+});
+
+test("carry-forward is REFUSED when failed evidence changes ProjectRef or Thread scope", function () {
+  [{ targetProject: { projectId: OTHER_PROJECT } }, { coopTopicRef: { topicId: "other-topic" } }]
+    .forEach(function (changedEvidence) {
+      var h = harness({
+        storedIndex: 200452,
+        history: historyWith(120, 400),
+        priorScope: { bindingRevision: 3 },
+        bindings: [bindingRecord(3, "failed", changedEvidence)],
+      });
+      var result = h.dispatch({ bindingRevision: 4 });
+      assert.equal(result.ok, false, JSON.stringify(changedEvidence));
+      assert.equal(result.reason, "owner_implementation_scope_mismatch");
+      assert.equal(h.diskEntry().implementationScope.bindingRevision, 3,
+        "a changed scope must not move durable authorization");
+    });
+});
+
+test("carry-forward is REFUSED after the owner withdraws the approved request", function () {
+  var h = harness({
+    storedIndex: 200452,
+    history: historyWith(120, 400),
+    priorScope: { bindingRevision: 3 },
+    bindings: [bindingRecord(3, "failed")],
+  });
+  assert.ok(h.ownerRequests.supersede(INGRESS, "owner withdrew approval"));
+  var result = h.dispatch({ bindingRevision: 4 });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "owner_implementation_decision_required");
 });
 
 test("carry-forward is REFUSED when there is no binding history to justify it", function () {
@@ -679,7 +742,7 @@ test("REGRESSION: an ever-completed task is routed by the router and REFUSED by 
       bindings: [bindingRecord(1, "completed", { completedAt: 3000 })],
     });
 
-    var result = h.dispatchViaRouter({ bindingRevision: 3 });
+    var result = h.dispatchViaRouter({ bindingRevision: 2 });
 
     assert.equal(h.routed.length, 1);
     assert.equal(h.routed[0].coopIngressId, INGRESS,
