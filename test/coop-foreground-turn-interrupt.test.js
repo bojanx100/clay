@@ -4,6 +4,7 @@ var assert = require("node:assert/strict");
 var conversationControl = require("../lib/coop-conversation-control");
 var queueModule = require("../lib/project-user-message-queue");
 var streamFinalize = require("../lib/sdk-bridge-stream-finalize");
+var cleanupRuntime = require("../lib/coop-self-cleanup-runtime");
 
 var COOP_SESSION = "871a194b-8879-40f7-a1fe-656e48e722af";
 var OWNER_MESSAGES = [
@@ -152,6 +153,57 @@ test("owner ingress dispatches through an idle reusable Codex query", function (
   assert.equal(h.session.queryInstance, idleQuery);
   assert.deepEqual(h.pushes, [owner.text]);
   assert.deepEqual(h.starts, []);
+});
+
+test("foreground drain wakes Lead through an idle resident Codex query", function () {
+  var scheduled = [];
+  var residentQuery = query("resident-codex");
+  var session = {
+    coopHome: true,
+    storageId: COOP_SESSION,
+    localId: "coop-home",
+    history: [],
+    isProcessing: false,
+    queryInstance: residentQuery,
+  };
+  var sm = {
+    sessions: new Map([[session.localId, session]]),
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+  };
+  var wake = cleanupRuntime.createLeadWakeHandler({
+    projectSlug: "lead",
+    sm: sm,
+    hasPendingWork: function () { return true; },
+    scheduleMessage: function (target, text, at, prompt, label, opts) {
+      scheduled.push({ target: target, text: text, at: at, prompt: prompt, label: label, opts: opts });
+      target.scheduledMessage = { text: text, autoAction: opts.autoAction };
+    },
+    now: function () { return 1_000_000; },
+  });
+  var control = conversationControl.attachCoopConversationControl({
+    sm: sm,
+    sendToSession: function () {},
+    onIngressDrained: function () {
+      return wake({ leadMode: true }, { force: true });
+    },
+  });
+  var ingressId = "coop:" + COOP_SESSION + ":533";
+
+  session.history.push({ type: "user_message", coopIngressId: ingressId });
+  control.markDispatched(session, ingressId);
+  session.history.push({ type: "delta", text: "The foreground answer is complete." },
+    { type: "done", code: 0 });
+  control.markIdle(session);
+
+  assert.equal(session.coopConversationIngress.activeIngressId, null);
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].target, session);
+  assert.equal(scheduled[0].text, "lead tick");
+  assert.equal(scheduled[0].label, "↻ Lead tick");
+  assert.equal(scheduled[0].opts.autoAction, true);
+  assert.equal(session.queryInstance, residentQuery,
+    "the scheduled continuation must reuse the resident query rather than require a new owner nudge");
 });
 
 test("owner ingress 254-256 preempts each Lead tick before background work resumes", function () {
