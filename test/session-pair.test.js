@@ -64,6 +64,9 @@ test("configured pairs expose partner tools only to the Driver", function () {
   assert.deepStrictEqual(f.attached.getToolDefs(f.driver).map(function (tool) { return tool.name; }), ["send_to_partner", "read_partner"]);
   assert.deepStrictEqual(f.attached.getToolDefs(f.worker), []);
   assert.match(f.attached.getSystemPrompt(f.driver), /Driver/);
+  assert.match(f.attached.getSystemPrompt(f.driver), /completed Worker turn leaves the Worker session available/);
+  assert.match(f.attached.getSystemPrompt(f.driver), /create a replacement with spawn_sessions/);
+  assert.match(f.attached.getToolDefs(f.driver)[0].description, /reuse the same Worker for follow-up implementation/);
   assert.strictEqual(f.attached.getSystemPrompt(f.worker), "");
 });
 
