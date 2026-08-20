@@ -8,6 +8,7 @@ var attachUserMessage =
   require("../lib/project-user-message").attachUserMessage;
 var createProjectLocalMcpServers =
   require("../lib/project-local-mcp-servers").createProjectLocalMcpServers;
+var getBrowserToolDefs = require("../lib/browser-mcp-server").getToolDefs;
 
 function loadAppMisc(wsRef) {
   var source = fs.readFileSync(
@@ -286,4 +287,19 @@ test("Live UI bridge messages wait for the Clay WebSocket to reconnect", async f
   assert.equal(sent[0].type, "browser_tab_list");
   assert.equal(sent[1].type, "live_ui_relay");
   assert.equal(sent[1].event, "target.reconnect");
+});
+
+test("browser click preserves an extension evaluator error", async function () {
+  var browserTools = getBrowserToolDefs(function (command) {
+    assert.equal(command, "tab_evaluate");
+    return Promise.resolve({ error: "CSP blocked tab_evaluate" });
+  }, function () { return []; });
+  var click = browserTools.find(function (tool) {
+    return tool.name === "browser_click";
+  });
+
+  await assert.rejects(
+    click.handler({ tabId: 42, selector: "#voice-button" }),
+    /CSP blocked tab_evaluate/
+  );
 });
