@@ -166,6 +166,25 @@ be used to restore; see [DIAGNOSTICS.md](../docs/guides/DIAGNOSTICS.md).
 
 ## Other Utilities
 
+### `heal-closed-thread-states.js`
+
+Repairs legacy Thread records whose conventional status says `closed` while
+their primary `threadState` still keeps them in the live Threads rail. It is a
+dry-run by default and reports every candidate and close classification.
+
+```sh
+node scripts/heal-closed-thread-states.js
+node scripts/heal-closed-thread-states.js --apply --reconcile-requests --owner-approved
+node scripts/heal-closed-thread-states.js --file /tmp/coop-topic-index.json --apply
+```
+
+Live application requires Clay to be stopped plus `--reconcile-requests` and
+`--owner-approved`. The script writes and verifies a snapshot manifest first,
+settles linked owner requests, then heals only that exact previewed candidate
+set. A failure or crash may leave some idempotent request settlements committed,
+but the topics remain repairable; rerun the same command immediately to
+completion. The command prints the concrete rollback path before writing.
+
 ### `check-client-imports.js`
 
 Checks that every relative ES module import under `lib/public/` resolves to an

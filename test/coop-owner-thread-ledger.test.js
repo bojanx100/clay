@@ -169,10 +169,10 @@ test("an explicit owner closure settles the entry either way", function () {
 
 });
 
-// The automated closure sweep writes `status: "closed"` with no closeOutcome,
-// and it deliberately does not protect a Thread whose linked session has gone
-// -- exactly the state this ledger exists to defend. Reading that as a
-// dismissal would file the ask under a decision the owner never made.
+// RETRACTED: the automated closure sweep used to write `status: "closed"` with
+// no closeOutcome. It now records implemented_resolved. This fixture preserves
+// the legacy status-only record contract: reading one as a dismissal would file
+// the ask under a decision the owner never made.
 test("a Thread closed without a recorded owner outcome stays open work", function () {
   var sidebar = buildOwnerSidebar({
     requests: [], topics: [closedThread("topic-swept", null)],

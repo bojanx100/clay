@@ -3,10 +3,12 @@ var fs = require("node:fs");
 var os = require("node:os");
 var path = require("node:path");
 var test = require("node:test");
+var z = require("zod");
 
 var control = require("../lib/coop-control-ledger-reconciliation-mcp-server");
 var ownerRequests = require("../lib/coop-owner-requests");
 var topics = require("../lib/coop-topic-index");
+var lifecycle = require("../lib/coop-thread-lifecycle");
 
 var CLAY = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var LEAD = "system-lead";
@@ -107,6 +109,96 @@ test("a Coop-controlled direct leaf can atomically reconcile exact ledger record
   assert.equal(reloadedIndex.resolve({ topicId: "target" }, true).topic.status, "closed");
   assert.equal(reloadedIndex.resolve({ topicId: "target" }, true).topic.ownerDisposition.status, "done");
   assert.equal(reloadedIndex.resolve({ topicId: "preserved" }, true).topic.status, "open");
+});
+
+test("the reconciliation MCP carries closeOutcome through its real schema and dedupes it", async function (t) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-control-outcome-"));
+  t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+  var index = topics.createTopicIndex({ file: path.join(dir, "topics.json"),
+    now: function () { return 60; } });
+  var state = index.load();
+  state.topics.target = topic("target", "Target");
+  index.save();
+  var directLeafDeps = { sm: smFor(worker()), topicIndex: index };
+  var canonicalSession = { storageId: COOP, coopHome: true };
+  var deps = { sm: leadSmFor(canonicalSession), topicIndex: index };
+  var definition = control.getToolDefs(deps).filter(function (entry) {
+    return entry.name === "reconcile_ledger_records";
+  })[0];
+  var shape = z.object(definition.inputSchema);
+  var request = {
+    sessionId: COOP,
+    idempotencyKey: "ledger-outcome-r1",
+    topics: [{
+      topicRef: { topicId: "target" }, expectedStatus: "open", status: "closed",
+      closeOutcome: "not_pursuing", verb: "accept_done", note: "Superseded.",
+      expectedRevision: 0,
+    }],
+  };
+
+  var parsedRequest = shape.parse(request);
+  assert.equal(parsedRequest.topics[0].closeOutcome, "not_pursuing",
+    "the production MCP schema must retain the requested close classification");
+  var directLeafDefinition = control.getToolDefs(directLeafDeps).filter(function (entry) {
+    return entry.name === "reconcile_ledger_records";
+  })[0];
+  var directLeafRequest = auth(Object.assign({}, parsedRequest, { sessionId: WORKER }));
+  var denied = parsed(await directLeafDefinition.handler(directLeafRequest));
+  assert.equal(denied.ok, false);
+  assert.equal(denied.code, "owner_authorization_required",
+    "a controlled worker must not suppress an owner thread");
+  assert.equal(index.resolve({ topicId: "target" }, true).topic.status, "open");
+
+  var first = parsed(await definition.handler(parsedRequest));
+  assert.equal(first.ok, true);
+  var record = index.resolve({ topicId: "target" }, true).topic;
+  assert.equal(record.closeOutcome, "not_pursuing");
+  assert.equal(record.hidden, true);
+
+  var conflicting = shape.parse(Object.assign({}, request, { topics: [{
+    topicRef: { topicId: "target" }, expectedStatus: "open", status: "closed",
+    closeOutcome: "implemented_resolved", verb: "accept_done", note: "Superseded.",
+    expectedRevision: 0,
+  }] }));
+  var replay = parsed(await definition.handler(conflicting));
+  assert.equal(replay.ok, false);
+  assert.equal(replay.code, "request_conflict",
+    "the same request id cannot silently replay a different close classification");
+  assert.equal(index.resolve({ topicId: "target" }, true).topic.closeOutcome, "not_pursuing");
+});
+
+test("reconciliation still replays request fingerprints written before closeOutcome existed", function (t) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-control-legacy-outcome-"));
+  t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+  var index = topics.createTopicIndex({ file: path.join(dir, "topics.json") });
+  var state = index.load();
+  state.topics.target = topic("target", "Legacy reconciliation");
+  lifecycle.applyRecordStatus(state.topics.target, "closed", {
+    closeOutcome: lifecycle.CLOSE_OUTCOMES.IMPLEMENTED_RESOLVED,
+    now: function () { return 2000; },
+  });
+  var disposition = {
+    status: "done", source: "owner_accept_done", at: 2000, note: "Delivered.",
+    revision: 1, schemaVersion: 1,
+  };
+  state.topics.target.ownerDisposition = disposition;
+  state.dispositionRequests = [{
+    requestId: "legacy-reconcile", topicId: "target", disposition: disposition,
+    status: "closed",
+    // Captured from the pre-closeOutcome fingerprint format. A rolling restart
+    // must not turn a harmless daemon retry into request_conflict.
+    reconciliationFingerprint: "aad90eb2dc4e2317e045cbd06e0a27eb801f41793c67eac86e027d36ced8cf60",
+  }];
+  index.save();
+
+  var replay = index.reconcileTopicDisposition({ topicId: "target" }, {
+    requestId: "legacy-reconcile", expectedStatus: "open", status: "closed",
+    verb: "accept_done", note: "Delivered.", expectedRevision: 0,
+  });
+  assert.equal(replay.ok, true);
+  assert.equal(replay.duplicate, true);
+  assert.equal(index.load().topics.target.closeOutcome,
+    lifecycle.CLOSE_OUTCOMES.IMPLEMENTED_RESOLVED);
 });
 
 test("ledger reconciliation rejects unbound callers and stale record preconditions", function () {
