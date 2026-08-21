@@ -7,6 +7,7 @@ var INGRESS = "coop:871a194b-8879-40f7-a1fe-656e48e722af:187";
 function harness() {
   var resumed = [];
   var started = [];
+  var pushed = [];
   var sm = {
     sendAndRecord: function (session, item) { session.history.push(item); },
     appendToSessionFile: function () {},
@@ -18,6 +19,7 @@ function harness() {
     sm: sm,
     sdk: {
       startQuery: function (session, text) { started.push({ session: session, text: text }); },
+      pushMessage: function (session, text) { pushed.push({ session: session, text: text }); },
       autoResumeAllowed: function () { return true; },
     },
     sendToSession: function () {},
@@ -31,7 +33,7 @@ function harness() {
       return true;
     },
   });
-  return { messages: messages, resumed: resumed, started: started, sm: sm };
+  return { messages: messages, pushed: pushed, resumed: resumed, started: started, sm: sm };
 }
 
 test("an auto-resume persists and restores its exact Coop ingress after the idle drain", function () {
@@ -89,6 +91,32 @@ test("a scheduled Lead wake keeps typed automation provenance on its response tu
   assert.equal(session.history[2].autoAction, true);
   assert.equal(session.history[2].synthetic, true);
   assert.equal(session.history[2].coopContinuationIngressId, undefined);
+});
+
+test("a scheduled continuation reuses an idle resident query instead of deferring forever", function () {
+  var ctx = harness();
+  var resident = { name: "resident-codex" };
+  var session = {
+    localId: 46,
+    history: [],
+    isProcessing: false,
+    queryInstance: resident,
+  };
+
+  ctx.messages.scheduleMessage(session, "continue", Date.now(),
+    "Continue the interrupted Lead reconciliation.",
+    "↻ Continuing after rate limit", { autoAction: true });
+  assert.equal(ctx.messages.sendScheduledMessageNow(session), true);
+
+  assert.equal(session.queryInstance, resident);
+  assert.equal(session.scheduledMessage, null);
+  assert.equal(session.isProcessing, true);
+  assert.deepEqual(ctx.pushed.map(function (entry) { return entry.text; }),
+    ["Continue the interrupted Lead reconciliation."]);
+  assert.equal(ctx.started.length, 0,
+    "the reusable query must not be replaced with a second provider query");
+  assert.equal(session.history[2].text, "↻ Continuing after rate limit");
+  assert.equal(session.history[2].autoAction, true);
 });
 
 test("a scheduled Coop send retains its captured scope without Main stale refs", function () {

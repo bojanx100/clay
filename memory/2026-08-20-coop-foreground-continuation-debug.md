@@ -35,6 +35,13 @@ new message.
 
 ## Root cause
 
+**RETRACTED 2026-08-22:** The diagnosis below found the first resident-query
+gate, but treated creation of a `scheduled_message_queued` record as proof that
+Lead had resumed. That was incomplete. The scheduled-message dispatcher had a
+second copy of the same bad premise and refused to send while `queryInstance`
+existed, even when `isProcessing` was false. The first repair made the tick
+exist; it did not make the tick run.
+
 The successful per-turn `result` path already calls the project turn-complete
 hook. That hook drains the completed foreground ingress and invokes the Lead
 wake handler. The wake handler then rejected the Coop home whenever
@@ -47,13 +54,33 @@ the exact reusable transport as busy even though the foreground turn had
 finished. The queued Lead tick never existed, so no autonomous reconciliation
 could occur.
 
+The remaining live failure is measurable at owner ingress 597. A Lead tick was
+queued at `2026-08-21T22:38:16.359Z`, due five seconds later, while the canonical
+Coop Codex query was resident and idle. `sendScheduledMessageNow` rejected any
+non-null `queryInstance` and retried every 30 seconds. The tick did not reach the
+transcript until `2026-08-21T23:08:51.459Z`, more than 30 minutes later and only
+after intervening state changes. The owner asked for status before the promised
+automatic reconciliation had actually run.
+
 ## Repair
+
+**RETRACTED 2026-08-22:** The original repair below is necessary but not
+sufficient. `homeIsIdle` now allows the wake to be queued, but the queued wake
+still stalled at the scheduled-message dispatch boundary.
 
 `homeIsIdle` now uses the same busy signal as dispatch: destruction, active
 processing, and an existing scheduled continuation remain blockers; a resident
 query alone does not. Owner ingress and Lead-mode gates are unchanged. The
 foreground-drain callback schedules a normal typed `↻ Lead tick`, which keeps
 the existing exact ProjectRef and admission paths intact.
+
+### Scheduled continuation dispatch correction (2026-08-22)
+
+Scheduled Lead ticks, restart continuations, and rate-limit continuations now
+use the same transport rule as owner messages: `isProcessing` is the active-turn
+gate, while an idle resident query is reused through `pushMessage`. If that
+transport declines reuse, Clay starts a fresh query. The timer still defers when
+a real turn is active, so no live stream can be replaced.
 
 ### Approval-ingestion and retry correction (2026-08-21)
 
@@ -65,6 +92,22 @@ stops at the first sentence/clause, so ingress 533's separate handoff request no
 longer contaminates task identity. The router searches backward for the newest
 approval covering the requested task instead of allowing a later unrelated
 approval to shadow it.
+
+### Exact approval fenced-context correction (2026-08-22)
+
+Live owner ingress 605 opened with the complete task, revision, implementation
+verb, and ProjectRef, then contained a fenced fragment copied from Coop's prior
+response. The question mark inside that quoted fragment made the whole-turn
+approval precheck return null, so the typed router discovered no approval and
+reported `owner_implementation_decision_required`.
+
+Exact approval parsing now stops at a Markdown fence that begins on a later
+line. The fuzzy approval path still evaluates the complete turn, ordinary
+unfenced trailing prose still invalidates the exact multi-statement grammar,
+and an approval quoted inside a fence authorizes nothing. The full coordinator
+regression supplies no ingress or Thread and requires the production router to
+discover ingress 605, mint the Thread, scope the exact binding, and emit one
+project-bound envelope.
 
 Voice rev4 exposed a second routing defect. The durable rev3 owner scope was
 correct and the rev3 binding was terminal `failed`, but its Thread also held
@@ -127,6 +170,10 @@ that predates a new, explicit approval cannot consume the later approval.
 
 ## Regression proof
 
+**RETRACTED 2026-08-22:** The original foreground regression below proved only
+that a tick was queued. It did not fire the tick and therefore could not fail on
+the second resident-query gate that stranded the live continuation.
+
 `test/coop-foreground-turn-interrupt.test.js` now drives the actual
 `markIdle`/`onIngressDrained`/Lead-wake seam with an idle resident Codex query.
 It verifies one typed Lead tick is scheduled after the owner answer while the
@@ -136,6 +183,12 @@ With the production change temporarily reversed, the focused file reported 2
 passing tests and 1 failing test. The new regression failed because the
 schedule count stayed `0` instead of `1`. After restoring the repair, the same
 file passed 3 of 3 tests.
+
+The 2026-08-22 regression extends that same seam through the real scheduled
+message dispatcher. It requires the queued Lead tick to reach the resident
+query through `pushMessage`, records the synthetic typed turn, and proves no
+fresh provider query or owner message is needed. A sibling scheduled-message
+test drives a rate-limit continuation through the same idle resident transport.
 
 For the 2026-08-21 approval and retry regressions, the two focused files passed
 31 and failed 5 before the production changes. The failures were exact ingress
