@@ -54,7 +54,17 @@ Webapp/Voice/reaper/Class-B records named by the owner.
   tests remained: 0/5. Restored: 5/5.
 - Combined approval, foreground, scheduling, restart, orchestration,
   provider-failover, and rate-limit families: 188/188.
-- Repository-wide: default 3079/3080; controlled 428/428. The sole default
+- Reaper and Class-B integration families in a clean worktree: 161/161. The
+  shared checkout's foreign, uncommitted autonomy-policy switch is currently
+  on and changes three admission expectations; the same tests there report
+  158/161. That switch was neither changed nor staged by this task.
+- Reaper runtime call removed: 3/4, with the daemon timer guard failing;
+  restored: 4/4. Class-B production sweep removed: 2/8, with the call-site and
+  five behavior tests failing; restored: 8/8.
+- Repository-wide at `dc3190648e`: default 3121/3122; controlled 470/470. The
+  clean worktree used a link to the repository's installed dependencies because
+  ESM package resolution does not honor `NODE_PATH`.
+  The sole default
   failure is `coop-main-lens-interaction`'s archived navigation expectation. It
   reproduces at pre-fix commit `67e1117524` (12/13 both there and at the fixed
   tip), so it is unrelated baseline debt. The full gate does not cover live
@@ -78,6 +88,18 @@ forcibly relabelled.
   separate parent-email navigation 404.
 - The owner-direct approval and scheduled-continuation implementation is
   committed locally on `bojan`; no push occurred.
+- Runtime-reaper implementation and integration are committed locally as
+  `03a3dd6fd8`. The daemon interval is unrefed and explicitly off unless
+  `CLAY_COOP_EXECUTION_REAPER=1`; the offline CLI refuses `--apply` rather than
+  pretending to have observed daemon runtime.
+- Class-B trigger implementation and production sweep are committed locally as
+  `dc3190648e`. A real SQLite-backed execution reached a durable Class-B
+  cutover, successor receipt, and owner-visible coordinator notice in the
+  executable wiring proof.
+- The control-kernel/restart worker's terminal guard commit is `67e1117524`.
+  Its requested reaper/Class-B follow-on scope is now integrated by the two
+  commits above, so none of those source paths remain active collision
+  constraints.
 
 ### Active or attention-required outcomes
 
@@ -90,16 +112,36 @@ forcibly relabelled.
 - Voice STT rev2 is locally committed as `9f1eeab6e9` with 5/5 fixed versus 1/5
   under production-code reversion and 89/89 related tests. A real iPhone retry
   is still required before claiming device-level completion.
-- Runtime reaper and Class-B trigger remain active, rate-limited workers. Their
-  shared-checkout files are uncommitted and were not touched here. Both have an
-  automatic provider continuation scheduled for 2026-08-22 02:21 CEST.
+- **RETRACTED (2026-08-22):** Runtime reaper and Class-B trigger remain active,
+  rate-limited workers whose shared-checkout files are uncommitted. The owner
+  declared both terminal; source transcripts show that rate limits cut off the
+  final turns after their core proofs. Their results were reconciled and the
+  missing integration was completed in `03a3dd6fd8` and `dc3190648e` before
+  ownership-fix validation resumed.
+- A read-only offline reaper scan found 311 bindings, 0 reapable, 0 releasable,
+  and 56 exempt. Pre/post SHA-256 hashes of the portfolio binding store and Lead
+  ledger were identical. This is evidence that the offline scan did not mutate
+  live state; it is not evidence that an offline process observed daemon runtime.
+- Final canary inspection found only the Class-B proof's synthetic
+  `predecessor-session-0001` events in the recovery log. Event-loop maximum lag
+  settled to 20 ms, 20 ms, then 12 ms in the last three diagnostic intervals;
+  no reconnect/resume spam remained.
 - Existing live portfolio bindings for #2504, #1643, Webapp push, Voice rev2,
   reaper, and Class-B still show `active`; this is a live-activation/reconciliation
-  boundary, not evidence that all six are still doing useful work.
+  boundary, not evidence that all six are still doing useful work. This
+  owner-direct session is not authorized to impersonate canonical Coop or
+  rewrite controlled records, so the stale rows were left truthful and
+  unchanged rather than being force-closed.
 
 ## Activation boundary
 
-The new handoff schema and continuation transport take effect only after a safe
-daemon restart from a clean integrated `bojan`. Restarting while reaper/Class-B
-own uncommitted runtime files would load a mixed state and race their work, so it
-was intentionally not done in this task.
+The new handoff schema, continuation transport, reaper runtime, and Class-B
+trigger take effect only after a safe daemon restart from a clean integrated
+`bojan`.
+
+**RETRACTED (2026-08-22):** Restart was deferred because reaper/Class-B owned
+uncommitted runtime files. The owner declared those efforts terminal, their
+results are now committed, and their files are no longer collision constraints.
+No new daemon restart was performed after integrating these local commits;
+activation and canonical live-ledger reconciliation remain a separately
+authorized operational step.
