@@ -463,3 +463,60 @@ test("a large pending backlog does not disable every named approval", function (
   assert.deepEqual(itemApproval.resolveApprovedTask(snapshot, "pending"),
     { ok: false, reason: "owner_approval_ambiguous" });
 });
+
+// Regression for live owner ingress 578 (2026-08-21T19:19:04Z). The owner typed
+// four fully qualified approvals on four consecutive lines. The blank-line
+// statement split read them as ONE statement, the anchored grammar rejected it,
+// and the turn degraded to the fuzzy path -- so three of the four approvals were
+// discarded and every dispatch was refused. He then had to resend them one
+// message at a time, which is the friction this test exists to keep fixed.
+test("one owner turn approves several tasks on consecutive lines", function () {
+  var ingress578 =
+    "Approve webapp-push-2592-2504-1643-rescoped-2026-08-21 rev1 implementation " +
+      "for ProjectRef b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9.\n" +
+    "Approve clay-activate-coop-control-kernel-2026-08-21 rev1 implementation " +
+      "for ProjectRef " + CLAY_ID + ".\n" +
+    "Approve clay-widen-scoped-autonomy-grant-2026-08-21 rev1 implementation " +
+      "for ProjectRef " + CLAY_ID + ".\n" +
+    "Approve clay-prune-merged-worktrees-2026-08-21 rev1 implementation " +
+      "for ProjectRef " + CLAY_ID + ".";
+
+  var exact = itemApproval.exactApprovalStatements(ingress578);
+  assert.ok(exact, "four newline-separated exact approvals must parse");
+  assert.equal(exact.length, 4, "every named task in the turn must be retained");
+  assert.deepEqual(exact.map(function (entry) { return entry.portfolioTaskId; }), [
+    "webapp-push-2592-2504-1643-rescoped-2026-08-21",
+    "clay-activate-coop-control-kernel-2026-08-21",
+    "clay-widen-scoped-autonomy-grant-2026-08-21",
+    "clay-prune-merged-worktrees-2026-08-21",
+  ]);
+  // Each keeps its OWN ProjectRef; the first line's webapp scope must not leak
+  // onto the three Clay tasks that follow it.
+  assert.equal(exact[0].projectRef.projectId, "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9");
+  assert.equal(exact[1].projectRef.projectId, CLAY_ID);
+  assert.equal(exact[3].projectRef.projectId, CLAY_ID);
+  exact.forEach(function (entry) { assert.equal(entry.bindingRevision, 1); });
+
+  // The blank-line form that already worked keeps working.
+  var blankSeparated = itemApproval.exactApprovalStatements(
+    ingress578.split("\n").join("\n\n"));
+  assert.equal(blankSeparated.length, 4);
+  // A whitespace-only separator line is formatting, not a malformed statement.
+  assert.equal(itemApproval.exactApprovalStatements(
+    "Approve foo-task rev1\n   \nApprove bar-task rev2").length, 2);
+
+  // Accepting single newlines must not fail open. Every statement still has to
+  // match the anchored grammar whole, and one that does not abandons the entire
+  // turn to the fuzzy parser rather than partially authorizing it.
+  assert.equal(itemApproval.exactApprovalStatements(
+    "Approve foo-task rev1\nand also push the branch while you are there"), null,
+  "trailing prose on its own line must not become a second approval");
+  assert.equal(itemApproval.exactApprovalStatements(
+    "Approve foo-task rev1\nbar-task rev2"), null,
+  "a later line that does not repeat the approval verb refuses the whole turn");
+  assert.equal(itemApproval.exactApprovalStatements(
+    "Approve foo-task rev1\nApprove bar-task"), null,
+  "a later line missing its revision refuses the whole turn");
+  assert.equal(itemApproval.exactApprovalStatements("approved"), null,
+    "a bare approval still has no exact reference and stays on the snapshot path");
+});
