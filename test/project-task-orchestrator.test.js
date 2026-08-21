@@ -6,6 +6,7 @@ var path = require("path");
 require("./helpers/isolated-clay-home");
 var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
+var orchestrationMcp = require("../lib/orchestration-mcp-server");
 
 function testContext(existingSessions, options) {
   options = options || {};
@@ -55,6 +56,7 @@ function testContext(existingSessions, options) {
     },
     onProcessingChanged: function () {},
     ensureProjectAccessForSession: function () {},
+    resolveGlobalSessionRef: options.resolveGlobalSessionRef,
     usersModule: options.usersModule,
     loadImagesForSdk: function (refs) {
       return refs.map(function (ref) {
@@ -536,6 +538,232 @@ test("offers an existing session to the coordinator and adopts it as a worker", 
   assert.equal(source.orchestrationAdoption.status, "adopted");
   assert.equal(ctx.starts[0].session, source);
   assert.match(ctx.starts[0].prompt, /Implement the identified fix/);
+});
+
+test("a missing local source names the typed owner-directed handoff path", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+
+  var result = ctx.api.adoptFromTool({
+    coordinatorSessionId: parent.storageId,
+    sourceSessionId: "01a0268a-0656-7281-89bd-c2cb5029e637",
+    action: "new_task",
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /sourceProjectRef and ownerHandoffIngressId/);
+});
+
+test("the typed handoff fields and global resolver are wired into the project orchestrator", function () {
+  var noop = function () {};
+  var adopt = orchestrationMcp.getToolDefs(
+    noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop
+  ).find(function (definition) { return definition.name === "adopt_session"; });
+  var projectFeatures = fs.readFileSync(
+    path.join(__dirname, "../lib/project-features.js"), "utf8");
+
+  assert.ok(adopt.inputSchema.sourceProjectRef);
+  assert.ok(adopt.inputSchema.ownerHandoffIngressId);
+  assert.match(projectFeatures,
+    /resolveGlobalSessionRef:\s*opts\.resolveGlobalSessionRef\s*\|\|\s*null/);
+});
+
+test("an exact owner ingress aliases a running cross-project session and returns its result", function () {
+  var sourceProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var sourceStorageId = "01a0268a-0656-7281-89bd-c2cb5029e637";
+  var ingressId = "coop:871a194b-8879-40f7-a1fe-656e48e722af:610";
+  var source = {
+    localId: 27,
+    storageId: sourceStorageId,
+    title: "Owner-direct repair",
+    vendor: "codex",
+    model: "gpt-test",
+    history: [{ type: "user_message", text: "Fix the ownership defects." }],
+    isProcessing: true,
+  };
+  var saved = [];
+  var sourceManager = {
+    getProjectId: function () { return sourceProjectId; },
+    saveSessionFile: function (session, options) { saved.push({ session: session, options: options }); },
+    subscribeSession: function (id, callback) {
+      assert.equal(id, source.localId);
+      source._externalSubscriber = callback;
+      return function () { source._externalSubscriber = null; };
+    },
+  };
+  var resolvedRefs = [];
+  var ctx = testContext(undefined, {
+    projectId: "system-lead",
+    resolveGlobalSessionRef: function (ref) {
+      resolvedRefs.push(ref);
+      return {
+        ok: true,
+        session: source,
+        project: { getSessionManager: function () { return sourceManager; } },
+      };
+    },
+  });
+  var parent = coordinator(ctx);
+  parent.history.push({
+    type: "user_message",
+    text: sourceStorageId + " here",
+    coopIngressId: ingressId,
+  });
+
+  var result = ctx.api.adoptFromTool({
+    coordinatorSessionId: parent.storageId,
+    sourceSessionId: sourceStorageId,
+    sourceProjectRef: { projectId: sourceProjectId },
+    ownerHandoffIngressId: ingressId,
+    action: "new_task",
+    title: "Close Coop ownership defects",
+    objective: "Finish and verify the owner-directed repair.",
+    acceptanceCriteria: "All ownership invariants have executable proof.",
+    ownedPaths: "Clay ownership runtime and tests",
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(resolvedRefs, [{
+    projectId: sourceProjectId,
+    sessionStorageId: sourceStorageId,
+  }]);
+  assert.equal(parent.orchestrationTasks.length, 1);
+  var task = parent.orchestrationTasks[0];
+  assert.equal(task.status, "running");
+  assert.equal(task.externalAdoptedSession, true);
+  assert.deepEqual(task.workerSessionRef, resolvedRefs[0]);
+  assert.equal(source.orchestrationParent, undefined);
+  assert.equal(source.orchestrationAdoption.status, "aliased");
+  assert.deepEqual(source.orchestrationAdoption.coordinatorSessionRef, {
+    projectId: "system-lead",
+    sessionStorageId: parent.storageId,
+  });
+  assert.equal(saved.length, 1);
+  assert.deepEqual(saved[0].options, { durable: true });
+  assert.equal(ctx.starts.length, 0);
+
+  source.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: completed\nSUMMARY: Ownership repair done.\n" +
+      "VERIFICATION: Mutation proof passed.\nESCALATION_REQUIRED: no",
+  }, { type: "done" });
+  source.isProcessing = false;
+  source._externalSubscriber({ type: "done" });
+
+  assert.equal(task.status, "completed");
+  assert.equal(task.resultSummary.indexOf("Ownership repair done.") >= 0, true);
+  assert.equal(parent.pendingCoordinatorUpdates.length, 0);
+  assert.equal(ctx.starts.length, 1);
+  assert.equal(ctx.starts[0].session, parent);
+  assert.match(ctx.starts[0].prompt, /Ownership repair done/);
+});
+
+test("a cross-project alias refuses an ingress that did not offer the exact source", function () {
+  var sourceProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var source = {
+    localId: 28,
+    storageId: "01a0268a-0656-7281-89bd-c2cb5029e637",
+    history: [],
+    isProcessing: true,
+  };
+  var sourceManager = {
+    saveSessionFile: function () {},
+    subscribeSession: function () {},
+  };
+  var ctx = testContext(undefined, {
+    projectId: "system-lead",
+    resolveGlobalSessionRef: function () {
+      return { ok: true, session: source,
+        project: { getSessionManager: function () { return sourceManager; } } };
+    },
+  });
+  var parent = coordinator(ctx);
+  parent.history.push({
+    type: "user_message",
+    text: "A different session was handed off.",
+    coopIngressId: "coop:owner:611",
+  });
+
+  var result = ctx.api.adoptFromTool({
+    coordinatorSessionId: parent.storageId,
+    sourceSessionId: source.storageId,
+    sourceProjectRef: { projectId: sourceProjectId },
+    ownerHandoffIngressId: "coop:owner:611",
+    action: "new_task",
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /not offered by the exact owner ingress/);
+  assert.equal(parent.orchestrationTasks.length, 0);
+});
+
+test("restart restoration reconciles completed aliases and surfaces missing sources", function () {
+  var sourceProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var completeSource = {
+    localId: 31,
+    storageId: "completed-owner-session",
+    isProcessing: false,
+    history: [{
+      type: "delta",
+      text: "WORKER_STATUS: completed\nSUMMARY: Restored result.\n" +
+        "VERIFICATION: Restart proof.\nESCALATION_REQUIRED: no",
+    }, { type: "done" }],
+  };
+  var sourceManager = {
+    saveSessionFile: function () {},
+    subscribeSession: function () {},
+  };
+  var parent = {
+    localId: 1,
+    storageId: "coordinator-stable",
+    title: "Coordinator",
+    history: [],
+    orchestrationTasks: [{
+      taskId: "alias-complete",
+      title: "Complete alias",
+      status: "running",
+      attempt: 1,
+      maxAttempts: 1,
+      externalAdoptedSession: true,
+      workerStorageId: completeSource.storageId,
+      workerSessionRef: { projectId: sourceProjectId,
+        sessionStorageId: completeSource.storageId },
+    }, {
+      taskId: "alias-missing",
+      title: "Missing alias",
+      status: "running",
+      attempt: 1,
+      maxAttempts: 1,
+      externalAdoptedSession: true,
+      workerStorageId: "missing-owner-session",
+      workerSessionRef: { projectId: sourceProjectId,
+        sessionStorageId: "missing-owner-session" },
+    }],
+    isProcessing: false,
+    coordinationMode: true,
+  };
+  var sessions = new Map([[parent.localId, parent]]);
+
+  var ctx = testContext(sessions, {
+    projectId: "system-lead",
+    resolveGlobalSessionRef: function (ref) {
+      if (ref.sessionStorageId === completeSource.storageId) {
+        return { ok: true, session: completeSource,
+          project: { getSessionManager: function () { return sourceManager; } } };
+      }
+      return { ok: false, code: "session_not_found" };
+    },
+  });
+
+  assert.equal(parent.orchestrationTasks[0].status, "completed");
+  assert.match(parent.orchestrationTasks[0].resultSummary, /Restored result/);
+  assert.equal(parent.orchestrationTasks[1].status, "needs_input");
+  assert.match(parent.orchestrationTasks[1].resultSummary, /unavailable after restart/);
+  assert.equal(ctx.starts.length, 1);
+  assert.equal(ctx.starts[0].session, parent);
+  assert.match(ctx.starts[0].prompt, /Restored result/);
+  assert.equal(parent.pendingCoordinatorUpdates.length, 1);
+  assert.match(parent.pendingCoordinatorUpdates[0].text, /do not wait for an owner status request/);
 });
 
 test("first visible worker delegation promotes an ordinary top-level session", function () {
