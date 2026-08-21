@@ -554,6 +554,31 @@ test("a missing local source names the typed owner-directed handoff path", funct
   assert.match(result.content[0].text, /sourceProjectRef and ownerHandoffIngressId/);
 });
 
+test("a busy local adoption still fails before creating a task", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  var source = {
+    localId: 14,
+    storageId: "busy-local-source",
+    title: "Busy source",
+    history: [],
+    isProcessing: true,
+  };
+  ctx.sessions.set(source.localId, source);
+  assert.equal(ctx.api.proposeSessionAdoption(source, parent, { intent: "worker" }), true);
+
+  var result = ctx.api.adoptFromTool({
+    coordinatorSessionId: parent.storageId,
+    sourceSessionId: source.storageId,
+    action: "new_task",
+    title: "Must not be created",
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /currently processing/);
+  assert.equal(parent.orchestrationTasks.length, 0);
+});
+
 test("the typed handoff fields and global resolver are wired into the project orchestrator", function () {
   var noop = function () {};
   var adopt = orchestrationMcp.getToolDefs(
