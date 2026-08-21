@@ -159,3 +159,41 @@ test("Coop home and project channels cannot be hidden or deleted through deletio
   assert.strictEqual(sessions.has(ordinary.localId), false);
   assert.strictEqual(saved.indexOf(home), -1);
 });
+
+test("background projection hide closes clients viewing the now-hidden session", function () {
+  var sessions = new Map();
+  var aborted = false;
+  var hidden = {
+    localId: 7,
+    storageId: "hidden-projection",
+    abortController: { abort: function () { aborted = true; } },
+  };
+  sessions.set(hidden.localId, hidden);
+
+  var activeClient = { readyState: 1, _clayActiveSession: hidden.localId };
+  var otherClient = { readyState: 1, _clayActiveSession: 9 };
+  var clients = [activeClient, otherClient];
+  var messages = [];
+  var broadcasts = 0;
+  var saved = [];
+  var ctx = makeCtx(sessions, saved);
+  ctx.sendTo = function (ws, message) { messages.push({ ws: ws, message: message }); };
+  ctx.sendEach = function (callback) {
+    for (var i = 0; i < clients.length; i++) callback(clients[i]);
+  };
+  ctx.broadcastSessionList = function () { broadcasts++; };
+
+  var api = sessionsDeletion.attachSessionDeletion(ctx);
+  api.hideSession(hidden.localId, null, { projectionOnly: true });
+
+  assert.strictEqual(hidden.hidden, true);
+  assert.strictEqual(aborted, false, "projection cleanup does not stop the session runtime");
+  assert.strictEqual(activeClient._clayActiveSession, null,
+    "a client cannot remain attached to a session removed from its sidebar");
+  assert.strictEqual(otherClient._clayActiveSession, 9);
+  assert.deepStrictEqual(messages, [{
+    ws: activeClient,
+    message: { type: "session_closed", id: hidden.localId },
+  }]);
+  assert.strictEqual(broadcasts, 1);
+});
