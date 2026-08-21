@@ -1,0 +1,339 @@
+var test = require("node:test");
+var assert = require("node:assert/strict");
+var fs = require("node:fs");
+var os = require("node:os");
+var path = require("node:path");
+
+var grant = require("../lib/coop-autonomy-grant");
+var itemApproval = require("../lib/coop-item-approval");
+
+var CLAY_ID = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+var WEBAPP_ID = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+var OTHER_ID = "f2b7c47a-bb03-5b3d-89ff-dd32ddb2be53";
+
+var SHIPPED_FILE = path.join(__dirname, "..", "scoped-autonomy-policy.json");
+
+function policyFile(overrides) {
+  var base = JSON.parse(fs.readFileSync(SHIPPED_FILE, "utf8"));
+  Object.keys(overrides || {}).forEach(function (key) {
+    if (overrides[key] === undefined) delete base[key];
+    else base[key] = overrides[key];
+  });
+  var file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "clay-autonomy-")),
+    "scoped-autonomy-policy.json");
+  fs.writeFileSync(file, JSON.stringify(base, null, 2) + "\n");
+  return file;
+}
+
+function dispatch(overrides) {
+  return Object.assign({
+    title: "Audit the session ledger",
+    objective: "Investigate and report on stale ledger rows. Do not change anything.",
+    context: "Read-only diagnosis requested by the Lead.",
+    acceptanceCriteria: "Report findings with file and line evidence.",
+    ownedPaths: "read-only: lib/lead-ledger.js",
+  }, overrides || {});
+}
+
+function request(overrides) {
+  return Object.assign({
+    portfolioTaskId: "clay-ledger-audit-2026-08-21",
+    bindingRevision: 1,
+    targetProject: { projectId: CLAY_ID },
+    coopTopicRef: { topicId: "owner-ledger-audit" },
+    idempotencyKey: "staff-clay-ledger-audit-2026-08-21-r1",
+  }, overrides || {});
+}
+
+function ownerRequestsWith(entries) {
+  return { list: function () { return entries; } };
+}
+
+function approvedScope(overrides) {
+  return Object.assign({
+    ingressId: "coop:lead:400",
+    expectsExecution: true,
+    implementationDecision: { intent: "implement", source: "explicit_item_approval", at: 1 },
+    implementationScope: {
+      projectRef: { projectId: CLAY_ID },
+      topicRef: { topicId: "owner-ledger-audit" },
+      portfolioTaskId: "clay-ledger-audit-2026-08-21",
+      bindingRevision: 1,
+      idempotencyKey: "staff-clay-ledger-audit-2026-08-21-r1",
+    },
+    response: { state: "unanswered" },
+  }, overrides || {});
+}
+
+// --- The shipped switch is OFF -------------------------------------------------
+
+test("the grant ships off, so behavior is identical to having no grant at all", function () {
+  var shipped = JSON.parse(fs.readFileSync(SHIPPED_FILE, "utf8"));
+  assert.equal(shipped.enabled, false,
+    "scoped-autonomy-policy.json must be committed with the switch off");
+
+  var loaded = grant.loadPolicy({});
+  assert.ok(loaded, "the shipped file must be well formed");
+  assert.equal(loaded.enabled, false);
+
+  // The dispatch shape that IS covered once the switch flips is still refused
+  // now: a read-only audit of an allowlisted project.
+  assert.equal(grant.standingAdmission(dispatch(), request(), {}), null);
+
+  // And the real gate the dispatcher calls still declines, so
+  // server-cross-project falls through to owner_implementation_decision_required
+  // exactly as it does today.
+  assert.equal(itemApproval.executionAdmission(dispatch(), request(), null, {}), null,
+    "with the switch off the approval gate must return null, not an admission");
+});
+
+test("a cited approval ingress is unaffected by the grant in either state", function () {
+  // The standing grant is consulted ONLY where no approval ingress was cited.
+  // A dispatch that DOES cite one keeps failing closed on its own evidence, so
+  // the grant can never overturn a refusal.
+  ["off", "on"].forEach(function (state) {
+    var file = policyFile({ enabled: state === "on" });
+    var result = itemApproval.executionAdmission(
+      Object.assign(dispatch(), { coopApprovalIngressId: "coop:lead:578" }),
+      request(), null, { autonomyPolicyFile: file });
+    assert.deepEqual(result, { ok: false, reason: "owner_implementation_decision_unavailable" },
+      "switch " + state + ": a cited ingress must be judged on its own evidence");
+  });
+});
+
+// --- Switched on ---------------------------------------------------------------
+
+test("switched on, a read-only diagnosis dispatch proceeds", function () {
+  var file = policyFile({ enabled: true });
+  var admitted = grant.standingAdmission(dispatch(), request(), { autonomyPolicyFile: file });
+  assert.ok(admitted, "a read-only audit in an allowlisted project must be admitted");
+  assert.equal(admitted.ok, true);
+  assert.equal(admitted.reviewOnly, true, "it must be admitted as read-only work");
+  assert.equal(admitted.standingGrant.category, "read_only_diagnosis");
+
+  // Reached through the real gate the dispatcher calls, not just the helper.
+  var viaGate = itemApproval.executionAdmission(dispatch(), request(), null,
+    { autonomyPolicyFile: file });
+  assert.ok(viaGate && viaGate.ok === true);
+  assert.equal(viaGate.standingGrant.category, "read_only_diagnosis");
+
+  // The second allowlisted project works the same way.
+  assert.equal(grant.standingAdmission(dispatch(),
+    request({ targetProject: { projectId: WEBAPP_ID } }),
+    { autonomyPolicyFile: file }).ok, true);
+});
+
+test("switched on, an approved-at-earlier-revision re-dispatch proceeds", function () {
+  var file = policyFile({ enabled: true });
+  var deps = {
+    autonomyPolicyFile: file,
+    ownerRequests: ownerRequestsWith([approvedScope()]),
+  };
+  // rev1 was approved by ingress 400. rev2 changes ONLY the revision.
+  var retry = request({ bindingRevision: 2, ownedPaths: "lib/lead-ledger.js" });
+  var admitted = grant.standingAdmission(dispatch({ ownedPaths: "lib/lead-ledger.js" }),
+    retry, deps);
+  assert.ok(admitted, "a revision bump of already-approved work must be admitted");
+  assert.equal(admitted.ok, true);
+  assert.equal(admitted.standingGrant.category, "approved_revision_bump");
+  assert.equal(admitted.standingGrant.approvedIngressId, "coop:lead:400");
+  assert.equal(admitted.standingGrant.approvedRevision, 1);
+  assert.notEqual(admitted.reviewOnly, true, "a re-dispatch is not read-only work");
+
+  // Anything other than the revision changing is NOT covered.
+  function refusedChange(label, overrides) {
+    assert.equal(grant.standingAdmission(dispatch({ ownedPaths: "lib/lead-ledger.js" }),
+      Object.assign({}, retry, overrides), deps), null, label);
+  }
+  refusedChange("a different task id is different work",
+    { portfolioTaskId: "clay-something-else-2026-08-21" });
+  refusedChange("a different Thread is not the approved scope",
+    { coopTopicRef: { topicId: "owner-other-thread" } });
+  refusedChange("a different project is not the approved scope",
+    { targetProject: { projectId: WEBAPP_ID } });
+  // Re-assert the baseline AFTER the refusals. Without this, a stray mutation in
+  // the loop above could make every refusal pass for the wrong reason.
+  assert.equal(grant.standingAdmission(dispatch({ ownedPaths: "lib/lead-ledger.js" }),
+    retry, deps).ok, true, "the unmodified revision bump must still be admitted");
+
+  // A revision the owner never got past, or the same one, is not a bump.
+  assert.equal(grant.standingAdmission(dispatch({ ownedPaths: "lib/lead-ledger.js" }),
+    request({ bindingRevision: 1, ownedPaths: "lib/lead-ledger.js" }), deps), null,
+  "the originally approved revision still needs its own approval");
+
+  // A withdrawn approval carries nothing forward.
+  assert.equal(grant.standingAdmission(dispatch({ ownedPaths: "lib/lead-ledger.js" }),
+    request({ bindingRevision: 2, ownedPaths: "lib/lead-ledger.js" }),
+    { autonomyPolicyFile: file,
+      ownerRequests: ownerRequestsWith([approvedScope({
+        response: { state: "superseded" } })]) }), null,
+  "a superseded owner turn cannot authorize a later revision");
+
+  // A turn that never expected execution is not an approval either.
+  assert.equal(grant.standingAdmission(dispatch({ ownedPaths: "lib/lead-ledger.js" }),
+    request({ bindingRevision: 2, ownedPaths: "lib/lead-ledger.js" }),
+    { autonomyPolicyFile: file,
+      ownerRequests: ownerRequestsWith([approvedScope({
+        expectsExecution: false })]) }), null,
+  "a conversational turn cannot authorize a later revision");
+});
+
+// --- Permanently gated, in both states ----------------------------------------
+
+test("switched on, the permanently gated actions are still refused", function () {
+  var file = policyFile({ enabled: true });
+  var deps = {
+    autonomyPolicyFile: file,
+    ownerRequests: ownerRequestsWith([approvedScope()]),
+  };
+  // Each of these is otherwise a perfect candidate: allowlisted project,
+  // read-only owned paths, diagnosis framing. Only the gated action differs, so
+  // the refusal can come from nothing else.
+  var gated = [
+    ["push_to_remote", "Audit the branch and then git push the result"],
+    ["push_to_remote", "Review the commits and push to origin"],
+    ["pull_request_comment_or_merge", "Audit PR 2592 and merge the pull request"],
+    ["pull_request_comment_or_merge", "Review the diff and comment on the pull request"],
+    ["pull_request_comment_or_merge", "Investigate, then gh pr merge 2592"],
+    ["issue_or_board_mutation", "Audit the backlog and close issues 198 and 200"],
+    ["issue_or_board_mutation", "Diagnose the board and move the card to Done"],
+    ["approval_policy_change", "Audit and widen the scoped autonomy grant"],
+    ["approval_policy_change", "Review the approval policy and relax the gate"],
+  ];
+  gated.forEach(function (entry) {
+    var admitted = grant.standingAdmission(dispatch({ objective: entry[1] }),
+      request(), deps);
+    assert.deepEqual(admitted, { ok: false, reason: "autonomy_grant_" + entry[0] + "_gated" },
+      "must refuse: " + entry[1]);
+  });
+
+  // A gated action is refused even when it arrives as a revision bump of work
+  // the owner did approve, so the bump category cannot smuggle one through.
+  assert.deepEqual(grant.standingAdmission(
+    dispatch({ ownedPaths: "lib/lead-ledger.js", objective: "Retry and git push the fix" }),
+    request({ bindingRevision: 2, ownedPaths: "lib/lead-ledger.js" }), deps),
+  { ok: false, reason: "autonomy_grant_push_to_remote_gated" });
+
+  // The gate reads the whole brief, not just the objective.
+  assert.deepEqual(grant.standingAdmission(
+    dispatch({ acceptanceCriteria: "Finish by merging the pull request." }), request(), deps),
+  { ok: false, reason: "autonomy_grant_pull_request_comment_or_merge_gated" });
+
+  // The refusal reaches the real gate too, rather than only the helper.
+  assert.deepEqual(itemApproval.executionAdmission(
+    dispatch({ objective: "Audit the branch and then git push the result" }),
+    request(), null, deps),
+  { ok: false, reason: "autonomy_grant_push_to_remote_gated" });
+});
+
+// --- Scope of the allowlist ---------------------------------------------------
+
+test("the grant covers only allowlisted projects and declared categories", function () {
+  var on = policyFile({ enabled: true });
+  assert.equal(grant.standingAdmission(dispatch(),
+    request({ targetProject: { projectId: OTHER_ID } }), { autonomyPolicyFile: on }), null,
+  "a project outside the allowlist is not covered");
+
+  // A gated action outside the allowlist is not even reached -- the project
+  // check comes first, so an unlisted project stays entirely fail-closed.
+  assert.equal(grant.standingAdmission(dispatch({ objective: "git push the fix" }),
+    request({ targetProject: { projectId: OTHER_ID } }), { autonomyPolicyFile: on }), null);
+
+  var noCategories = policyFile({ enabled: true, categories: [] });
+  assert.equal(grant.standingAdmission(dispatch(), request(),
+    { autonomyPolicyFile: noCategories }), null,
+  "with no categories declared, nothing is covered");
+
+  var readOnlyOnly = policyFile({ enabled: true, categories: ["read_only_diagnosis"] });
+  assert.equal(grant.standingAdmission(dispatch({ ownedPaths: "lib/lead-ledger.js" }),
+    request({ bindingRevision: 2, ownedPaths: "lib/lead-ledger.js" }),
+    { autonomyPolicyFile: readOnlyOnly,
+      ownerRequests: ownerRequestsWith([approvedScope()]) }), null,
+  "an undeclared category stays gated even when its evidence is present");
+});
+
+test("read-only means every owned path, not just the first", function () {
+  var on = policyFile({ enabled: true });
+  assert.equal(grant.fullyReadOnly("read-only: a.js; read-only: b.js"), true);
+  assert.equal(grant.fullyReadOnly("read-only: a.js; b.js"), false,
+    "a writable segment after a read-only one is not read-only work");
+  assert.equal(grant.fullyReadOnly("a.js; read-only: b.js"), false);
+  assert.equal(grant.fullyReadOnly(""), false, "no owned paths is not read-only");
+
+  assert.equal(grant.standingAdmission(
+    dispatch({ ownedPaths: "read-only: lib/lead-ledger.js; lib/daemon.js" }),
+    request(), { autonomyPolicyFile: on }), null,
+  "a mixed owned-path string must not pass as read-only diagnosis");
+
+  // Read-only paths with no diagnosis framing are not this category either.
+  assert.equal(grant.standingAdmission(
+    dispatch({ title: "Rewrite the ledger writer",
+      objective: "Change how rows are written." }),
+    request(), { autonomyPolicyFile: on }), null);
+});
+
+// --- The file cannot lie about the boundary ------------------------------------
+
+test("a policy file that misdeclares the permanent gates is off, not widened", function () {
+  assert.deepEqual(grant.forbiddenIds(), ["push_to_remote",
+    "pull_request_comment_or_merge", "issue_or_board_mutation", "approval_policy_change"]);
+
+  function off(label, overrides) {
+    var file = policyFile(Object.assign({ enabled: true }, overrides));
+    assert.equal(grant.loadPolicy({ autonomyPolicyFile: file }), null, label);
+    assert.equal(grant.standingAdmission(dispatch(), request(),
+      { autonomyPolicyFile: file }), null, label + " (admission)");
+  }
+
+  off("dropping a gate switches the whole grant off",
+    { permanentlyGated: ["push_to_remote", "pull_request_comment_or_merge",
+      "issue_or_board_mutation"] });
+  off("an empty gate list switches the whole grant off", { permanentlyGated: [] });
+  off("a renamed gate switches the whole grant off",
+    { permanentlyGated: ["push_to_remote", "pull_request_comment_or_merge",
+      "issue_or_board_mutation", "approval_policy_change_but_not_really"] });
+  off("a removed gate list switches the whole grant off", { permanentlyGated: undefined });
+  off("an unknown category switches the whole grant off",
+    { categories: ["read_only_diagnosis", "everything_else"] });
+  off("a malformed project entry switches the whole grant off",
+    { projects: [{ name: "clay", projectId: "not-a-uuid" }] });
+  off("an unknown top-level key switches the whole grant off", { surprise: true });
+  off("a wrong schema switches the whole grant off", { schema: "clay.something_else" });
+  off("a wrong version switches the whole grant off", { version: 2 });
+  // A truthy non-boolean must not read as on.
+  off("a string \"true\" is not a boolean switch", { enabled: "true" });
+
+  // A missing or unparseable file is off, and silently so: it must leave the
+  // caller's own fail-closed default in charge rather than invent a refusal.
+  assert.equal(grant.loadPolicy({ autonomyPolicyFile: "/nonexistent/policy.json" }), null);
+  assert.equal(grant.standingAdmission(dispatch(), request(),
+    { autonomyPolicyFile: "/nonexistent/policy.json" }), null);
+  var torn = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "clay-autonomy-")), "p.json");
+  fs.writeFileSync(torn, "{ not json");
+  assert.equal(grant.standingAdmission(dispatch(), request(),
+    { autonomyPolicyFile: torn }), null);
+});
+
+// --- The named-approval rule is untouched -------------------------------------
+
+test("the grant does not weaken the exactly-one-match rule for named approvals", function () {
+  // A standing grant is a scope, not a matcher: it never reads owner wording.
+  // Ambiguous and unmatched named approvals still refuse with the switch on.
+  var file = policyFile({ enabled: true });
+  var events = [
+    { type: "staffing_attention", attentionKey: "clay-alpha-fix:1", itemId: "clay-alpha-fix",
+      portfolioTaskId: "clay-alpha-fix", bindingRevision: 1, at: 1000, seq: 1 },
+    { type: "staffing_attention", attentionKey: "clay-alpha-other:1", itemId: "clay-alpha-other",
+      portfolioTaskId: "clay-alpha-other", bindingRevision: 1, at: 1001, seq: 2 },
+  ];
+  var snapshot = itemApproval.pendingApprovalSnapshotAt(events, 5000);
+  assert.equal(snapshot.tasks.length, 2);
+  assert.deepEqual(itemApproval.resolveApprovedTask(snapshot, "alpha"),
+    { ok: false, reason: "owner_approval_ambiguous" },
+    "two candidates still refuse to pick a winner");
+  assert.deepEqual(itemApproval.resolveApprovedTask(snapshot, "nothing queued here"),
+    { ok: false, reason: "owner_approval_unmatched_item" });
+  // And the grant itself has no opinion on that wording at all.
+  assert.equal(grant.standingAdmission({ title: "approve alpha", ownedPaths: "lib/x.js" },
+    request({ portfolioTaskId: "clay-alpha-fix" }), { autonomyPolicyFile: file }), null);
+});

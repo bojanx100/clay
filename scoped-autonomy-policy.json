@@ -1,0 +1,32 @@
+{
+  "schema": "clay.scoped_autonomy_grant",
+  "version": 1,
+
+  "_readme": "One switch. Flip \"enabled\" to true and Coop may start the work listed under \"categories\", in the projects listed under \"projects\", WITHOUT asking. Nothing else. Everything in \"permanentlyGated\" always needs an explicit owner approval and no edit to this file can change that.",
+
+  "enabled": false,
+
+  "projects": [
+    { "name": "clay", "projectId": "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    { "name": "webapp", "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" }
+  ],
+
+  "categories": [
+    "read_only_diagnosis",
+    "approved_revision_bump"
+  ],
+
+  "_categories": {
+    "read_only_diagnosis": "A dispatch whose EVERY owned-path segment is prefixed \"read-only:\" and whose title/objective reads as diagnosis, audit, investigation, review, triage, research or planning. It can read and report. It cannot edit a file.",
+    "approved_revision_bump": "Re-dispatch of a task this owner already approved at a LOWER revision, where the project, Thread and task id are all identical and only the revision number changed. A retry of approved work, not new work."
+  },
+
+  "permanentlyGated": [
+    "push_to_remote",
+    "pull_request_comment_or_merge",
+    "issue_or_board_mutation",
+    "approval_policy_change"
+  ],
+
+  "_permanentlyGated": "Hard-coded in lib/coop-autonomy-grant.js. This list is a copy so it can be read here; it is never the authority. Removing an entry does not un-gate it, it makes this file malformed and switches the whole grant OFF."
+}
