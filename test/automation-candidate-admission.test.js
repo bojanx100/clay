@@ -16,6 +16,7 @@ var { createCandidateAdmission, idempotencyKeyFor, portfolioTaskIdFor, selectBin
   require("../lib/project-automation-admission");
 var { createCandidateStore } = require("../lib/project-automation-candidates");
 var automationAudit = require("../lib/project-automation-audit");
+var scopedAutonomy = require("../lib/coop-scoped-autonomy-policy");
 
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 var OTHER = "11111111-2222-4333-8444-555555555555";
@@ -127,8 +128,39 @@ function harness(options) {
       function () { return cross.coopSessionRef(); },
     // Late-bound so a test can swap the reader after construction.
     getBinding: function (a, b) { return cross.getBinding(a, b); },
+    scopedAutonomyPolicy: opts.scopedAutonomyPolicy || null,
   }));
   return { dir: dir, store: store, cross: cross, admission: admission };
+}
+
+function activeScopedPolicy(file) {
+  var store = scopedAutonomy.createPolicyStore({ file: file });
+  var result = store.activate({
+    authorizationTaskId: "clay-scoped-auto-approval-policy",
+    ownerRequest: {
+      ingressId: "coop:canonical-coop:549",
+      sessionRef: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+      requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 549 },
+      receivedAt: 2000,
+      expectsExecution: true,
+      implementationDecision: { intent: "implement", source: "explicit_owner_turn", at: 2000 },
+      implementationScope: {
+        projectRef: { projectId: WEBAPP },
+        topicRef: { topicId: "owner-scoped-policy" },
+        portfolioTaskId: "clay-scoped-auto-approval-policy",
+        bindingRevision: 1,
+        idempotencyKey: "clay-scoped-auto-approval-policy-r1",
+      },
+    },
+    ownerEvent: {
+      type: "user_message",
+      coopIngressId: "coop:canonical-coop:549",
+      from: "owner-1",
+      _ts: 2000,
+    },
+  });
+  assert.equal(result.ok, true, result.reason);
+  return store;
 }
 
 // --- One candidate becomes exactly one binding --------------------------------
@@ -172,6 +204,29 @@ test("#2517: a pending auto candidate becomes one typed binding and is marked ad
     assert.strictEqual(h.store.list({ status: "pending" }).length, 0);
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("a revalidated low-risk owner-gated candidate staffs through the scoped policy receipt", function () {
+  var dir = tempDir();
+  var scopedPolicy = activeScopedPolicy(path.join(dir, "scoped-policy.json"));
+  var h = harness({ dir: dir, scopedAutonomyPolicy: scopedPolicy });
+  try {
+    h.store.upsert(candidate({
+      admission: "owner_approval",
+      safety: scopedAutonomy.assessCandidateSafety({ title: "Correct a small empty state alignment" }),
+    }));
+    var result = h.admission.admitPending();
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.admitted, 1);
+    assert.equal(h.cross.calls.length, 1, "the current low-risk candidate staffs without another prompt");
+    assert.equal(h.cross.calls[0].automationAuthorization.kind, "coop_scoped_low_risk");
+    assert.equal(h.cross.calls[0].automationAuthorization.scopedPolicyGrant.owner.ingressId,
+      "coop:canonical-coop:549");
+    assert.match(h.cross.calls[0].context, /bounded authority receipt/i);
+    assert.equal(h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517").status, "admitted");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

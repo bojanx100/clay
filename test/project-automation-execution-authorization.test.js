@@ -8,6 +8,7 @@ var authority = require("../lib/project-automation-authority");
 var authorization = require("../lib/project-automation-execution-authorization");
 var candidatesModule = require("../lib/project-automation-candidates");
 var identity = require("../lib/project-automation-identity");
+var scopedAutonomy = require("../lib/coop-scoped-autonomy-policy");
 
 var PROJECT = "51e67388-cea0-52b7-8e01-cde68cae713c";
 var OTHER = "11111111-2222-4333-8444-555555555555";
@@ -165,6 +166,76 @@ test("stale, malformed, foreign, owner-gated, and non-autonomous evidence fails 
     }).reason, "automation_candidate_malformed");
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("the scoped low-risk receipt is revalidated against its durable owner grant", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-scoped-auth-"));
+  try {
+    var candidates = candidatesModule.createCandidateStore({ cwd: dir });
+    var source = Object.assign({}, candidate(), {
+      admission: "owner_approval",
+      safety: scopedAutonomy.assessCandidateSafety({ title: "Correct a small empty state alignment" }),
+    });
+    candidates.upsert(source);
+    var record = candidates.get({ projectId: PROJECT }, source.candidateKey);
+    var scope = request(record);
+    var scopedPolicy = scopedAutonomy.createPolicyStore({ file: path.join(dir, "scoped-policy.json") });
+    var activated = scopedPolicy.activate({
+      authorizationTaskId: "clay-scoped-auto-approval-policy",
+      ownerRequest: {
+        ingressId: "coop:canonical-coop:549",
+        sessionRef: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+        requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 549 },
+        receivedAt: 2000,
+        expectsExecution: true,
+        implementationDecision: { intent: "implement", source: "explicit_owner_turn", at: 2000 },
+        implementationScope: {
+          projectRef: { projectId: PROJECT },
+          topicRef: { topicId: "owner-scoped-policy" },
+          portfolioTaskId: "clay-scoped-auto-approval-policy",
+          bindingRevision: 1,
+          idempotencyKey: "clay-scoped-auto-approval-policy-r1",
+        },
+      },
+      ownerEvent: { type: "user_message", coopIngressId: "coop:canonical-coop:549",
+        from: "owner-1", _ts: 2000 },
+    });
+    assert.equal(activated.ok, true, activated.reason);
+    var typed = authorization.createAuthorization(record, scope, {
+      kind: authorization.SCOPED_KIND,
+      scopedPolicyGrant: activated.grant,
+    });
+    var currentPolicy = policy(record.policyDigest);
+    currentPolicy.autonomy.ambiguous = "owner_approval";
+    var validator = authorization.createAuthorizationValidator({
+      candidates: candidates,
+      getLeadMode: function () { return true; },
+      loadPolicy: function () { return { ok: true, policy: currentPolicy }; },
+      scopedAutonomyPolicy: scopedPolicy,
+    });
+    assert.equal(validator.validate({ authorization: typed, request: scope }).ok, true,
+      "the exact owner-backed receipt reaches execution without a second prompt");
+
+    var forged = JSON.parse(JSON.stringify(typed));
+    forged.scopedPolicyGrant.owner.ingressId = "coop:canonical-coop:other";
+    assert.equal(validator.validate({ authorization: forged, request: scope }).reason,
+      "automation_authorization_malformed", "a caller cannot replace owner provenance");
+
+    source.safety = scopedAutonomy.assessCandidateSafety({
+      title: "Correct a small empty state alignment", securitySensitive: true,
+    });
+    candidates.upsert(source);
+    var updated = candidates.get({ projectId: PROJECT }, source.candidateKey);
+    var gated = authorization.createAuthorization(updated, request(updated), {
+      kind: authorization.SCOPED_KIND,
+      scopedPolicyGrant: activated.grant,
+    });
+    assert.equal(validator.validate({ authorization: gated, request: request(updated) }).reason,
+      "scoped_policy_securitySensitive_gated",
+      "security-sensitive work stays owner-gated even with the durable grant");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
