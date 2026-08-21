@@ -98,6 +98,7 @@ function printHelp() {
     "  --list                      List projects registered in the running daemon.",
     "",
     "Daemon control:",
+    "  --status                    Show the running daemon status and exit.",
     "  --shutdown                  Shut down the running daemon.",
     "  --restart                   Restart the running daemon.",
     "  --no-update, --skip-update  Skip the startup update check.",
@@ -121,6 +122,7 @@ var skipUpdate = false;
 var debugMode = false;
 var autoYes = false;
 var cliPin = null;
+var statusMode = false;
 var shutdownMode = false;
 var restartMode = false;
 var addPath = null;
@@ -164,6 +166,8 @@ for (var i = 0; i < args.length; i++) {
   } else if (args[i] === "--pin") {
     cliPin = args[i + 1] || null;
     i++;
+  } else if (args[i] === "--status") {
+    statusMode = true;
   } else if (args[i] === "--shutdown") {
     shutdownMode = true;
   } else if (args[i] === "--restart") {
@@ -191,6 +195,10 @@ for (var i = 0; i < args.length; i++) {
   } else if (args[i] === "-h" || args[i] === "--help") {
     printHelp();
     process.exit(0);
+  } else {
+    console.error("Unknown option: " + args[i]);
+    console.error("Run with --help to see supported options.");
+    process.exit(1);
   }
 }
 
@@ -198,6 +206,37 @@ for (var i = 0; i < args.length; i++) {
 if (_isDev) {
   debugMode = true;
   skipUpdate = true;
+}
+
+// --- Handle --status before startup/takeover logic ---
+// An unknown --status flag used to fall through into the normal --dev path,
+// which stopped the running watcher and daemon before starting a replacement.
+// Status is read-only and must never mutate daemon lifecycle state.
+if (statusMode) {
+  var statusConfig = loadConfig();
+  isDaemonAliveAsync(statusConfig).then(function (alive) {
+    if (!alive) {
+      console.error("No running daemon found.");
+      process.exit(1);
+    }
+    sendIPCCommand(socketPath(), { cmd: "get_status" }).then(function (status) {
+      if (!status || status.ok !== true) {
+        console.error("Status failed: daemon did not return a valid response.");
+        process.exit(1);
+        return;
+      }
+      var protocol = status.tls ? "https" : "http";
+      console.log("Daemon running (PID " + status.pid + ")");
+      console.log("Listening on " + protocol + "://localhost:" + status.port);
+      console.log("Projects: " + ((status.projects && status.projects.length) || 0));
+      console.log("Uptime: " + Math.floor(status.uptime || 0) + "s");
+      process.exit(0);
+    }).catch(function (err) {
+      console.error("Status failed:", err.message);
+      process.exit(1);
+    });
+  });
+  return;
 }
 
 // --- Handle --shutdown before anything else ---

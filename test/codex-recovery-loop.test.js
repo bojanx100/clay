@@ -13,6 +13,7 @@ var assert = require("node:assert");
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
+var childProcess = require("child_process");
 
 var {
   midstreamTimeoutFor,
@@ -25,6 +26,101 @@ var { attachBridgeDialogs } = require("../lib/sdk-bridge-dialogs");
 var instructions = require("../lib/yoke/instructions");
 var bridgeRecovery = require("../lib/sdk-bridge-recovery");
 var cliSessions = require("../lib/cli-sessions");
+var streamWatchdog = require("../lib/sdk-bridge-stream-watchdog");
+var { CodexAppServer } = require("../lib/yoke/codex-app-server");
+
+// --- Reported restart/error regressions -----------------------------------
+
+test("CLI --dev --status is read-only when no daemon exists", function () {
+  var clayHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-cli-status-"));
+  try {
+    var result = childProcess.spawnSync(process.execPath,
+      [path.join(__dirname, "..", "bin", "cli.js"), "--dev", "--status"], {
+        cwd: path.join(__dirname, ".."),
+        encoding: "utf8",
+        timeout: 5000,
+        env: Object.assign({}, process.env, { CLAY_HOME: clayHome }),
+      });
+    assert.strictEqual(result.status, 1, "status must exit without starting or taking over a daemon");
+    assert.match(result.stderr, /No running daemon found/);
+    assert.strictEqual(fs.existsSync(path.join(clayHome, "daemon-dev.json")), false,
+      "a read-only status check must not create daemon config");
+  } finally {
+    fs.rmSync(clayHome, { recursive: true, force: true });
+  }
+});
+
+test("CLI rejects unsupported options instead of entering startup", function () {
+  var clayHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-cli-option-"));
+  try {
+    var result = childProcess.spawnSync(process.execPath,
+      [path.join(__dirname, "..", "bin", "cli.js"), "--dev", "--definitely-unsupported"], {
+        cwd: path.join(__dirname, ".."),
+        encoding: "utf8",
+        timeout: 5000,
+        env: Object.assign({}, process.env, { CLAY_HOME: clayHome }),
+      });
+    assert.strictEqual(result.status, 1);
+    assert.match(result.stderr, /Unknown option: --definitely-unsupported/);
+    assert.strictEqual(fs.existsSync(path.join(clayHome, "daemon-dev.json")), false);
+  } finally {
+    fs.rmSync(clayHome, { recursive: true, force: true });
+  }
+});
+
+test("provider tool lifecycle is projected for restart draining", function () {
+  var session = { isProcessing: true };
+  var state = streamWatchdog.createState(session, null);
+  assert.strictEqual(session._activeProviderToolCount, 0);
+  streamWatchdog.observeTool(state, { yokeType: "tool_start", toolId: "call-1" });
+  streamWatchdog.observeTool(state, { yokeType: "tool_executing", toolId: "call-1" });
+  assert.strictEqual(session._activeProviderToolCount, 1, "duplicate lifecycle events count once");
+  streamWatchdog.observeTool(state, { yokeType: "tool_result", toolId: "call-1" });
+  assert.strictEqual(session._activeProviderToolCount, 0);
+});
+
+test("restart drain waits until active provider tools finish", async function () {
+  var currentTime = 0;
+  var counts = [1, 1, 0];
+  var result = await streamWatchdog.waitForActiveTools(function () {
+    return counts.shift();
+  }, {
+    timeoutMs: 100,
+    pollMs: 10,
+    now: function () { return currentTime; },
+    delay: function (ms) { currentTime += ms; return Promise.resolve(); },
+  });
+  assert.deepStrictEqual(result, { drained: true, count: 0, waitedMs: 20 });
+  var daemonSource = fs.readFileSync(path.join(__dirname, "..", "lib", "daemon.js"), "utf8");
+  assert.match(daemonSource, /waitForActiveTools\(countActiveProviderTools\)/,
+    "daemon restart must use the tested provider-tool drain");
+});
+
+test("restart drain reports a bounded timeout", async function () {
+  var currentTime = 0;
+  var result = await streamWatchdog.waitForActiveTools(function () { return 2; }, {
+    timeoutMs: 20,
+    pollMs: 10,
+    now: function () { return currentTime; },
+    delay: function (ms) { currentTime += ms; return Promise.resolve(); },
+  });
+  assert.deepStrictEqual(result, { drained: false, count: 2, waitedMs: 20 });
+});
+
+test("Codex ignores only the known remote-control status notification", function () {
+  var server = new CodexAppServer(process.execPath, {});
+  var logged = [];
+  var originalLog = console.log;
+  console.log = function () { logged.push(Array.prototype.slice.call(arguments)); };
+  try {
+    server._handleMessage({ method: "remoteControl/status/changed", params: {} });
+    assert.strictEqual(logged.length, 0);
+    server._handleMessage({ method: "future/unknown/notification", params: {} });
+    assert.strictEqual(logged.length, 1, "unknown notifications must remain observable");
+  } finally {
+    console.log = originalLog;
+  }
+});
 
 // --- Watchdog budget -------------------------------------------------------
 
