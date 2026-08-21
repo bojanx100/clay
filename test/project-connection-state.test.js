@@ -186,31 +186,54 @@ test("ordinary project restore never selects an internal session omitted from th
   assert.equal(exact.active, internal, "an explicit durable conversation link remains authoritative");
 });
 
-test("ordinary project entry skips the internal Coop coordinator while an exact SessionRef keeps it reachable", function () {
-  var coordinator = {
+test("ordinary project entry skips every controlled internal session while exact SessionRefs keep them reachable", function () {
+  var projectCoordinator = {
     localId: 1,
     storageId: "project-coordinator",
-    lastViewedAt: 100,
+    lastViewedAt: 300,
     coordinationRole: "project_coordinator",
     coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
   };
-  var ownerFacing = { localId: 2, storageId: "owner-facing", lastViewedAt: 10 };
-  var sessions = new Map([[coordinator.localId, coordinator], [ownerFacing.localId, ownerFacing]]);
+  var taskCoordinator = {
+    localId: 2,
+    storageId: "task-coordinator",
+    lastViewedAt: 200,
+    coordinationRole: "task_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  var worker = {
+    localId: 3,
+    storageId: "controlled-worker",
+    lastViewedAt: 100,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+  };
+  var ownerFacing = { localId: 4, storageId: "owner-facing", lastViewedAt: 10 };
+  var sessions = new Map([
+    [projectCoordinator.localId, projectCoordinator],
+    [taskCoordinator.localId, taskCoordinator],
+    [worker.localId, worker],
+    [ownerFacing.localId, ownerFacing],
+  ]);
+  var allSessions = [projectCoordinator, taskCoordinator, worker, ownerFacing];
   var ordinary = state.findRestoredActiveSession(restoreOptions({
     sessions: sessions,
-    allSessions: [coordinator, ownerFacing],
-    storedPresence: { sessionId: coordinator.localId },
+    allSessions: allSessions,
+    requestedSessionId: taskCoordinator.storageId,
+    storedPresence: { sessionId: worker.localId },
   }));
   assert.equal(ordinary.active, ownerFacing);
 
-  var exact = state.findRestoredActiveSession(restoreOptions({
-    sessions: sessions,
-    allSessions: [coordinator, ownerFacing],
-    requestedSessionId: coordinator.storageId,
-    requestedSessionExact: true,
-  }));
-  assert.equal(exact.active, coordinator,
-    "an explicit SessionRef remains authoritative over the project default");
+  var internal = [projectCoordinator, taskCoordinator, worker];
+  for (var i = 0; i < internal.length; i++) {
+    var exact = state.findRestoredActiveSession(restoreOptions({
+      sessions: sessions,
+      allSessions: allSessions,
+      requestedSessionId: internal[i].storageId,
+      requestedSessionExact: true,
+    }));
+    assert.equal(exact.active, internal[i],
+      "an explicit SessionRef remains authoritative over the project default");
+  }
 });
 
 test("vendor, route, and Codex fallback model selection is deterministic", function () {

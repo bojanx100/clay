@@ -9,21 +9,26 @@ function read(relative) {
   return fs.readFileSync(path.join(root, relative), "utf8");
 }
 
-test("ordinary sessions hide both dedicated Voice controls", function () {
+test("ordinary sessions and coordinators hide both dedicated Voice controls", function () {
   var voice = read("lib/public/modules/voice-conversation.js");
   var css = read("lib/public/css/stt.css");
 
-  assert.match(voice, /var shouldShow = selectedVoiceThread\(\) \|\|/);
+  assert.match(voice, /function selectedCanonicalCoopScope\(\)/);
+  assert.match(voice, /return isSafeVoiceConversationRouting\(captureVoiceConversationRouting\(\)\)/);
+  assert.match(voice, /var shouldShow = selectedCanonicalCoopScope\(\);/);
   assert.match(voice, /refs\.button\.classList\.toggle\("hidden", !shouldShow\)/);
   assert.match(voice, /refs\.panel\.classList\.toggle\("hidden", !shouldShow \|\| !panelOpen\)/);
   assert.match(css, /#voice-conversation-btn\.hidden,\s*\.voice-conversation-panel\.hidden\s*\{\s*display:\s*none;\s*\}/);
 });
 
-test("canonical Voice Thread exposes a named trigger that opens the panel", function () {
+test("canonical Coop exposes a named Voice trigger without a standalone Voice Thread", function () {
   var voice = read("lib/public/modules/voice-conversation.js");
+  var controller = read("lib/public/modules/voice-conversation-controller.js");
 
-  assert.match(voice, /VOICE_THREAD_ID = "recovery-voice-ingresses-360-362"/);
-  assert.match(voice, /topicId\(store\.get\("activeCoopTopicRef"\)\) === VOICE_THREAD_ID/);
+  assert.match(voice, /captureVoiceConversationRouting, isSafeVoiceConversationRouting/);
+  assert.match(voice, /if \(!isSafeVoiceConversationRouting\(routing\)\)/);
+  assert.doesNotMatch(voice, /VOICE_THREAD_ID|recovery-voice-ingresses-360-362|Voice Thread/);
+  assert.doesNotMatch(controller, /createSession|staffWork|delegate_task/);
   assert.match(voice, /aria-label", "Open Voice conversation"/);
   assert.match(voice, /button\.title = "Voice conversation"/);
   assert.match(voice, /panelOpen = !panelOpen;\s*renderVisibility\(\)/);

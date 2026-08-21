@@ -42,6 +42,8 @@ A process note: the daemon's uptime was initially misread. `bin/cli.js` is a lon
 
 `recovery-voice-ingresses-360-362` is load-bearing: exported as `VOICE_THREAD_ID` from `lib/public/modules/voice-conversation.js`.
 
+> Retraction (2026-08-21): that Voice UI binding was removed. The historical Thread remains part of the repair record, but Voice itself is now available only from canonical Coop's All, Main, project, and topic scopes.
+
 The owner-gated WebSocket lever is deliberately **not** able to clean duplicate membership. `recover()` is the pre-admission lever: it asserts `!!targetTurn === !!sourceTurn` and rejects the live record as `execution_already_admitted`. Duplicate cleanup belongs solely to the startup migration, which alone proves the canonical event digests. This is now stated in the spec.
 
 The three sibling recoveries (threads, urbanStayAutoLaunch, urbanStayPolicy) were unaffected throughout — they are decision backfills with no source-to-target move, so they never touch either guard.

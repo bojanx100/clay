@@ -71,6 +71,8 @@ So the documented WebSocket lever still cannot clean the live duplicate membersh
 
 The isolation recovery (`9313e6b9a3`) created the Voice Thread and moved the ledger records; the admission repair (`358ec446ac`) backfilled ingress 360's decision and closed DONE_WITH_CONCERNS warning that activation awaited a daemon restart that never happened. `recovery-voice-ingresses-360-362` is a live production constant exported as `VOICE_THREAD_ID` from `lib/public/modules/voice-conversation.js` and is load-bearing.
 
+> Retraction (2026-08-21): the last sentence is no longer true. Voice is now a canonical-Coop feature, visible for its All, Main, project, and topic scopes; it no longer uses this historical Thread id or creates a standalone Voice session.
+
 Activating the repair in production remains an owner decision and was explicitly out of scope for this task. The repair will now complete on the next daemon restart instead of failing closed permanently.
 
 ## Status
