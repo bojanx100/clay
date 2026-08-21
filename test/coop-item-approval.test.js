@@ -520,3 +520,29 @@ test("one owner turn approves several tasks on consecutive lines", function () {
   assert.equal(itemApproval.exactApprovalStatements("approved"), null,
     "a bare approval still has no exact reference and stays on the snapshot path");
 });
+
+// Live ingress 605 carried the owner's exact approval first, followed by a
+// fenced fragment copied from Coop's prior response. A question mark inside
+// that quoted fragment made approvalCommand reject the entire turn, so the
+// router could not discover the approval it was supposed to dispatch.
+test("a fenced pasted fragment cannot erase a preceding exact approval", function () {
+  var taskId = "clay-coop-end-to-end-ownership-2026-08-22";
+  var ingress605 = "Approve " + taskId + " rev1 implementation for ProjectRef " +
+    CLAY_ID + ".\n```Fair. The bar is: visible worker or durable attention. " +
+    "If Coop needs you to ask \"what happened?\" again, that is itself a defect.";
+
+  assert.deepEqual(itemApproval.explicitItemApprovals(ingress605), [{
+    subject: taskId + " rev1",
+    portfolioTaskId: taskId,
+    bindingRevision: 1,
+    projectRef: { projectId: CLAY_ID },
+  }]);
+
+  // The boundary is deliberately Markdown-specific. Unfenced prose still
+  // invalidates the exact multi-statement grammar, and a quoted approval that
+  // does not begin the owner turn grants nothing.
+  assert.equal(itemApproval.exactApprovalStatements(
+    "Approve " + taskId + " rev1\nActually, do not start it"), null);
+  assert.equal(itemApproval.exactApprovalStatements(
+    "```\nApprove " + taskId + " rev1\n```"), null);
+});

@@ -1467,6 +1467,78 @@ test("owner ingress 508 resolves approval to exact scope and starts one canonica
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
 });
 
+test("owner ingress 605 dispatches its exact approval despite fenced pasted context", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-ingress-605-"));
+  var delivered = [];
+  var taskId = "clay-coop-end-to-end-ownership-2026-08-22";
+  var ingressId = "coop:canonical-coop:605";
+  var history = [{
+    type: "user_message",
+    text: "Approve " + taskId + " rev1 implementation for ProjectRef " + PROJECT +
+      ".\n```Fair. The bar is: visible worker or durable attention. If Coop needs you " +
+      "to ask \"what happened?\" again, that is itself a defect.",
+    coopIngressId: ingressId,
+    coopComposerScope: "main",
+    coopClassification: "conversational",
+    coopImplementationDecision: null,
+    _ts: 605000,
+  }];
+  var ownerLedger = require("../lib/coop-owner-requests").attachCoopOwnerRequests({
+    file: path.join(dir, "owner-requests.json"),
+  });
+  var topicIndex = createTopicIndex({ file: path.join(dir, "topics.json") });
+  ownerLedger.record({
+    ingressId: ingressId,
+    ingressSequence: 605,
+    ingressKind: "text",
+    sessionRef: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+    receivedAt: 605000,
+  });
+  ownerLedger.classify(ingressId, { kind: "conversational", source: "ingress_route" });
+  var approved = executionRouter([], delivered, [], {
+    dir: dir,
+    ownerRequests: ownerLedger,
+    history: history,
+    leadEvents: [],
+  });
+  var source = { localId: 1, storageId: "canonical-coop", coopHome: true, history: history };
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: ownerLedger,
+    readLeadEvents: function () { return []; },
+    ensureOwnerThread: function (input) { return topicIndex.ensureOwnerThread(input); },
+    createProjectExecution: approved.router.createProjectExecution,
+  });
+  try {
+    // The production seam receives only the typed target. It must discover the
+    // approval ingress and mint the Thread itself; supplying either here would
+    // skip the failed lookup this regression exists to exercise.
+    var result = coordinate({
+      coordinatorSessionId: "canonical-coop",
+      portfolioTaskId: taskId,
+      bindingRevision: 1,
+      idempotencyKey: taskId + "-owner-ingress-605",
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT },
+      title: "Make Coop own end-to-end closure without owner nudges",
+      objective: "Implement and verify the exact owner-approved change.",
+    });
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(delivered.length, 1);
+    assert.equal(delivered[0].payload.coopApprovalIngressId, ingressId);
+    assert.equal(delivered[0].destination.projectId, PROJECT,
+      "the admitted command must stay project-bound rather than execute in Lead");
+    var scoped = ownerLedger.get(ingressId);
+    assert.equal(scoped.expectsExecution, true);
+    assert.equal(scoped.implementationDecision.source, "explicit_item_approval");
+    assert.equal(scoped.implementationScope.portfolioTaskId, taskId);
+    assert.deepEqual(scoped.implementationScope.projectRef, { projectId: PROJECT });
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
 test("one exact owner turn dispatches every named task and keeps their scopes independent", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-multi-exact-approval-"));
   var delivered = [];
