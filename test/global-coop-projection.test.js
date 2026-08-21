@@ -241,7 +241,7 @@ test("Coop projects each accessible configured project into a main-lane lens wit
     channel.channel.sessionRef.sessionStorageId);
 });
 
-test("Coop projection keeps one persistent project root and only live or attention children per project", function () {
+test("Coop projection keeps one persistent project root and retained terminal children out of active metrics", function () {
   var home = session(1, { storageId: "coop-home", coopHome: true });
   var lead = project("system-lead", "lead", [home], { isLead: true });
   var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
@@ -322,15 +322,18 @@ test("Coop projection keeps one persistent project root and only live or attenti
   }), [
     [clayActive.storageId, "running"],
     [clayAttention.storageId, "needs_input"],
+    [clayCompleted.storageId, "completed"],
   ]);
-  assert.equal(JSON.stringify(clayTree).includes(clayCompleted.storageId), false);
+  assert.equal(JSON.stringify(clayTree).includes(clayCompleted.storageId), true);
   assert.equal(JSON.stringify(clayTree).includes(ownerCoordinator.storageId), false);
 
   var webappTree = projection.projects[1].summary.coordinatorTree;
   assert.equal(webappTree.length, 1, "the reusable project row remains after its child completes");
   assert.equal(webappTree[0].sessionRef.sessionStorageId, webappRoot.storageId);
-  assert.deepEqual(webappTree[0].children, []);
-  assert.equal(JSON.stringify(webappTree).includes(webappCompleted.storageId), false);
+  assert.deepEqual(webappTree[0].children.map(function (child) {
+    return [child.sessionRef.sessionStorageId, child.status];
+  }), [[webappCompleted.storageId, "completed"]]);
+  assert.equal(JSON.stringify(webappTree).includes(webappCompleted.storageId), true);
 });
 
 test("Coop summary applies project ACLs and summarizes attention without exposing attempts", function () {

@@ -3,6 +3,30 @@
 Date: 2026-08-05
 Branch: `bojan`
 
+## Retraction and correction — 2026-08-21
+
+**Retracted:** this note's general recommendation to hide every completed
+Coop-visible project coordinator or direct leaf. That policy caused a distinct
+owner-discoverability regression: a visibly created Voice triage coordinator
+(`460f2355-ee22-41da-a388-f5dba4cbb931`) received a correct completed terminal
+binding, then was immediately persisted with `hidden: true` and `closedAt`, so
+the owner inventory omitted it as though it had never existed.
+
+The root cause was the shared terminal completion path calling
+`archiveCompletedCoopSession()` without an owner archive action; that function
+also marked terminal descendant tasks `archivedAt` and used the normal hide
+cascade. Direct-leaf terminal recovery used the same path. These are lifecycle
+closure events, not visibility instructions.
+
+Revision `clay-visible-worker-terminal-auto-hide-regression-2026-08-21` keeps
+completed, dismissed, and cancelled owner-visible sessions navigable in the
+ledger and desktop/mobile project hierarchy, while terminal sessions do not
+count as active capacity. Only an explicit owner archive supplies the
+`archivedAt` evidence and may hide a session. Existing intentional archive and
+safe-orphan recovery behavior remains in force; this correction does not alter
+binding completion or task-resolution semantics. Activation still requires a
+daemon restart, and no durable `~/.clay` record was changed during diagnosis.
+
 ## Symptom
 
 Verified orchestration work left visible worker sessions behind. Restart recovery reattached terminal workers, project completion recorded only the graph completion event, Coop-created project coordinators stayed visible, and hidden Coop-controlled coordinators could still be offered by the CLI import picker.

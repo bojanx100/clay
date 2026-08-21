@@ -813,3 +813,57 @@ test("an unenumerated project keeps a still-present session active", function ()
   assert.equal(preserved.sessionPresent, true);
   assert.equal(preserved.lifecycleState, "active");
 });
+
+test("a visible terminal worker stays discoverable in the durable owner inventory after restart", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-terminal-visible-"));
+  var file = path.join(dir, "ledger.json");
+  var storageId = "visible-terminal-task-coordinator";
+  var visibleTerminal = {
+    storageId: storageId,
+    title: "Visible terminal task coordinator",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    createdAt: 10,
+    lastActivity: 30,
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 10 },
+    orchestrationPolicy: { portfolioExecution: execution(
+      "visible-terminal-task", "project_coordinator", "completed", {
+        updatedAt: 30,
+        completedAt: 30,
+      }
+    ) },
+    orchestrationProjectCompletion: {
+      status: "completed",
+      completedAt: 30,
+      summary: "Terminal visibility regression covered.",
+      escalationRequired: "no",
+    },
+  };
+  var completedBinding = binding("visible-terminal-task", CLAY_ID, storageId,
+    "project_coordinator", "completed", "visible-terminal-topic");
+  completedBinding.updatedAt = 30;
+  completedBinding.completedAt = 30;
+  var input = {
+    bindings: [completedBinding],
+    projects: [project(CLAY_ID, [visibleTerminal])],
+  };
+  var ledger = attachCoopSessionLedger({ file: file, now: function () { return 40; } });
+
+  assert.equal(ledger.reconcile(input).ok, true);
+  var listed = ledger.list({ projectRefs: [{ projectId: CLAY_ID }] });
+  assert.equal(listed.length, 1,
+    "the default owner inventory excludes hidden rows but retains visible terminal rows");
+  assert.equal(listed[0].sessionStorageId, storageId);
+  assert.equal(listed[0].hidden, false);
+  assert.equal(listed[0].lifecycleState, "completed");
+  assert.equal(listed[0].workState, "done");
+  assert.equal(listed[0].closedAt, 30,
+    "terminal lifecycle closure remains durable without becoming a visibility mutation");
+
+  var restarted = attachCoopSessionLedger({ file: file, now: function () { return 50; } });
+  assert.equal(restarted.reconcile(input).changed, false);
+  var afterRestart = restarted.list({ projectRefs: [{ projectId: CLAY_ID }] });
+  assert.deepEqual(afterRestart.map(function (entry) {
+    return [entry.sessionStorageId, entry.hidden, entry.lifecycleState, entry.workState];
+  }), [[storageId, false, "completed", "done"]]);
+});

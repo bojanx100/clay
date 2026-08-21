@@ -141,6 +141,13 @@ function coordinatorFixture() {
     coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
     orchestrationParent: { taskId: "clay-completed", sessionStorageId: "clay-project-coordinator" },
   });
+  var clayDismissed = session(31, {
+    title: "Dismissed Clay task",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
+    orchestrationParent: { taskId: "clay-dismissed", sessionStorageId: "clay-project-coordinator" },
+  });
   var clayRoot = session(10, {
     storageId: "clay-project-coordinator",
     title: "Project coordinator",
@@ -150,6 +157,7 @@ function coordinatorFixture() {
     orchestrationTasks: [
       task("clay-active", "running", clayActive),
       task("clay-completed", "completed", clayCompleted),
+      task("clay-dismissed", "dismissed", clayDismissed),
     ],
   });
   var foreignRoot = session(29, {
@@ -201,6 +209,7 @@ function coordinatorFixture() {
     lead: lead,
     clay: project(CLAY, "clay", "Clay", [
       foreignRoot, groupedRoot, clayRoot, ownerDirect, ownerTaskCoordinator, clayActive, clayCompleted,
+      clayDismissed,
       clayWorkerRunning, clayWorkerAttention, clayWorkerCompleted, clayWorkerHidden,
       ownerDirectWorker, foreignControlledWorker, staleWorker, unrelatedWorker,
       unboundWorker, nestedWorker,
@@ -215,7 +224,7 @@ function coordinatorFixture() {
 
 // Regression: ISSUE-COOP-SIDEBAR-001 — project coordinators rendered only in project sidebars.
 // Found by /qa on 2026-08-14.
-test("global Coop projection keeps one persistent canonical root and only live task coordinators", function () {
+test("global Coop projection retains visible terminal task coordinators without treating them as live", function () {
   var fixture = coordinatorFixture();
   var projection = buildGlobalCoopProjection({
     projects: [fixture.lead, fixture.clay, fixture.webapp],
@@ -236,8 +245,10 @@ test("global Coop projection keeps one persistent canonical root and only live t
     "group-parent metadata disqualifies a session from becoming a project root");
   assert.deepEqual(projects[CLAY].summary.coordinatorTree[0].children.map(function (item) {
     return item.title;
-  }), ["Show project coordinators in Coop sidebar"],
-  "a completed task coordinator is absent while active work remains nested");
+  }), ["Show project coordinators in Coop sidebar", "Dismissed Clay task", "Completed Clay task"],
+  "visible completed and dismissed task coordinators remain navigable beside active work");
+  assert.equal(projects[CLAY].summary.metrics.activeWorkers, 1,
+    "the retained completed coordinator does not consume active capacity");
   assert.deepEqual(projects[WEBAPP].summary.coordinatorTree[0].children.map(function (item) {
     return item.status;
   }), ["needs_input"]);
@@ -257,6 +268,13 @@ test("global Coop projection keeps one persistent canonical root and only live t
       coordinatorSessionStorageId: "clay-active-task-coordinator",
       taskId: "clay-worker-running",
     }],
+    ["Fulfilled QA worker", "completed", {
+      projectId: CLAY, sessionStorageId: "clay-worker-completed",
+    }, {
+      projectId: CLAY,
+      coordinatorSessionStorageId: "clay-active-task-coordinator",
+      taskId: "clay-worker-completed",
+    }],
     ["Review hierarchy ownership", "needs_input", {
       projectId: CLAY, sessionStorageId: "clay-worker-attention",
     }, {
@@ -264,13 +282,13 @@ test("global Coop projection keeps one persistent canonical root and only live t
       coordinatorSessionStorageId: "clay-active-task-coordinator",
       taskId: "clay-worker-attention",
     }],
-  ], "only exact current active and attention worker bindings are projected once");
+  ], "only exact current visible worker bindings are projected once");
   assert.equal(JSON.stringify(taskCoordinator).includes("Owner direct worker"), false);
   assert.equal(JSON.stringify(taskCoordinator).includes("Foreign Coop worker"), false);
   assert.equal(JSON.stringify(taskCoordinator).includes("Historical worker attempt"), false);
   assert.equal(JSON.stringify(taskCoordinator).includes("Unrelated worker"), false);
   assert.equal(JSON.stringify(taskCoordinator).includes("Worker without binding id"), false);
-  assert.equal(JSON.stringify(taskCoordinator).includes("Fulfilled QA worker"), false);
+  assert.equal(JSON.stringify(taskCoordinator).includes("Fulfilled QA worker"), true);
   assert.equal(JSON.stringify(taskCoordinator).includes("Hidden running worker"), false);
   assert.equal(JSON.stringify(taskCoordinator).includes("Fourth-level worker"), false);
   assert.equal(projects[CLAY].summary.metrics.activeWorkers, 1,
@@ -290,9 +308,9 @@ test("global Coop projection keeps one persistent canonical root and only live t
       children: item.summary.coordinatorTree[0].children.length,
     };
   }), [
-    { projectId: CLAY, roots: 1, children: 0 },
+    { projectId: CLAY, roots: 1, children: 2 },
     { projectId: WEBAPP, roots: 1, children: 0 },
-  ], "terminal child rows close while both reusable project roots persist");
+  ], "visible terminal rows remain while hidden active rows leave both reusable project roots");
 });
 
 test("initial Coop projection includes the production-shaped active 38ee project coordinator", function () {
@@ -379,8 +397,11 @@ test("initial Coop projection includes the production-shaped active 38ee project
   assert.deepEqual(tree[0].sessionRef, rootRef);
   assert.deepEqual(taskCoordinators.map(function (child) {
     return { sessionRef: child.sessionRef, status: child.status };
-  }), [{ sessionRef: activeRef, status: "running" }]);
-  assert.equal(JSON.stringify(tree).includes("terminal-project-coordinator"), false);
+  }), [{ sessionRef: activeRef, status: "running" }, {
+    sessionRef: { projectId: CLAY, sessionStorageId: "terminal-project-coordinator" },
+    status: "completed",
+  }]);
+  assert.equal(JSON.stringify(tree).includes("terminal-project-coordinator"), true);
   assert.equal(JSON.stringify(tree).includes("hidden-project-coordinator"), false);
   assert.equal(JSON.stringify(tree).includes("owner-direct-project-coordinator"), false);
 });
@@ -419,6 +440,7 @@ test("a durable task dismissal overrides its failed historical child execution",
     tasks.push(Object.assign(task("dismissed-" + i, "dismissed", child), {
       workerSessionRef: { projectId: CLAY, sessionStorageId: item.id },
       resolutionReason: "Superseded by the completed visibility repair.",
+      archivedAt: 1,
     }));
   }
   var root = session(49, {
@@ -885,6 +907,58 @@ test("shared Coop renderer places only active project coordinator rows in deskto
     sessionRef: { projectId: CLAY, sessionStorageId: "clay-worker" },
     scope: "owner_request_hierarchy",
   }, "clicking a worker opens its exact canonical SessionRef");
+});
+
+test("desktop and mobile sidebars retain and navigate completed visible task coordinators", async function () {
+  globalThis.document = { createElement: createElement };
+  var modelModule = await import(moduleUrl("sidebar-coop-topic-model.js") + "?terminal=" + Date.now());
+  var hierarchyModel = await import(moduleUrl("sidebar-coop-hierarchy-model.js") + "?terminal=" + Date.now());
+  var renderer = await import(moduleUrl("sidebar-coop-hierarchy.js") + "?terminal=" + Date.now());
+  var terminalProject = projectedProject(CLAY, "Clay", "Completed visible task coordinator", "");
+  var terminal = terminalProject.summary.coordinatorTree[0].children[0];
+  terminal.status = "completed";
+  var model = {
+    hasProjection: true,
+    projects: [terminalProject],
+    uncategorisedTopics: [],
+    crossProjectTopics: [],
+  };
+  var sections = modelModule.coopTopicSections(model);
+  var normalized = hierarchyModel.cloneCoopProjectHierarchy(
+    terminalProject.summary.coordinatorTree);
+  assert.equal(normalized[0].children[0].status, "completed");
+  assert.equal(normalized[0].children[0].sessionRef.sessionStorageId,
+    "clay-task-coordinator");
+
+  var desktopSent = [];
+  var mobileSent = [];
+  var desktop = createElement("div");
+  var mobile = createElement("div");
+  renderer.renderCoopProjectHierarchy(desktop, sections[0].coordinators[0].hierarchy, {
+    mobile: false,
+    send: function (message) { desktopSent.push(message); return true; },
+  });
+  renderer.renderCoopProjectHierarchy(mobile, sections[0].coordinators[0].hierarchy, {
+    mobile: true,
+    send: function (message) { mobileSent.push(message); return true; },
+  });
+
+  var desktopTerminal = byClass(desktop, "coop-project-coordinator-row").filter(function (row) {
+    return row.classList.contains("child");
+  })[0];
+  var mobileTerminal = byClass(mobile, "mobile-coop-project-coordinator-row").filter(function (row) {
+    return row.classList.contains("child");
+  })[0];
+  assert.equal(desktopTerminal.children[2].textContent, "Done");
+  assert.equal(mobileTerminal.children[2].textContent, "Done");
+  desktopTerminal.listeners.click();
+  mobileTerminal.listeners.click();
+  assert.deepEqual(desktopSent[0], {
+    type: "resolve_session_ref",
+    sessionRef: { projectId: CLAY, sessionStorageId: "clay-task-coordinator" },
+    scope: "owner_request_hierarchy",
+  });
+  assert.deepEqual(mobileSent[0], desktopSent[0]);
 });
 
 test("desktop and mobile render a navigable Thread container above task coordinators", async function () {

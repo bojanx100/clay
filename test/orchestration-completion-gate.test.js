@@ -400,7 +400,7 @@ test("a portfolio project coordinator can complete after verified direct integra
   assert.equal(h.session.orchestrationEvents.at(-1).type, "project_completed");
 });
 
-test("verified Coop project completion archives the coordinator and descendants", function () {
+test("verified Coop project completion retains the visible coordinator and descendants", function () {
   var worker = { localId: 2, hidden: false };
   var h = gateHarness([task("done", "completed", { workerSessionId: worker.localId })], {
     descendants: [worker],
@@ -424,11 +424,11 @@ test("verified Coop project completion archives the coordinator and descendants"
 
   h.gate.handleTurnDone(h.session);
 
-  assert.equal(h.session.hidden, true);
-  assert.equal(worker.hidden, true);
+  assert.equal(h.session.hidden, undefined);
+  assert.equal(worker.hidden, false);
   assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "completed");
   assert.ok(h.session.orchestrationPolicy.portfolioExecution.completedAt);
-  assert.ok(h.session.orchestrationTasks[0].archivedAt);
+  assert.equal(h.session.orchestrationTasks[0].archivedAt, undefined);
 });
 
 test("owner-created coordinator remains visible after verified project completion", function () {
@@ -455,7 +455,7 @@ test("owner-created coordinator remains visible after verified project completio
   assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "completed");
 });
 
-test("shared completion archive never hides an owner-created direct session", function () {
+test("completion preserves visible sessions while an explicit owner archive still hides", function () {
   var sessions = new Map();
   var controlled = {
     localId: 1,
@@ -474,13 +474,15 @@ test("shared completion archive never hides an owner-created direct session", fu
     hideSession: function (localId) { sessions.get(localId).hidden = true; },
   };
 
-  assert.equal(archiveCompletedCoopSession(manager, controlled), true);
-  assert.equal(controlled.hidden, true);
+  assert.equal(archiveCompletedCoopSession(manager, controlled), false);
+  assert.equal(controlled.hidden, undefined);
   assert.equal(archiveCompletedCoopSession(manager, ownerCreated), false);
   assert.equal(ownerCreated.hidden, undefined);
+  assert.equal(archiveCompletedCoopSession(manager, controlled, { explicit: true }), true);
+  assert.equal(controlled.hidden, true);
 });
 
-test("restart finalizes a persisted Coop completion and hides its descendants", function () {
+test("restart finalizes a persisted Coop completion without hiding visible descendants", function () {
   var worker = { localId: 2, hidden: false };
   var h = gateHarness([task("done", "completed", { workerSessionId: worker.localId })], {
     descendants: [worker],
@@ -504,9 +506,10 @@ test("restart finalizes a persisted Coop completion and hides its descendants", 
 
   h.gate.restore(h.session);
 
-  assert.equal(h.session.hidden, true);
-  assert.equal(worker.hidden, true);
+  assert.equal(h.session.hidden, undefined);
+  assert.equal(worker.hidden, false);
   assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "completed");
+  assert.equal(h.session.orchestrationTasks[0].archivedAt, undefined);
 });
 
 test("restart repairs a persisted project-coordinator needs-input declaration", function () {

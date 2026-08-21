@@ -1513,7 +1513,7 @@ test("owner tools can resolve and request input for descendant coordinator task 
   assert.equal(root.orchestrationTasks.length, 0);
 });
 
-test("terminal direct leaves reconcile old active bindings through typed completion without replay", function () {
+test("terminal direct leaves reconcile old active bindings through typed completion without hiding or replay", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-direct-leaf-recovery-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var router = createCrossProjectRouter({
@@ -1566,7 +1566,7 @@ test("terminal direct leaves reconcile old active bindings through typed complet
   });
 
   assert.equal(router.getExecutionBinding("portfolio-recovered-leaf", 1).status, "completed");
-  assert.equal(recoveredLeaf.hidden, true);
+  assert.equal(recoveredLeaf.hidden, undefined);
   assert.equal(lead.starts.length, 0, "historical completion is a control repair, not a replay");
   assert.deepEqual(router.bindingStore.listCurrent(), []);
 });
@@ -2949,7 +2949,7 @@ test("startup archives terminal and safe orphan workers without touching active 
   assert.equal(leadDirectLeaf.hidden, undefined);
 });
 
-test("completed direct leaves hide live and on startup while attention states remain visible", function () {
+test("completed direct leaves remain visible live and after restart while attention states remain visible", function () {
   function directLeaf(status, localId) {
     return {
       localId: localId,
@@ -2980,7 +2980,7 @@ test("completed direct leaves hide live and on startup while attention states re
   live._subscriber({ type: "done" });
 
   assert.equal(live.orchestrationPolicy.portfolioExecution.status, "completed");
-  assert.equal(live.hidden, true);
+  assert.equal(live.hidden, undefined);
   assert.equal(reviewing.hidden, undefined);
 
   var restartedCompleted = directLeaf("completed", 3);
@@ -2989,7 +2989,7 @@ test("completed direct leaves hide live and on startup while attention states re
     [restartedCompleted.localId, restartedCompleted],
     [restartedFailed.localId, restartedFailed],
   ]));
-  assert.equal(restartedCompleted.hidden, true);
+  assert.equal(restartedCompleted.hidden, undefined);
   assert.equal(restartedFailed.hidden, undefined);
 });
 

@@ -39,6 +39,14 @@ and needs-input work remains visible. The shared global projection drives both
 desktop and mobile hierarchy renderers, preserving their single canonical
 Council/Triage sections.
 
+## Retraction and correction — 2026-08-21
+
+The conclusion above applies only to the four historical tasks that had been
+explicitly archived. It must not be read as a rule that every dismissed or
+completed visible worker should be hidden. Terminalization alone now preserves
+owner-visible session navigation; an `archivedAt` marker records the separate
+explicit owner archive operation that is allowed to hide the exact worker.
+
 ## Regression coverage
 
 `test/coop-sidebar-project-coordinators.regression-1.test.js` constructs all four

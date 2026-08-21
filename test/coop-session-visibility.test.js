@@ -15,7 +15,7 @@ function session(extra) {
   }, extra || {});
 }
 
-test("only an exact dismissed Coop task coordinator is hidden durably", function () {
+test("only an explicitly archived dismissed Coop task coordinator is hidden durably", function () {
   var hidden = session({});
   var calls = [];
   var manager = {
@@ -25,15 +25,16 @@ test("only an exact dismissed Coop task coordinator is hidden durably", function
     },
   };
   assert.equal(visibility.hideDismissedSession(project(manager), hidden,
-    { taskId: "dismissed", status: "dismissed" }), true);
+    { taskId: "dismissed", status: "dismissed", archivedAt: 1 }), true);
   assert.equal(hidden.hidden, true);
   assert.deepEqual(calls, [[7, null, { projectionOnly: true }]]);
 });
 
-test("owner-direct, active, attention, and already hidden sessions stay untouched", function () {
+test("ordinary dismissal, owner-direct, active, attention, and already hidden sessions stay untouched", function () {
   var calls = 0;
   var manager = { hideSession: function () { calls++; } };
   var cases = [
+    session(),
     session({ coopControlledBy: null }),
     session({ coordinationRole: "project_coordinator" }),
     session({ hidden: true }),

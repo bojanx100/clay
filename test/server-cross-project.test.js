@@ -471,8 +471,9 @@ test("a compacted project coordinator completes its original canonical binding",
   assert.equal(completed.status, "completed");
   assert.equal(completed.completionEventId, emitted.eventId);
   assert.equal(completed.resultEventId, emitted.payload.resultEventId);
-  assert.equal(source.hidden, true);
-  assert.equal(continuation.hidden, true);
+  assert.equal(source.hidden, true,
+    "compaction retains its separate archive of the superseded source session");
+  assert.equal(continuation.hidden, undefined);
   assert.equal(ownerDirect.hidden, undefined);
 });
 
