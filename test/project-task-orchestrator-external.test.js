@@ -422,7 +422,7 @@ test("an external Live UI report can promote an ordinary conversation", function
   assert.strictEqual(ordinary.orchestrationTasks.length, 1);
 });
 
-test("completed Coop direct leaves deliver their result before terminal archival", function () {
+test("completed Coop direct leaves deliver their result and remain discoverable", function () {
   var timeline = [];
   var session = {
     localId: 7,
@@ -494,9 +494,11 @@ test("completed Coop direct leaves deliver their result before terminal archival
   session._subscriber({ type: "done" });
 
   assert.equal(metadata.status, "completed");
-  assert.equal(session.hidden, true);
+  assert.equal(session.hidden, undefined,
+    "terminal completion must not implicitly hide a visible direct leaf");
   assert.ok(timeline.indexOf("save:completed") < timeline.indexOf("deliver:completed"));
-  assert.ok(timeline.indexOf("deliver:completed") < timeline.indexOf("hide"));
+  assert.equal(timeline.indexOf("hide"), -1,
+    "result delivery preserves the worker as a discoverable completion record");
 });
 
 test("needs-input Coop direct leaves deliver terminal attention without hiding evidence", function () {
