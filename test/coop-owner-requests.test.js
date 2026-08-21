@@ -300,6 +300,71 @@ test("a Main implementation decision is durably scoped to one exact typed task",
   assert.deepEqual(reloaded.projectRefs, [{ projectId: LEAD_PROJECT }]);
 });
 
+test("one exact named-approval ingress retains each independently named task scope", function () {
+  var file = tempFile();
+  var ledger = makeLedger({ file: file });
+  var id = "coop:" + COOP_SESSION + ":552";
+  var firstScope = {
+    projectRef: { projectId: LEAD_PROJECT },
+    topicRef: TOPIC,
+    portfolioTaskId: "clay-voice-panel-not-opening-regression-2026-08-21",
+    bindingRevision: 3,
+    idempotencyKey: "clay-voice-panel-not-opening-regression-2026-08-21-r3",
+  };
+  var secondScope = {
+    projectRef: { projectId: LEAD_PROJECT },
+    topicRef: TOPIC,
+    portfolioTaskId: "clay-visible-worker-terminal-auto-hide-regression-2026-08-21",
+    bindingRevision: 1,
+    idempotencyKey: "clay-visible-worker-terminal-auto-hide-regression-2026-08-21-r1",
+  };
+  var itemDecision = {
+    intent: "implement", source: "explicit_item_approval", at: 552000,
+  };
+  ledger.record(ingress(552));
+  ledger.classify(id, { kind: "existing_topic", source: "ingress_route" });
+
+  var first = ledger.scopeImplementation(id,
+    Object.assign({}, firstScope, { implementationDecision: itemDecision }));
+  var second = ledger.scopeImplementation(id,
+    Object.assign({}, secondScope, { implementationDecision: itemDecision }));
+  var unqualified = ledger.scopeImplementation(id, {
+    projectRef: { projectId: LEAD_PROJECT },
+    topicRef: TOPIC,
+    portfolioTaskId: "clay-unapproved-third-task",
+    bindingRevision: 1,
+    idempotencyKey: "clay-unapproved-third-task-r1",
+  });
+  var reloaded = ownerRequests.attachCoopOwnerRequests({ file: file }).get(id);
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true,
+    "a second exact item in the same owner turn must not overwrite the first");
+  assert.deepEqual(reloaded.implementationScope, firstScope,
+    "legacy readers keep the first scope as their compatibility projection");
+  assert.deepEqual(reloaded.implementationScopes, [firstScope, secondScope]);
+  assert.deepEqual(unqualified,
+    { ok: false, reason: "owner_implementation_scope_mismatch" },
+    "a generic continuation cannot turn the named approval into a blanket grant");
+});
+
+test("a plural scope record never unions a divergent legacy projection into authority", function () {
+  var first = {
+    projectRef: { projectId: LEAD_PROJECT }, topicRef: TOPIC,
+    portfolioTaskId: "clay-first-approved-task", bindingRevision: 1,
+    idempotencyKey: "clay-first-approved-task-r1",
+  };
+  var injectedLegacy = {
+    projectRef: { projectId: LEAD_PROJECT }, topicRef: TOPIC,
+    portfolioTaskId: "clay-injected-legacy-task", bindingRevision: 1,
+    idempotencyKey: "clay-injected-legacy-task-r1",
+  };
+  assert.deepEqual(ownerRequests.implementationScopesFor({
+    implementationScope: injectedLegacy,
+    implementationScopes: [first],
+  }), [first]);
+});
+
 test("an unresolved ProjectRef records attention instead of silently dropping the request", function () {
   var ledger = makeLedger();
   var id = "coop:" + COOP_SESSION + ":182";

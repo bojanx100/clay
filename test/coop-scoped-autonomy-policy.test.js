@@ -100,6 +100,29 @@ test("an exact owner-provisioned project grant persists across restart and prese
   }
 });
 
+test("a scoped-autonomy grant selects its exact policy scope from a multi-approval owner turn", function () {
+  var unrelated = {
+    projectRef: { projectId: OTHER_PROJECT },
+    topicRef: { topicId: "owner-unrelated" },
+    portfolioTaskId: "clay-unrelated-approved-task",
+    bindingRevision: 1,
+    idempotencyKey: "clay-unrelated-approved-task-r1",
+  };
+  var evidence = ownerEvidence({ entry: {
+    implementationScope: unrelated,
+    implementationScopes: [unrelated, {
+      projectRef: { projectId: PROJECT },
+      topicRef: { topicId: "owner-scoped-policy" },
+      portfolioTaskId: POLICY_TASK,
+      bindingRevision: 1,
+      idempotencyKey: POLICY_TASK + "-r1",
+    }],
+  } });
+  var result = policy.ownerGrantFrom(evidence);
+  assert.equal(result.ok, true, result.reason);
+  assert.deepEqual(result.grant.projectRef, { projectId: PROJECT });
+});
+
 test("a scoped grant is never created from an injected, wrong-task, or unscoped owner record", function () {
   var dir = tempDir();
   var file = path.join(dir, "scoped-policy.json");

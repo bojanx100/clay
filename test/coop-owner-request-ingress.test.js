@@ -193,6 +193,22 @@ test("a small conversational turn is carried to the ledger as conversational", f
   assert.equal(record.expectsExecution, false);
 });
 
+test("multiple exact item approvals are discoverable without becoming a broad Main command", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var msg = {
+    text: "Approve clay-voice-panel-not-opening-regression-2026-08-21 rev3 implementation " +
+      "for ProjectRef " + projectId + ".\n\n" +
+      "Approve clay-visible-worker-terminal-auto-hide-regression-2026-08-21 rev1 implementation " +
+      "for ProjectRef " + projectId + ".",
+  };
+  topicIngress.prepareIngress(routeCtx({ ok: true }, {}), null, msg, {});
+
+  assert.equal(msg.coopClassification, "existing_topic",
+    "the item-approval route must be able to recover this owner ingress");
+  assert.equal(msg.coopImplementationDecision, null,
+    "classification alone must not authorize an arbitrary typed dispatch");
+});
+
 test("an explicitly selected lens with no classifier verdict still reads as a reuse", function () {
   var msg = { text: "carry on here" };
   topicIngress.prepareIngress(routeCtx({ ok: true, topicRef: TOPIC }, {}), null, msg, {});

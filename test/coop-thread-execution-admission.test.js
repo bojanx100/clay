@@ -1466,3 +1466,78 @@ test("owner ingress 508 resolves approval to exact scope and starts one canonica
     assert.equal(delivered.length, 1, "approval replay must not start a duplicate worker");
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
 });
+
+test("one exact owner turn dispatches every named task and keeps their scopes independent", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-multi-exact-approval-"));
+  var delivered = [];
+  var approvalIngress = "coop:canonical-coop:552";
+  var tasks = [{
+    portfolioTaskId: "clay-voice-panel-not-opening-regression-2026-08-21",
+    bindingRevision: 3,
+  }, {
+    portfolioTaskId: "clay-visible-worker-terminal-auto-hide-regression-2026-08-21",
+    bindingRevision: 1,
+  }];
+  var history = [{
+    type: "user_message",
+    text: "Approve " + tasks[0].portfolioTaskId + " rev3 implementation for ProjectRef " +
+      PROJECT + ".\n\nApprove " + tasks[1].portfolioTaskId +
+      " rev1 implementation for ProjectRef " + PROJECT + ".",
+    coopIngressId: approvalIngress,
+    coopComposerScope: "main",
+    _ts: 552000,
+  }];
+  var ownerLedger = require("../lib/coop-owner-requests").attachCoopOwnerRequests({
+    file: path.join(dir, "owner-requests.json"),
+  });
+  var topicIndex = createTopicIndex({ file: path.join(dir, "topics.json") });
+  ownerLedger.record({
+    ingressId: approvalIngress,
+    ingressSequence: 552,
+    ingressKind: "text",
+    sessionRef: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+    receivedAt: 552000,
+  });
+  ownerLedger.classify(approvalIngress, { kind: "existing_topic", source: "ingress_route" });
+  var approved = executionRouter([], delivered, [], {
+    dir: dir,
+    ownerRequests: ownerLedger,
+    history: history,
+    leadEvents: [],
+  });
+  var source = { localId: 1, storageId: "canonical-coop", coopHome: true, history: history };
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: ownerLedger,
+    readLeadEvents: function () { return []; },
+    ensureOwnerThread: function (input) { return topicIndex.ensureOwnerThread(input); },
+    createProjectExecution: approved.router.createProjectExecution,
+  });
+  try {
+    tasks.forEach(function (task) {
+      var result = coordinate({
+        coordinatorSessionId: "canonical-coop",
+        portfolioTaskId: task.portfolioTaskId,
+        bindingRevision: task.bindingRevision,
+        idempotencyKey: task.portfolioTaskId + "-r" + task.bindingRevision,
+        mode: "project_coordinator",
+        targetProject: { projectId: PROJECT },
+        title: "Implement " + task.portfolioTaskId,
+        objective: "Implement the exact owner-approved change.",
+      });
+      assert.equal(result.ok, true, JSON.stringify(result));
+    });
+
+    assert.equal(delivered.length, 2, "each independently named task gets one binding");
+    assert.deepEqual(delivered.map(function (envelope) {
+      return envelope.payload.coopApprovalIngressId;
+    }), [approvalIngress, approvalIngress]);
+    var entry = ownerLedger.get(approvalIngress);
+    assert.equal(entry.implementationScopes.length, 2);
+    assert.deepEqual(entry.implementationScopes.map(function (scope) {
+      return [scope.projectRef.projectId, scope.portfolioTaskId, scope.bindingRevision];
+    }), [[PROJECT, tasks[0].portfolioTaskId, 3], [PROJECT, tasks[1].portfolioTaskId, 1]]);
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});

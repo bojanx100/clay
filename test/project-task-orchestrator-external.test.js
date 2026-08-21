@@ -1254,6 +1254,7 @@ test("a minted Thread is carried by the durable scope once the owner types again
     topicRef: firstRef,
     portfolioTaskId: "clay-threadref-minting-fix",
     bindingRevision: 1,
+    idempotencyKey: "threadref-r1",
   };
   harness.history.push({
     type: "user_message",

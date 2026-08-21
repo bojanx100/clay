@@ -50,6 +50,38 @@ test("owner approval wording is recognized only in narrow referential forms", fu
   assert.equal(approval(""), null);
 });
 
+test("one owner turn parses multiple fully qualified exact approvals without widening", function () {
+  var voice = "clay-voice-panel-not-opening-regression-2026-08-21";
+  var worker = "clay-visible-worker-terminal-auto-hide-regression-2026-08-21";
+  var text = "Approve " + voice + " rev3 implementation for ProjectRef " + CLAY_ID + ".\n\n" +
+    "Approve " + worker + " rev1 implementation for ProjectRef " + CLAY_ID + ".";
+  assert.deepEqual(itemApproval.explicitItemApprovals(text), [{
+    subject: voice + " rev3",
+    portfolioTaskId: voice,
+    bindingRevision: 3,
+    projectRef: { projectId: CLAY_ID },
+  }, {
+    subject: worker + " rev1",
+    portfolioTaskId: worker,
+    bindingRevision: 1,
+    projectRef: { projectId: CLAY_ID },
+  }]);
+
+  var mixed = itemApproval.explicitItemApprovals(
+    "Approve " + voice + " rev3 implementation for ProjectRef " + CLAY_ID + ".\n\n" +
+    "Start " + worker + " rev1 implementation for ProjectRef " + CLAY_ID + ".");
+  assert.equal(mixed.some(function (approval) {
+    return approval.portfolioTaskId === worker;
+  }), false, "a mixed approval and implementation request must not manufacture a second approval");
+  assert.deepEqual(itemApproval.explicitItemApprovals(
+    "Approve " + voice + " rev3 implementation for ProjectRef " + CLAY_CHROME_ID + "."), [{
+    subject: voice + " rev3",
+    portfolioTaskId: voice,
+    bindingRevision: 3,
+    projectRef: { projectId: CLAY_CHROME_ID },
+  }]);
+});
+
 test("a named approval binds the exact pending revision that was waiting", function () {
   var events = [
     attention(ELIGIBILITY, 1000),
