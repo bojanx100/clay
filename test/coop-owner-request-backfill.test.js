@@ -548,6 +548,261 @@ test("startup migration fails closed when pinned indices run past a shortened tr
     assert.equal(ledger.get(request.coopIngressId), null);
   });
 
+// Coalescing rots every absolute coordinate, but coopIngressId survives it. A
+// migration entry that names the ingress can therefore still be verified after
+// the transcript is re-indexed -- and it MUST be, because a wedged
+// verifyMigration returns "migration_evidence_changed" before
+// migrateOwnerRequestHistory ever reaches backfillOwnerRequests, so one stale
+// coordinate skips the entire startup backfill. That is what
+// ~/.clay/recovery-events-dev.log recorded on every boot from
+// 2026-08-19T10:16:05Z: {"migration":"coop-owner-requests","ok":false,
+// "detail":"migration_evidence_changed"}.
+function driftedCoalescedHistory(request) {
+  // Pre-coalescing the request sat at index 3, behind a three-chunk delta run.
+  var uncoalesced = [
+    { type: "delta", text: "a", _ts: 1 }, { type: "delta", text: "b", _ts: 2 },
+    { type: "delta", text: "c", _ts: 3 }, request,
+    { type: "delta", text: "Answered.", _ts: 300000 }, { type: "done", code: 0, _ts: 300001 },
+  ];
+  var coalesced = coalesceDeltas(uncoalesced);
+  assert.equal(coalesced.indexOf(request), 1, "the drift under test: pinned 3, actually at 1");
+  return coalesced;
+}
+
+function migrateAgainst(ledger, history, requests) {
+  return backfill.migrateOwnerRequestHistory(ledger,
+    { sessions: new Map([[1, { storageId: COOP, coopHome: true, history: history }]]) },
+    { migrations: [{ migrationId: "drifted-request-coordinate", sessionStorageId: COOP,
+      requests: requests, evidence: {} }] });
+}
+
+test("startup migration resolves a coalescing-drifted request by its ingress identity",
+  function () {
+    var request = ingress(283, { text: "what now?" });
+    var history = driftedCoalescedHistory(request);
+    var ledger = ledgerFor();
+
+    var result = migrateAgainst(ledger, history, [{ ingressId: request.coopIngressId,
+      sequence: 283, eventIndex: 3, digest: digestEvent(request) }]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.backfill.ok, true);
+    // The whole point: the startup backfill ran instead of being skipped.
+    assert.equal(result.backfill.counts.recorded, 1);
+    assert.ok(ledger.get(request.coopIngressId));
+
+    // Gated on the entry naming an ingress. Drop the identity and the same
+    // drifted coordinate must still fail closed, exactly as it does today.
+    var strictLedger = ledgerFor();
+    var strict = migrateAgainst(strictLedger, history,
+      [{ sequence: 283, eventIndex: 3, digest: digestEvent(request) }]);
+    assert.equal(strict.ok, false);
+    assert.equal(strict.reason, "migration_evidence_changed");
+    assert.equal(strict.migrations[0].reason, "request_evidence_changed");
+    assert.equal(strictLedger.get(request.coopIngressId), null);
+  });
+
+test("startup migration still fails closed when the named ingress is gone from history",
+  function () {
+    var request = ingress(283, { text: "what now?" });
+    var history = driftedCoalescedHistory(request).filter(function (event) {
+      return event !== request;
+    });
+    var ledger = ledgerFor();
+
+    var result = migrateAgainst(ledger, history, [{ ingressId: request.coopIngressId,
+      sequence: 283, eventIndex: 3, digest: digestEvent(request) }]);
+
+    assert.equal(result.ok, false);
+    assert.equal(result.migrations[0].reason, "request_evidence_changed");
+    assert.equal(ledger.get(request.coopIngressId), null);
+  });
+
+test("startup migration refuses to guess which turn a duplicated ingress id meant", function () {
+  var request = ingress(283, { text: "what now?" });
+  var history = driftedCoalescedHistory(request);
+  history.push(Object.assign({}, request, { _ts: 900000 }));
+  var ledger = ledgerFor();
+
+  var result = migrateAgainst(ledger, history, [{ ingressId: request.coopIngressId,
+    sequence: 283, eventIndex: 3, digest: digestEvent(request) }]);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.migrations[0].reason, "request_evidence_changed");
+  assert.equal(ledger.get(request.coopIngressId), null);
+});
+
+test("identity resolution does not excuse a request whose content actually changed", function () {
+  // Resolution supplies the coordinate; the digest still has to prove the turn.
+  var request = ingress(283, { text: "what now?" });
+  var edited = Object.assign({}, request, { text: "something the owner never said" });
+  var history = driftedCoalescedHistory(request).map(function (event) {
+    return event === request ? edited : event;
+  });
+  var ledger = ledgerFor();
+
+  var result = migrateAgainst(ledger, history, [{ ingressId: request.coopIngressId,
+    sequence: 283, eventIndex: 3, digest: digestEvent(request) }]);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.migrations[0].reason, "request_evidence_changed");
+  assert.equal(ledger.get(request.coopIngressId), null);
+});
+
+// The exact-range path (requestReplay: false) records the request itself rather
+// than letting the audit do it, so it dereferences the pinned coordinate twice:
+// once to verify, once to write. Both had to stop trusting the offset.
+function exactRangeFixture() {
+  var first = ingress(292, { text: "first old request" });
+  var second = ingress(295, { text: "second old request" });
+  var history = [
+    { type: "delta", text: "abc", _ts: 3 }, first, second,
+    { type: "delta", text: "Answered the first exact request.", _ts: 300000 },
+    { type: "delta", text: " Answered the second exact request.", _ts: 300001 },
+    { type: "done", code: 0, _ts: 300002 },
+  ];
+  return { first: first, second: second, history: history };
+}
+
+function exactRangeMigration(fixture, requests) {
+  return [{
+    migrationId: "drifted-exact-range",
+    sessionStorageId: COOP,
+    requestReplay: false,
+    requests: requests,
+    evidence: { answered: [
+      { sequence: 292, responseStartEventIndex: 3, responseEventIndex: 5,
+        responseDigest: digestRange(fixture.history, 3, 5) },
+      { sequence: 295, responseStartEventIndex: 3, responseEventIndex: 5,
+        responseDigest: digestRange(fixture.history, 3, 5) },
+    ] },
+  }];
+}
+
+function migrateExactRange(ledger, fixture, requests) {
+  return backfill.migrateOwnerRequestHistory(ledger,
+    { sessions: new Map([[1, { storageId: COOP, coopHome: true, history: fixture.history }]]) },
+    { migrations: exactRangeMigration(fixture, requests) });
+}
+
+test("exact-range migration records a drifted request at its resolved coordinate", function () {
+  var fixture = exactRangeFixture();
+  var ledger = ledgerFor();
+  // Pinned one short of where each request actually sits after coalescing.
+  var result = migrateExactRange(ledger, fixture, [
+    { ingressId: fixture.first.coopIngressId, sequence: 292, eventIndex: 0,
+      digest: digestEvent(fixture.first) },
+    { ingressId: fixture.second.coopIngressId, sequence: 295, eventIndex: 1,
+      digest: digestEvent(fixture.second) },
+  ]);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.migrations[0].prepared, 2);
+  // The resolved coordinate, not the stale pinned one.
+  assert.equal(ledger.get(fixture.first.coopIngressId).requestRef.eventIndex, 1);
+  assert.equal(ledger.get(fixture.second.coopIngressId).requestRef.eventIndex, 2);
+  assert.equal(ledger.get(fixture.first.coopIngressId).response.responseRef.eventIndex, 5);
+  assert.equal(ledger.get(fixture.second.coopIngressId).response.responseRef.eventIndex, 5);
+});
+
+test("exact-range migration accepts a ledger record whose stored eventIndex has drifted",
+  function () {
+    var fixture = exactRangeFixture();
+    var ledger = ledgerFor();
+    var stale = [147824, 152906];
+    var events = [fixture.first, fixture.second];
+    for (var i = 0; i < events.length; i++) {
+      ledger.record({
+        ingressId: events[i].coopIngressId,
+        ingressSequence: events[i].coopIngressSequence,
+        ingressKind: events[i].coopIngressKind,
+        sessionRef: { projectId: "system-lead", sessionStorageId: COOP },
+        // Identity-correct, coordinate rotted: the shape of every live record.
+        requestRef: { projectId: "system-lead", sessionStorageId: COOP, eventIndex: stale[i] },
+        receivedAt: events[i]._ts,
+        topicRef: events[i].coopTopicRef,
+      });
+    }
+
+    var result = migrateExactRange(ledger, fixture, [
+      { ingressId: fixture.first.coopIngressId, sequence: 292, eventIndex: 1,
+        digest: digestEvent(fixture.first) },
+      { ingressId: fixture.second.coopIngressId, sequence: 295, eventIndex: 2,
+        digest: digestEvent(fixture.second) },
+    ]);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.migrations[0].prepared, 0);
+    assert.equal(ledger.get(fixture.first.coopIngressId).response.state, "answered");
+    assert.equal(ledger.get(fixture.second.coopIngressId).response.state, "answered");
+  });
+
+test("exact-range migration still refuses a ledger record from another session", function () {
+  var fixture = exactRangeFixture();
+  var ledger = ledgerFor();
+  ledger.record({
+    ingressId: fixture.first.coopIngressId,
+    ingressSequence: 292,
+    ingressKind: "text",
+    sessionRef: { projectId: "system-lead", sessionStorageId: "some-other-session" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "some-other-session", eventIndex: 1 },
+    receivedAt: fixture.first._ts,
+  });
+
+  var result = migrateExactRange(ledger, fixture, [
+    { ingressId: fixture.first.coopIngressId, sequence: 292, eventIndex: 1,
+      digest: digestEvent(fixture.first) },
+    { ingressId: fixture.second.coopIngressId, sequence: 295, eventIndex: 2,
+      digest: digestEvent(fixture.second) },
+  ]);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.migrations[0].reason, "request_ref_mismatch");
+  assert.equal(ledger.get(fixture.second.coopIngressId), null,
+    "a refused preflight must not have written the other request");
+});
+
+test("exact-range migration still refuses a ledger record at a different ingress sequence",
+  function () {
+    var fixture = exactRangeFixture();
+    var ledger = ledgerFor();
+    ledger.record({
+      ingressId: fixture.first.coopIngressId,
+      ingressSequence: 292,
+      ingressKind: "text",
+      sessionRef: { projectId: "system-lead", sessionStorageId: COOP },
+      requestRef: { projectId: "system-lead", sessionStorageId: COOP, eventIndex: 1 },
+      receivedAt: fixture.first._ts,
+    });
+
+    var result = migrateExactRange(ledger, fixture, [
+      { ingressId: fixture.first.coopIngressId, sequence: 292, eventIndex: 1,
+        digest: digestEvent(fixture.first) },
+      { ingressId: fixture.second.coopIngressId, sequence: 295, eventIndex: 2,
+        digest: digestEvent(fixture.second) },
+    ]);
+    assert.equal(result.ok, true);
+
+    // Same ingress id, but the ledger says it arrived as a different turn.
+    var conflicted = ledgerFor();
+    conflicted.record({
+      ingressId: fixture.first.coopIngressId,
+      ingressSequence: 999,
+      ingressKind: "text",
+      sessionRef: { projectId: "system-lead", sessionStorageId: COOP },
+      requestRef: { projectId: "system-lead", sessionStorageId: COOP, eventIndex: 1 },
+      receivedAt: fixture.first._ts,
+    });
+    var refused = migrateExactRange(conflicted, fixture, [
+      { ingressId: fixture.first.coopIngressId, sequence: 292, eventIndex: 1,
+        digest: digestEvent(fixture.first) },
+      { ingressId: fixture.second.coopIngressId, sequence: 295, eventIndex: 2,
+        digest: digestEvent(fixture.second) },
+    ]);
+    assert.equal(refused.ok, false);
+    assert.equal(refused.migrations[0].reason, "request_ref_mismatch");
+  });
+
 test("retired defaults leave startup migration clean instead of wedged", function () {
   // Both 2026-08-15 owner-request migrations are retired: they had already
   // applied, and their pinned coordinates cannot verify after coalescing.
