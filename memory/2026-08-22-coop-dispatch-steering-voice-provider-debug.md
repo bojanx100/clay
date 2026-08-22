@@ -333,7 +333,48 @@ the next revision, so `clay-voice-mobile-stt-no-transcript` rev2 (worker reached
 the 2026-08-16 guard existed to prevent, relocated from execution into
 bookkeeping, and accepted knowingly.
 
-Mitigated by durable evidence rather than by another state edit: lead-ledger seqs
-701 and 702 record what actually completed and say plainly not to retry either.
-`restart_recovery` conflating "the execution process died" with "the work failed"
-is a real reporting defect and still open.
+Mitigated first by durable evidence rather than by another state edit: lead-ledger
+seqs 701 and 702 record what actually completed and say plainly not to retry
+either.
+
+### The retry hazard is now closed in code
+
+`approvalCarriesForward` counted any terminal `failed` revision as evidence the
+approved attempt failed. A restart-recovery terminalization satisfies every other
+gate -- it carries a valid post-approval `completedAt` -- so all five bindings
+above were retry-shaped.
+
+Fixed by requiring the failure to be DETERMINATE. `restart_recovery`,
+`restart_recovery_superseded` and `control_restart_recovery` record how an
+execution ended, not whether the work failed, so they no longer authorize a
+carry-forward; the owner must decide again. This leans on provenance
+`portfolio-execution-binding-completion` already preserves for exactly this
+reason -- without it "sweep-terminalized orphans became indistinguishable from
+genuine task failures: same status, same shape, no provenance" -- and is the
+first consumer to depend on it.
+
+The check is deliberately placed BEFORE the timestamp gate, because a
+restart-recovery record has a perfectly good `completedAt` and would otherwise
+pass everything downstream.
+
+Scoped, not blanket: absent provenance stays determinate, because 60 live failed
+bindings predate the `failureCode` field and treating a missing reason as
+indeterminate would silently revoke carry-forward for all of them. Measured
+against real live state: of 74 failed bindings, exactly the 5 written by this
+reconciliation are refused and the other 69 are unchanged.
+
+Proof by breaking: with only the indeterminate check removed,
+`test/coop-owner-approval-carry-forward-admission.test.js` reports 32 passing /
+1 failing; restored, 33/33. The companion test asserting that a determinate
+failure (`scope_expansion`) still carries forward passes in BOTH states, which is
+what shows the refusal is scoped rather than a blanket break.
+
+### Still open
+
+The narrow hazard is closed; the misstatement is not. Those five bindings still
+*read* `failed` for work that succeeded. Fixing that properly means a terminal
+status or reason that means "interrupted, outcome unestablished", and every
+projection, sweep and UI surface that keys on `failed` would have to be audited
+with it -- a much wider blast radius than the authorization path, and worth its
+own pass. The provenance needed to render it truthfully is already on the record
+in `failureCode`.

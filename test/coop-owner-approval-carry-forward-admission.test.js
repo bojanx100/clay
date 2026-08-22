@@ -391,6 +391,57 @@ test("carry-forward is permitted when the exact approved revision failed",
       "the carry-forward must be durably recorded, not implicit");
   });
 
+// A restart-recovery terminalization is not evidence that the approved work
+// failed -- the execution was killed with its daemon, which says nothing about
+// whether the work had finished. Live on 2026-08-22, eleven stranded controlled
+// executions were terminalized this way so startup recovery could run, and four
+// of the five resulting bindings described work that had SUCCEEDED (a worker
+// reporting WORKER_STATUS: completed with 89/89, and three PRs already pushed).
+// Each of those was then retry-shaped: same `failed` status, a valid
+// post-approval completedAt, and every other carry-forward gate satisfied.
+test("carry-forward is REFUSED when the approved revision was terminalized by restart recovery",
+  function () {
+    ["restart_recovery", "restart_recovery_superseded", "control_restart_recovery"]
+      .forEach(function (code) {
+        // failureCode is the field the completion writer mirrors...
+        var byCode = harness({
+          storedIndex: 200452,
+          history: historyWith(120, 400),
+          priorScope: { bindingRevision: 1 },
+          bindings: [bindingRecord(1, "failed", { failureCode: code, statusReason: code })],
+        });
+        assert.equal(byCode.dispatch({ bindingRevision: 2 }).ok, false,
+          code + " must not authorize a retry of work whose outcome is unestablished");
+
+        // ...and statusReason alone must be enough, since a record written
+        // before failureCode existed still carries the provenance there.
+        var byReason = harness({
+          storedIndex: 200452,
+          history: historyWith(120, 400),
+          priorScope: { bindingRevision: 1 },
+          bindings: [bindingRecord(1, "failed", { statusReason: code })],
+        });
+        assert.equal(byReason.dispatch({ bindingRevision: 2 }).ok, false,
+          code + " in statusReason alone must also refuse");
+      });
+  });
+
+// The refusal must be scoped to indeterminate provenance only. Sixty live failed
+// bindings predate the failureCode field entirely, and a determinate failure is
+// still exactly what a carry-forward is for.
+test("carry-forward still works for a determinate failure with unrelated provenance",
+  function () {
+    var h = harness({
+      storedIndex: 200452,
+      history: historyWith(120, 400),
+      priorScope: { bindingRevision: 1 },
+      bindings: [bindingRecord(1, "failed",
+        { failureCode: "scope_expansion", statusReason: "scope_expansion" })],
+    });
+    assert.equal(h.dispatch({ bindingRevision: 2 }).ok, true,
+      "an ordinary failure reason must still carry the approval forward");
+  });
+
 test("REGRESSION: an older completion before a later approved scope does not consume it",
   function () {
     // Voice has this exact history: rev1 completed for Clay before the owner
