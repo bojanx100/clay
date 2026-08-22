@@ -882,6 +882,14 @@
   margin-top: 8px;
 }
 
+.settings-restart-error {
+  color: var(--muted);
+}
+
+.settings-restart-error.settings-restart-failed {
+  color: var(--error) !important;
+}
+
 
 /* ==========  RESPONSIVE  ========== */
 @media (max-width: 768px) {
