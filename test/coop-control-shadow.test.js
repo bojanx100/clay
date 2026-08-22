@@ -108,6 +108,26 @@ test("canonical projection and digest ignore source and set enumeration order", 
   assert.equal(serialized.includes("free-form summary"), false);
 });
 
+test("a responseRef anchor stays outside the canonical projection", function () {
+  // An answered responseRef may carry a messageUuid anchor (see
+  // coop-owner-response-resolution.js). The durable store validates event refs
+  // as an exact three-field shape, so an unstripped anchor would make every
+  // answered record unprojectable -- and admitting it would move the digest of
+  // every answered record already stored, for an identity that adds no
+  // authority the projection does not already carry.
+  var plain = request(2, "answered");
+  var anchored = request(2, "answered");
+  anchored.response.responseRef.messageUuid = "8f2c0f1e-6d3b-4a17-9c22-0b7e5d41aa93";
+
+  var projected = shadow.referenceOnlyRequest(anchored);
+  assert.equal(projected.response.responseRef.messageUuid, undefined);
+  assert.deepEqual(projected, shadow.referenceOnlyRequest(plain));
+  assert.equal(
+    shadow.canonicalDigest([state([anchored], [])]),
+    shadow.canonicalDigest([state([plain], [])]),
+    "adding an anchor must not move an already-stored record's digest");
+});
+
 availableTest("shadow import reads an existing reference-only store and is idempotent", function () {
   var h = harness();
   try {

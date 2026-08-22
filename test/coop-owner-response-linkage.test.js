@@ -7,6 +7,7 @@ var test = require("node:test");
 var conversationControl = require("../lib/coop-conversation-control");
 var ownerRequests = require("../lib/coop-owner-requests");
 var responseLinkage = require("../lib/coop-owner-response-linkage");
+var responseResolution = require("../lib/coop-owner-response-resolution");
 
 var LEAD = "system-lead";
 var COOP = "871a194b-8879-40f7-a1fe-656e48e722af";
@@ -173,4 +174,146 @@ test("restart replay is idempotent and byte-stable after linked finalization", f
   assert.equal(fs.readFileSync(h.file, "utf8"), firstBytes);
   assert.equal(reloaded.get(first.ingressId).response.state, "answered");
   assert.equal(reloaded.get(second.ingressId).response.state, "answered");
+});
+
+var ANSWER_UUID = "8f2c0f1e-6d3b-4a17-9c22-0b7e5d41aa93";
+
+test("a linked answer stamps every settled request with the answering event's anchor", function () {
+  var h = harness();
+  var first = recordRequest(h.ledger, 292, 20);
+  var second = recordRequest(h.ledger, 295, 40);
+  responseLinkage.stageOwnerResponse({
+    session: h.session, ownerRequests: h.ledger, requests: [first, second], saveSession: h.save,
+  });
+  h.session.history.push({ type: "message_uuid", uuid: ANSWER_UUID, messageType: "assistant" });
+  h.session.history.push({ type: "delta_replace", text: "Answered both." });
+  h.session.history.push({ type: "done", code: 0, _ts: 100 });
+
+  var finalized = responseLinkage.finalizeOwnerResponse({
+    session: h.session,
+    ownerRequests: h.ledger,
+    responseEvent: { answered: true, eventIndex: 3 },
+    saveSession: h.save,
+  });
+
+  assert.equal(finalized.ok, true);
+  assert.deepEqual(h.ledger.get(first.ingressId).response.responseRef, {
+    projectId: LEAD, sessionStorageId: COOP, eventIndex: 3, messageUuid: ANSWER_UUID,
+  });
+  assert.deepEqual(h.ledger.get(second.ingressId).response.responseRef,
+    h.ledger.get(first.ingressId).response.responseRef,
+    "one answering event means one anchor for every request it settled");
+});
+
+test("the foreground turn stamps the anchor and survives the index drifting under it", function () {
+  var h = harness();
+  var ingressId = "coop:" + COOP + ":301";
+  h.session.history = [{ type: "user_message", text: "how is the fleet?",
+    coopIngressId: ingressId, _ts: 10 }];
+  h.session.coopConversationIngress = {
+    nextSequence: 302, recent: [], activeIngressId: ingressId, activeResponseStartIndex: 1,
+  };
+  h.ledger.record({
+    ingressId: ingressId,
+    ingressSequence: 301,
+    sessionRef: { projectId: LEAD, sessionStorageId: COOP },
+    requestRef: { projectId: LEAD, sessionStorageId: COOP, eventIndex: 0 },
+  });
+  var answering = { type: "done", code: 0, _ts: 100 };
+  h.session.history.push({ type: "message_uuid", uuid: ANSWER_UUID, messageType: "assistant" });
+  h.session.history.push({ type: "delta", text: "The fleet " });
+  h.session.history.push({ type: "delta", text: "is fine." });
+  h.session.history.push(answering);
+
+  var controller = conversationControl.attachCoopConversationControl({
+    coopOwnerRequests: h.ledger,
+    sm: { saveSessionFile: h.save },
+    sendToSession: function () {},
+  });
+  assert.equal(controller.markAnswered(h.session), true);
+
+  var stored = h.ledger.get(ingressId).response.responseRef;
+  assert.equal(stored.eventIndex, 4);
+  assert.equal(stored.messageUuid, ANSWER_UUID);
+
+  // Reload rebases session.history onto the coalesced transcript: the two
+  // consecutive deltas were written as one line, so every later index moved
+  // down by one. The stored index now names the wrong event; the anchor does
+  // not move.
+  var coalesced = [
+    { type: "user_message", text: "how is the fleet?", coopIngressId: ingressId, _ts: 10 },
+    { type: "message_uuid", uuid: ANSWER_UUID, messageType: "assistant" },
+    { type: "delta", text: "The fleet is fine." },
+    answering,
+  ];
+  assert.notEqual(coalesced[stored.eventIndex], answering,
+    "the stored index no longer lands on the answering event");
+  assert.equal(responseResolution.resolveDoneByAnchor(coalesced, stored.messageUuid), 3);
+  assert.equal(coalesced[3], answering);
+});
+
+test("an answering event with no anchor is recorded exactly as it was before", function () {
+  var h = harness();
+  var first = recordRequest(h.ledger, 292, 20);
+  responseLinkage.stageOwnerResponse({
+    session: h.session, ownerRequests: h.ledger, requests: [first], saveSession: h.save,
+  });
+  h.session.history.push({ type: "delta_replace", text: "No uuid was emitted." });
+  h.session.history.push({ type: "done", code: 0, _ts: 100 });
+
+  var finalized = responseLinkage.finalizeOwnerResponse({
+    session: h.session,
+    ownerRequests: h.ledger,
+    responseEvent: { answered: true, eventIndex: 2 },
+    saveSession: h.save,
+  });
+
+  assert.equal(finalized.ok, true);
+  assert.deepEqual(h.ledger.get(first.ingressId).response.responseRef,
+    { projectId: LEAD, sessionStorageId: COOP, eventIndex: 2 });
+  assert.equal(Object.prototype.hasOwnProperty.call(
+    h.ledger.get(first.ingressId).response.responseRef, "messageUuid"), false,
+    "an absent anchor is omitted, not stored empty");
+});
+
+test("a record written without an anchor round-trips byte-identically", function () {
+  var h = harness();
+  var first = recordRequest(h.ledger, 292, 20);
+  h.ledger.markAnswered(first.ingressId, { eventIndex: 2, at: 95 });
+  var beforeBytes = fs.readFileSync(h.file, "utf8");
+
+  var reloaded = ownerRequests.attachCoopOwnerRequests({
+    file: h.file, now: function () { return 100; },
+  });
+  var record = reloaded.get(first.ingressId);
+  assert.deepEqual(record.response.responseRef,
+    { projectId: LEAD, sessionStorageId: COOP, eventIndex: 2 });
+
+  reloaded.record({
+    ingressId: first.ingressId,
+    sessionRef: { projectId: LEAD, sessionStorageId: COOP },
+  });
+  assert.equal(fs.readFileSync(h.file, "utf8"), beforeBytes,
+    "an anchorless record must not gain a field on reload");
+});
+
+test("an anchor survives reload and an unusable one never invalidates the ref", function () {
+  var h = harness();
+  var good = recordRequest(h.ledger, 292, 20);
+  var bad = recordRequest(h.ledger, 293, 21);
+  var overlong = recordRequest(h.ledger, 294, 22);
+  h.ledger.markAnswered(good.ingressId, { eventIndex: 2, at: 95, messageUuid: ANSWER_UUID });
+  h.ledger.markAnswered(bad.ingressId, { eventIndex: 3, at: 95, messageUuid: "not a uuid" });
+  h.ledger.markAnswered(overlong.ingressId,
+    { eventIndex: 4, at: 95, messageUuid: new Array(200).join("a") });
+
+  var reloaded = ownerRequests.attachCoopOwnerRequests({
+    file: h.file, now: function () { return 100; },
+  });
+  assert.equal(reloaded.get(good.ingressId).response.responseRef.messageUuid, ANSWER_UUID);
+  assert.deepEqual(reloaded.get(bad.ingressId).response.responseRef,
+    { projectId: LEAD, sessionStorageId: COOP, eventIndex: 3 },
+    "prose is refused as an anchor but the ref itself stays valid");
+  assert.deepEqual(reloaded.get(overlong.ingressId).response.responseRef,
+    { projectId: LEAD, sessionStorageId: COOP, eventIndex: 4 });
 });
