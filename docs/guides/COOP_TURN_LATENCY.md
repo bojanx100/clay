@@ -102,7 +102,7 @@ window-filter it down to today. Only **1.04%** of those bytes (7.5MB, 11,159
 lines) are the `result` events the budget consumes.
 
 `lib/lead-budget-usage-cache.js` keeps those result events per file, keyed by
-`(size, mtimeMs)`, and on each tick re-reads only the byte range appended since
+`(size, mtimeMs, ino)`, and on each tick re-reads only the byte range appended since
 the last tick.
 
 | | Wall clock | Bytes read |
@@ -115,7 +115,7 @@ The cached daily budget is byte-identical to a full-read baseline on the live
 tree, cold and warm. `--refresh` warms the cache off the foreground turn so even
 the cold rebuild never lands inside an owner-facing turn.
 
-### Two invariants that must not be "optimized" away
+### Three invariants that must not be "optimized" away
 
 1. **Never drop pre-window result events.** `lead-budget.aggregateSession`
    (`lib/lead-budget.js:120-131`) walks the *full* result list to carry
@@ -123,14 +123,25 @@ the cold rebuild never lands inside an owner-facing turn.
    to "today" turns the first in-window cumulative cost into an absolute and
    overstates the day's spend. The cache therefore retains every result event
    and leaves windowing to the library.
-2. **Resume offsets are byte offsets.** A string index is not a byte offset.
+2. **A resume offset is only valid if the bytes before it are unchanged.** Size
+   alone does not establish that, and a shrink-only guard is not enough: the
+   transcript writer rewrites wholesale via temp-file + rename
+   (`sessions-persistence.js:344,350`), and such a rewrite usually *grows* the
+   file while changing the prefix — the meta line is mutable and coalescing
+   shortens earlier runs. The first implementation took the delta path on any
+   `size >= offset`, so it would resume mid-line and mix stale events into the
+   budget. Two independent reviewers found this. The rewrite is an atomic
+   rename, so it always lands a new inode while an append keeps the old one:
+   inode is the exact discriminator and it is already in the stat. A one-byte
+   newline probe at `offset-1` backs it up.
+3. **Resume offsets are byte offsets.** A string index is not a byte offset.
    The first implementation added a `String.prototype.indexOf` result to a byte
    offset; 50 emoji-bearing lines drifted the resume point 4,000 bytes early and
    re-counted an already-stored result event, reporting 3 turns for 2. The
    scanner works on a `Buffer` and decodes each line separately, which also
    makes it impossible for a multi-byte character to straddle a read boundary.
 
-Both invariants have a test that fails when the invariant is violated
+All three invariants have a test that fails when the invariant is violated
 (`test/lead-budget-usage-cache.test.js`).
 
 ## The larger cost, not yet fixed: transcript rewrites
@@ -164,12 +175,63 @@ Measured from the owner's live diag log:
 counted. A single save blocking the event loop for 3.7s stalls every session and
 every connected viewer, not just the turn that caused it.
 
-The fix is incremental append instead of full rewrite, but it is invasive enough
-to need its own change: it turns on whether `session.history` is genuinely
-append-only after an event is persisted, and it needs a full-rewrite fallback
-whenever a tracked offset disagrees with the file. That work is **proposed, not
-done**. Nothing in this document's measured wins touches it — the Lead-tick
-numbers above are real, and they are not this.
+> **RETRACTED 2026-08-22:** this section originally proposed "incremental append
+> instead of full rewrite". That framing is **moot** — new events are already
+> appended synchronously. It is left here because the corrected analysis below
+> only makes sense against it.
+
+New events never needed the full rewrite. `sendAndRecord`
+(`lib/sessions-io.js:37-38`) pushes to `session.history` and immediately calls
+`appendToSessionFile`, a plain `fs.appendFileSync` of that one line
+(`sessions-persistence.js:388-391`); 41 of the 45 `history.push` sites in `lib/`
+pair with an append within a few lines. Driving the real module proves it: five
+push+append cycles with **no** save leaves all five events on disk. So the
+157.3s is spent rewriting bytes that are *already correct*.
+
+The full rewrite survives for exactly three jobs, each separately solvable:
+
+1. **Rewrite line 1.** The meta line is **302,636 bytes** on the canonical Coop
+   session (172KB of `orchestrationEvents`, 111KB of `orchestrationTasks`) and it
+   changes on *every* save, because each append bumps `session.lastActivity`.
+   This is the complication the original framing missed entirely.
+2. **Re-coalesce delta runs.** The writer collapses contiguous
+   `{type,text,_ts}` deltas into one line, so file line index ≠ history index and
+   a naive "append everything past index N" is wrong on its face. Worth less than
+   its comment implies: deltas are 1.39MB of 45.13MB, while `tool_result` is
+   28.88MB.
+3. **Repair in-place mutation and truncation.** `session.history` is append-only
+   in the streaming hot path — `lib/sdk-message-processor.js` has *zero*
+   history-element accesses; streaming accumulates into `session.blocks[]`
+   instead — with **17 enumerated exceptions**, including property *deletions*
+   that an append log cannot express. The load-bearing fact: **15 of the 17
+   already call `saveSessionFile` immediately after mutating**, so they are
+   exactly the set that needs a full rewrite and they already ask for one.
+
+Measured on the real 45.13MB / 57,058-entry transcript: full rewrite **111.4ms**,
+append **0.022ms**, in-place padded-meta `pwrite` **0.934ms**.
+
+Verdict: **viable with caveats**, in two increments.
+
+- **First, no format change:** skip the rewrite when the serialized meta is
+  unchanged (normalizing `lastActivity` out) and no mutation flag is set — the
+  appends have already made the file correct.
+- **Then, if warranted:** a fixed-width padded meta block written in place with
+  `pwrite`. `JSON.parse` tolerates trailing whitespace, so the loader needs no
+  change; an 8KB floor costs 15MB across the whole store.
+
+The real risk is **not** a torn last line, which is free — it is a torn *line 1*,
+which makes `parseSessionFile`'s meta gate return null and the **entire session
+vanish from the UI** while its history sits intact on disk. Losing atomic rename
+trades "always consistent" for "line 1 can tear", so this needs two alternating
+meta slots or a scan-for-meta loader fallback before it ships.
+
+Also worth knowing: **the 157.3s is only the logged tail.** The `[SAVE-SLOW]`
+threshold is 200ms, and a typical save on this file is ~110ms, so 6-12 saves per
+turn means roughly **0.7-1.3s of blocking per turn that never appears in the diag
+log at all**.
+
+This work is **proposed, not done**. Nothing in this document's measured wins
+touches it — the Lead-tick numbers above are real, and they are not this.
 
 Two smaller items from the same investigation, also unfixed:
 

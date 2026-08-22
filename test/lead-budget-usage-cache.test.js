@@ -226,6 +226,39 @@ test("non-ASCII content keeps the resume offset in bytes and never double-counts
   assert.deepStrictEqual(daily, dailyFrom(fullReadSessions(root)));
 });
 
+// Found independently by two reviewers, and it is not theoretical: session
+// transcripts are rewritten wholesale via temp-file + rename
+// (sessions-persistence.js:344,350). Such a rewrite normally GROWS the file
+// while changing the prefix -- the meta line is mutable and delta coalescing
+// shortens earlier runs -- so a shrink-only guard takes the delta path, resumes
+// mid-line, and mixes stale events into the budget.
+test("a rewrite that grows the file is not mistaken for an append", function () {
+  var root = tempRoot("rewrite-grow");
+  var cacheFile = path.join(root, "cache.json");
+  var file = writeSession(root, "a.jsonl", [
+    metaLine("claude", START + 1),
+    resultLine(START + 100, 4, 100, 10),
+  ]);
+  var first = cache.refresh({ sessionsRoot: root, cacheFile: cacheFile });
+  assert.strictEqual(first.sessions[0].history.length, 1);
+
+  // Atomic rewrite, exactly as writeSessionFileNow does: longer meta line, a
+  // different event set, and a LARGER total size than before.
+  var replacement = [
+    JSON.stringify({ type: "meta", vendor: "claude", createdAt: START + 1, padding: "x".repeat(400) }),
+    resultLine(START + 500, 11, 100, 10),
+  ].join("\n") + "\n";
+  fs.writeFileSync(file + ".tmp", replacement);
+  fs.renameSync(file + ".tmp", file);
+  assert.ok(fs.statSync(file).size > first.cache.files[file].size, "the rewrite must grow the file");
+
+  var after = cache.refresh({ sessionsRoot: root, cacheFile: cacheFile });
+  assert.strictEqual(after.stats.full, 1, "a rewritten file must take the full path, not delta");
+  assert.strictEqual(after.sessions[0].history.length, 1, "the superseded event must be gone");
+  assert.strictEqual(after.sessions[0].history[0].cost, 11);
+  assert.deepStrictEqual(dailyFrom(after.sessions), dailyFrom(fullReadSessions(root)));
+});
+
 test("a corrupt cache file degrades to a cold rebuild rather than throwing", function () {
   var root = tempRoot("corrupt");
   var cacheFile = path.join(root, "cache.json");
