@@ -599,7 +599,8 @@ test("declining a proposal through the WS handler closes nothing", function () {
 var ownerRequestsModule = require("../lib/coop-owner-requests");
 var management = require("../lib/coop-topic-management");
 
-function mergeHarness(ledgerOverrides) {
+function mergeHarness(ledgerOverrides, canonicalHistory) {
+  var history = Array.isArray(canonicalHistory) ? canonicalHistory : [];
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-merge-ws-"));
   var file = path.join(dir, "index.json");
   fs.writeFileSync(file, JSON.stringify(ownerFixture()));
@@ -618,7 +619,7 @@ function mergeHarness(ledgerOverrides) {
       getProjectList: function () { return []; },
       getGlobalCoopProjection: function () { return { projects: [] }; },
       sm: { sessions: { forEach: function (fn) {
-        fn({ coopHome: true, storageId: "canonical-home", history: [] });
+        fn({ coopHome: true, storageId: "canonical-home", history: history });
       } }, saveSessionFile: function () {} },
       sendTo: function (ws, payload) { sent.push(payload); },
     },
@@ -727,6 +728,44 @@ test("reassigning and undoing a Thread turn moves its owner request without tran
   assert.deepEqual(h.ledger.get(id).topicRef, SOURCE);
   assert.equal(h.index.resolve(SOURCE, true).topic.turnRefs.length, 1);
   assert.equal(h.index.resolve(CANON, true).topic.turnRefs.length, 6);
+});
+
+// The turn is addressed by position while the owner request stores its own
+// absolute requestRef.eventIndex, and transcript delta coalescing drifts those
+// stored indices on every reload. On live state that made the range test match
+// nothing: a reassignment moved zero owner requests and still reported success.
+// The handler has to hand the canonical transcript to the ledger so the request
+// is located by its immutable ingress id.
+test("a Thread turn reassignment moves an owner request whose stored index drifted", function () {
+  var id = "coop:871a194b-8879-40f7-a1fe-656e48e722af:203";
+  var history = [];
+  for (var i = 0; i < 41; i++) history.push({ type: "assistant_message", text: "delta" });
+  history.push({ type: "user_message", text: "please do it", coopIngressId: id });
+  var h = mergeHarness(null, history);
+  var source = makeTopic(SOURCE.topicId, "Provider fallback rework",
+    { kind: "uncategorised" }, "automatic", 1, ["provider", "fallback"]);
+  var turn = { projectId: "system-lead", sessionStorageId: "canonical-home",
+    startEventIndex: 40, endEventIndex: 42 };
+  source.turnRefs = [turn];
+  source.eventRefs = [{ projectId: "system-lead", sessionStorageId: "canonical-home", eventIndex: 40 }];
+  h.index.load().topics[SOURCE.topicId] = source;
+  h.index.save();
+  // Recorded when the ingress sat at 9000. Coalescing rewrote the transcript and
+  // the same owner turn now sits at 41, inside the turn being reassigned.
+  h.ledger.record({ ingressId: id, ingressSequence: 203,
+    sessionRef: { projectId: "system-lead", sessionStorageId: "871a194b-8879-40f7-a1fe-656e48e722af" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-home", eventIndex: 9000 } });
+  h.ledger.classify(id, { kind: "existing_topic", topicRef: SOURCE,
+    projectRefs: [{ projectId: CLAY_ID }] });
+
+  management.handleManagement(h.ctx, {}, {
+    type: "coop_thread_reassign", sourceThreadRef: { threadId: SOURCE.topicId },
+    targetThreadRef: { threadId: CANON.topicId }, turnRef: turn,
+  }, h.deps);
+
+  assert.equal(h.sent[0].ok, true);
+  assert.deepEqual(h.ledger.get(id).topicRef, CANON,
+    "a drifted index must not silently leave the owner request on the old Thread");
 });
 
 test("a merge whose ledger move cannot be persisted is reported as failed", function () {
