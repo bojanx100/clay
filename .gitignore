@@ -21,3 +21,7 @@ docs/roadmaps/planned/PILOT-MCP-SERVER.md
 
 # Clay (local task launchers, sessions, settings)
 localAIConfig/
+
+# Playwright MCP trace output (console logs + accessibility snapshots from
+# browser-automation sessions) -- ephemeral debug artifacts, not source.
+.playwright-mcp/
