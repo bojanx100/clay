@@ -6,6 +6,7 @@ var path = require("node:path");
 
 var grant = require("../lib/coop-autonomy-grant");
 var itemApproval = require("../lib/coop-item-approval");
+var bindingsModule = require("../lib/portfolio-execution-bindings");
 
 var CLAY_ID = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var WEBAPP_ID = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
@@ -47,6 +48,28 @@ function request(overrides) {
 
 function ownerRequestsWith(entries) {
   return { list: function () { return entries; } };
+}
+
+// A REAL binding store holding the binding that the approved revision actually
+// dispatched. The store computes and persists the payload digest itself, so the
+// grant has to discover it from disk rather than be handed the answer it is
+// meant to find. Nothing here supplies a taskPayloadDigest.
+function bindingsWithApproved(brief, revision) {
+  var directory = fs.mkdtempSync(path.join(os.tmpdir(), "clay-autonomy-bind-"));
+  var store = bindingsModule.createPortfolioExecutionBindings({
+    file: path.join(directory, "bindings.json"),
+  });
+  var reserved = store.reserve(Object.assign({}, brief, {
+    portfolioTaskId: "clay-ledger-audit-2026-08-21",
+    mode: "direct_leaf",
+    targetProject: { projectId: CLAY_ID },
+    bindingRevision: revision,
+    idempotencyKey: "staff-clay-ledger-audit-2026-08-21-r" + revision,
+  }));
+  assert.equal(reserved.ok, true, "the approved-revision binding must reserve");
+  assert.match(String(store.get("clay-ledger-audit-2026-08-21", revision).taskPayloadDigest),
+    /^[a-f0-9]{64}$/, "the store must have persisted a real digest to compare against");
+  return store;
 }
 
 function approvedScope(overrides) {
@@ -124,10 +147,17 @@ test("switched on, a read-only diagnosis dispatch proceeds", function () {
 });
 
 test("switched on, an approved-at-earlier-revision re-dispatch proceeds", function () {
-  var file = policyFile({ enabled: true });
+  // Both categories declared explicitly. The shipped file currently ships only
+  // read_only_diagnosis, and inheriting that would make every assertion below
+  // pass for the wrong reason -- undeclared category rather than the predicate
+  // under test.
+  var file = policyFile({ enabled: true,
+    categories: ["read_only_diagnosis", "approved_revision_bump"] });
+  var approvedBrief = dispatch({ ownedPaths: "lib/lead-ledger.js" });
   var deps = {
     autonomyPolicyFile: file,
     ownerRequests: ownerRequestsWith([approvedScope()]),
+    bindings: bindingsWithApproved(approvedBrief, 1),
   };
   // rev1 was approved by ingress 400. rev2 changes ONLY the revision.
   var retry = request({ bindingRevision: 2, ownedPaths: "lib/lead-ledger.js" });
@@ -164,7 +194,9 @@ test("switched on, an approved-at-earlier-revision re-dispatch proceeds", functi
   // A withdrawn approval carries nothing forward.
   assert.equal(grant.standingAdmission(dispatch({ ownedPaths: "lib/lead-ledger.js" }),
     request({ bindingRevision: 2, ownedPaths: "lib/lead-ledger.js" }),
-    { autonomyPolicyFile: file,
+    // bindings supplied so the refusal is attributable to the withdrawal alone,
+    // not to the brief-proof being unavailable.
+    { autonomyPolicyFile: file, bindings: deps.bindings,
       ownerRequests: ownerRequestsWith([approvedScope({
         response: { state: "superseded" } })]) }), null,
   "a superseded owner turn cannot authorize a later revision");
@@ -172,10 +204,74 @@ test("switched on, an approved-at-earlier-revision re-dispatch proceeds", functi
   // A turn that never expected execution is not an approval either.
   assert.equal(grant.standingAdmission(dispatch({ ownedPaths: "lib/lead-ledger.js" }),
     request({ bindingRevision: 2, ownedPaths: "lib/lead-ledger.js" }),
-    { autonomyPolicyFile: file,
+    { autonomyPolicyFile: file, bindings: deps.bindings,
       ownerRequests: ownerRequestsWith([approvedScope({
         expectsExecution: false })]) }), null,
   "a conversational turn cannot authorize a later revision");
+});
+
+// --- A bump must carry the brief the owner approved --------------------------
+//
+// The regression this pins: the approved scope on the owner record holds
+// coordinates only (projectRef, topicRef, portfolioTaskId, bindingRevision,
+// idempotencyKey) and no description of the work. Matching coordinates alone
+// therefore admitted ARBITRARY new work under a previously approved task id, at
+// any higher revision, without limit.
+test("switched on, a revision bump with a different brief is refused", function () {
+  var file = policyFile({ enabled: true,
+    categories: ["read_only_diagnosis", "approved_revision_bump"] });
+  // What the owner actually approved at revision 1: a read-only ledger audit.
+  var approvedBrief = dispatch({ ownedPaths: "lib/lead-ledger.js" });
+  var deps = {
+    autonomyPolicyFile: file,
+    ownerRequests: ownerRequestsWith([approvedScope()]),
+    bindings: bindingsWithApproved(approvedBrief, 1),
+  };
+  var retry = request({ bindingRevision: 2, ownedPaths: "lib/lead-ledger.js" });
+
+  // Baseline first: the same brief at a higher revision IS still admitted, so a
+  // refusal below cannot be the category simply being broken or undeclared.
+  assert.equal(grant.standingAdmission(approvedBrief, retry, deps).ok, true,
+    "the approved brief must still be admitted at a higher revision");
+
+  // Same task id, same Thread, same project, same revision bump -- but the work
+  // is something the owner never saw. Every coordinate the old predicate looked
+  // at is identical, so only the brief can be causing the refusal.
+  function refusedBrief(label, overrides) {
+    assert.equal(grant.standingAdmission(
+      Object.assign({}, approvedBrief, overrides), retry, deps), null, label);
+  }
+  refusedBrief("a rewritten objective is not the approved work",
+    { objective: "Replace the reconnect backoff and delete the legacy migration path." });
+  refusedBrief("a rewritten title is not the approved work",
+    { title: "Rewrite the daemon supervisor" });
+  refusedBrief("widened owned paths are not the approved work",
+    { ownedPaths: "lib/daemon.js; lib/session-store.js; lib/project.js" });
+  refusedBrief("changed acceptance criteria are not the approved work",
+    { acceptanceCriteria: "Ship it to production." });
+
+  // The old hole ran unbounded: rev 3, 9, 500 all rode one approval. A
+  // mismatched brief must be refused at every one of them.
+  [3, 9, 500].forEach(function (revision) {
+    assert.equal(grant.standingAdmission(
+      Object.assign({}, approvedBrief, { title: "Rewrite the daemon supervisor" }),
+      request({ bindingRevision: revision, ownedPaths: "lib/lead-ledger.js" }), deps), null,
+    "a mismatched brief must be refused at revision " + revision);
+  });
+
+  // Fail closed when the proof is simply unavailable, rather than falling back
+  // to the coordinates-only behaviour this test exists to prevent.
+  assert.equal(grant.standingAdmission(approvedBrief, retry,
+    Object.assign({}, deps, { bindings: null })), null,
+  "with no binding store there is no proof, so no bump is admitted");
+  assert.equal(grant.standingAdmission(approvedBrief, retry,
+    Object.assign({}, deps, {
+      bindings: bindingsModule.createPortfolioExecutionBindings({
+        file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), "clay-autonomy-empty-")),
+          "bindings.json"),
+      }),
+    })), null,
+  "a released or pruned approved-revision binding leaves no proof either");
 });
 
 // --- Permanently gated, in both states ----------------------------------------
