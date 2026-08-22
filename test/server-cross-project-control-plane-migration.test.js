@@ -413,6 +413,43 @@ test("production revision 10 replay: dispatch and steering fail closed until the
   assert.deepEqual(message.source, PRIOR_ROOT_REF,
     "steering is relayed by the Coop-resident control-plane coordinator");
 
+  // The project-owned coordinator is the other legal identity for the same
+  // binding, and the one this tool's name, description and front-door
+  // validation all point at. Accepting only the Lead-side root made that shape
+  // unreachable for every migrated binding, so live Coop steering answered
+  // coordinator_ref_mismatch for the exact ref the binding was routed to.
+  var childRef = { projectId: TARGET_ID, sessionStorageId: "task-coordinator-r10" };
+  assert.deepEqual(h.router.getExecutionBinding(CLEANUP_TASK, 10).coordinator, childRef);
+  var steeredByChildRef = h.router.messageProjectExecution({
+    source: COOP_REF,
+    targetProject: { projectId: TARGET_ID },
+    targetCoordinator: childRef,
+    portfolioTaskId: CLEANUP_TASK,
+    bindingRevision: 10,
+    idempotencyKey: "steer-after-migration-by-child-ref",
+    text: "Continue the cleanup work.",
+  });
+  assert.equal(steeredByChildRef.ok, true);
+  var childMessage = h.deliveries[h.deliveries.length - 1];
+  assert.equal(childMessage.payload.type, "portfolio_execution_message");
+  assert.deepEqual(childMessage.source, PRIOR_ROOT_REF,
+    "accepting the project-owned ref must not change who relays the command");
+
+  // A ref that names neither identity still fails closed, and now reports the
+  // identities it would have accepted so the caller stops guessing.
+  var wrongRefSteer = h.router.messageProjectExecution({
+    source: COOP_REF,
+    targetProject: { projectId: TARGET_ID },
+    targetCoordinator: { projectId: TARGET_ID, sessionStorageId: LEGACY_LOCAL_ROOT_ID },
+    portfolioTaskId: CLEANUP_TASK,
+    bindingRevision: 10,
+    idempotencyKey: "steer-after-migration-wrong-ref",
+    text: "Continue the cleanup work.",
+  });
+  assert.equal(wrongRefSteer.ok, false);
+  assert.equal(wrongRefSteer.reason, "coordinator_ref_mismatch");
+  assert.deepEqual(wrongRefSteer.expectedCoordinators, [PRIOR_ROOT_REF, childRef]);
+
   // Immutable terminal history: the earlier revisions are untouched.
   var expected = productionBindings();
   for (var revision = 5; revision <= 9; revision++) {
