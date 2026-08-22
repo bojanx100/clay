@@ -130,9 +130,10 @@ function executionRouter(entries, delivered, handedOff, options) {
   var targetProjectId = options.targetProjectId || PROJECT;
   var claimed = null;
   var classifications = 0;
-  var leadSessions = new Map([[1, { coopHome: true,
+  var coopSession = options.coopSession || { coopHome: true,
     storageId: options.canonicalStorageId || "canonical-coop",
-    history: options.history || [] }]]);
+    history: options.history || [] };
+  var leadSessions = new Map([[1, coopSession]]);
   var leadManager = {
     sessions: leadSessions,
     createSessionRaw: function (input) {
@@ -1770,3 +1771,183 @@ test("the standing grant route refuses work the policy does not cover", function
   assert.equal(other.ok, false);
   assert.equal(otherDelivered.length, 0);
 });
+
+// Owner authorization by ANSWERED QUESTION.
+//
+// An owner approval can be referential. Coop asks a numbered question, the owner
+// answers "do 1 and 2 what you think is best", and no wording parser in this
+// subsystem can resolve that to a task -- correctly, because the only thing that
+// ever bound those words to work was Coop's own question. Live on 2026-08-22 that
+// cost seven dispatch attempts against owner ingress 622, whose durable record is
+// expectsExecution:false / implementationDecision:null / scopes:0.
+//
+// The safety property under test is that the pending question is the authority
+// and PREDATES the owner's turn, so affirmative wording can only ever identify
+// work already queued and put to the owner -- it can never manufacture it.
+var pendingQuestionAdmission = require("../lib/coop-pending-question-admission");
+
+var ANSWER_TASK = "clay-sidebar-activity-indicator-2026-08-22";
+
+function questionTask(extra) {
+  return Object.assign({
+    taskId: "task-sidebar-1",
+    clientRef: "portfolio:" + ANSWER_TASK + ":1",
+    status: "waiting_user",
+    userQuestion: "Fix the sidebar indicator now, or defer it behind the latency work?",
+    waitingReason: "one owner decision",
+    userAnsweredAt: null,
+    updatedAt: 5000,
+  }, extra || {});
+}
+
+function ownerAnswer(text, at) {
+  return { type: "user_message", text: text,
+    coopIngressId: "coop:canonical-coop:700", coopComposerScope: "main",
+    _ts: typeof at === "number" ? at : 6000 };
+}
+
+function answeredHarness(t, opts) {
+  var options = opts || {};
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-answered-q-"));
+  t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+  var coopSession = { coopHome: true, storageId: "canonical-coop", localId: 1,
+    history: options.history || [ownerAnswer("do 1 and 2 what you think is best")],
+    orchestrationTasks: options.tasks === undefined ? [questionTask()] : options.tasks };
+  var delivered = [];
+  var topicIndex = createTopicIndex({ file: path.join(dir, "topics.json") });
+  var built = executionRouter([], delivered, [], { dir: dir, coopSession: coopSession });
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return coopSession; },
+    projectId: function () { return "system-lead"; },
+    readLeadEvents: function () { return []; },
+    ensureOwnerThread: function (i) { return topicIndex.ensureOwnerThread(i); },
+    createProjectExecution: built.router.createProjectExecution,
+  });
+  return {
+    delivered: delivered,
+    topics: function () { return Object.keys(topicIndex.load().topics); },
+    dispatch: function (over) {
+      return coordinate(Object.assign({
+        coordinatorSessionId: "canonical-coop",
+        portfolioTaskId: ANSWER_TASK,
+        bindingRevision: 1,
+        idempotencyKey: ANSWER_TASK + "-r1",
+        mode: "project_coordinator",
+        targetProject: { projectId: PROJECT },
+        title: "Fix the sidebar activity indicator",
+        objective: "Correct the project activity indicator so it reflects real activity.",
+        ownedPaths: "lib/public/modules/",
+      }, over || {}));
+    },
+  };
+}
+
+test("an answered owner question authorizes the exact work it named", function (t) {
+  var h = answeredHarness(t);
+  var result = h.dispatch();
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(h.delivered.length, 1);
+  assert.equal(h.delivered[0].destination.projectId, PROJECT);
+  assert.equal(h.topics().length, 1, "one Thread minted against the answering turn");
+  assert.equal(h.delivered[0].payload.coopIngressId, "coop:canonical-coop:700",
+    "the dispatch cites the owner's answering turn, not a synthetic key");
+});
+
+test("an answered question authorizes NOTHING it did not name", function (t) {
+  // Same assent, same question -- a different binding. The pending record is the
+  // authority, so affirmative wording cannot reach work nobody put to the owner.
+  var h = answeredHarness(t);
+  var result = h.dispatch({ portfolioTaskId: "clay-something-else-entirely",
+    idempotencyKey: "clay-something-else-entirely-r1" });
+  assert.equal(result.ok, false);
+  assert.match(String(result.error || result.reason), /owner_implementation_decision_required/);
+  assert.equal(h.delivered.length, 0);
+  assert.equal(h.topics().length, 0);
+});
+
+test("only the FIRST owner turn after the question can answer it", function (t) {
+  // The anti-hijack property. A non-answer followed by an unrelated affirmative
+  // must not authorize anything: scanning forward for something agreeable is how
+  // the router's old unscoped hijack adopted owner turn :482 ("FIX!").
+  var h = answeredHarness(t, {
+    history: [
+      ownerAnswer("what should I do next?", 6000),
+      ownerAnswer("yes", 7000),
+    ],
+  });
+  var result = h.dispatch();
+  assert.equal(result.ok, false);
+  assert.equal(h.delivered.length, 0);
+});
+
+test("a question with no assent, no pending question, or already answered all refuse",
+  function (t) {
+    var refused = answeredHarness(t, { history: [ownerAnswer("not yet, hold off")] });
+    assert.equal(refused.dispatch().ok, false, "an explicit refusal must not authorize");
+    assert.equal(refused.delivered.length, 0);
+
+    var none = answeredHarness(t, { tasks: [] });
+    assert.equal(none.dispatch().ok, false, "no pending question means no authority");
+    assert.equal(none.delivered.length, 0);
+
+    var already = answeredHarness(t, { tasks: [questionTask({ userAnsweredAt: 5500 })] });
+    assert.equal(already.dispatch().ok, false,
+      "an already-answered question must not authorize a second dispatch");
+    assert.equal(already.delivered.length, 0);
+
+    var running = answeredHarness(t, { tasks: [questionTask({ status: "running" })] });
+    assert.equal(running.dispatch().ok, false, "only waiting_user is a pending question");
+    assert.equal(running.delivered.length, 0);
+  });
+
+test("a bare assent never releases a permanently gated external action", function (t) {
+  // The question text is authored by Coop, not the owner, so "yes" must not
+  // release an irreversible action the owner cannot be presumed to have read.
+  var h = answeredHarness(t);
+  var result = h.dispatch({
+    objective: "Correct the indicator, then git push the fix to origin.",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(h.delivered.length, 0);
+});
+
+test("owner assent is an allowlist, measured against the real transcript corpus",
+  function () {
+    // Every one of these is a real owner turn from the canonical Coop session
+    // that OPENS with an affirmative but is a question, a report or a different
+    // instruction. Prefix matching admitted all of them.
+    [
+      "ok so I can test voice>",
+      "ok I see just that one now",
+      "Ok let's determine statises and who's assigned to it",
+      "ok adn??!?!?!",
+      "ok you're the worse helper ever... you are the oposite of helper!!!",
+      "Ok and who's going to do that?",
+      "Ok thanks. I hope you'll be better then",
+      "Ok give me handoff",
+      "Ok is it working",
+      "Both were done...",
+      "yes try to find more natural voice for yourself",
+      "yeah first check was unavailable because it should be available",
+      "1. I meant restart as start fresh in same provider",
+      "yes but not 2",
+      "yes? or no?",
+      "1 failed",
+      "maybe",
+      "how do we proceed?",
+    ].forEach(function (text) {
+      assert.equal(pendingQuestionAdmission.explicitOwnerAssent(text), false,
+        "must NOT be assent: " + JSON.stringify(text));
+    });
+
+    // Real owner approvals from the same transcript, plus ordinary variants.
+    [
+      "do 1 and 2 what you think is best", "do it", "Do it now", "Do both",
+      "Yes", "Ok", "Approve", "Approved", "Continue", "Go", "Go!", "Sure.",
+      "Ok do it", "do them", "both", "1 and 2", "option 2", "go ahead",
+      "proceed", "your call", "whatever you think is best", "yes please",
+    ].forEach(function (text) {
+      assert.equal(pendingQuestionAdmission.explicitOwnerAssent(text), true,
+        "must be assent: " + JSON.stringify(text));
+    });
+  });

@@ -378,3 +378,106 @@ projection, sweep and UI surface that keys on `failed` would have to be audited
 with it -- a much wider blast radius than the authorization path, and worth its
 own pass. The provenance needed to render it truthfully is already on the record
 in `failureCode`.
+
+## 6. Referential owner approval — the real cause of the seven refusals
+
+After sections 1-5 landed, dispatch was still refused
+`owner_implementation_decision_required`. Seven attempts were logged against it
+(lead-ledger seqs 709, 710, 715, 716). The gate was right every time.
+
+### The measurement that reframed it
+
+Owner ingress 622 -- the approval every attempt cited -- reads in the live
+durable ledger as:
+
+```
+expectsExecution: false   implementationDecision: null   implementationScope: null   scopes: 0
+```
+
+Its text is `"do 1 and 2 what you think is best"`. Driven against the real
+parsers: `explicitItemApprovals` -> `[]`, `explicitQueueAuthorization` ->
+`false`, `explicitReadOnlyReviewAuthorization` -> `false`,
+`explicitImplementationDecision` -> `null`. So the refusal was literally
+accurate: no owner turn in durable state authorized that dispatch.
+
+The approval was real in the conversation and unrecordable in the ledger. Coop
+had asked a numbered question; the owner answered by ordinal. The only thing that
+ever bound "1 and 2" to those tasks was Coop's own question, and nothing
+consulted it. `request_task_input` writes `status: waiting_user` plus a
+`userQuestion` string onto the coordinator's task graph and no owner-request
+decision at all.
+
+Worth stating because it was checked and rejected: `link_owner_response` is
+attribution of a Coop reply to an unanswered ingress, not authorization, so it is
+not the missing mechanism.
+
+### What was built
+
+`lib/coop-pending-question-admission.js`, consulted LAST in
+`implementationAdmission` -- after every wording-based path has declined -- plus
+`answeredQuestionExecutionRoute` to supply the Thread. The answering turn is a
+real owner ingress, so unlike the standing grant this path needs no synthetic
+key.
+
+The rule: the work must already have been recorded `waiting_user` with a question
+whose `clientRef` is `portfolio:<task>:<revision>` BEFORE the owner spoke, and
+the owner's turn is only checked for assent. Wording identifies; the pending
+record authorizes. That is the second factor this brief's predecessor recommended
+in place of making one regex load-bearing, and it is the same shape
+`coop-queue-authorization` and `coop-item-approval` already use.
+
+Three properties are load-bearing:
+
+- **Exactly one candidate turn.** The answer is the FIRST owner turn after the
+  question, never a forward scan for something agreeable. A forward scan would
+  reproduce the old unscoped router hijack that adopted turn `:482` ("FIX!").
+- **Assent is an allowlist**, anchored to the WHOLE first sentence.
+- **Permanently gated actions stay gated.** The question text is Coop's, not the
+  owner's, so a bare "yes" must not release an irreversible external action.
+
+### The corpus measurement, which changed the implementation twice
+
+Per the 2026-08-19 warning that any attempt here must be measured, the classifier
+was run over all 647 real owner turns in the canonical transcript before being
+wired in.
+
+| Version | False positives on real turns |
+|---|---|
+| prefix matching | **15** |
+| whole-sentence anchored | 2 |
+| anchored + tightened | **0** |
+
+The 15 included `"ok you're the worse helper ever... you are the oposite of
+helper!!!"`, `"Ok give me handoff"`, `"Ok who's gonna do it"`, `"Both were
+done..."` and `"yeah first check was unavailable because it should be
+available"` -- questions, reports and different instructions that merely OPEN
+with an affirmative. Anchoring to the whole first sentence is the discriminator:
+an answer to a question is short and complete.
+
+Two survived that and were fixed: `"Ok thanks. I hope you'll be better then"`
+(gratitude is acknowledgement, so `thanks` left the benign-tail set) and
+`"1. I meant restart as start fresh in same provider"` (a lone digit is a list
+marker far more often than a selection, so a bare numeric selection now needs two
+or more items; `do 2` and `option 2` still select one).
+
+Final: 0 false positives over 647 real turns, 24 recognized and all genuine
+(`do it`, `Do both`, `Approved`, `Continue`, `do 1 and 2 what you think is
+best`). Synthetic corpus 25/25 assent recognized, 33/33 refusals held.
+
+Known boundary, deliberately accepted: the first-sentence rule means
+`"Sure. You can keep in all. But no noise in main or threads"` reads as assent
+and the later constraint is not enforced by this gate. That matches the
+exact-approval parser's own first-clause rule.
+
+### Proof
+
+Each half reverted separately with the tests in place:
+`test/coop-thread-execution-admission.test.js` reports 36 passing / 1 failing
+when the admission gate is removed, and 36/1 -- failing specifically the
+anti-hijack test -- when the first-turn-only rule is relaxed to a forward scan.
+Restored, 37/37. Full suite 3142/3144 default and 485/485 controlled, with the
+same 2 failures that reproduce on a clean origin/bojan tree.
+
+Not covered: no live daemon has exercised this, and the corpus is one owner's
+phrasing in one transcript. It measures false positives well and says little
+about phrasings this owner has never used.
