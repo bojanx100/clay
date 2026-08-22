@@ -62,17 +62,20 @@ fields below out of it; do not re-run any of these reads.
   `snapshot.looseItems.droppedClosed`, because `lead-backlog` skips every item
   whose state is not `open` anyway — a non-zero drop count is normal and is
   NOT an empty backlog.
-- **In-flight work**: pass both legacy `snapshot.leadLedger.inFlight` entries
-  and `snapshot.bindings.current` as `portfolioBindings`. Typed, non-terminal
+- **In-flight work**: pass legacy `snapshot.leadLedger.inFlight` entries plus
+  `snapshot.bindings.typedHistory` as `portfolioBindings`. Typed, non-terminal
   ProjectRef bindings are the authoritative post-cutover in-flight state: they
   consume capacity and make a queued premise stale even when the legacy ledger
-  is empty. Completed and unrouted bindings free the slot, which is why the
-  CAPACITY slice is `listCurrent()` and not `list()` — the full list was 314
-  records / 275KB of context to act on 2 live ones. Read `failureCount(id)` and
-  the last `standup_composed` event's `at` from the ledger when a specific
-  binding needs them.
+  is empty.
 
-  **Use `snapshot.bindings.typedHistory`, never `bindings.current`, for
+  `snapshot.bindings.occupying` is a **reporting** view — the records that
+  actually hold a slot, per `lead-loop.bindingConsumesCapacity` itself. Read it
+  to say how much capacity is used; never pass it to `leadTick` or to
+  completion eligibility, because it omits the terminal records both of those
+  need. Read `failureCount(id)` and the last `standup_composed` event's `at`
+  from the ledger when a specific binding needs them.
+
+  **Use `snapshot.bindings.typedHistory`, never `bindings.occupying`, for
   completion eligibility.** That check must see terminal bindings:
   `project-automation-candidates.js:78` returns
   `already_completed_or_in_flight` for status `completed`, which the capacity
@@ -91,7 +94,7 @@ fields below out of it; do not re-run any of these reads.
   checking `project-automation-candidates.completionEligibility` against that
   project's `project-issue-launch-state` AND
   `snapshot.bindings.typedHistory` (the all-status slice — NOT
-  `bindings.current`, see above). Pass the candidate as `{ source: "github", project,
+  `bindings.occupying`, see above). Pass the candidate as `{ source: "github", project,
   projectRef, itemKey }`; this makes the binding check use
   `lead-staffing.portfolioTaskIdForCandidate`, the same exact default identity
   path staffing uses. If completion eligibility is not eligible, return it

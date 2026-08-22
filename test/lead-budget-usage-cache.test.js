@@ -259,6 +259,101 @@ test("a rewrite that grows the file is not mistaken for an append", function () 
   assert.deepStrictEqual(dailyFrom(after.sessions), dailyFrom(fullReadSessions(root)));
 });
 
+// The previous rewrite test did not isolate the inode guard: the stale offset
+// happened to land mid-line, so the newline probe forced the full read on its
+// own. This one lands the old offset exactly on a newline in the replacement, so
+// ONLY the inode comparison can reject it.
+test("the inode guard alone rejects a rewrite whose old offset still lands on a newline", function () {
+  var root = tempRoot("ino-isolate");
+  var cacheFile = path.join(root, "cache.json");
+  var head = metaLine("claude", START + 1) + "\n" + resultLine(START + 100, 4, 100, 10) + "\n";
+  var file = path.join(root, "a.jsonl");
+  fs.writeFileSync(file, head);
+
+  var first = cache.refresh({ sessionsRoot: root, cacheFile: cacheFile });
+  var oldOffset = first.cache.files[file].offset;
+  assert.strictEqual(oldOffset, head.length);
+
+  // Replacement keeps the identical prefix, so byte oldOffset-1 is still "\n"
+  // and the newline probe cannot tell the difference. Only the inode can.
+  fs.writeFileSync(file + ".tmp", head + resultLine(START + 400, 9, 10, 1) + "\n");
+  fs.renameSync(file + ".tmp", file);
+  var boundary = Buffer.alloc(1);
+  var fd = fs.openSync(file, "r");
+  fs.readSync(fd, boundary, 0, 1, oldOffset - 1);
+  fs.closeSync(fd);
+  assert.strictEqual(boundary[0], 0x0a, "the newline probe must be unable to reject this");
+
+  var after = cache.refresh({ sessionsRoot: root, cacheFile: cacheFile });
+  assert.strictEqual(after.stats.full, 1, "the inode change alone must force a full read");
+  assert.deepStrictEqual(dailyFrom(after.sessions), dailyFrom(fullReadSessions(root)));
+});
+
+test("a v1 cache is rejected rather than trusted", function () {
+  var root = tempRoot("v1");
+  var cacheFile = path.join(root, "cache.json");
+  var file = writeSession(root, "a.jsonl", [
+    metaLine("claude", START + 1),
+    resultLine(START + 100, 4, 100, 10),
+  ]);
+  var stat = fs.statSync(file);
+  // A v1 entry claims the file is fully consumed but carries no inode, so its
+  // offset was never prefix-checked.
+  fs.writeFileSync(cacheFile, JSON.stringify({
+    version: 1,
+    files: (function () {
+      var files = {};
+      files[file] = { size: stat.size, mtimeMs: stat.mtimeMs, offset: stat.size, meta: null, results: [] };
+      return files;
+    })(),
+  }));
+
+  var refreshed = cache.refresh({ sessionsRoot: root, cacheFile: cacheFile });
+  assert.strictEqual(refreshed.stats.reused, 0, "a v1 entry must not be reused");
+  assert.strictEqual(refreshed.stats.full, 1);
+  assert.deepStrictEqual(dailyFrom(refreshed.sessions), dailyFrom(fullReadSessions(root)));
+});
+
+// A short readSync used to be cached as a whole file: size from stat, offset
+// from the truncated scan. Because reuse only compares size/mtime/ino, that bad
+// entry was then reused forever and under-reported the day's turns.
+//
+// Two redundant guards now cover this -- the read loop in readRange and the
+// `bytesRead !== stat.size - from` completeness check -- so this test only fails
+// when BOTH are removed. Removing either alone is masked by the other. That is
+// deliberate defence in depth, but it means this test does not isolate either
+// guard on its own; do not read a pass here as proof that both are present.
+test("a short read is not cached as a fully consumed file", function () {
+  var root = tempRoot("short");
+  var cacheFile = path.join(root, "cache.json");
+  writeSession(root, "a.jsonl", [
+    metaLine("claude", START + 1),
+    resultLine(START + 100, 4, 100, 10),
+  ]);
+  var real = fs.readSync;
+  var calls = 0;
+  // Truncate only the first bulk read, exactly as a short read would.
+  fs.readSync = function (fd, buffer, offset, length, position) {
+    calls++;
+    if (calls === 1 && length > 40) return real(fd, buffer, offset, 40, position);
+    return real(fd, buffer, offset, length, position);
+  };
+  var refreshed;
+  try {
+    refreshed = cache.refresh({ sessionsRoot: root, cacheFile: cacheFile });
+  } finally {
+    fs.readSync = real;
+  }
+
+  assert.deepStrictEqual(
+    dailyFrom(refreshed.sessions),
+    dailyFrom(fullReadSessions(root)),
+    "a short read must not lose the result event"
+  );
+  var second = cache.refresh({ sessionsRoot: root, cacheFile: cacheFile });
+  assert.deepStrictEqual(dailyFrom(second.sessions), dailyFrom(fullReadSessions(root)));
+});
+
 test("a corrupt cache file degrades to a cold rebuild rather than throwing", function () {
   var root = tempRoot("corrupt");
   var cacheFile = path.join(root, "cache.json");

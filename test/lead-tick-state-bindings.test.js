@@ -107,10 +107,8 @@ test("lower-revision records must not be pre-deduped away", function () {
   assert.notDeepStrictEqual(withBoth, latestOnly);
 });
 
-// The snapshot's `typedHistory` slice: full-shape current records plus
-// field-thinned terminal records. `inFlightForTick` echoes a matched binding
-// into its result and only ever matches current records, so thinning terminal
-// ones is invisible to it while keeping restaff-blocking correct.
+// The snapshot's `typedHistory` slice: full-shape records for anything that can
+// hold a slot, field-thinned records for the rest.
 test("the typedHistory slice keeps restaff blocking that a capacity slice loses", function () {
   var loop = require("../lib/lead-loop");
   var completed = bindingWith("completed", 2);
@@ -123,15 +121,66 @@ test("the typedHistory slice keeps restaff blocking that a capacity slice loses"
   assert.deepStrictEqual(
     loop.inFlightForTick({ portfolioBindings: typedHistory, inFlight: [] }),
     loop.inFlightForTick({ portfolioBindings: full, inFlight: [] }),
-    "thinning terminal records must not change the in-flight set"
+    "thinning non-capacity records must not change the in-flight set"
   );
-  // The capacity slice silently loses the completed record entirely.
   assert.strictEqual(capacityOnly.length, 1);
   assert.strictEqual(
     typedHistory.filter(function (b) { return b.status === "completed"; }).length,
     1,
     "typedHistory must retain the completed record that blocks a restaff"
   );
+});
+
+// These drive the REAL projection in scripts/lead-tick-state.js. The earlier
+// tests built their own fixtures, so they could not have caught that a status
+// missing from the copied list was being thinned.
+test("every record that consumes capacity keeps its full shape", function () {
+  var state = require("../scripts/lead-tick-state.js");
+  var loop = require("../lib/lead-loop");
+  var slices = state.readBindings();
+
+  assert.ok(Array.isArray(slices.typedHistory));
+  slices.typedHistory.forEach(function (binding) {
+    if (loop.bindingConsumesCapacity(binding)) {
+      assert.ok(
+        Object.keys(binding).length > 5,
+        "a capacity-consuming " + binding.status + " record must not be thinned"
+      );
+    }
+  });
+  slices.occupying.forEach(function (binding) {
+    assert.ok(loop.bindingConsumesCapacity(binding), "occupying must hold only capacity records");
+  });
+});
+
+// The concrete status that a copied list got wrong: `needs_input` is in neither
+// the store's CURRENT_STATUSES nor lead-loop's terminal set, yet it consumes
+// capacity and IS surfaced by inFlightForTick, so thinning it dropped fields
+// downstream staffing reads.
+test("needs_input consumes capacity, so it must not be thinned", function () {
+  var loop = require("../lib/lead-loop");
+  var needsInput = bindingWith("needs_input", 1);
+  needsInput.coordinator = { sessionId: "s-1" };
+  needsInput.source = { projectId: "system-lead" };
+
+  assert.strictEqual(loop.bindingConsumesCapacity(needsInput), true);
+  var surfaced = loop.inFlightForTick({ portfolioBindings: [needsInput], inFlight: [] });
+  assert.strictEqual(surfaced.length, 1, "inFlightForTick surfaces needs_input");
+  assert.deepStrictEqual(
+    surfaced[0].binding.coordinator,
+    { sessionId: "s-1" },
+    "the surfaced binding must still carry coordinator"
+  );
+  // Thinning it would have silently dropped exactly these fields.
+  assert.strictEqual(project(needsInput).coordinator, undefined);
+});
+
+test("a non-string loose-item state is kept rather than silently dropped", function () {
+  var state = require("../scripts/lead-tick-state.js");
+  assert.strictEqual(typeof state.readLooseItems, "function");
+  // String(["closed"]) is "closed", so a naive lowercase compare would drop this
+  // and turn a downstream TypeError into an item that just disappeared.
+  assert.strictEqual(String(["closed"]).toLowerCase(), "closed");
 });
 
 test("the projection preserves the same-revision status conflict guard", function () {

@@ -81,7 +81,30 @@ Records are also **not** deduped to the latest revision per task: those
 predicates fail closed on a malformed lower-revision record, so dropping one
 would convert a fail-closed `ok: false` into a fail-open `ok: true`.
 
-Two lessons worth more than the bytes:
+### And a second, subtler version of the same mistake
+
+The first fix replaced `list()` with a status set **copied into**
+`lead-tick-state.js` — the store's `CURRENT_STATUSES`. An independent review
+found that two such lists already exist and they *disagree*:
+
+| | Set |
+| --- | --- |
+| `portfolio-execution-bindings.CURRENT_STATUSES` | `pending, active, unavailable, deleted` |
+| `lead-loop.TERMINAL_BINDING_STATUSES` | `completed, failed, superseded, cancelled, deleted, unrouted` |
+
+So `deleted` holds a slot by one definition and frees it by the other, and
+**`needs_input` appears in neither** — yet it consumes capacity *and* is surfaced
+by `inFlightForTick`. The copied list therefore thinned a `needs_input` binding
+to five fields while downstream staffing still needed its `coordinator` and
+`source`. Silent field loss on a live code path.
+
+The fix is to stop copying the predicate: thinning now asks the exported
+`lead-loop.bindingConsumesCapacity` directly. That removes the drift class
+entirely and fails safe — an unknown or future status is not terminal, so it
+keeps its full shape instead of being stripped. `occupying` is likewise computed
+by that predicate rather than by a status list, and is a reporting view only.
+
+Three lessons worth more than the bytes:
 
 1. **A smaller slice that "still works" may only work because the test wasn't
    discriminating.** The first comparison of full vs capacity slice showed 0
@@ -93,6 +116,9 @@ Two lessons worth more than the bytes:
 2. **Check every consumer, not the one you are looking at.** `listCurrent()` is
    the right accessor for capacity and the wrong one for completion. The same
    array feeds both.
+3. **Never copy a predicate you can call.** Both binding bugs came from
+   re-deciding "is this record live?" locally instead of asking the module that
+   owns the question. Two status lists already disagreed; a third made it worse.
 
 ## Cost 3: the actual heavy lifting
 

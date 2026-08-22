@@ -88,9 +88,20 @@ function readOwnerRequests() {
 // Records must NOT be pre-deduped to the latest revision per task: those
 // predicates fail closed on a malformed lower-revision record, so dropping one
 // would turn a fail-closed `ok: false` into a fail-open `ok: true`.
-var CURRENT_BINDING_STATUSES = { pending: true, active: true, unavailable: true, deleted: true };
-
-function terminalProjection(binding) {
+// Which records may be thinned is decided by `lead-loop.bindingConsumesCapacity`
+// itself, never by a status list copied into this file. Two such lists already
+// exist and they DISAGREE: the store's CURRENT_STATUSES is
+// {pending, active, unavailable, deleted}, while lead-loop's terminal set is
+// {completed, failed, superseded, cancelled, deleted, unrouted}. So `deleted`
+// holds a slot by one definition and frees it by the other, and `needs_input`
+// appears in neither list yet consumes capacity and IS surfaced by
+// `inFlightForTick` -- which means a copied list thinned away its `coordinator`
+// and `source` while downstream staffing still needed them.
+//
+// Asking the authoritative predicate removes that whole class of drift, and it
+// fails safe: an unknown or future status is not terminal, so it keeps its full
+// shape rather than being silently stripped.
+function thinnedProjection(binding) {
   return {
     portfolioTaskId: binding.portfolioTaskId,
     targetProject: binding.targetProject,
@@ -101,21 +112,33 @@ function terminalProjection(binding) {
 }
 
 function readBindings() {
+  var leadLoop = require("../lib/lead-loop");
   var bindings = require("../lib/portfolio-execution-bindings")
     .createPortfolioExecutionBindings({ reconcileOnLoad: false });
   var loadError = bindings.getLoadError();
-  var current = bindings.listCurrent();
-  var terminal = [];
   var all = bindings.list();
+  var occupying = [];
+  var typedHistory = [];
   for (var i = 0; i < all.length; i++) {
-    if (!CURRENT_BINDING_STATUSES[all[i].status]) terminal.push(terminalProjection(all[i]));
+    // Full shape for anything that can hold a slot or be surfaced downstream;
+    // only records that can do neither are narrowed to the five fields every
+    // binding predicate reads.
+    if (leadLoop.bindingConsumesCapacity(all[i])) {
+      occupying.push(all[i]);
+      typedHistory.push(all[i]);
+    } else {
+      typedHistory.push(thinnedProjection(all[i]));
+    }
   }
   return {
-    // Capacity view only. Never pass this where completion is decided.
-    current: current,
-    // Every record, thinned where safe. This is the `portfolioBindings` input
-    // for leadTick AND the binding list for completionEligibility.
-    typedHistory: current.concat(terminal),
+    // Records that actually consume a portfolio slot, per lead-loop's own
+    // predicate. This is a capacity view and nothing else -- never pass it
+    // where completion is decided.
+    occupying: occupying,
+    // Every record, thinned only where provably unused. This is the
+    // `portfolioBindings` input for leadTick AND the list for
+    // completionEligibility.
+    typedHistory: typedHistory,
     loadError: loadError ? String(loadError.message || loadError) : null,
   };
 }
@@ -141,7 +164,13 @@ function readLooseItems() {
   var dropped = 0;
   for (var i = 0; i < all.length; i++) {
     var item = all[i];
-    var state = String((item && item.state) || "open").toLowerCase();
+    var raw = item && item.state;
+    // Only a genuine string state can be judged here. A non-string state (array,
+    // object, number) is kept and left to downstream normalization, which throws
+    // on it -- withholding it would silently convert that loud failure into an
+    // item that just quietly vanished from the backlog. `String(["closed"])`
+    // stringifies to "closed", so this guard matters.
+    var state = typeof raw === "string" ? raw.trim().toLowerCase() : (raw == null ? "open" : null);
     if (state === "closed") dropped++;
     else kept.push(item);
   }
@@ -240,4 +269,14 @@ function main(argv) {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { gather: gather, localMidnight: localMidnight, main: main };
+// readBindings/readLooseItems are exported so tests can drive the REAL
+// projection instead of a hand-built copy of it. A previous test built its own
+// fixtures and therefore could not catch that `needs_input` was being thinned.
+module.exports = {
+  gather: gather,
+  localMidnight: localMidnight,
+  main: main,
+  readBindings: readBindings,
+  readLooseItems: readLooseItems,
+  thinnedProjection: thinnedProjection,
+};
