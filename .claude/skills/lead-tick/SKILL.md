@@ -21,11 +21,19 @@ events; prose is never evidence.
 - **Owner routing:** Sessions the owner opens directly remain direct owner sessions. Never adopt, reroute, or place them under Coop unless the owner explicitly hands them to Coop.
 <!-- coop-authority-contract:end -->
 
-## 0. Kill switch — always first
+## 0. Kill switch and state — one call, always first
 
 ```bash
-node -e 'var u=require("./lib/users");var d=u.loadUsers();var owner=d.users[0];console.log(JSON.stringify({userId:owner&&owner.id,leadMode:owner?u.getLeadMode(owner.id):false}))'
+node scripts/lead-tick-state.js
 ```
+
+This is the ONLY state command for steps 0 and 1. It returns `leadMode`,
+`ownerRequests`, `bindings`, `looseItems`, `leadLedger`, `providerHealth` and
+`budget` in a single process, so read `leadMode` off it and continue — do not
+issue a separate command per source. Every extra bash step is a full model
+round trip, and the reads themselves are only 20-50ms each, so splitting them
+was costing whole seconds per turn to save nothing. A per-source read is
+justified only when this snapshot reports that source under `errors`.
 
 If `leadMode` is false, never orchestrate. For a staffing/spend-class
 exchange, decline with the exact Lead mode OFF disclosure above and STOP the
@@ -37,10 +45,11 @@ above in every staffing/spend-class exchange before applying the gates below.
 
 ## 1. Gather state
 
-- **Unanswered owner requests** (FIRST, before anything else):
-  ```bash
-  node -e 'var l=require("./lib/coop-owner-requests").getDefaultOwnerRequests();console.log(JSON.stringify(l.unanswered().map(function(r){return {ingressId:r.ingressId,seq:r.ingressSequence,receivedAt:r.receivedAt,topicRef:r.topicRef,requestRef:r.requestRef,state:r.state,expectsExecution:r.expectsExecution};}),null,1))'
-  ```
+Everything in this step already arrived in the step 0 snapshot. Read the
+fields below out of it; do not re-run any of these reads.
+
+- **Unanswered owner requests** (`snapshot.ownerRequests`, consider FIRST
+  before anything else):
   The durable record of what the owner asked and whether they were ever
   answered (`~/.clay/lead/coop-owner-requests.json`). A worker starting is
   NOT an answer and never has been; only a completed owner-facing turn that
@@ -48,16 +57,20 @@ above in every staffing/spend-class exchange before applying the gates below.
   (a canonical event reference into the Coop transcript) - the ledger is
   reference-only and deliberately stores no message text.
 
-- **Loose items** (boss directives, carry-over): `~/.clay/lead/items.json`
-  — array of `{title, body, labels, state}` items. Missing file = empty.
-- **In-flight work**: pass both legacy `lib/lead-ledger.inFlight()` entries
-  and `require("./lib/portfolio-execution-bindings")
-  .createPortfolioExecutionBindings({ reconcileOnLoad: false }).list()`
-  as `portfolioBindings`. Typed, non-terminal ProjectRef bindings are the
-  authoritative post-cutover in-flight state: they consume capacity and make a
-  queued premise stale even when the legacy ledger is empty. Completed and
-  unrouted bindings free the slot. Continue to read `failureCount(id)` and the
-  last `standup_composed` event's `at` from the ledger.
+- **Loose items** (`snapshot.looseItems.items`; boss directives, carry-over
+  from `~/.clay/lead/items.json`). Closed items are withheld and counted in
+  `snapshot.looseItems.droppedClosed`, because `lead-backlog` skips every item
+  whose state is not `open` anyway — a non-zero drop count is normal and is
+  NOT an empty backlog.
+- **In-flight work**: pass both legacy `snapshot.leadLedger.inFlight` entries
+  and `snapshot.bindings.current` as `portfolioBindings`. Typed, non-terminal
+  ProjectRef bindings are the authoritative post-cutover in-flight state: they
+  consume capacity and make a queued premise stale even when the legacy ledger
+  is empty. Completed and unrouted bindings free the slot, which is exactly why
+  the snapshot carries `listCurrent()` and not `list()` — the full list was 314
+  records / 275KB of context to act on 2 live ones. Read `failureCount(id)` and
+  the last `standup_composed` event's `at` from the ledger when a specific
+  binding needs them.
 - **Portfolio**: `lib/lead-backlog.buildPortfolio` over the loose items
   plus any GitHub sources from project task configs
   (`resolveGithubSources` + `collectGithubIssues`; wrap exec with
@@ -95,23 +108,28 @@ above in every staffing/spend-class exchange before applying the gates below.
   itself, so do not pass a different project name (2026-08-06: stale Webapp
   launchers copied into Clay made one issue appear as both `clay#2507` and
   `webapp#2507`).
-- **Provider health**: derive the live snapshot from the recovery log —
-  `require("./lib/lead-health").readHealthSnapshot(require("./lib/config").recoveryLogPath())`
-  — and inject it into every `routeWorkItem` call. Missing/empty data
+- **Provider health** (`snapshot.providerHealth`, derived from the recovery
+  log): inject it into every `routeWorkItem` call. Missing/empty data
   means assume healthy. NEVER route to a vendor the snapshot marks
   unhealthy (boss incident 2026-08-04: Claude credits exhausted for 64h;
   ticks must survive a vendor-wide outage by failing over, or `wait` with
   the reason when no vendor can serve the tier).
-- **Budget**: build today's burn snapshot with
-  `require("./lib/lead-budget").buildDailyBudget(sessions, { dayStartAt: <local midnight epoch-ms>, vendorCostRank: { codex: 1, claude: 2 } })`
-  where `sessions` are `[{ vendor, createdAt, history }]` loaded from
-  `~/.clay/sessions/<scope>/*.jsonl` — line 1 is the meta object
-  (supplies `vendor`/`createdAt`), remaining lines are history events;
-  the typed `result` events carry cost/usage. Pass the result as
-  `opts.budget` to every `routeWorkItem` call — active pressure reorders
-  vendors toward cheaper-capable and flags tier-4 staffings for
-  approval. Include `formatBurnRate(budget)` in every standup. Missing
-  telemetry means pressure UNKNOWN, never "fine".
+- **Budget** (`snapshot.budget`): today's burn, already built by the real
+  `lead-budget.buildDailyBudget` over `~/.clay/sessions/<scope>/*.jsonl`. Pass
+  it as `opts.budget` to every `routeWorkItem` call — active pressure reorders
+  vendors toward cheaper-capable and flags tier-4 staffings for approval.
+  Include `snapshot.budget.burnRate` in every standup. Missing telemetry means
+  pressure UNKNOWN, never "fine".
+
+  Session logs are ~722MB across ~2,150 files and used to be read in full every
+  tick; `lib/lead-budget-usage-cache.js` now keeps just the `result` events
+  (~1% of bytes) and re-reads only the bytes appended since the last tick,
+  which took this step from ~2,000ms to ~130ms. `snapshot.budget.cache` reports
+  `reused`/`delta`/`full`/`bytesRead` — a `full` count near the file count means
+  the cache was cold or invalidated, not that anything is wrong. To keep even
+  the cold rebuild out of an owner-facing turn, run
+  `node scripts/lead-tick-state.js --refresh` in the background (cron or a
+  post-turn hook); it warms the cache and prints nothing else.
 
 ## 2. Decide
 

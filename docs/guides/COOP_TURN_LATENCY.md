@@ -1,0 +1,158 @@
+# Coop foreground-turn latency
+
+How an owner-facing Coop/Lead turn spends its time, what was actually slow, and
+the rules that keep it fast. Measured 2026-08-22 on the owner's live
+`~/.clay` state.
+
+## The measurement that redirected the work
+
+The starting assumption was that per-turn state gathering was CPU- or
+disk-bound. It is not. Every individual read is trivial:
+
+| Per-turn read | Wall clock |
+| --- | --- |
+| bare `node -e '0'` | 20ms |
+| `users.loadUsers()` + `getLeadMode()` | 20-30ms |
+| `coop-owner-requests.unanswered()` | 40-50ms |
+| `portfolio-execution-bindings.list()` | 30-40ms |
+| `lead-ledger.inFlight()` | 30ms |
+| `lead-budget` module load | 20ms |
+
+Six of those is ~200ms of real work. Nobody perceives 200ms. So the latency the
+owner reported was never in this column, and caching these reads would have
+bought nothing. Two other things were doing the damage.
+
+## Cost 1: round trips, not reads
+
+Each separate `bash` step in a turn is a full model round trip — seconds, not
+milliseconds. The old step 1 of the lead-tick skill issued a separate `node -e`
+per source, so the turn paid ~6 round trips to do ~200ms of work. The structure
+of the turn, not the work in it, was the cost.
+
+**Fix:** `scripts/lead-tick-state.js` returns every step-0/step-1 source from a
+single process, so the whole gather is one round trip. Within one process the
+reads are consecutive synchronous file reads with no round trip between them,
+which is where the sequential shape was actually losing its time — this is what
+"run independent reads in parallel" translates to once the real serialization
+point is identified as the turn boundary rather than the syscall.
+
+## Cost 2: context bytes
+
+Oversized state is paid for twice: once in prefill, and again as a prompt-cache
+miss on every subsequent turn in the session, because changed state invalidates
+the cached prefix. Two sources dominated:
+
+| Source | Before | After | Why the rest was never needed |
+| --- | --- | --- | --- |
+| `portfolio-execution-bindings` | 314 records / **275,130 B** | 2-3 records / **~1,500 B** (99.5% less) | `list()` returns every binding ever created (159 completed, 74 failed, 30 superseded). Only `CURRENT_STATUSES` hold a portfolio slot, and `listCurrent()` already existed to return exactly those. |
+| `~/.clay/lead/items.json` | 55 items / **59,631 B** | 2 items / **~3,600 B** | `lead-backlog.collectPortfolioItems` skips every item whose state is not `open` (`lib/lead-backlog.js:75`). 53 of 55 were closed. |
+
+Whole snapshot: **~79KB → ~23KB** (~20K tokens → ~6K).
+
+The bindings win required no new code at all — the skill was calling `list()`
+where `listCurrent()` was already the correct accessor. Look for an existing
+narrow accessor before writing a projection.
+
+## Cost 3: the actual heavy lifting
+
+`~/.clay/sessions/**/*.jsonl` is **719MB across 2,153 files**, and the budget
+step read all of it every tick so that `lead-budget.aggregateDailyUsage` could
+window-filter it down to today. Only **1.04%** of those bytes (7.5MB, 11,159
+lines) are the `result` events the budget consumes.
+
+`lib/lead-budget-usage-cache.js` keeps those result events per file, keyed by
+`(size, mtimeMs)`, and on each tick re-reads only the byte range appended since
+the last tick.
+
+| | Wall clock | Bytes read |
+| --- | --- | --- |
+| Full read (before) | 1,897–2,081ms | 722MB |
+| Cold cache build | 740–758ms | 722MB |
+| **Warm tick (steady state)** | **131–134ms** | **939 B** |
+
+The cached daily budget is byte-identical to a full-read baseline on the live
+tree, cold and warm. `--refresh` warms the cache off the foreground turn so even
+the cold rebuild never lands inside an owner-facing turn.
+
+### Two invariants that must not be "optimized" away
+
+1. **Never drop pre-window result events.** `lead-budget.aggregateSession`
+   (`lib/lead-budget.js:120-131`) walks the *full* result list to carry
+   `previousCost` forward; only the ADD step is window-gated. A cache filtered
+   to "today" turns the first in-window cumulative cost into an absolute and
+   overstates the day's spend. The cache therefore retains every result event
+   and leaves windowing to the library.
+2. **Resume offsets are byte offsets.** A string index is not a byte offset.
+   The first implementation added a `String.prototype.indexOf` result to a byte
+   offset; 50 emoji-bearing lines drifted the resume point 4,000 bytes early and
+   re-counted an already-stored result event, reporting 3 turns for 2. The
+   scanner works on a `Buffer` and decodes each line separately, which also
+   makes it impossible for a multi-byte character to straddle a read boundary.
+
+Both invariants have a test that fails when the invariant is violated
+(`test/lead-budget-usage-cache.test.js`).
+
+## The larger cost, not yet fixed: transcript rewrites
+
+Everything above is the **Lead-tick state-gathering** path. The
+**server-side owner turn** has a bigger problem, and the canary logs name it
+without needing to read any source (see
+[DIAGNOSTICS.md](DIAGNOSTICS.md)):
+
+```
+grep -c 'SAVE-SLOW' ~/.clay/diag-dev.log            # 559
+grep -c 'LOOP-LAG'  ~/.clay/diag-dev.log            # 62,590
+```
+
+`sessions-persistence.js:210` `writeSessionFileNow` rewrites the **entire**
+transcript from memory, synchronously, on every save. The canonical Coop session
+is **43MB / ~55,000 events**, and the turn saves 6-12 times — `markDispatched`,
+`markIdle`, `resumeIngress`, `recordAttention`, `clearAttention`,
+`recordPrepared`, plus the ingress-queue paths.
+
+Measured from the owner's live diag log:
+
+| | |
+| --- | --- |
+| Slow saves recorded (>200ms threshold) | 559 |
+| Cumulative event-loop blocking | **157.3s** |
+| Mean / max single save | 281ms / **3,687ms** |
+| Saves over 1s | 4 |
+
+157.3s is a floor, not a total: saves under the 200ms log threshold are not
+counted. A single save blocking the event loop for 3.7s stalls every session and
+every connected viewer, not just the turn that caused it.
+
+The fix is incremental append instead of full rewrite, but it is invasive enough
+to need its own change: it turns on whether `session.history` is genuinely
+append-only after an event is persisted, and it needs a full-rewrite fallback
+whenever a tracked offset disagrees with the file. That work is **proposed, not
+done**. Nothing in this document's measured wins touches it — the Lead-tick
+numbers above are real, and they are not this.
+
+Two smaller items from the same investigation, also unfixed:
+
+- `coop-owner-requests.js:136` `read()` calls `refresh()` unconditionally and has
+  **no cache at all** (contrast `coop-topic-index-store.js:86`, which at least
+  reuses state). One `mutate()` is ~3 full reads of the 934KB ledger, 2
+  whole-state SHA-256 digests, and a full rewrite — and the turn does 4+.
+- `coop-control-ledger-file.js:88,147` `acquireLock` busy-sleeps with
+  `Atomics.wait` **on the main thread**, blocking the event loop in 10ms slices
+  for up to 5s under contention.
+
+## Rules for changing the turn
+
+- **Add state to `scripts/lead-tick-state.js`, never as a new bash step.** One
+  more step is one more round trip; one more field is nearly free.
+- **Project at the source.** Emit the fields and records the turn acts on. If a
+  consumer already filters something out, filtering it earlier is equivalence,
+  not policy — verify that against the consumer and cite the line.
+- **Report what was withheld.** `looseItems.droppedClosed` and `budget.cache`
+  exist so a smaller payload can never be misread as an empty backlog or a
+  broken cache. A silent cap reads as "covered everything".
+- **Invalidate on observed change, never on a timer.** The cache reuses an entry
+  only when size *and* mtime both match, and re-reads a shrunken file in full so
+  rotation cannot leave stale events behind.
+- **Degrade per-source.** One unreadable input lands in `snapshot.errors` and
+  nulls its own field; it never aborts the gather. Re-read a single source by
+  hand only when it appears there.
