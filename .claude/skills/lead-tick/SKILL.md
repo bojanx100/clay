@@ -66,11 +66,20 @@ fields below out of it; do not re-run any of these reads.
   and `snapshot.bindings.current` as `portfolioBindings`. Typed, non-terminal
   ProjectRef bindings are the authoritative post-cutover in-flight state: they
   consume capacity and make a queued premise stale even when the legacy ledger
-  is empty. Completed and unrouted bindings free the slot, which is exactly why
-  the snapshot carries `listCurrent()` and not `list()` — the full list was 314
+  is empty. Completed and unrouted bindings free the slot, which is why the
+  CAPACITY slice is `listCurrent()` and not `list()` — the full list was 314
   records / 275KB of context to act on 2 live ones. Read `failureCount(id)` and
   the last `standup_composed` event's `at` from the ledger when a specific
   binding needs them.
+
+  **Use `snapshot.bindings.typedHistory`, never `bindings.current`, for
+  completion eligibility.** That check must see terminal bindings:
+  `project-automation-candidates.js:78` returns
+  `already_completed_or_in_flight` for status `completed`, which the capacity
+  slice excludes by design. Passing the capacity slice there makes an
+  already-completed issue eligible again and staffs the same work twice
+  (guarded by `test/lead-tick-state-bindings.test.js`). `typedHistory` keeps
+  every record and narrows by field instead.
 - **Portfolio**: `lib/lead-backlog.buildPortfolio` over the loose items
   plus any GitHub sources from project task configs
   (`resolveGithubSources` + `collectGithubIssues`; wrap exec with
@@ -80,8 +89,9 @@ fields below out of it; do not re-run any of these reads.
   from that exact project root. Also construct the project's scoped
   `candidateEligibility(itemKey, assignedToOwner, recipeAllowsUnassigned)` by
   checking `project-automation-candidates.completionEligibility` against that
-  project's `project-issue-launch-state` AND the canonical typed binding list
-  loaded above. Pass the candidate as `{ source: "github", project,
+  project's `project-issue-launch-state` AND
+  `snapshot.bindings.typedHistory` (the all-status slice — NOT
+  `bindings.current`, see above). Pass the candidate as `{ source: "github", project,
   projectRef, itemKey }`; this makes the binding check use
   `lead-staffing.portfolioTaskIdForCandidate`, the same exact default identity
   path staffing uses. If completion eligibility is not eligible, return it
@@ -135,7 +145,9 @@ fields below out of it; do not re-run any of these reads.
 
 Run `lib/lead-loop.leadTick` with the gathered state (capacity 1 unless
 the boss raised it; inject `routeFn` from `lib/lead-routing`, real clock,
-the legacy ledger's `inFlight`, typed binding history as `portfolioBindings`,
+the legacy ledger's `inFlight`, `snapshot.bindings.typedHistory` as
+`portfolioBindings` — the all-status slice, since `bindingBlocksRestaff`
+(`lib/lead-loop.js:100`) needs terminal records to block restaffing —
 and the unanswered owner requests as `unansweredRequests`).
 The decisions array is your work order for this tick.
 

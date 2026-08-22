@@ -42,16 +42,57 @@ Oversized state is paid for twice: once in prefill, and again as a prompt-cache
 miss on every subsequent turn in the session, because changed state invalidates
 the cached prefix. Two sources dominated:
 
-| Source | Before | After | Why the rest was never needed |
+| Source | Before | After | How |
 | --- | --- | --- | --- |
-| `portfolio-execution-bindings` | 314 records / **275,130 B** | 2-3 records / **~1,500 B** (99.5% less) | `list()` returns every binding ever created (159 completed, 74 failed, 30 superseded). Only `CURRENT_STATUSES` hold a portfolio slot, and `listCurrent()` already existed to return exactly those. |
+| `portfolio-execution-bindings` | 315 records / **276,043 B** | 315 records / **~67,000 B** (76% less) | All records kept; only terminal ones thinned to the 5 fields any predicate reads. |
 | `~/.clay/lead/items.json` | 55 items / **59,631 B** | 2 items / **~3,600 B** | `lead-backlog.collectPortfolioItems` skips every item whose state is not `open` (`lib/lead-backlog.js:75`). 53 of 55 were closed. |
+| Owner requests | 17,865 B | 14,819 B | Same projection, emitted compact rather than indented. |
 
-Whole snapshot: **~79KB → ~23KB** (~20K tokens → ~6K).
+Whole snapshot: **~354KB → ~90KB, a 74.6% cut** (~88K tokens → ~22K).
 
-The bindings win required no new code at all — the skill was calling `list()`
-where `listCurrent()` was already the correct accessor. Look for an existing
-narrow accessor before writing a projection.
+### The regression this nearly shipped
+
+The obvious bindings fix is to swap `list()` for the existing `listCurrent()`:
+it returns exactly the statuses that hold a portfolio slot, and it took 276KB
+down to 1.5KB — a 99.5% cut. It was also **wrong**, and wrong in the direction
+that fails open.
+
+Terminal bindings look like dead weight, but two consumers need them:
+
+- `project-automation-candidates.js:78` returns
+  `already_completed_or_in_flight` for status `completed` — which
+  `listCurrent()` excludes. Driving the real predicate with a real derived
+  identity: full list → `eligible=false`, capacity slice → **`eligible=true`**.
+  An already-finished GitHub issue becomes stageable and the same work is
+  staffed twice.
+- `lead-loop.js:100` `bindingBlocksRestaff` blocks restaffing on
+  `completed`/`superseded`/`cancelled`/`deleted` for the same reason.
+
+So `typedHistory` keeps every record and narrows by field instead. The three
+predicates that read a binding (`validTypedBinding` `lead-loop.js:71`,
+`bindingBlocksRestaff` `:100`, `latestCandidateBinding` `candidates.js:48-57`)
+read exactly five properties between them. Current records keep their full shape
+because `inFlightForTick` echoes the matched binding downstream and only ever
+matches current records; terminal records never surface there, so only they are
+thinned. Verified identical to the full list for both `inFlightForTick` and
+`leadTick` on the live store.
+
+Records are also **not** deduped to the latest revision per task: those
+predicates fail closed on a malformed lower-revision record, so dropping one
+would convert a fail-closed `ok: false` into a fail-open `ok: true`.
+
+Two lessons worth more than the bytes:
+
+1. **A smaller slice that "still works" may only work because the test wasn't
+   discriminating.** The first comparison of full vs capacity slice showed 0
+   mismatches across 233 real task ids — because the arguments were in the wrong
+   order and the predicate bailed at `completion_state_unresolvable` before ever
+   reading a binding. The identity has to resolve before any of it means
+   anything, which is why `test/lead-tick-state-bindings.test.js` asserts
+   `portfolioTaskIdForCandidate` resolves *first*.
+2. **Check every consumer, not the one you are looking at.** `listCurrent()` is
+   the right accessor for capacity and the wrong one for completion. The same
+   array feeds both.
 
 ## Cost 3: the actual heavy lifting
 

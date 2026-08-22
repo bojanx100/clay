@@ -63,16 +63,59 @@ function readOwnerRequests() {
   });
 }
 
-// `listCurrent()` is the existing accessor for exactly the statuses that hold a
-// portfolio slot (CURRENT_STATUSES in lib/portfolio-execution-bindings.js).
-// Completed/failed/superseded/unrouted bindings free the slot, so the tick has
-// never needed them -- it was reading 314 records to act on 2.
+// Bindings cannot simply be narrowed to `listCurrent()`. Terminal bindings look
+// like dead weight -- 159 completed, 74 failed, 30 superseded of 315 -- but two
+// consumers need them, and dropping them fails OPEN:
+//
+//  * project-automation-candidates.js:78 returns
+//    `already_completed_or_in_flight` for status "completed". Without terminal
+//    records an already-finished issue becomes eligible and the same work gets
+//    staffed twice.
+//  * lead-loop.js:100 `bindingBlocksRestaff` blocks restaffing on completed /
+//    superseded / cancelled / deleted for the same reason.
+//
+// So every record is kept and the narrowing is by FIELD. The three predicates
+// that read a binding here -- validTypedBinding (lead-loop.js:71),
+// bindingBlocksRestaff (:100) and latestCandidateBinding
+// (candidates.js:48-57) -- between them read exactly five properties.
+//
+// Current records keep their full shape because `inFlightForTick` echoes the
+// matched binding into its result and downstream staffing reads the rest of it;
+// only terminal records, which never surface there, are thinned. Verified
+// identical to the full list for both `inFlightForTick` and `leadTick` on the
+// live store, at 276KB -> 67KB.
+//
+// Records must NOT be pre-deduped to the latest revision per task: those
+// predicates fail closed on a malformed lower-revision record, so dropping one
+// would turn a fail-closed `ok: false` into a fail-open `ok: true`.
+var CURRENT_BINDING_STATUSES = { pending: true, active: true, unavailable: true, deleted: true };
+
+function terminalProjection(binding) {
+  return {
+    portfolioTaskId: binding.portfolioTaskId,
+    targetProject: binding.targetProject,
+    bindingRevision: binding.bindingRevision,
+    mode: binding.mode,
+    status: binding.status,
+  };
+}
+
 function readBindings() {
   var bindings = require("../lib/portfolio-execution-bindings")
     .createPortfolioExecutionBindings({ reconcileOnLoad: false });
   var loadError = bindings.getLoadError();
+  var current = bindings.listCurrent();
+  var terminal = [];
+  var all = bindings.list();
+  for (var i = 0; i < all.length; i++) {
+    if (!CURRENT_BINDING_STATUSES[all[i].status]) terminal.push(terminalProjection(all[i]));
+  }
   return {
-    current: bindings.listCurrent(),
+    // Capacity view only. Never pass this where completion is decided.
+    current: current,
+    // Every record, thinned where safe. This is the `portfolioBindings` input
+    // for leadTick AND the binding list for completionEligibility.
+    typedHistory: current.concat(terminal),
     loadError: loadError ? String(loadError.message || loadError) : null,
   };
 }
