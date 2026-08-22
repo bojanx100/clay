@@ -91,3 +91,113 @@ test("offline CLI refuses apply instead of pretending to observe daemon runtime"
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Offline apply is forbidden/);
 });
+
+var CLI = path.join(__dirname, "..", "scripts", "run-coop-execution-reaper.js");
+
+// A self-contained CLAY_HOME so the CLI resolves its config, sessions root and
+// binding store entirely inside the fixture. One genuinely dead coordinator
+// (log ends on the terminal `done` marker, well past the quiescence window) and
+// one cut off mid-turn, which must survive every run.
+function cliFixture() {
+  var home = tempDir("cli");
+  var projectPath = path.join(home, "project");
+  var sessionsDir = path.join(home, "sessions", projectPath.replace(/[^a-zA-Z0-9]/g, "-"));
+  fs.mkdirSync(projectPath, { recursive: true });
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  var configFile = path.join(home, "daemon-dev.json");
+  fs.writeFileSync(configFile, JSON.stringify({
+    projects: [{ path: projectPath, slug: "fixture", projectId: PROJECT }],
+  }));
+
+  var bindingFile = path.join(home, "bindings.json");
+  var now = Date.now();
+  var store = createBindings({ file: bindingFile, reconcileOnLoad: false });
+  [["dead-coordinator", "done"], ["midturn-coordinator", "tool_executing"]].forEach(function (pair) {
+    var storageId = pair[0] + "-session";
+    store.reserve({
+      portfolioTaskId: pair[0],
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT },
+      bindingRevision: 1,
+      idempotencyKey: pair[0] + "-r1",
+    });
+    store.commit(pair[0], 1, { projectId: PROJECT, sessionStorageId: storageId });
+    fs.writeFileSync(path.join(sessionsDir, storageId + ".jsonl"),
+      JSON.stringify({ type: "session", _ts: now - 30 * DAY }) + "\n" +
+      JSON.stringify({ type: pair[1], code: 0, _ts: now - 30 * DAY }) + "\n");
+  });
+  return { home: home, configFile: configFile, bindingFile: bindingFile };
+}
+
+function runCli(fixture, extraArgs) {
+  var args = [CLI, "--config", fixture.configFile, "--bindings", fixture.bindingFile]
+    .concat(extraArgs || []);
+  var result = childProcess.spawnSync(process.execPath, args, {
+    encoding: "utf8",
+    env: Object.assign({}, process.env, { CLAY_HOME: fixture.home, CLAY_CONFIG: fixture.configFile }),
+  });
+  assert.equal(result.status, 0, "CLI failed: " + result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+// The default report's "0 reapable" is indistinguishable from the output of a
+// completely broken predicate, so on its own it is not evidence the predicate
+// works. This pins that the two runs disagree, and that the disagreement is
+// attributable to the runtime observation alone -- same store, same logs.
+test("offline CLI reports nothing reapable until runtime observation is supplied", function () {
+  var fixture = cliFixture();
+
+  var unobserved = runCli(fixture);
+  assert.equal(unobserved.runtimeObservation, "unobserved");
+  assert.equal(unobserved.totals.reapable, 0);
+  assert.equal(unobserved.disclaimer, undefined);
+  var vetoed = unobserved.findings.filter(function (item) {
+    return item.portfolioTaskId === "dead-coordinator";
+  })[0];
+  assert.equal(vetoed.decision, "exempt");
+  assert.equal(vetoed.kind, "runtime_unobserved");
+
+  var simulated = runCli(fixture, ["--simulate-runtime"]);
+  assert.equal(simulated.runtimeObservation, "simulated");
+  assert.match(simulated.disclaimer, /SUPPLIED, not observed/);
+  assert.equal(simulated.totals.reapable, 1);
+  var reaped = simulated.findings.filter(function (item) {
+    return item.decision === "reap";
+  });
+  assert.equal(reaped.length, 1);
+  assert.equal(reaped[0].portfolioTaskId, "dead-coordinator");
+  assert.equal(reaped[0].kind, "session_log_quiescent");
+  assert.equal(reaped[0].evidence.lastEventType, "done");
+
+  // The mid-turn coordinator is unreapable in BOTH runs. Supplying runtime
+  // observation must relax exactly one veto, not open the gate generally.
+  ["midturn-coordinator"].forEach(function (taskId) {
+    var still = simulated.findings.filter(function (item) {
+      return item.portfolioTaskId === taskId;
+    })[0];
+    assert.equal(still.decision, "skip");
+    assert.match(still.kind, /^session_log_mid_turn/);
+  });
+});
+
+// The flag makes the report more informative; it must not make the script an
+// apply path, and it must not touch the store it read.
+test("simulated runtime stays a read-only diagnostic", function () {
+  var fixture = cliFixture();
+  var before = fs.readFileSync(fixture.bindingFile, "utf8");
+
+  var refused = childProcess.spawnSync(process.execPath,
+    [CLI, "--config", fixture.configFile, "--bindings", fixture.bindingFile,
+      "--simulate-runtime", "--apply"],
+    { encoding: "utf8", env: Object.assign({}, process.env, { CLAY_HOME: fixture.home }) });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /Offline apply is forbidden/);
+
+  var report = runCli(fixture, ["--simulate-runtime"]);
+  assert.equal(report.dryRun, true);
+  assert.equal(report.totals.reapable, 1);
+  assert.equal(fs.readFileSync(fixture.bindingFile, "utf8"), before);
+  var reloaded = createBindings({ file: fixture.bindingFile, reconcileOnLoad: false });
+  assert.equal(reloaded.get("dead-coordinator", 1).status, "active");
+  assert.equal(reloaded.get("dead-coordinator", 1).reapEvidence, undefined);
+});

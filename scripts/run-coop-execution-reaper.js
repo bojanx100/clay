@@ -6,6 +6,17 @@
 // current SessionManager runtime state. This script deliberately reports
 // runtime_unobserved instead of pretending that a transcript on disk proves a
 // provider process is idle.
+//
+// That honesty has a cost: because every candidate is vetoed as
+// runtime_unobserved, the default report's "0 reapable" says nothing about
+// whether the predicate would actually identify the stuck records in a given
+// store. It is the same output a completely broken predicate would produce.
+// `--simulate-runtime` supplies the one input an offline process cannot
+// legitimately produce -- the daemon's runtime observation -- so the rest of
+// the predicate (real bindings, real session logs, real quiescence, real
+// vetoes) becomes visible and checkable. It is a diagnostic, not an authority:
+// the output labels itself `runtimeObservation: "simulated"`, and `--apply`
+// stays refused regardless.
 
 var fs = require("fs");
 var path = require("path");
@@ -55,6 +66,7 @@ function main() {
   if (process.argv.indexOf("--apply") !== -1) {
     throw new Error("Offline apply is forbidden; use the daemon-owned timer after explicit activation.");
   }
+  var simulateRuntime = process.argv.indexOf("--simulate-runtime") !== -1;
   var configFile = argumentValue("--config") || process.env.CLAY_CONFIG || config.configPath();
   var bindingFile = argumentValue("--bindings") || portfolioBindings.defaultFile();
   var daemonConfig = loadJson(configFile);
@@ -73,7 +85,7 @@ function main() {
         path.join(sessionsDir, ref.sessionStorageId + ".jsonl") : "";
       return {
         projectRegistered: !!project,
-        runtimeObserved: false,
+        runtimeObserved: simulateRuntime,
         session: file ? firstRecord(file) : null,
         sessionsDir: sessionsDir,
         sessionFile: file,
@@ -87,6 +99,9 @@ function main() {
     at: report.at,
     bindingFile: bindingFile,
     configFile: configFile,
+    // Names which of the two runs produced these findings, so a simulated
+    // report can never be mistaken for a daemon-observed one after the fact.
+    runtimeObservation: simulateRuntime ? "simulated" : "unobserved",
     totals: {
       findings: report.findings.length,
       reapable: report.reapable.length,
@@ -95,6 +110,11 @@ function main() {
     },
     findings: report.findings,
   };
+  if (simulateRuntime) {
+    summary.disclaimer = "runtimeObserved was SUPPLIED, not observed. These findings show what " +
+      "the predicate concludes given an idle runtime; they are not evidence that any runtime " +
+      "was idle. Only the daemon can observe that.";
+  }
   process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
 }
 

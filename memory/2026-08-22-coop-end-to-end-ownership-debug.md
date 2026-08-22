@@ -87,7 +87,11 @@ forcibly relabelled.
   This closes the authorized push/review action only. It does not close the
   separate parent-email navigation 404.
 - The owner-direct approval and scheduled-continuation implementation is
-  committed locally on `bojan`; no push occurred.
+  committed locally on `bojan`; no push occurred. **CORRECTED (2026-08-22):**
+  this is stale. `bojan` has since been pushed; `03a3dd6fd8`, `dc3190648e` and
+  `67e1117524` are all ancestors of `origin/bojan`, so "committed locally" below
+  should be read as "committed and pushed". Voice STT `9f1eeab6e9` is the one
+  named commit that is still unpushed, on its own worktree branch.
 - Runtime-reaper implementation and integration are committed locally as
   `03a3dd6fd8`. The daemon interval is unrefed and explicitly off unless
   `CLAY_COOP_EXECUTION_REAPER=1`; the offline CLI refuses `--apply` rather than
@@ -122,6 +126,12 @@ forcibly relabelled.
   and 56 exempt. Pre/post SHA-256 hashes of the portfolio binding store and Lead
   ledger were identical. This is evidence that the offline scan did not mutate
   live state; it is not evidence that an offline process observed daemon runtime.
+  **CORRECTED (2026-08-22):** that scan was also not evidence the predicate
+  works. The offline CLI hardcoded `runtimeObserved: false`, so all seven
+  in-flight candidates were vetoed as `runtime_unobserved` before any evidence
+  was weighed — the identical "0 reapable" a completely broken predicate would
+  print. The scan is now reproducible with the observation supplied
+  (`--simulate-runtime`); see "Live predicate verification" below.
 - Final canary inspection found only the Class-B proof's synthetic
   `predecessor-session-0001` events in the recovery log. Event-loop maximum lag
   settled to 20 ms, 20 ms, then 12 ms in the last three diagnostic intervals;
@@ -132,6 +142,35 @@ forcibly relabelled.
   owner-direct session is not authorized to impersonate canonical Coop or
   rewrite controlled records, so the stale rows were left truthful and
   unchanged rather than being force-closed.
+
+## Live predicate verification (2026-08-22, read-only)
+
+The reaper's fixtures were synthetic, so until now nothing showed the predicate
+selecting a real stuck record out of real state. Driven over the live binding
+store (312 records) and the real session logs at `aa4b71202c`, with the daemon's
+runtime observation supplied and nothing else changed:
+
+- The predicate selected exactly **one** reapable record on its own, sweeping all
+  312: `webapp-open-bug-reconciliation r1`, `deleted -> cancelled`, evidence
+  `session_log_quiescent`, real last event `done` at `1786537099086`, quiescent
+  9.5 days. That is the same record found by hand earlier in the investigation,
+  but it was not handed to the scan — the scan found it and named its evidence.
+  The reap target is `cancelled`, not `failed`, because `deleted` was withdrawn
+  rather than failed.
+- The vetoes did real work on the same pass. Two in-flight records were refused
+  as `session_log_mid_turn` — `clay-stuck-execution-runtime-reaper-2026-08-21`
+  (`tool_executing`) and `clay-classb-handoff-trigger-policy-2026-08-21`
+  (`thinking_delta`). Both are the rate-limited workers whose final turns were
+  cut off; the reaper correctly refuses to call a mid-turn log dead at any age.
+  Four more were inside the quiescence window and 49 `unrouted` were exempt.
+- The binding store was opened on a copy, and the live portfolio binding store
+  and Lead ledger hashed identically before and after
+  (`abe77814f060...`, `194cf2dbd72b...`).
+
+What this does NOT show: no daemon observed any runtime, so it is not evidence
+that the reaped candidate's provider process is idle — only that the predicate
+reaches the right verdict *given* that observation. No reap was applied, and no
+live record was changed. The daemon timer remains the only apply path.
 
 ## Activation boundary
 

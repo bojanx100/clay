@@ -331,7 +331,7 @@ The Lead is the CTO orchestrator (see `docs/roadmaps/planned/CTO-ORCHESTRATOR-RO
 | `scripts/lead-backtest.js` | Backtest runner: fetches closed issues + merged PRs (per-repo gh credentials), joins on branch/title issue refs, prints the scored comparison, appends `backtest_report` summary to the lead ledger |
 | `scripts/run-tests.js` | Deterministic Node test runner that strips live Coop control-kernel activation flags before loading the test suite |
 | `scripts/snapshot-control-store.js` | Consistent single-file snapshot of the WAL-mode Coop control store via `VACUUM INTO` (run before any control-plane repair; opens the source read-only); `--audit` reports the stale legacy `coop-control.sqlite.pre-*.bak` files as unsafe to restore |
-| `scripts/run-coop-execution-reaper.js` | Offline read-only dry run for the stuck-execution reaper; intentionally refuses apply because only the daemon can observe current runtime state |
+| `scripts/run-coop-execution-reaper.js` | Offline read-only dry run for the stuck-execution reaper; intentionally refuses apply because only the daemon can observe current runtime state. `--simulate-runtime` supplies that one observation so the rest of the predicate is checkable against a real store (the default run vetoes every candidate as `runtime_unobserved`, so its "0 reapable" is uninformative on its own); the report labels itself `runtimeObservation: "simulated"` and apply stays refused |
 | `.claude/skills/lead-tick` | The Lead's operating procedure as a skill: one tick = scan portfolio, staff/propose, verify against the gate, report via typed events |
 
 ### Repo Hygiene Guards
