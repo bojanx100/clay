@@ -144,6 +144,7 @@ function executionRouter(entries, delivered, handedOff, options) {
   };
   var router = createCrossProjectRouter({
     allowLeadSourcedExecution: true,
+    autonomyPolicyFile: options.autonomyPolicyFile,
     bindingFile: path.join(dir, "bindings.json"),
     bindingStore: options.bindingStore,
     ownerRequests: options.ownerRequests || {
@@ -1612,4 +1613,160 @@ test("one exact owner turn dispatches every named task and keeps their scopes in
       return [scope.projectRef.projectId, scope.portfolioTaskId, scope.bindingRevision];
     }), [[PROJECT, tasks[0].portfolioTaskId, 3], [PROJECT, tasks[1].portfolioTaskId, 1]]);
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+// Regression: the standing autonomy grant was unreachable for exactly the
+// dispatches it was written for.
+//
+// A grant in scoped-autonomy-policy.json authorizes a category of work in named
+// projects ahead of time, so there is no owner turn behind it and nothing to
+// hang a Thread on. But implementationAdmission demands a Thread on its first
+// line and only reaches autonomyGrant.standingAdmission through
+// itemApproval.executionAdmission far below it, and the only thing that mints a
+// Thread is an owner turn that parses as an implementation decision. Measured
+// live on 2026-08-22, ingresses 629/632: three read-only diagnosis dispatches
+// into an allowlisted project were refused owner_implementation_decision_required
+// while standingAdmission, asked directly with the same inputs, answered ok.
+//
+// test/coop-widened-autonomy-grant.test.js could not see this because every one
+// of its requests hand-supplies `coopTopicRef` -- verifying a lookup by
+// supplying the answer it is meant to find. This drives the production
+// coordinator with no ingress, no ThreadRef and no approval ref, over an owner
+// history whose newest turn is an ordinary question, and makes it discover
+// everything itself.
+function grantPolicyFile(enabled, projects) {
+  var shipped = JSON.parse(fs.readFileSync(
+    path.join(__dirname, "..", "scoped-autonomy-policy.json"), "utf8"));
+  shipped.enabled = enabled;
+  if (projects) shipped.projects = projects;
+  var file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-route-")),
+    "scoped-autonomy-policy.json");
+  fs.writeFileSync(file, JSON.stringify(shipped, null, 2) + "\n");
+  return file;
+}
+
+function grantHistory() {
+  // The exact shape that broke it: the newest owner turn is a question, so
+  // explicitImplementationDecision returns null and nothing mints a Thread.
+  return [{
+    type: "user_message",
+    text: "what you're going to check is why you did not respond to me in voice " +
+      "when I was in a different Project",
+    coopIngressId: "coop:canonical-coop:631",
+    coopIngressSequence: 631,
+    coopComposerScope: "main",
+    clientMessageId: "ingress-631",
+    _ts: 3000,
+  }];
+}
+
+function grantCoordinator(policyFile, delivered, topicIndex, dir) {
+  var history = grantHistory();
+  var built = executionRouter([], delivered, [], {
+    dir: dir,
+    autonomyPolicyFile: policyFile,
+    history: history,
+    onThreadHandedOff: function (input) {
+      return topicIndex.linkExecution(input.topicRef, {
+        projectRef: input.projectRef,
+        sessionRef: input.sessionRef,
+      });
+    },
+  });
+  var source = { localId: 1, storageId: "canonical-coop", coopHome: true, history: history };
+  return createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    autonomyPolicyFile: policyFile,
+    readLeadEvents: function () { return []; },
+    ensureOwnerThread: function (input) { return topicIndex.ensureOwnerThread(input); },
+    createProjectExecution: built.router.createProjectExecution,
+  });
+}
+
+function grantDispatch(overrides) {
+  return Object.assign({
+    coordinatorSessionId: "canonical-coop",
+    portfolioTaskId: "clay-codex-openai-unavailable-diagnosis-2026-08-22",
+    bindingRevision: 1,
+    idempotencyKey: "clay-codex-openai-unavailable-diagnosis-2026-08-22-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: PROJECT },
+    title: "Diagnose why Codex via OpenAI reports unavailable",
+    objective: "Investigate and report why the provider route reports unavailable. Change nothing.",
+    ownedPaths: "read-only: lib/provider-routes.js; read-only: lib/provider-command.js",
+  }, overrides || {});
+}
+
+test("a standing read-only grant supplies its own Thread when no owner turn can", function (t) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-reachable-"));
+  t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+  var topicIndex = createTopicIndex({ file: path.join(dir, "topics.json") });
+
+  // Switch OFF must be byte-identical to having no grant: the same dispatch is
+  // refused with the same reason the live session saw.
+  var offDelivered = [];
+  var offDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-off-"));
+  t.after(function () { fs.rmSync(offDir, { recursive: true, force: true }); });
+  var refused = grantCoordinator(grantPolicyFile(false), offDelivered,
+    createTopicIndex({ file: path.join(offDir, "topics.json") }), offDir)(grantDispatch());
+  assert.equal(refused.ok, false);
+  assert.match(String(refused.error || refused.reason),
+    /owner_implementation_decision_required/);
+  assert.equal(offDelivered.length, 0);
+
+  // Switched on, the same dispatch is admitted as read-only work, and the
+  // Thread it runs under was minted by policy rather than by an owner turn.
+  var delivered = [];
+  var onFile = grantPolicyFile(true);
+  var result = grantCoordinator(onFile, delivered, topicIndex, dir)(grantDispatch());
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0].destination.projectId, PROJECT);
+  var topicId = delivered[0].payload.coopTopicRef.topicId;
+  assert.ok(topicId, "the dispatch must carry a Thread");
+  assert.equal(delivered[0].payload.coopIngressId, undefined,
+    "a standing grant cites no owner ingress, because there is none");
+
+  // Deterministic per task, so a retry reuses the container instead of minting
+  // a second one for the same work.
+  var second = grantCoordinator(onFile, delivered, topicIndex, dir)(grantDispatch());
+  assert.equal(second.reused, true, JSON.stringify(second));
+  assert.equal(Object.keys(topicIndex.load().topics).length, 1);
+});
+
+test("the standing grant route refuses work the policy does not cover", function (t) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-uncovered-"));
+  t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+  var onFile = grantPolicyFile(true);
+
+  // A writable dispatch is not read-only diagnosis, so no category covers it and
+  // no Thread is minted -- the same refusal as with the switch off.
+  var writableDelivered = [];
+  var writable = grantCoordinator(onFile, writableDelivered,
+    createTopicIndex({ file: path.join(dir, "writable.json") }), dir)(grantDispatch({
+      ownedPaths: "lib/provider-routes.js",
+    }));
+  assert.equal(writable.ok, false);
+  assert.match(String(writable.error || writable.reason),
+    /owner_implementation_decision_required/);
+  assert.equal(writableDelivered.length, 0);
+
+  // A read-only shape whose text names a permanently gated action stays gated,
+  // even inside an allowlisted project.
+  var gatedDelivered = [];
+  var gated = grantCoordinator(onFile, gatedDelivered,
+    createTopicIndex({ file: path.join(dir, "gated.json") }), dir)(grantDispatch({
+      objective: "Investigate the route, then git push the fix to origin.",
+    }));
+  assert.equal(gated.ok, false);
+  assert.equal(gatedDelivered.length, 0);
+
+  // An allowlisted category in a project the policy does not name is not covered.
+  var otherDelivered = [];
+  var other = grantCoordinator(grantPolicyFile(true, ["f2b7c47a-bb03-5b3d-89ff-dd32ddb2be53"]),
+    otherDelivered, createTopicIndex({ file: path.join(dir, "other.json") }),
+    dir)(grantDispatch());
+  assert.equal(other.ok, false);
+  assert.equal(otherDelivered.length, 0);
 });

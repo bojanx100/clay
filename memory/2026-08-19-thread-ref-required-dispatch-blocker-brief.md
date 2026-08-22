@@ -181,6 +181,36 @@ see the 46 regressions, and `npm test` was green throughout. Any future attempt
 must be measured against a corpus that deliberately includes
 `VERB <bare-noun> <noun>` objects.
 
+#### This prediction came true on 2026-08-22, in the refusal direction
+
+Recorded here rather than in a second note, per the correct-in-place rule. Full
+measurement in `memory/2026-08-22-coop-dispatch-steering-voice-provider-debug.md`.
+
+The warning above — that a false refusal "lands the owner back in this exact
+document's dead end" — is what happened, with the **base** regex and no
+tightening applied. Owner ingresses 631 and 633 (*"what you're going to check is
+why you did not respond to me in voice…"*, *"let's sort that one out once and for
+all"*) are ordinary owner phrasing with no leading imperative verb, so
+`explicitImplementationDecision` returned `null`, the scan found nothing, and
+three dispatches were refused `owner_implementation_decision_required`.
+
+The regex was not the whole story, and the second half is the more important
+correction to this brief. The owner's **standing autonomy grant** already covered
+those dispatches — `autonomyGrant.standingAdmission` answered `ok` when asked
+directly with the same inputs — and it was unreachable, because it is consulted
+~88 lines **after** the `!request.coopTopicRef` return, and only an owner turn
+parsing as an implementation decision ever mints a Thread. So the wording gate
+was not merely load-bearing; it was the *only* door, and a standing grant that
+needs no owner turn sat locked behind an artifact only an owner turn produces.
+
+That also means the "second factor" idea below was reasoning about the wrong
+axis. A pending-at-authorization-time snapshot would still have been evaluated
+after the Thread gate, so it would have inherited the same unreachability. The
+fix that landed is gate **ordering**: the router proposes a Thread when the grant
+covers the dispatch (`standingGrantExecutionRoute`), and admission re-derives the
+grant independently. Only `read_only_diagnosis` can route that way, structurally,
+because `approved_revision_bump` resolves its prior scope by TopicRef.
+
 #### The fix shape that is likely to work
 
 Stop trying to make the wording carry the authorization alone. Everywhere else in
