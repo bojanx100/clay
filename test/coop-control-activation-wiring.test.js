@@ -84,13 +84,15 @@ test("control-kernel activation runs before the server is constructed", function
 test("activation projects an enabled control-kernel section onto the environment", function () {
   var environment = {};
   config.applyCoopControlEnvironment(
-    { coop: { controlKernel: { store: true, executions: true, recovery: true } } },
+    { coop: { controlKernel: { store: true, executions: true, recovery: true,
+      handoffTrigger: true } } },
     environment
   );
   assert.deepStrictEqual(environment, {
     CLAY_COOP_CONTROL_STORE: "1",
     CLAY_COOP_CONTROL_EXECUTIONS: "1",
     CLAY_COOP_CONTROL_RECOVERY: "1",
+    CLAY_COOP_HANDOFF_TRIGGER: "1",
   });
 });
 
@@ -99,16 +101,58 @@ test("activation projects a rollback control-kernel section as explicit zeros", 
     CLAY_COOP_CONTROL_STORE: "1",
     CLAY_COOP_CONTROL_EXECUTIONS: "1",
     CLAY_COOP_CONTROL_RECOVERY: "1",
+    CLAY_COOP_HANDOFF_TRIGGER: "1",
   };
   config.applyCoopControlEnvironment(
-    { coop: { controlKernel: { store: false, executions: false, recovery: false } } },
+    { coop: { controlKernel: { store: false, executions: false, recovery: false,
+      handoffTrigger: false } } },
     environment
   );
   assert.deepStrictEqual(environment, {
     CLAY_COOP_CONTROL_STORE: "0",
     CLAY_COOP_CONTROL_EXECUTIONS: "0",
     CLAY_COOP_CONTROL_RECOVERY: "0",
+    CLAY_COOP_HANDOFF_TRIGGER: "0",
   });
+});
+
+// The automatic Class B handoff trigger is a narrower switch than the kernel it
+// rides on. An owner who activates the kernel has not thereby asked the daemon
+// to move live work between sessions on its own, so the trigger must stay off
+// until it is named. This is the projection half of that rule; the code half is
+// isHandoffTriggerEnabled in lib/coop-control-handoff-trigger.js, which also
+// requires all three kernel flags.
+test("an activated kernel does not arm the handoff trigger by omission", function () {
+  var environment = { CLAY_COOP_HANDOFF_TRIGGER: "1" };
+  config.applyCoopControlEnvironment(
+    { coop: { controlKernel: { store: true, executions: true, recovery: true } } },
+    environment
+  );
+  assert.equal(environment.CLAY_COOP_HANDOFF_TRIGGER, "0",
+    "an inherited shell flag must lose to a config section that does not name it");
+  assert.equal(environment.CLAY_COOP_CONTROL_STORE, "1");
+});
+
+// Regression: the trigger shipped with its master switch known only to its own
+// module, so it was absent from this map. That made it the one control switch
+// the owner could not set in daemon config -- the documented, restart-safe
+// mechanism -- and the one a developer shell could leak into `npm test`, which
+// would have run the whole controlled pass with live handoffs armed. The name
+// is read from the trigger module rather than repeated here, so this fails if
+// either side is renamed independently.
+test("the handoff trigger's master switch is a registered control flag", function () {
+  var trigger = require("../lib/coop-control-handoff-trigger");
+  assert.equal(config.COOP_CONTROL_ENVIRONMENT.handoffTrigger, trigger.TRIGGER_ENV,
+    "COOP_CONTROL_ENVIRONMENT must register the trigger's own env name (" +
+    trigger.TRIGGER_ENV + "). Unregistered, applyCoopControlEnvironment never " +
+    "projects it and scripts/run-tests.js never strips it.");
+
+  // Driven through the real runner, not a copy of its logic.
+  var runner = require("../scripts/run-tests.js");
+  var leaked = runner.isolatedTestEnvironment(
+    { PATH: "/usr/bin", CLAY_COOP_HANDOFF_TRIGGER: "1" }, "/tmp/clay-test-home");
+  assert.equal(leaked[trigger.TRIGGER_ENV], undefined,
+    "the hermetic pass must strip the trigger flag out of the developer's shell");
 });
 
 // The live daemon-dev.json / daemon.json shape must remain readable by the

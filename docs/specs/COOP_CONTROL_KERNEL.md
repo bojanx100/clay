@@ -123,6 +123,7 @@ over inherited shell environment for all three flags, including explicit
       "store": true,
       "executions": true,
       "recovery": true,
+      "handoffTrigger": false,
       "rollbackScaffoldingRemovalReminder": {
         "id": "coop-control-kernel-remove-rollback-scaffolding-2026-08-20",
         "dueAt": "2026-08-20T09:00:00+02:00",
@@ -136,7 +137,19 @@ over inherited shell environment for all three flags, including explicit
 
 Restart through the normal daemon lifecycle after changing this section. To
 roll back, set `store`, `executions`, and `recovery` to `false` together, then
-restart; partial activation is not supported.
+restart; partial activation of those three is not supported.
+
+`handoffTrigger` is a separate, narrower switch and is the exception to that
+rule: it gates the automatic Class B handoff trigger
+(`lib/coop-control-handoff-trigger.js`, env `CLAY_COOP_HANDOFF_TRIGGER`), which
+lets the daemon move live work off a wedged session on its own. Activating the
+kernel is not a request for that, so an activated section with no
+`handoffTrigger` key projects `CLAY_COOP_HANDOFF_TRIGGER=0` and the trigger
+stays inert. The trigger additionally requires all three kernel flags at call
+time, so it cannot run against a dark kernel. Thresholds are readable data in
+`~/.clay/lead/coop-handoff-trigger-policy.json`; authority — which conditions
+exist, which reasons they may claim, who may initiate, and what is permanently
+gated — is code-owned and cannot be widened by that file.
 
 `createControlStore()` activates only when one of these is true:
 
