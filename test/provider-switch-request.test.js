@@ -327,3 +327,69 @@ test("a coordinator-authorized switch rejects a static route without a created a
   assert.strictEqual(result.reason, "route-unavailable");
   assert.strictEqual(h.switches.length, 0);
 });
+
+// Regression: the model-facing switch_provider tool answered "is not available
+// on this machine" for every target on every machine, because
+// `resolveTargetRoute` returned raw clones of the static ROUTES table and
+// `requestSwitch` gates on `route.enabled` -- a key that only the decorated
+// copies from `listProviderRoutes` ever carry. The tests above could not see
+// it: they hand-feed `enabled: true` on a fake route, which is exactly the
+// "verify a lookup by supplying the answer it is meant to find" trap. This one
+// drives the REAL resolver over the REAL route table and real vendor lists.
+test("switch_provider resolves availability through the real route resolver", function () {
+  var attachProviderCommand = require("../lib/provider-command").attachProviderCommand;
+  var routeForVendor = require("../lib/provider-routes").routeForVendor;
+  var session = makeSession();
+  var recorded = [];
+  var sm = {
+    getActiveSession: function () { return session; },
+    sendAndRecord: function (s, obj) { recorded.push(obj); },
+    availableVendors: ["claude", "codex"],
+    installedVendors: ["claude", "codex"],
+  };
+  var providerCommand = attachProviderCommand({
+    sm: sm,
+    sendTo: function () {},
+    sendConfigForSession: function () {},
+    executeProviderSwitch: function () { return { ok: true }; },
+    modelForHandoff: function () { return null; },
+    modelMatchesRouteFamily: function () { return true; },
+    modelsForRoute: function () { return []; },
+    resolveModelForVendor: function () { return null; },
+    routeForHandoffTarget: function (vendor) { return routeForVendor(vendor); },
+  });
+
+  // The real resolver must report the real installed state, not `undefined`.
+  var resolved = providerCommand.resolveTargetRoute("codex", session);
+  assert.ok(resolved, "codex resolves to a route");
+  assert.strictEqual(resolved.id, "codex-openai");
+  assert.strictEqual(resolved.enabled, true,
+    "a resolved route must carry decorated availability, not an absent key");
+
+  var gate = attachProviderSwitchRequest({
+    sm: sm,
+    switcher: {
+      resolveSwitchTargetRoute: providerCommand.resolveTargetRoute,
+      providerTargetsSummary: function () { return "targets: codex-openai"; },
+      suggestionForRoute: function () {
+        return { model: "gpt-5.5", match: "comparable", sourceModel: "claude-opus-4-8" };
+      },
+      executeProviderSwitch: function () { return { ok: true }; },
+    },
+    scheduledMessages: { continueAfterProviderSwitch: function () { return true; } },
+  });
+  var result = gate.requestSwitch({ target: "codex", reason: "stuck on this refactor" });
+  assert.ok(!result.isError,
+    "an installed provider must not be reported unavailable: " + result.content[0].text);
+  assert.strictEqual(result.content[0].text.indexOf("is not available on this machine"), -1);
+  var dialog = recorded.filter(function (obj) { return obj.type === "user_dialog_request"; });
+  assert.strictEqual(dialog.length, 1, "exactly one confirmation card is posted");
+
+  // Still fail closed when the vendor genuinely has no adapter or binary.
+  sm.availableVendors = ["claude"];
+  sm.installedVendors = ["claude"];
+  assert.strictEqual(providerCommand.resolveTargetRoute("codex", session).enabled, false);
+  var refused = gate.requestSwitch({ target: "codex", reason: "stuck on this refactor" });
+  assert.strictEqual(refused.isError, true);
+  assert.ok(refused.content[0].text.indexOf("is not available on this machine") !== -1);
+});
