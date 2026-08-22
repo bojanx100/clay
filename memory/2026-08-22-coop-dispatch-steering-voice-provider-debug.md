@@ -236,3 +236,104 @@ the tests hand-fed the value the production path could not produce:
 
 Each fix here ships a regression that drives the real predicate instead, and each
 was proved by reverting only the production change and observing the counts move.
+
+## 5. The control-plane restart deadlock — resolved by explicit recovery
+
+Found while activating the three fixes above, and it was the reason none of them
+could reach production. Worth its own section because it is a bootstrap deadlock,
+not a bug in any single predicate.
+
+### What was wrong
+
+The daemon that had been up 22 hours would not restart. Two separate walls:
+
+1. `spawnAndRestart` waits for active provider tool calls to reach zero.
+   `observeTool` in `sdk-bridge-stream-watchdog.js` increments on
+   `tool_executing` and decrements only on a matching `tool_result`, and the
+   count resets only when a NEW turn starts. Session 28 was wedged mid-turn all
+   day (watchdog firing `tool-active`/`mid-generation` at 10-17 minutes of
+   silence, repeatedly), so it never started a new turn and never released its
+   tools. Counts across four attempts: 1, 3, 75, 162. One attempt did drain; one
+   timed out and cancelled at 51.
+2. The wall that actually mattered: `prepareControlledRestart` threw
+   `An active controlled execution has no exact checkpointable target session.`
+   11 executions sat `running` in `coop_control_executions` whose target
+   sessions no longer resolved, and all 45 handoffs were `aborted`, so nothing
+   covered them.
+
+Then the consequence that made it self-perpetuating. `coop-control-startup.js`
+would have fixed this itself — `recoverIncomplete()` marks incomplete executions
+`failed` with `failure_code = 'restart_recovery'` and drops their leases — but it
+refuses to run unless **every** incomplete execution is covered by a prepared
+handoff. One un-checkpointable execution vetoes recovery for all of them. And the
+handoffs that would cover them come from the same `prepareControlledRestart` that
+throws on them.
+
+Worse, on failure `server.js:1702` calls `failControlledStartup`, latching
+`controlledIngress = "recovery_required"`. Per the comment at
+`server-cross-project.js:336` that is a one-way door for the process lifetime,
+and `guardControlledIngress` wraps `createProjectExecution`,
+`messageProjectExecution`, `migrateControlPlaneBinding` and
+`switchProjectExecutionProvider`. So typed dispatch and steering were refused
+with `controlled_execution_recovery_required` **before any of the fixed code
+ran**, and `migrateControlPlaneBinding` — the documented in-process repair — was
+closed too. Every restart re-entered the same state.
+
+### Two wrong turns, recorded so they are not retried
+
+**The reaper is the wrong lever.** `CLAY_COOP_EXECUTION_REAPER=1` was the
+obvious-looking fix and cannot work: `coop-execution-reaper.js` requires only
+`fs`, `path`, `portfolio-execution-bindings` and `lead-ledger` — it never opens
+the SQLite control store where the 11 rows live. Its dry run also proposed
+nothing at all (312 findings, 0 reapable, 0 releasable). It is not in
+`COOP_CONTROL_ENVIRONMENT` either, so it cannot be enabled from config; it needs
+the dev watcher relaunched. `coop.controlKernel.handoffTrigger` looks like the
+next candidate and is not one: it requires a live execution, `terminal_execution`
+is in its `PERMANENTLY_GATED` list, and its own header says it consumes
+`metadata.reaperVerdict`, which does not exist for control-store rows.
+
+**Loosening the coverage guard was proposed, approved, and then withdrawn
+without being written.** Two independent reasons. The guard is deliberate — see
+`memory/2026-08-16-worker-routing-restart-reliability-debug.md`: *"Abrupt or
+otherwise uncheckpointed daemon loss intentionally does not infer successful
+continuity from stale session records; it requires explicit recovery instead of
+risking duplicate work."* And the specific shape proposed — terminalize when the
+target session cannot be resolved — is unsafe regardless of intent, because
+`scheduleStartupRecovery()` runs **per project**, right after each registers its
+recovery target. That is why the canary fired 68 times on one boot. Executions
+belonging to a not-yet-registered project would look unresolvable and be killed.
+
+### What was done instead
+
+The sanctioned path the design names: explicit recovery. With the daemon up
+(ingress already latched, so nothing controlled was running),
+`recoverIncomplete([])` was called through the store's own API rather than raw
+SQL, so incarnations, execution status and leases moved together in its
+transaction. Verified before and against a `VACUUM INTO` snapshot: executions
+total unchanged at 179, `completed` unchanged at 92, `failed` 76 -> 87,
+`running` 11 -> 0, incarnations unchanged at 234, `role_leases` 11 -> 0,
+handoffs unchanged at 45 aborted. Then a restart through the `update` IPC.
+
+Result: startup recovery ran clean. Both fail-closed branches are silent on the
+new daemon (`startup recovery failed closed` = 0, `startup reconciliation failed
+closed` = 0, no `recovery_required` anywhere), and since
+`completeControlledStartup()` is the only other exit, ingress is open. Active
+bindings went 5 -> 0 and the two falsely attention-marked bindings cleared.
+
+### The cost, which must not be booked as success
+
+Four of the five reconciled bindings describe work that actually **succeeded**;
+they now read `failed / restart_recovery`. That status is accurate about the
+execution — it died with daemon PID 41921 — and misleading about the work. The
+hazard is concrete rather than theoretical: `approvalCarriesForward` treats a
+terminal **failed** revision as exactly the shape that carries an approval into
+the next revision, so `clay-voice-mobile-stt-no-transcript` rev2 (worker reached
+`WORKER_STATUS: completed`, 89/89) and `webapp-push-2592-2504-1643-rescoped`
+(all three PRs pushed) are both retry-shaped now. This is the duplicate-work risk
+the 2026-08-16 guard existed to prevent, relocated from execution into
+bookkeeping, and accepted knowingly.
+
+Mitigated by durable evidence rather than by another state edit: lead-ledger seqs
+701 and 702 record what actually completed and say plainly not to retry either.
+`restart_recovery` conflating "the execution process died" with "the work failed"
+is a real reporting defect and still open.
