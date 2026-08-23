@@ -337,13 +337,86 @@ Such work runs under a deterministic `grant:<taskId>` Thread instead of an owner
 the queue and approval routes above the grant would recover that attribution and was deliberately
 not done unasked; it is a separate, larger reordering with its own regression surface.
 
-**Still open, and unchanged by this fix:** the review branch is *still* an unbounded backward scan.
-The coverage guard at `:468` is still gated on `isImplementationIngress`, so a stale review-shaped
-turn can still be adopted whenever the grant does not apply — switch off, project not allowlisted,
-or a read-only review that is not diagnosis-framed. In those cases `:595`-class turns will still
-claim the route. Option 1 above is the real repair, and it is blocked on review admission never
-writing a scope (`implementationAdmission` returns at `:1156` without calling `scopeImplementation`),
-which is what makes coverage unpassable for any turn that is not the newest.
+> **Retracted:** this section previously ended by saying the review branch was "still an unbounded
+> backward scan" and that option 1 was blocked. That was true of the narrow fix only. The full
+> repair landed on owner decision, ingress 693 — see below — and the reorder described above has
+> been reverted as part of it.
+
+## The full repair (owner decision, ingress 693)
+
+Option 1, done properly, plus the attribution recovery. Three changes that only work together.
+
+**1. Review admission now records what it authorized.** `implementationAdmission`'s review branch
+returned `ok` and wrote nothing, so nothing durable said which tasks a review turn had covered.
+A new writer, `coop-owner-requests.scopeReview`, records one exact scope per binding into a
+**separate** `reviewScopes` field.
+
+The separation is the load-bearing part. A scope in `implementationScopes` *is* implementation
+authority — every admission boundary reads it that way — so a read-only "do them" must never be
+able to write one. `scopeImplementation` already refuses without an implementation decision
+(`coop-owner-requests.js:417-420`), and `scopeReview` is deliberately not a way around that: it
+never requires, sets or reads `implementationDecision`; never touches `implementationScope`,
+`implementationScopes` or `expectsExecution`; and never widens `projectRefs` or mints a `topicRef`,
+because those feed implementation admission's project matching. `normalizeRecord` had to be taught
+the field explicitly, since it is a whitelist and would otherwise have dropped review coverage on
+every reload. The write is best-effort: a failed write must not refuse a review the owner did
+authorize, and the cost of losing it is a fallback to the newest-turn rule, not a wrong admission.
+
+**2. The coverage guard now applies to review ingresses.** `:468` read
+`!requested && isImplementationIngress(item)`; it now reads `!requested`. `unscopedIngressCoverage`
+resolves review turns against `reviewScopes`, so the guard is passable for them rather than
+vacuous. This is what closes the hijack: a review turn is now bound by the same rule implementation
+turns already were — newest turn, or a durable scope naming this exact work.
+
+It closes **both** stale classes, which matters because they need different discriminators:
+`:595` ("Do both") authorized nothing at all, but `:332` ("do them") genuinely did — it has
+`expectsExecution: true` and `projectRefs: [clay]`. Any bound based on "did this turn authorize
+anything" lets `:332` through and attributes today's unrelated review to a days-old Thread. Only a
+task-exact review scope excludes it.
+
+**3. The ingress-692 reorder is reverted, recovering the attribution.** With the scan no longer
+returning turns that cannot authorize, nothing shadows the routes beneath it, so the standing grant
+is back in its original position and queue, approval and grant each keep their original precedence.
+The accepted cost of the narrow fix is therefore paid back in full rather than merely disclosed.
+
+### Migration cost, measured
+
+**0 of 693 live ledger records carry `reviewScopes`**, because the field is new. So no existing
+owner turn can supply review coverage until a review is dispatched against it while it is the
+newest turn. Concretely: `:595` can no longer claim a route (the point), and `:332` can no longer
+authorize *new* reviews either. Any in-flight plural "do them" review that had not yet been
+dispatched will now be refused rather than resolved.
+
+That is a genuine narrowing and it fails closed. It is acceptable here because `:332` is days old,
+and because `read_only_diagnosis` in an allowlisted project — the common case — is covered by the
+standing grant regardless. The residual gap is a read-only review that is *not* diagnosis-framed,
+in a project the grant does not cover, authorized by a turn the owner has since spoken past: that
+now needs a fresh owner turn.
+
+### Verification
+
+Proof by breaking, each half separately, since they guard different regressions:
+
+| state | result |
+|---|---|
+| both halves in place | 41/41 |
+| coverage guard reverted to `isImplementationIngress` | 39 pass / **2 fail** — the `:595` and `:332` class tests |
+| review-coverage fallback disabled | 40 pass / **1 fail** — the plural-review non-regression test |
+
+Full suite 3222/3224 default and 490/490 controlled, with the same two pre-existing failures that
+reproduce on a pristine tree. `scopeReview` has its own tests for the authority property, the
+idempotency, the additive plural case, and the reload round-trip.
+
+### A second live-state leak found and fixed while doing this
+
+`grantCoordinator` never passed `ownerRequests`, and every coverage check falls back to
+`getDefaultOwnerRequests()` — the **real** ledger under `~/.clay/lead`. Since the ingress ids in
+that test file are real ones (`INGRESS_332` is
+`coop:871a194b-8879-40f7-a1fe-656e48e722af:332`), those tests were resolving coverage against
+production state, so a local fixture could be silently contradicted by whatever the live ledger
+held. The harness now threads its own ledger through to the coordinator. Same defect class as the
+shipped-autonomy-policy leak fixed earlier the same day, and it was only caught because a new test
+failed for a reason that made no sense against its own fixture.
 
 Reproduced mechanically in `test/coop-thread-execution-admission.test.js`, "REPRODUCTION: a stale
 review-shaped turn shadows the standing grant", with a control that differs **only** in that no

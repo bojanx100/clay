@@ -153,12 +153,12 @@ function executionRouter(entries, delivered, handedOff, options) {
     },
     saveSessionFile: function () {},
   };
-  var router = createCrossProjectRouter({
-    allowLeadSourcedExecution: true,
-    autonomyPolicyFile: autonomyPolicyFile,
-    bindingFile: path.join(dir, "bindings.json"),
-    bindingStore: options.bindingStore,
-    ownerRequests: options.ownerRequests || {
+  // Named, so it can also be handed to a coordinator built on this router. Every
+  // coverage check in the coordinator reads ctx.ownerRequests and falls back to
+  // getDefaultOwnerRequests() -- the REAL ledger under ~/.clay/lead -- when that
+  // seam is absent, and the ingress ids in this file are real ones, so an omitted
+  // seam resolves coverage against production state.
+  var ledger = options.ownerRequests || {
       forTopic: function (topicRef) {
         return entries.filter(function (entry) {
           return entry.topicRef && topicRef && entry.topicRef.topicId === topicRef.topicId;
@@ -200,7 +200,13 @@ function executionRouter(entries, delivered, handedOff, options) {
       claimCoordinator: function (input) { claimed = input.coordinator; return { ok: true }; },
       canonicalCoordinator: function () { return claimed; },
       canonicalProjectCoordinator: function () { return null; },
-    },
+    };
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    autonomyPolicyFile: autonomyPolicyFile,
+    bindingFile: path.join(dir, "bindings.json"),
+    bindingStore: options.bindingStore,
+    ownerRequests: ledger,
     readLeadEvents: options.readLeadEvents || function () { return options.leadEvents || []; },
     requireOwnerImplementationDecision: true,
     automationThreadIndex: options.automationThreadIndex,
@@ -242,7 +248,7 @@ function executionRouter(entries, delivered, handedOff, options) {
       },
     });
   }
-  return { router: router, dir: dir,
+  return { router: router, dir: dir, ownerRequests: ledger,
     classificationCount: function () { return classifications; } };
 }
 
@@ -1689,6 +1695,11 @@ function grantCoordinator(policyFile, delivered, topicIndex, dir, historyOverrid
     sessionForInput: function () { return source; },
     projectId: function () { return "system-lead"; },
     autonomyPolicyFile: policyFile,
+    // The router's own ledger, not a second one and not the production default.
+    // Without this seam the coordinator's coverage checks resolve against the real
+    // ~/.clay/lead ledger, and the ingress ids here are real, so a local record
+    // could be silently contradicted by live state.
+    ownerRequests: built.ownerRequests,
     readLeadEvents: function () { return []; },
     ensureOwnerThread: function (input) { return topicIndex.ensureOwnerThread(input); },
     createProjectExecution: built.router.createProjectExecution,
@@ -1882,12 +1893,16 @@ test("a stale review-shaped turn no longer shadows the standing grant", function
   assert.ok(okDelivered[0].payload.coopTopicRef.topicId,
     "and it supplies its own Thread");
 
-  // NON-WIDENING, the property the reorder had to preserve. With the switch off
-  // the earlier consult returns {} and the scan runs exactly as it did before, so
-  // the stale turn claims the route again and the refusal is the one the live
-  // session saw. Moving the grant earlier therefore grants nothing that the
-  // policy did not already grant; it only stops an unauthorizable turn from
-  // hiding a route that the policy had already opened.
+  // NON-WIDENING, and the "all cases" half of the repair. With the switch off no
+  // grant covers this dispatch, so it must still be refused -- but it must no
+  // longer be refused ON BEHALF OF ingress 595, because the coverage guard now
+  // applies to review ingresses and skips a turn that never had a review
+  // dispatched against this task.
+  //
+  // This is the assertion that shows the :595 class is closed generally rather
+  // than only where the grant happens to catch it. Before the coverage fix this
+  // same case named 595 and dead-ended; now it returns the honest "no owner turn
+  // authorizes this dispatch" message, which also carries the remedies.
   var offDelivered = [];
   var offDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-shadow-off-"));
   t.after(function () { fs.rmSync(offDir, { recursive: true, force: true }); });
@@ -1898,9 +1913,101 @@ test("a stale review-shaped turn no longer shadows the standing grant", function
   assert.equal(offResult.ok, false, JSON.stringify(offResult));
   assert.match(String(offResult.error || offResult.reason),
     /owner_implementation_decision_required/);
-  assert.match(String(offResult.error || ""), /595/,
-    "switch off is unchanged, down to the ingress the refusal names");
+  assert.doesNotMatch(String(offResult.error || ""), /595/,
+    "the stale turn is skipped now, so the refusal must not be attributed to it");
+  assert.match(String(offResult.error || ""), /no owner turn authorizes this dispatch/,
+    "and the refusal is the one that names the remedies, not the dead-ended one");
   assert.equal(offDelivered.length, 0);
+});
+
+// The two halves of the 2026-08-23 full repair, and the pair that matters most:
+// the coverage guard now applies to review ingresses, so a review turn is bound
+// by the SAME rule implementation turns already were -- newest turn, or a durable
+// scope naming this exact work.
+//
+// The :332 case is what a weaker fix would have missed. Live ingress :332 is "do
+// them" with expectsExecution true, a topicRef and projectRefs [clay], so any
+// bound based on "did this turn authorize anything" lets it through and today's
+// unrelated review gets attributed to a days-old Thread. Only a TASK-EXACT
+// review scope excludes it, which is why scopeReview records one per binding.
+function reviewTurnHistory() {
+  return [{
+    type: "user_message", text: "do them",
+    coopIngressId: INGRESS_332, coopTopicRef: THREADS_TOPIC,
+    coopComposerScope: "main", clientMessageId: "ingress-332", _ts: 1000,
+  }, {
+    type: "user_message", text: "where are we with the reviews?",
+    coopIngressId: "coop:canonical-coop:689", coopIngressSequence: 689,
+    coopComposerScope: "main", clientMessageId: "ingress-689", _ts: 2000,
+  }];
+}
+
+// Mirrors live :332: it really did authorize reviews, and it names the target
+// project. The only thing it lacks is a review scope for THIS task.
+function reviewEntry(reviewScopes) {
+  return [ownerApprovedConversationalEntry({
+    projectRefs: [{ projectId: PROJECT }],
+    expectsExecution: true,
+    reviewScopes: reviewScopes || [],
+  })];
+}
+
+test("a review turn that never covered this task cannot claim the route", function (t) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-review-uncovered-"));
+  t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  // Grant OFF, so nothing can rescue this and the scan's own decision is what is
+  // under test. "do them" authorized SOME reviews, but none against this task.
+  var delivered = [];
+  var refused = grantCoordinator(grantPolicyFile(false), delivered,
+    createTopicIndex({ file: path.join(dir, "uncovered.json") }), dir,
+    reviewTurnHistory(), reviewEntry())(codexReviewDispatch());
+
+  assert.equal(refused.ok, false, JSON.stringify(refused));
+  assert.doesNotMatch(String(refused.error || ""), /332/,
+    "an unrelated review turn must not be credited with authorizing this work");
+  assert.equal(delivered.length, 0);
+});
+
+test("a review turn that DID cover this task still resolves after newer turns", function (t) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-review-covered-"));
+  t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  // The non-regression half. This is the plural "do them" flow: the review was
+  // authorized and dispatched while that turn was newest, scopeReview recorded
+  // it, and the owner has since said something else. Bounding the scan must not
+  // break the redispatch -- if it did, the repair would only have failed closed.
+  //
+  // Grant OFF again, so the admission cannot come from policy: it has to come
+  // from the review turn's own durable coverage.
+  var delivered = [];
+  var covered = grantCoordinator(grantPolicyFile(false), delivered,
+    createTopicIndex({ file: path.join(dir, "covered.json") }), dir,
+    reviewTurnHistory(), reviewEntry([{
+      projectRef: { projectId: PROJECT },
+      topicRef: THREADS_TOPIC,
+      portfolioTaskId: "clay-review-external-codex-recent-commits",
+      bindingRevision: 2,
+      idempotencyKey: "clay-review-external-codex-recent-commits-r2",
+    }]))(codexReviewDispatch());
+
+  // Asserted on the ROUTING decision, not on end-to-end delivery. The dispatch
+  // resolves to the review turn's own pre-existing Thread (THREADS_TOPIC), which
+  // this harness's topic index was never seeded with, so the downstream handoff
+  // link fails afterwards with thread_handoff_link_failed. That is a fixture gap
+  // in a later step and is covered by its own test; admitting and attributing the
+  // dispatch is what this test is about, and both are visible below. Asserting
+  // ok:true here would mean seeding a Thread just to get a green, which would
+  // prove less, not more.
+  assert.notEqual(covered.reason, "owner_implementation_decision_required",
+    "the covered review turn must authorize this dispatch: " + JSON.stringify(covered));
+  assert.equal(delivered.length, 1, JSON.stringify(covered));
+  assert.equal(delivered[0].payload.coopIngressId, INGRESS_332,
+    "and it is attributed to the owner turn that authorized it, not to policy");
+  assert.equal(delivered[0].payload.reviewOnly, true,
+    "and strictly as read-only work -- review coverage must never admit a mutation");
+  assert.equal(delivered[0].payload.coopTopicRef.topicId, THREADS_TOPIC.topicId,
+    "under that turn's own Thread, which is the attribution the reorder gave up");
 });
 
 test("the standing grant route refuses work the policy does not cover", function (t) {

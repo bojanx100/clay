@@ -741,3 +741,101 @@ test("an identical rescope is a reuse even when carry-forward is offered", funct
   assert.equal(fixture.ledger.get(fixture.id).classification.source,
     "owner_directed_execution", "reuse must not be relabelled as a carry-forward");
 });
+
+// --- review scopes ------------------------------------------------------------
+
+// scopeReview exists because review admission used to return ok and record
+// nothing, which left the router with no durable evidence that a review turn
+// covered a given task -- and therefore no way to bound the review branch of the
+// history scan. That is what let owner turn :595 ("Do both") claim the route for
+// unrelated work on 2026-08-23.
+//
+// Its safety property is the whole point: it must be unable to create
+// implementation authority. A read-only "do them" carries no implementation
+// decision, so scopeImplementation refuses it outright, and this must not become
+// a way around that refusal.
+
+function reviewScope(extra) {
+  return Object.assign({
+    projectRef: { projectId: LEAD_PROJECT },
+    topicRef: TOPIC,
+    portfolioTaskId: "clay-review-external-codex-recent-commits",
+    bindingRevision: 2,
+    idempotencyKey: "clay-review-external-codex-recent-commits-r2",
+  }, extra || {});
+}
+
+test("a review scope records coverage without creating implementation authority", function () {
+  var ledger = makeLedger();
+  ledger.record(ingress(595));
+
+  // The turn this models is "Do both": no implementation decision at all. The
+  // implementation writer must refuse it, and does.
+  assert.equal(ledger.scopeImplementation("coop:" + COOP_SESSION + ":595",
+    reviewScope()).ok, false,
+    "a turn with no implementation decision cannot write an implementation scope");
+
+  var scoped = ledger.scopeReview("coop:" + COOP_SESSION + ":595", reviewScope());
+  assert.equal(scoped.ok, true, JSON.stringify(scoped));
+
+  var stored = ledger.get("coop:" + COOP_SESSION + ":595");
+  assert.equal(ownerRequests.reviewScopesFor(stored).length, 1,
+    "the review coverage is durable");
+
+  // And none of the implementation-authority fields moved.
+  assert.equal(stored.implementationDecision, null);
+  assert.equal(stored.implementationScope, null);
+  assert.equal(ownerRequests.implementationScopesFor(stored).length, 0,
+    "a review scope must never appear as an implementation scope");
+  assert.equal(stored.expectsExecution, false,
+    "and it must not make the turn look like it expects execution");
+});
+
+test("review scopes are exact, idempotent, and never widen the record", function () {
+  var ledger = makeLedger();
+  ledger.record(ingress(332, { topicRef: TOPIC }));
+  var id = "coop:" + COOP_SESSION + ":332";
+
+  var first = ledger.scopeReview(id, reviewScope());
+  assert.equal(first.ok, true);
+  var again = ledger.scopeReview(id, reviewScope());
+  assert.equal(again.ok, true);
+  assert.equal(again.reused, true, "the same review re-dispatched reuses its record");
+  assert.equal(ownerRequests.reviewScopesFor(ledger.get(id)).length, 1);
+
+  // A second, genuinely different review from the same turn is additive: this is
+  // the plural "do them" case, and each task gets its own exact scope.
+  assert.equal(ledger.scopeReview(id, reviewScope({
+    portfolioTaskId: "clay-other-review",
+    idempotencyKey: "clay-other-review-r2",
+  })).ok, true);
+  var scopes = ownerRequests.reviewScopesFor(ledger.get(id));
+  assert.equal(scopes.length, 2);
+
+  // The record's own project set is untouched: review coverage must not enlarge
+  // the set of projects the owner turn is taken to have named, because that feeds
+  // implementation admission's project matching.
+  assert.deepEqual(ledger.get(id).projectRefs, []);
+
+  assert.equal(ledger.scopeReview(id, { projectRef: null }).ok, false,
+    "an unusable scope is refused rather than stored");
+  assert.equal(ledger.scopeReview("coop:" + COOP_SESSION + ":999", reviewScope()).ok, false,
+    "and an unknown ingress cannot be scoped");
+});
+
+test("review scopes survive a reload, because normalizeRecord is a whitelist", function () {
+  var file = tempFile();
+  var ledger = makeLedger({ file: file });
+  ledger.record(ingress(595));
+  assert.equal(ledger.scopeReview("coop:" + COOP_SESSION + ":595", reviewScope()).ok, true);
+
+  // Reopened from disk. Omitting reviewScopes from normalizeRecord would drop
+  // coverage here silently, and the router would fall back to the newest-turn
+  // rule without anything saying why.
+  var reopened = makeLedger({ file: file });
+  var stored = reopened.get("coop:" + COOP_SESSION + ":595");
+  assert.equal(ownerRequests.reviewScopesFor(stored).length, 1,
+    "review coverage must round-trip through the ledger file");
+  assert.equal(ownerRequests.implementationScopesFor(stored).length, 0,
+    "and must still not be implementation authority after a reload");
+});
