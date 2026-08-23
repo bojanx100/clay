@@ -194,7 +194,11 @@ test("a coordinator-authorized switch runs immediately with durable attribution"
   assert.strictEqual(h.continues.length, 1);
 });
 
-test("a coordinator-authorized switch refuses to mutate a processing session", function () {
+// RETRACTED EXPECTATION: this used to assert { ok:false, reason:"processing" }.
+// That refusal reached Coop's model as a bare tool error with nothing retrying,
+// so it now queues instead. The safety property the test really guards -- that
+// nothing is switched while the turn runs -- is unchanged and still asserted.
+test("a coordinator-authorized switch queues instead of mutating a processing session", function () {
   var h = makeHarness({ isProcessing: true });
   var result = h.gate.switchControlledSession({
     session: h.session,
@@ -207,9 +211,10 @@ test("a coordinator-authorized switch refuses to mutate a processing session", f
     bindingRevision: 1,
   });
 
-  assert.strictEqual(result.ok, false);
-  assert.strictEqual(result.reason, "processing");
-  assert.strictEqual(h.switches.length, 0);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.deferred, true);
+  assert.strictEqual(h.switches.length, 0,
+    "nothing may switch while the turn is still running");
 });
 
 test("a coordinator-authorized switch clears terminal empty-turn processing state", function () {
@@ -277,10 +282,16 @@ test("a coordinator-authorized switch preserves a genuinely active follow-on tur
     bindingRevision: 1,
   });
 
-  assert.strictEqual(result.ok, false);
-  assert.strictEqual(result.reason, "processing");
-  assert.strictEqual(h.session.isProcessing, true);
-  assert.strictEqual(h.switches.length, 0);
+  // The load-bearing assertions are the last two: a genuinely active follow-on
+  // turn must not be reconciled away as stale, and must not be switched under.
+  // Deferral preserves both; only the immediate reply changed from a refusal to
+  // a queued acknowledgement.
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.deferred, true);
+  assert.strictEqual(h.session.isProcessing, true,
+    "a genuinely active turn must not be reconciled away");
+  assert.strictEqual(h.switches.length, 0,
+    "nothing may switch under an active follow-on turn");
 });
 
 test("a coordinator-authorized switch validates an exact static route against live readiness", function () {

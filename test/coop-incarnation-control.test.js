@@ -248,7 +248,16 @@ test("non-owner and processing Coop sessions fail closed", function () {
   denied.handleMessage({}, { type: "coop_incarnation_restart", requestId: "denied" });
   assert.equal(ctx.sent.at(-1).code, "access_denied");
 
+  // RETRACTED EXPECTATION: this used to assert code "processing" -- a mid-turn
+  // request failed closed and the owner had to watch for the turn to end and
+  // ask again. That refusal is now a deferral: the request is authorized, so it
+  // queues and applies when the turn ends. Authorization still fails closed
+  // above; only the timing changed. Queue behavior is covered in
+  // test/session-idle-defer.test.js.
+  var repliesBefore = ctx.sent.length;
   ctx.session.isProcessing = true;
   ctx.api.handleMessage({}, { type: "coop_incarnation_restart", requestId: "busy" });
-  assert.equal(ctx.sent.at(-1).code, "processing");
+  assert.equal(ctx.sent.length, repliesBefore, "a queued change must not reply yet");
+  assert.equal(ctx.session._coopIncarnationDeferred, true);
+  assert.equal(ctx.switches.length, 0, "nothing may rotate while the turn runs");
 });
