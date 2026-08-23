@@ -1671,9 +1671,9 @@ function grantHistory() {
   }];
 }
 
-function grantCoordinator(policyFile, delivered, topicIndex, dir) {
-  var history = grantHistory();
-  var built = executionRouter([], delivered, [], {
+function grantCoordinator(policyFile, delivered, topicIndex, dir, historyOverride, entries) {
+  var history = historyOverride || grantHistory();
+  var built = executionRouter(entries || [], delivered, [], {
     dir: dir,
     autonomyPolicyFile: policyFile,
     history: history,
@@ -1744,6 +1744,125 @@ test("a standing read-only grant supplies its own Thread when no owner turn can"
   var second = grantCoordinator(onFile, delivered, topicIndex, dir)(grantDispatch());
   assert.equal(second.reused, true, JSON.stringify(second));
   assert.equal(Object.keys(topicIndex.load().topics).length, 1);
+});
+
+// Reproduction of the live defect measured on 2026-08-23 from canonical Coop
+// session 871a194b. A read_only_diagnosis dispatch of
+// clay-review-external-codex-recent-commits rev2 was refused
+// owner_implementation_decision_required citing "ingress ...:595 carries no owner
+// implementation decision" -- while the standing grant, which needs no owner turn
+// at all, covered it and had admitted the same shape earlier the same day from a
+// session with no owner history.
+//
+// Ingress 595 is the literal text "Do both". The mechanism, all of it verified
+// against live state:
+//
+//   explicitReadOnlyReviewAuthorization("Do both") is TRUE (PLURAL_OWNER_AUTHORIZATION
+//   matches "do both"), so isReadOnlyReviewIngress admits the turn into the history
+//   scan -- but only because THIS dispatch is read-only; the predicate takes the
+//   dispatch, not just the turn. explicitImplementationDecision("Do both") is null,
+//   so isImplementationIngress is FALSE. That matters twice, and both are the bug:
+//
+//     1. The coverage guard at `if (!requested && isImplementationIngress(item))`
+//        is skipped, so unscopedIngressCoverage never runs. The review branch has
+//        NO recency bound and NO scope bound -- it is the same unbounded backward
+//        scan the 2026-08-19 ":482 / FIX!" hijack fix was meant to close, still
+//        open because the bound was only wired to the implementation branch.
+//     2. The Thread mint below also requires isImplementationIngress, so no Thread
+//        is minted and the route returns an ingress with a null coopTopicRef.
+//
+//   implementationAdmission then refuses on its first line (!request.coopTopicRef),
+//   and because the scan RETURNED, standingGrantExecutionRoute -- four routes
+//   further down -- is never consulted. The exemption is shadowed by a route that
+//   could never have authorized anything.
+//
+// Live ledger state confirms 595 authorizes nothing: expectsExecution false,
+// implementationDecision null, topicRef null, projectRefs [], scopes 0. Session
+// 871a194b holds 689 owner turns and exactly two review-authorization-shaped
+// ones (:332 "do them", :595 "Do both"); the scan runs backward, so it reaches
+// :595 first. The session that succeeded had zero owner turns, which is precisely
+// why it fell through to the grant.
+//
+// EXPECTED TO FLIP. These assertions record the defect, not the intent. When the
+// review branch is bounded, the first case must become an admission carrying a
+// grant-minted Thread and no ingress, exactly like the control below.
+// The real failing dispatch. The title matters and is not incidental: "review"
+// is in BOTH coop-read-only-review-admission's REVIEW_FRAMING and the grant's
+// DIAGNOSIS_FRAMING, so this task is simultaneously eligible for the standing
+// grant and able to pull review-shaped owner turns into the history scan. A
+// dispatch titled "Diagnose ..." reproduces nothing, because "diagnose" is
+// absent from REVIEW_FRAMING -- which is why the collision needs the word
+// "review" to appear at all.
+function codexReviewDispatch(overrides) {
+  return Object.assign(grantDispatch(), {
+    portfolioTaskId: "clay-review-external-codex-recent-commits",
+    bindingRevision: 2,
+    idempotencyKey: "clay-review-external-codex-recent-commits-r2",
+    title: "Review the recent external Codex commits",
+    objective: "Review the recent commits from the external Codex worker. Change nothing.",
+    ownedPaths: "read-only: lib/",
+  }, overrides || {});
+}
+
+test("REPRODUCTION: a stale review-shaped turn shadows the standing grant", function (t) {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-shadowed-"));
+  t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+  var onFile = grantPolicyFile(true);
+
+  // Mirrors live ingress 595: a plural review acknowledgement that is NOT the
+  // newest turn and carries no Thread, followed by an ordinary newest turn.
+  var staleReviewHistory = [{
+    type: "user_message", text: "Do both",
+    coopIngressId: "coop:canonical-coop:595", coopIngressSequence: 595,
+    coopComposerScope: "main", clientMessageId: "ingress-595", _ts: 1000,
+  }, {
+    type: "user_message", text: "where are we with the reviews?",
+    coopIngressId: "coop:canonical-coop:689", coopIngressSequence: 689,
+    coopComposerScope: "main", clientMessageId: "ingress-689", _ts: 2000,
+  }];
+
+  // The live ledger record for 595: answered, but it authorizes nothing.
+  var ledger595 = [{
+    ingressId: "coop:canonical-coop:595",
+    expectsExecution: false,
+    implementationDecision: null,
+    topicRef: null,
+    projectRefs: [],
+    implementationScopes: [],
+    response: { state: "answered", answeredAt: 1500, responseRef: null },
+  }];
+
+  var delivered = [];
+  var shadowed = grantCoordinator(onFile, delivered,
+    createTopicIndex({ file: path.join(dir, "shadowed.json") }), dir,
+    staleReviewHistory, ledger595)(codexReviewDispatch());
+
+  assert.equal(shadowed.ok, false,
+    "DEFECT: the grant covers this dispatch, but a stale \"Do both\" turn claimed the route");
+  assert.match(String(shadowed.error || shadowed.reason),
+    /owner_implementation_decision_required/);
+  assert.match(String(shadowed.error || ""), /595/,
+    "the refusal cites the stale turn, which is how this presents as a stuck ingress pointer");
+  assert.equal(delivered.length, 0);
+
+  // CONTROL: the identical dispatch, identical policy, and a history whose only
+  // difference is that no turn is review-authorization shaped. This isolates the
+  // cause to the stale turn rather than to the grant, the policy or the dispatch,
+  // and reproduces the session that succeeded.
+  var okDelivered = [];
+  var admitted = grantCoordinator(onFile, okDelivered,
+    createTopicIndex({ file: path.join(dir, "control.json") }), dir, [{
+      type: "user_message", text: "where are we with the reviews?",
+      coopIngressId: "coop:canonical-coop:689", coopIngressSequence: 689,
+      coopComposerScope: "main", clientMessageId: "ingress-689", _ts: 2000,
+    }], [])(codexReviewDispatch());
+
+  assert.equal(admitted.ok, true, JSON.stringify(admitted));
+  assert.equal(okDelivered.length, 1);
+  assert.equal(okDelivered[0].payload.coopIngressId, undefined,
+    "the grant cites no owner ingress, because it needs none");
+  assert.ok(okDelivered[0].payload.coopTopicRef.topicId,
+    "and it supplies its own Thread");
 });
 
 test("the standing grant route refuses work the policy does not cover", function (t) {

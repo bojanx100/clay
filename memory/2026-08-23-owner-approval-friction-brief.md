@@ -217,6 +217,94 @@ gap is the real blocker and should be closed first.
    six words; an owner following its spirit with any other verb gets an identical refusal with no
    hint that the verb was the problem. The fall-through at `:1197` carries no remedy text at all.
 
+## Addendum, same day: the read-only review branch is an unbounded backward scan
+
+A concrete symptom arrived after the above was written, and it is a *different and more serious*
+defect in the same router. It is diagnosed to the line and reproduced in a test, but **not fixed**.
+
+**Symptom.** From canonical Coop session `871a194b`, a `read_only_diagnosis` dispatch of
+`clay-review-external-codex-recent-commits` rev2 was refused
+`owner_implementation_decision_required: ingress coop:871a194b...:595 carries no owner
+implementation decision, so no Thread can be bound to it` — while ingress 689 was the newest turn,
+and while `read_only_diagnosis` is supposed to need no owner turn at all. The same shape had
+succeeded earlier that day from a different session.
+
+**It is not a stale or stuck ingress pointer.** Nothing is cached. Ingress 595 is the literal owner
+text **"Do both"**, and it is selected fresh on every call by the backward history scan in
+`currentExecutionRoute` (`lib/project-task-orchestrator-external-delegation.js:461-510`).
+
+The mechanism, every step verified against live state:
+
+1. `isReadOnlyReviewIngress(item, input)` (`:92-96`) is true for "Do both" —
+   `PLURAL_OWNER_AUTHORIZATION` matches `do both`. Note it takes **`input`**: it is the read-only
+   nature of *this dispatch* that pulls review-shaped turns into the candidate set, so the same
+   history is harmless for a writable dispatch.
+2. `explicitImplementationDecision("Do both")` is `null`, so `isImplementationIngress` is **false**.
+   That is the bug, twice over:
+   - the coverage guard at `:468` is written `if (!requested && isImplementationIngress(item))`, so
+     **`unscopedIngressCoverage` never runs for a review ingress**. The review branch has no
+     recency bound and no scope bound. This is the same unbounded backward scan the 2026-08-19
+     ":482 / FIX!" hijack fix was meant to close — the bound was only ever wired to the
+     implementation branch.
+   - the Thread mint at `:497` also requires `isImplementationIngress`, so no Thread is minted and
+     the route returns `{ coopIngressId: 595, coopTopicRef: null }`.
+3. `implementationAdmission` refuses on its first line, `!request.coopTopicRef`
+   (`lib/server-cross-project.js:1083`), and `missingThreadRefReason` produces the exact message
+   above from `:1064-1068`.
+4. Because the scan **returned**, `standingGrantExecutionRoute` — four routes further down at
+   `:518` — is never consulted. **The exemption is shadowed by a route that could never have
+   authorized anything.**
+
+Live evidence, read-only from `~/.clay` (nothing mutated):
+
+| ingress | text | expectsExecution | decision | topicRef | projectRefs |
+|---|---|---|---|---|---|
+| `:332` | "do them" | true | null | `auto-61f5ae911c79deab7fa6b255` | `[clay]` |
+| `:595` | "Do both" | **false** | null | null | `[]` |
+| `:689` (newest) | — | false | null | null | `[]` |
+
+Session `871a194b` holds **689 owner turns and exactly two** review-authorization-shaped ones,
+`:332` and `:595`. The scan runs backward, so it reaches `:595` first — that is the whole of why
+"595". The session that succeeded (`93b6b284`) has **zero owner turns**, so its scan found nothing
+and fell through to the grant. That is the whole of the session-dependence.
+
+**Scope of impact.** Read-only dispatches specifically — a writable dispatch takes the
+`isImplementationIngress` branch and does get the coverage guard. But within that scope it is
+deterministic and unfixable by conversation: every `read_only_diagnosis` from this session whose
+title or objective contains a `REVIEW_FRAMING` word will resolve `:595`, refuse, and shadow the
+grant, no matter what the owner types next. An *implementation*-shaped newest turn does still win,
+because the backward scan reaches it before `:595` — which is exactly the "two or three attempts
+with the right phrasing" the owner reported, seen from the other side.
+
+**Why it is not fixed here, despite being in this task's owned paths.** Three candidate fixes, and
+the choice is a live authority decision rather than a bug fix:
+
+- *Apply the coverage guard to review ingresses* (`:468` → `if (!requested)`). Closes the unbounded
+  scan properly. But review dispatches never write a scope — `implementationAdmission` returns
+  `{ok: true, reviewOnly: true}` at `:1156` **without** calling `scopeImplementation` — so coverage
+  could only ever pass for the newest turn. That would newly refuse the 2nd..Nth review of a plural
+  "do them", which is the exact flow `coop-read-only-review-admission` exists to serve.
+- *Do not return a route that carries no Thread.* Strictly better than today, but insufficient:
+  the scan would continue to `:332`, which **does** have a topicRef and `projectRefs: [clay]`, so
+  admission would admit the review bound to a days-old unrelated Thread. Working for the wrong
+  reason, and the hijack shape preserved.
+- *Consult the standing grant before the scan when the dispatch qualifies.* Provably non-widening
+  (the grant returns `{}` unless policy covers it, and admission re-derives it independently), and
+  it fixes the symptom exactly. Cost: attribution — work an owner did ask for would run under a
+  `grant:<taskId>` Thread instead of the owner's Thread.
+
+My recommendation is the third, because it is the only one that cannot narrow existing authority,
+plus the second as defence in depth. But it changes Thread attribution on a live path, and the
+grant's reach depends on the owner's switch, so it should be an explicit decision.
+
+Reproduced mechanically in `test/coop-thread-execution-admission.test.js`, "REPRODUCTION: a stale
+review-shaped turn shadows the standing grant", with a control that differs **only** in that no
+turn is review-shaped and which is admitted with a grant-minted Thread. The test currently asserts
+the defect and must flip when the branch is bounded. Worth recording: the first version of that
+test did not reproduce and passed for the wrong reason — `grantDispatch()` is titled
+"Diagnose…/Investigate…", and neither word is in `REVIEW_FRAMING`. The collision requires the word
+"review", which the real task title happens to contain.
+
 ## What this task did NOT cover
 
 No live daemon exercised any of this. The landed fix is test-only and changes no admission
