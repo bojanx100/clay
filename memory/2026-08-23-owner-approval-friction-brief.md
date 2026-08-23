@@ -220,7 +220,14 @@ gap is the real blocker and should be closed first.
 ## Addendum, same day: the read-only review branch is an unbounded backward scan
 
 A concrete symptom arrived after the above was written, and it is a *different and more serious*
-defect in the same router. It is diagnosed to the line and reproduced in a test, but **not fixed**.
+defect in the same router. **FIXED** by owner decision, ingress 692 — see "The fix that landed"
+below. The diagnosis is kept in full because the mechanism is subtle and the fix only addresses
+the shadowing, not the unbounded scan underneath it.
+
+> **Retracted:** an earlier revision of this section said this was "diagnosed to the line and
+> reproduced in a test, but **not fixed**", and recommended the owner choose among three options.
+> The owner chose option 3 (ingress 692) and it is now implemented. The three options and their
+> trade-offs are left below because option 1 remains the unfinished work.
 
 **Symptom.** From canonical Coop session `871a194b`, a `read_only_diagnosis` dispatch of
 `clay-review-external-codex-recent-commits` rev2 was refused
@@ -296,6 +303,47 @@ the choice is a live authority decision rather than a bug fix:
 My recommendation is the third, because it is the only one that cannot narrow existing authority,
 plus the second as defence in depth. But it changes Thread attribution on a live path, and the
 grant's reach depends on the owner's switch, so it should be an explicit decision.
+
+## The fix that landed (owner decision, ingress 692)
+
+Option 3. `standingGrantExecutionRoute` is now consulted in `currentExecutionRoute` immediately
+after the ledger route and **before** the backward owner-turn scan
+(`lib/project-task-orchestrator-external-delegation.js`).
+
+One correction to the decision as written: it asked for the change "before the backward-scan-for-
+owner-turn logic runs in `coop-pending-question-admission.js`". The backward scan is not in that
+file. `coop-pending-question-admission.js` contains `answeringTurn`, a *forward* scan for the first
+owner turn after a question, and it plays no part in this bug. The scan that adopts ingress 595 is
+`currentExecutionRoute` in `project-task-orchestrator-external-delegation.js`, which is where the
+fix went. The intent was unambiguous, so it was implemented rather than re-queried.
+
+Four properties, in the order they matter:
+
+1. **Grants nothing new.** The route only *proposes* a container; `implementationAdmission`
+   re-derives the grant independently from the same policy file, so a route offered here is still
+   refused there unless the policy really covers the dispatch.
+2. **OFF is byte-identical.** Switch off, project not allowlisted, or a shape that is not fully
+   read-only all return `{}`, and the scan then runs exactly as before. Asserted directly: with the
+   switch off, the same stale-turn history produces the same refusal naming the same ingress 595.
+3. **Only a grant that actually minted its Thread may preempt the scan.** A mint refusal keeps its
+   original position at the end of the function. Promoting a refusal would let a failed policy read
+   shadow a legitimate owner turn — the same shadowing defect in the other direction.
+4. **The ledger route still wins.** A task-scoped owner record is exact evidence for this binding
+   and is better attribution than policy, so it is resolved first, as before.
+
+Accepted cost, exactly as flagged: for the narrow `read_only_diagnosis` class the grant now takes
+credit ahead of the scan **and ahead of the queue and approval routes**, which sit below the scan.
+Such work runs under a deterministic `grant:<taskId>` Thread instead of an owner turn's. Hoisting
+the queue and approval routes above the grant would recover that attribution and was deliberately
+not done unasked; it is a separate, larger reordering with its own regression surface.
+
+**Still open, and unchanged by this fix:** the review branch is *still* an unbounded backward scan.
+The coverage guard at `:468` is still gated on `isImplementationIngress`, so a stale review-shaped
+turn can still be adopted whenever the grant does not apply — switch off, project not allowlisted,
+or a read-only review that is not diagnosis-framed. In those cases `:595`-class turns will still
+claim the route. Option 1 above is the real repair, and it is blocked on review admission never
+writing a scope (`implementationAdmission` returns at `:1156` without calling `scopeImplementation`),
+which is what makes coverage unpassable for any turn that is not the newest.
 
 Reproduced mechanically in `test/coop-thread-execution-admission.test.js`, "REPRODUCTION: a stale
 review-shaped turn shadows the standing grant", with a control that differs **only** in that no

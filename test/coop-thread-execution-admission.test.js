@@ -1783,9 +1783,17 @@ test("a standing read-only grant supplies its own Thread when no owner turn can"
 // :595 first. The session that succeeded had zero owner turns, which is precisely
 // why it fell through to the grant.
 //
-// EXPECTED TO FLIP. These assertions record the defect, not the intent. When the
-// review branch is bounded, the first case must become an admission carrying a
-// grant-minted Thread and no ingress, exactly like the control below.
+// FIXED by owner decision, ingress 692: standingGrantExecutionRoute is now
+// consulted BEFORE this scan, so a turn that can authorize nothing can no longer
+// hide the route that can. This test was first written as a FAILING reproduction
+// and then flipped, which is the reason to trust it: it was observed red for the
+// documented reason before it was made green.
+//
+// What it guards is the SHADOWING, not the grant. Reverting the reorder alone must
+// fail it; see the proof recorded in the commit message. The control below shares
+// every input except the stale turn, so if a future change breaks the grant itself
+// both halves fail together and the cause stays unambiguous.
+
 // The real failing dispatch. The title matters and is not incidental: "review"
 // is in BOTH coop-read-only-review-admission's REVIEW_FRAMING and the grant's
 // DIAGNOSIS_FRAMING, so this task is simultaneously eligible for the standing
@@ -1804,7 +1812,7 @@ function codexReviewDispatch(overrides) {
   }, overrides || {});
 }
 
-test("REPRODUCTION: a stale review-shaped turn shadows the standing grant", function (t) {
+test("a stale review-shaped turn no longer shadows the standing grant", function (t) {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-shadowed-"));
   t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
   var onFile = grantPolicyFile(true);
@@ -1837,21 +1845,31 @@ test("REPRODUCTION: a stale review-shaped turn shadows the standing grant", func
     createTopicIndex({ file: path.join(dir, "shadowed.json") }), dir,
     staleReviewHistory, ledger595)(codexReviewDispatch());
 
-  assert.equal(shadowed.ok, false,
-    "DEFECT: the grant covers this dispatch, but a stale \"Do both\" turn claimed the route");
-  assert.match(String(shadowed.error || shadowed.reason),
-    /owner_implementation_decision_required/);
-  assert.match(String(shadowed.error || ""), /595/,
-    "the refusal cites the stale turn, which is how this presents as a stuck ingress pointer");
-  assert.equal(delivered.length, 0);
+  // FIXED by owner decision, ingress 692: the grant is consulted before the scan,
+  // so the stale "Do both" turn can no longer claim the route and hide it.
+  assert.equal(shadowed.ok, true, JSON.stringify(shadowed));
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0].destination.projectId, PROJECT);
+  assert.ok(delivered[0].payload.coopTopicRef.topicId,
+    "the grant supplies its own Thread");
+  assert.notEqual(delivered[0].payload.coopIngressId, "coop:canonical-coop:595",
+    "and above all it is NOT attributed to the stale turn that used to claim it");
+  assert.equal(delivered[0].payload.coopIngressId, undefined,
+    "a standing grant cites no owner ingress, because there is none");
 
   // CONTROL: the identical dispatch, identical policy, and a history whose only
   // difference is that no turn is review-authorization shaped. This isolates the
   // cause to the stale turn rather than to the grant, the policy or the dispatch,
   // and reproduces the session that succeeded.
+  // Its own dir, so it gets its own bindings.json. Sharing one with the half
+  // above silently broke this: that half now SUCCEEDS and reserves the binding
+  // first, so the identical dispatch here came back reused with nothing
+  // delivered. The halves have to be independent to be a control at all.
   var okDelivered = [];
+  var controlDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-control-"));
+  t.after(function () { fs.rmSync(controlDir, { recursive: true, force: true }); });
   var admitted = grantCoordinator(onFile, okDelivered,
-    createTopicIndex({ file: path.join(dir, "control.json") }), dir, [{
+    createTopicIndex({ file: path.join(controlDir, "control.json") }), controlDir, [{
       type: "user_message", text: "where are we with the reviews?",
       coopIngressId: "coop:canonical-coop:689", coopIngressSequence: 689,
       coopComposerScope: "main", clientMessageId: "ingress-689", _ts: 2000,
@@ -1863,6 +1881,26 @@ test("REPRODUCTION: a stale review-shaped turn shadows the standing grant", func
     "the grant cites no owner ingress, because it needs none");
   assert.ok(okDelivered[0].payload.coopTopicRef.topicId,
     "and it supplies its own Thread");
+
+  // NON-WIDENING, the property the reorder had to preserve. With the switch off
+  // the earlier consult returns {} and the scan runs exactly as it did before, so
+  // the stale turn claims the route again and the refusal is the one the live
+  // session saw. Moving the grant earlier therefore grants nothing that the
+  // policy did not already grant; it only stops an unauthorizable turn from
+  // hiding a route that the policy had already opened.
+  var offDelivered = [];
+  var offDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-shadow-off-"));
+  t.after(function () { fs.rmSync(offDir, { recursive: true, force: true }); });
+  var offResult = grantCoordinator(grantPolicyFile(false), offDelivered,
+    createTopicIndex({ file: path.join(offDir, "off.json") }), offDir,
+    staleReviewHistory, ledger595)(codexReviewDispatch());
+
+  assert.equal(offResult.ok, false, JSON.stringify(offResult));
+  assert.match(String(offResult.error || offResult.reason),
+    /owner_implementation_decision_required/);
+  assert.match(String(offResult.error || ""), /595/,
+    "switch off is unchanged, down to the ingress the refusal names");
+  assert.equal(offDelivered.length, 0);
 });
 
 test("the standing grant route refuses work the policy does not cover", function (t) {
