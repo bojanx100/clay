@@ -128,6 +128,16 @@ function executionRouter(entries, delivered, handedOff, options) {
   options = options || {};
   var dir = options.dir || fs.mkdtempSync(path.join(os.tmpdir(), "clay-thread-admission-"));
   var targetProjectId = options.targetProjectId || PROJECT;
+  // Hermetic by default. `autonomyPolicyFile: undefined` makes
+  // coop-autonomy-grant.loadPolicy fall back to defaultFile(), which is the
+  // SHIPPED repo-root scoped-autonomy-policy.json -- so with the owner's switch
+  // flipped on, three expected refusals in this file became admissions and the
+  // suite was asserting the current autonomy setting rather than the admission
+  // rule. An absent file reads as no grant, which is what these tests mean by
+  // "no standing grant". Tests that exercise the grant pass their own file and
+  // are unaffected.
+  var autonomyPolicyFile = options.autonomyPolicyFile ||
+    path.join(dir, "absent-autonomy-policy.json");
   var claimed = null;
   var classifications = 0;
   var coopSession = options.coopSession || { coopHome: true,
@@ -145,7 +155,7 @@ function executionRouter(entries, delivered, handedOff, options) {
   };
   var router = createCrossProjectRouter({
     allowLeadSourcedExecution: true,
-    autonomyPolicyFile: options.autonomyPolicyFile,
+    autonomyPolicyFile: autonomyPolicyFile,
     bindingFile: path.join(dir, "bindings.json"),
     bindingStore: options.bindingStore,
     ownerRequests: options.ownerRequests || {

@@ -88,25 +88,52 @@ function approvedScope(overrides) {
   }, overrides || {});
 }
 
-// --- The shipped switch is OFF -------------------------------------------------
+// --- The switch OFF ------------------------------------------------------------
 
-test("the grant ships off, so behavior is identical to having no grant at all", function () {
-  var shipped = JSON.parse(fs.readFileSync(SHIPPED_FILE, "utf8"));
-  assert.equal(shipped.enabled, false,
-    "scoped-autonomy-policy.json must be committed with the switch off");
-
+// The shipped file is the OWNER's switch, so its `enabled` value is data, not an
+// invariant. This test used to assert `shipped.enabled === false` and to reach
+// the grant through an empty deps object, which resolves to the shipped file via
+// loadPolicy's defaultFile() fallback. Both coupled the suite to the owner's
+// current setting: flipping the switch on -- the supported way to use the
+// feature -- turned this test red, and `npm test` backstops every commit, so the
+// owner could not durably enable their own grant without a failing suite. That
+// is the same approval friction this subsystem is supposed to remove.
+//
+// What is actually invariant is checked instead: the shipped file must remain
+// well formed, and its permanently-gated set must stay intact, because no edit
+// to that file may widen it. The behavioral claim -- OFF is byte-identical to
+// having no grant -- is property 1 of coop-autonomy-grant and is now proven
+// against a temporary OFF policy, so it holds whatever the owner has shipped.
+test("the shipped policy file stays well formed and cannot widen what is gated", function () {
   var loaded = grant.loadPolicy({});
   assert.ok(loaded, "the shipped file must be well formed");
+  var shipped = JSON.parse(fs.readFileSync(SHIPPED_FILE, "utf8"));
+  assert.equal(typeof shipped.enabled, "boolean",
+    "enabled is the owner's switch, but it must stay a boolean");
+  assert.ok(Array.isArray(shipped.permanentlyGated) && shipped.permanentlyGated.length,
+    "the shipped file must still carry a permanently-gated set");
+  // normalizePolicy returns null unless permanentlyGated matches the hard-coded
+  // forbidden-action ids exactly, so a well-formed load already proves the set
+  // was not narrowed. Assert it survived the round trip rather than restating it.
+  assert.ok(loaded.projects.length, "the shipped file must still name its projects");
+});
+
+test("with the grant off, behavior is identical to having no grant at all", function () {
+  var off = policyFile({ enabled: false });
+
+  var loaded = grant.loadPolicy({ autonomyPolicyFile: off });
+  assert.ok(loaded, "the off policy must be well formed");
   assert.equal(loaded.enabled, false);
 
-  // The dispatch shape that IS covered once the switch flips is still refused
-  // now: a read-only audit of an allowlisted project.
-  assert.equal(grant.standingAdmission(dispatch(), request(), {}), null);
+  // The dispatch shape that IS covered once the switch flips stays refused while
+  // it is off: a read-only audit of an allowlisted project.
+  assert.equal(grant.standingAdmission(dispatch(), request(),
+    { autonomyPolicyFile: off }), null);
 
   // And the real gate the dispatcher calls still declines, so
-  // server-cross-project falls through to owner_implementation_decision_required
-  // exactly as it does today.
-  assert.equal(itemApproval.executionAdmission(dispatch(), request(), null, {}), null,
+  // server-cross-project falls through to owner_implementation_decision_required.
+  assert.equal(itemApproval.executionAdmission(dispatch(), request(), null,
+    { autonomyPolicyFile: off }), null,
     "with the switch off the approval gate must return null, not an admission");
 });
 
