@@ -92,7 +92,7 @@ test("restart drain waits until active provider tools finish", async function ()
   });
   assert.deepStrictEqual(result, { drained: true, count: 0, waitedMs: 20 });
   var daemonSource = fs.readFileSync(path.join(__dirname, "..", "lib", "daemon.js"), "utf8");
-  assert.match(daemonSource, /waitForActiveTools\(countActiveProviderTools\)/,
+  assert.match(daemonSource, /return countActiveProviderTools\(excludeSessionId\);/,
     "daemon restart must use the tested provider-tool drain");
 });
 
