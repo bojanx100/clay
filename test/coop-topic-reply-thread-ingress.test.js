@@ -530,7 +530,7 @@ test("repeated contextual fixes carry one concrete ThreadRef and no raw ambiguit
   var h = makeHarness({
     coopControl: true,
     contextualResolver: true,
-    history: seededHistory().slice(0, 9),
+    history: seededHistory().slice(0, 9).concat([{ type: "user_message", text: "↻ Lead tick" }]),
   });
   var commands = ["Fix that too", "FIX!"];
 
@@ -545,7 +545,7 @@ test("repeated contextual fixes carry one concrete ThreadRef and no raw ambiguit
     assert.deepEqual(control.threadRef, { threadId: TOPIC_A });
     assert.equal(control.question, "");
     assert.doesNotMatch(foregroundText, /Which Thread should I apply that to\?/);
-    assert.deepEqual(h.session.history[9 + i].coopThreadRef, { threadId: TOPIC_A });
+    assert.deepEqual(h.session.history[10 + i].coopThreadRef, { threadId: TOPIC_A });
   }
 });
 

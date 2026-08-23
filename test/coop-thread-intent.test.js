@@ -249,11 +249,24 @@ test("the canonical current owner Thread resolves a follow-up before an assistan
   assert.equal(message.coopThreadIntent.kind, "implement");
 });
 
+test("machine-injected user messages do not hide one current Thread from a Main follow-up", function () {
+  var history = completedHistory();
+  history.push({ type: "user_message", text: "↻ Lead tick" });
+  var h = routingHarness(history);
+  var message = { type: "message", text: "Fix it", coopComposerScope: "main" };
+  var result = prepareFollowup(h, message);
+  assert.equal(result.ok, true);
+  assert.equal(result.resolverCalls, 1);
+  assert.deepEqual(message.coopThreadRef, { threadId: "thread-b" });
+  assert.equal(message.coopThreadIntent.kind, "implement");
+});
+
 test("two plausible preceding Threads yield one clarification and mutate neither Thread", function () {
   var history = completedHistory();
   history.push(ownerMessage("A and B overlap", "thread-a", 6));
   history.push({ type: "delta", text: "Shared answer" });
   history.push({ type: "done" });
+  history.push({ type: "user_message", text: "↻ Lead tick" });
   var shared = turnRef(6, 8);
   var h = routingHarness(history, {
     aTurns: [turnRef(0, 2), shared], aEvents: [0, 6],
