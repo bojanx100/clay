@@ -27,7 +27,13 @@ test("only an explicitly archived dismissed Coop task coordinator is hidden dura
   assert.equal(visibility.hideDismissedSession(project(manager), hidden,
     { taskId: "dismissed", status: "dismissed", archivedAt: 1 }), true);
   assert.equal(hidden.hidden, true);
-  assert.deepEqual(calls, [[7, null, { projectionOnly: true }]]);
+  // cascadeWorkers is part of the contract, not incidental: a dismissed,
+  // archived coordinator's workers are finished by construction and must be
+  // hidden with it, or they leak into the sidebar and the mobile Projects picker.
+  // See test/coop-dismissed-worker-visibility.test.js, which drives the real
+  // sessions-deletion module rather than the stub below.
+  assert.deepEqual(calls,
+    [[7, null, { projectionOnly: true, cascadeWorkers: true }]]);
 });
 
 test("ordinary dismissal, owner-direct, active, attention, and already hidden sessions stay untouched", function () {
