@@ -28,7 +28,7 @@ node scripts/lead-tick-state.js
 ```
 
 This is the ONLY state command for steps 0 and 1. It returns `leadMode`,
-`ownerRequests`, `bindings`, `looseItems`, `leadLedger`, `providerHealth` and
+`ownerRequests`, `bindings`, `looseItems`, `leadLedger`, `historicalLedger`, `providerHealth` and
 `budget` in a single process, so read `leadMode` off it and continue — do not
 issue a separate command per source. Every extra bash step is a full model
 round trip, and the reads themselves are only 20-50ms each, so splitting them
@@ -83,6 +83,33 @@ fields below out of it; do not re-run any of these reads.
   already-completed issue eligible again and staffs the same work twice
   (guarded by `test/lead-tick-state-bindings.test.js`). `typedHistory` keeps
   every record and narrows by field instead.
+- **Historical Coop work** (`snapshot.historicalLedger`): this is a full scan of
+  the persisted `~/.clay/lead/coop-session-ledger.json`, including terminal,
+  missing, duplicate, and owner-blocked records that the visible session query
+  hides. Never infer an empty portfolio from an empty runtime snapshot. Before
+  reporting no work, require `snapshot.errors` to be empty, `scanned` to cover
+  the ledger, and `unresolved` to be empty.
+
+  Classifications are actionable instructions:
+
+  - `active` is admitted work. Preserve its exact `projectRef`,
+    `portfolioTaskId`, `bindingRevision`, and mode. Query
+    `clay-orchestration/list_coop_sessions` with the exact ProjectRef; steer an
+    existing project coordinator when one is present, or dispatch with the full
+    typed cross-project binding when it is absent. Never create a Lead-local worker.
+  - `approval_gated` is the only historical class that may become an owner
+    question. Ask one precise decision through `request_task_input` only when
+    `needsOwnerDecision` is true. A failed worker, missing session, stale
+    duplicate, or generic `needs_input` reason is not an approval request.
+  - `needs_input` and `failed` stay visible until their evidence is reconciled.
+    Resolve verified completion with `resolve_task`; dismiss obsolete,
+    superseded, duplicate, or unrouted work with `dismiss_task` and a concrete,
+    durable reason. Do not restaff a historical failure without a fresh exact
+    ProjectRef-scoped decision.
+  - `terminal`, `superseded`, and `unrouted` records are historical evidence,
+    not new work. If their visible task lacks a durable outcome, reconcile it
+    before the tick can declare idle; already reconciled terminal records may be
+    summarized and skipped.
 - **Portfolio**: `lib/lead-backlog.buildPortfolio` over the loose items
   plus any GitHub sources from project task configs
   (`resolveGithubSources` + `collectGithubIssues`; wrap exec with
@@ -151,7 +178,10 @@ the boss raised it; inject `routeFn` from `lib/lead-routing`, real clock,
 the legacy ledger's `inFlight`, `snapshot.bindings.typedHistory` as
 `portfolioBindings` — the all-status slice, since `bindingBlocksRestaff`
 (`lib/lead-loop.js:100`) needs terminal records to block restaffing —
-and the unanswered owner requests as `unansweredRequests`).
+and the unanswered owner requests as `unansweredRequests`). Pass
+`snapshot.historicalLedger` as `historicalLedger` unchanged. If it returns a
+`reconcile_history` decision, execute that decision before any standup, wait,
+or new staffing decision.
 The decisions array is your work order for this tick.
 
 `leadTick` returns a single `answer_owner` decision and NOTHING else when the
@@ -206,6 +236,17 @@ stall the backlog behind something only the boss can clear.
   work could never run. Recording the referent after the fact is also what
   would let the Lead manufacture what the boss appeared to approve, which is
   why the gate refuses it rather than being relaxed.
+- **reconcile_history** — process the returned records oldest first. For an
+  active admitted record, preserve the exact canonical ProjectRef and steer the
+  existing project coordinator or use a complete typed cross-project dispatch;
+  Lead-local execution is forbidden. For verified completed work call
+  `resolve_task`. For obsolete, duplicate, superseded, failed-with-no-retry,
+  or unrouted work call `dismiss_task` with a durable reason. Use
+  `request_task_input` only for a record explicitly marked
+  `needsOwnerDecision: true`, and ask one precise approval-class question.
+  Append a typed reconciliation note with the record key, outcome, and evidence
+  after each durable action. Do not report `backlog empty` while any returned
+  record remains unreconciled.
 - **ADMISSION-GATE RULE (owner decision 2026-08-04)**: the approval gate
   sits at backlog admission, not dispatch. An item that was discussed
   with the boss and admitted to `items.json` is pre-approved — staff it
@@ -232,7 +273,9 @@ stall the backlog behind something only the boss can clear.
   `[WS-HANDLER-ERROR]` in `~/.clay/diag-dev.log`), compose with
   `lib/lead-standup.composeStandup`, post the digest, then append
   `{type:"standup_composed"}`.
-- **wait** — say the reason in one line. Never idle silently.
+- **wait** — say the reason in one line. Never idle silently. The reason may be
+  `backlog empty` only after the full historical ledger scan completed with no
+  unresolved records and no snapshot source errors.
 
 ## 4. Worker results ([Clay worker update] arriving in this session)
 

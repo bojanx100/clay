@@ -182,6 +182,23 @@ function readLeadLedger() {
   return { inFlight: ledger.inFlight() };
 }
 
+// The runtime slices above are not a historical work ledger. This file is the
+// durable inventory of Coop-created/touched sessions, including terminal and
+// missing entries that the owner-facing session query intentionally hides.
+function readHistoricalLedger(file) {
+  var ledgerFile = file || path.join(os.homedir(), ".clay", "lead", "coop-session-ledger.json");
+  var parsed = JSON.parse(fs.readFileSync(ledgerFile, "utf8"));
+  if (!parsed || !Array.isArray(parsed.entries)) {
+    throw new Error("historical Coop session ledger has no entries array");
+  }
+  var classified = require("../lib/lead-ledger").classifyHistoricalLedger(parsed.entries);
+  return {
+    scanned: classified.scanned,
+    counts: classified.counts,
+    unresolved: classified.unresolved,
+  };
+}
+
 function readProviderHealth() {
   var config = require("../lib/config");
   return require("../lib/lead-health").readHealthSnapshot(config.recoveryLogPath());
@@ -222,12 +239,14 @@ function gather(options) {
   // synchronous file reads: in one process the kernel already services them
   // back-to-back with no round trip between, which is where the old sequential
   // shape actually lost its time.
+  var bindingStep = attempt("bindings", readBindings);
   var steps = [
     attempt("leadMode", readLeadMode),
     attempt("ownerRequests", readOwnerRequests),
-    attempt("bindings", readBindings),
+    bindingStep,
     attempt("looseItems", readLooseItems),
     attempt("leadLedger", readLeadLedger),
+    attempt("historicalLedger", readHistoricalLedger),
     attempt("providerHealth", readProviderHealth),
     attempt("budget", function () { return readBudget(dayStartAt); }),
   ];
@@ -278,5 +297,6 @@ module.exports = {
   main: main,
   readBindings: readBindings,
   readLooseItems: readLooseItems,
+  readHistoricalLedger: readHistoricalLedger,
   thinnedProjection: thinnedProjection,
 };

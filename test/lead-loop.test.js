@@ -155,6 +155,24 @@ test("empty backlog and unroutable items produce explicit waits", function () {
   assert.ok(/no routable items/.test(d[0].reason));
 });
 
+test("historical work preempts an empty runtime snapshot", function () {
+  var projectRef = { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" };
+  var record = {
+    classification: "active", projectRef: projectRef, sessionStorageId: "historical-session",
+    portfolioTaskId: "historical-task", bindingRevision: 1, mode: "project_coordinator",
+  };
+  var d = loop.leadTick({
+    portfolio: { items: [] }, inFlight: [], now: NOW, lastStandupAt: NOW,
+    historicalLedger: {
+      scanned: 1, counts: { active: 1, unreconciled: 1 }, unresolved: [record],
+    },
+  });
+  assert.strictEqual(d.length, 1);
+  assert.strictEqual(d[0].action, "reconcile_history");
+  assert.deepStrictEqual(d[0].records[0].projectRef, projectRef);
+  assert.notStrictEqual(d[0].action, "wait");
+});
+
 test("ticks are replayable: identical inputs, identical decisions", function () {
   var input = function () {
     return {
