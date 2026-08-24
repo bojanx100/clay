@@ -6,6 +6,7 @@ var os = require("os");
 var path = require("path");
 
 var ledger = require("../lib/lead-ledger");
+var loop = require("../lib/lead-loop");
 var state = require("../scripts/lead-tick-state");
 
 var PROJECT_ID = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
@@ -128,4 +129,91 @@ test("exact missing-session evidence closes an orphaned historical row", functio
   assert.equal(result.records[0].terminal, true);
   assert.equal(result.records[0].reconciled, true);
   assert.equal(result.unresolved.length, 0);
+});
+
+test("fresh terminal evidence reconciles closed attention without inventing completion", function () {
+  var closedAttention = record("closed-attention", "needs_input", "needs_input", "needs_input", {
+    closedAt: 1786785610974,
+    terminalOutcome: { status: "needs_input", at: 1786653479293 },
+    lastCoopAction: { type: "execution_needs_input", report: "Read-only verification complete." },
+  });
+  closedAttention.portfolioBinding.completedAt = 1786653479293;
+  var canonicalBlocker = record(
+    "clay-open-session-reconciliation-audit-2026-08-24",
+    "needs_input", "needs_input", "needs_input", {
+      closedAt: 1787581711479,
+      terminalOutcome: { status: "needs_input", at: 1787581711479 },
+      lastCoopAction: { type: "execution_needs_input", report: "Canonical binding is unavailable." },
+    });
+  var completedCoordinator = {
+    projectRef: { projectId: PROJECT_ID },
+    sessionStorageId: "585c5ab9-8526-498a-8a88-7fc105a290ac",
+    lifecycleState: "running",
+    workState: "working",
+    sessionPresent: true,
+    lastCoopAction: {
+      type: "project_completed",
+      report: "Slices 1-3 shipped and independently verified.",
+    },
+  };
+  var interrupted = {
+    projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" },
+    sessionStorageId: "5b8b5e6f-c5b5-425b-b7ce-de199c7fb0a2",
+    closedAt: 1787095287848,
+    lifecycleState: "needs_input",
+    workState: "needs_input",
+    sessionPresent: true,
+    lastCoopAction: {
+      type: "task_needs_input",
+      report: "Worker was interrupted by a restart and is not eligible for automatic resume.",
+    },
+  };
+  var result = ledger.classifyHistoricalLedger([
+    closedAttention, canonicalBlocker, completedCoordinator, interrupted,
+  ]);
+  var bySession = {};
+  result.records.forEach(function (row) { bySession[row.sessionStorageId] = row; });
+
+  assert.equal(bySession["closed-attention-session"].terminal, true);
+  assert.equal(bySession["closed-attention-session"].reconciled, true);
+  assert.equal(bySession["closed-attention-session"].status, "needs_input");
+  assert.equal(bySession["closed-attention-session"].evidenceCode, "closed_terminal_outcome");
+  assert.equal(bySession["clay-open-session-reconciliation-audit-2026-08-24-session"].terminal, false);
+  assert.equal(bySession["clay-open-session-reconciliation-audit-2026-08-24-session"].classification,
+    "needs_input");
+  assert.equal(bySession["585c5ab9-8526-498a-8a88-7fc105a290ac"].evidenceCode,
+    "project_completed");
+  assert.equal(bySession["5b8b5e6f-c5b5-425b-b7ce-de199c7fb0a2"].classification, "failed");
+  assert.equal(bySession["5b8b5e6f-c5b5-425b-b7ce-de199c7fb0a2"].evidenceCode,
+    "interrupted_not_resumable");
+  assert.deepEqual(result.unresolved.map(function (row) { return row.portfolioTaskId; }), [
+    "clay-open-session-reconciliation-audit-2026-08-24",
+  ]);
+});
+
+test("Lead records an exact durable blocker instead of retrying a missing typed binding", function () {
+  var historical = ledger.classifyHistoricalLedger([record(
+    "clay-open-session-reconciliation-audit-2026-08-24",
+    "needs_input", "needs_input", "needs_input")]);
+  var decision = loop.leadTick({
+    portfolio: { items: [] },
+    inFlight: [],
+    now: 1787609198000,
+    lastStandupAt: 1787609198000,
+    portfolioBindings: [],
+    historicalLedger: {
+      scanned: historical.scanned,
+      counts: historical.counts,
+      unresolved: historical.unresolved,
+    },
+  });
+
+  assert.equal(decision.length, 1);
+  assert.equal(decision[0].action, "wait");
+  assert.equal(decision[0].reason, "historical reconciliation blocked by missing typed binding");
+  assert.equal(decision[0].blockers[0].durableBlocker.code, "canonical_binding_missing");
+  assert.equal(decision[0].blockers[0].portfolioTaskId,
+    "clay-open-session-reconciliation-audit-2026-08-24");
+  assert.equal(decision[0].blockers[0].bindingRevision, 1);
+  assert.deepEqual(decision[0].blockers[0].projectRef, { projectId: PROJECT_ID });
 });

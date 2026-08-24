@@ -1,13 +1,20 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var fs = require("fs");
+var os = require("os");
 var path = require("path");
+
+require("./helpers/isolated-clay-home");
 
 var runtimeModule = require("../lib/coop-self-cleanup-runtime");
 var deletionModule = require("../lib/sessions-deletion");
 var sessionsIoModule = require("../lib/sessions-io");
 var config = require("../lib/config");
 var createBindings = require("../lib/portfolio-execution-bindings").createPortfolioExecutionBindings;
+
+if (path.resolve(config.CONFIG_DIR) === path.resolve(path.join(os.homedir(), ".clay"))) {
+  throw new Error("coop-self-cleanup-runtime tests refuse to use the live Clay home");
+}
 
 var NOW = 1_000_000;
 var THRESHOLDS = {
@@ -449,6 +456,44 @@ test("Lead wake discovers real state-defaulted backlog and typed binding work", 
   }).ok, true);
   assert.equal(wake({ leadMode: true }), true);
   assert.equal(scheduled, 2);
+});
+
+test("Lead wake does not retry history whose exact typed binding is durably missing", function (t) {
+  var leadDir = path.join(config.CONFIG_DIR, "lead");
+  fs.mkdirSync(leadDir, { recursive: true });
+  t.after(function () { fs.rmSync(leadDir, { recursive: true, force: true }); });
+  fs.writeFileSync(path.join(leadDir, "items.json"), "[]");
+  fs.writeFileSync(path.join(leadDir, "portfolio-execution-bindings.json"), JSON.stringify({
+    schema: "clay.portfolio_execution_bindings",
+    version: 2,
+    bindings: [],
+  }));
+  fs.writeFileSync(path.join(leadDir, "coop-session-ledger.json"), JSON.stringify({
+    entries: [{
+      projectRef: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+      sessionStorageId: "351d16db-6975-403e-8765-24fcf7822682",
+      lifecycleState: "needs_input",
+      workState: "needs_input",
+      portfolioBinding: {
+        portfolioTaskId: "clay-open-session-reconciliation-audit-2026-08-24",
+        bindingRevision: 1,
+        mode: "project_coordinator",
+        status: "needs_input",
+      },
+    }],
+  }));
+
+  var scheduled = 0;
+  var home = { localId: 1, storageId: "coop-home", coopHome: true };
+  var wake = runtimeModule.createLeadWakeHandler({
+    projectSlug: "lead",
+    sm: { sessions: new Map([[1, home]]) },
+    scheduleMessage: function () { scheduled++; },
+    now: function () { return NOW; },
+  });
+
+  assert.equal(wake({ leadMode: true }), false);
+  assert.equal(scheduled, 0);
 });
 
 test("Lead wake keeps the daily standup alive when the backlog is empty", function () {
