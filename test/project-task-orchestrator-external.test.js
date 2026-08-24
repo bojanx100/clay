@@ -100,6 +100,57 @@ test("external task rejects a missing or ordinary target conversation", function
   });
 });
 
+test("partial project-binding fields never fall back to a local worker", function () {
+  var coordinator = {
+    localId: 7,
+    storageId: "coordinator-storage",
+    coordinationMode: true,
+    orchestrationTasks: [],
+    orchestrationEvents: [],
+  };
+  var scheduled = 0;
+  var coordinate = createExternalTaskCoordinator({
+    coordinatorForInput: function () { return coordinator; },
+    sessionForInput: function () { return coordinator; },
+    projectId: function () { return "system-lead"; },
+    createProjectExecution: function () {
+      assert.fail("an incomplete project binding must be refused before delivery");
+    },
+    schedule: function () { scheduled++; },
+    sm: { saveSessionFile: function () {} },
+  });
+
+  var result = coordinate({
+    coordinatorSessionId: "coordinator-storage",
+    title: "Do not create a Lead-local worker",
+    objective: "Keep this incomplete typed delegation visible as an input error.",
+    context: "The project binding was only partially preserved.",
+    acceptanceCriteria: "No local task exists and the missing fields are named.",
+    ownedPaths: "read-only:lib/",
+    mode: "project_coordinator",
+    idempotencyKey: "partial-binding-r1",
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /project execution needs targetProject/);
+  assert.equal(coordinator.orchestrationTasks.length, 0);
+  assert.equal(scheduled, 0);
+
+  var emptyMarker = coordinate({
+    coordinatorSessionId: "coordinator-storage",
+    title: "Do not create another Lead-local worker",
+    objective: "An explicitly empty typed field is still a typed request.",
+    context: "The binding marker was present but empty.",
+    acceptanceCriteria: "The request is refused before local scheduling.",
+    ownedPaths: "read-only:lib/",
+    idempotencyKey: "",
+  });
+  assert.equal(emptyMarker.ok, false);
+  assert.match(emptyMarker.error, /project execution needs targetProject/);
+  assert.equal(coordinator.orchestrationTasks.length, 0);
+  assert.equal(scheduled, 0);
+});
+
 test("the next typed dispatch reuses explicit approval text restored from history", function () {
   var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
   var topic = { topicId: "auto-fb42f62b499c463e340f95b8" };
