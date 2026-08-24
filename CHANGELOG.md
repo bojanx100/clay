@@ -1,3 +1,10 @@
+## [3.3.2-beta.3](https://github.com/chadbyte/clay/compare/v3.3.2-beta.2...v3.3.2-beta.3) (2026-08-24)
+
+
+### Bug Fixes
+
+* **debate:** prevent proposal failures from stopping daemon ([05ee090](https://github.com/chadbyte/clay/commit/05ee090b70bfd291a80b1081c77daf94f422bda6))
+
 ## [3.3.2-beta.2](https://github.com/chadbyte/clay/compare/v3.3.2-beta.1...v3.3.2-beta.2) (2026-08-24)
 
 
