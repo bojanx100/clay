@@ -1,3 +1,15 @@
+# [3.4.0-beta.1](https://github.com/chadbyte/clay/compare/v3.3.2-beta.3...v3.4.0-beta.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* **files:** make file watching resilient ([cfaa188](https://github.com/chadbyte/clay/commit/cfaa188cf1a1d25f1484758a42996f7d8114155b))
+
+
+### Features
+
+* **yoke:** add Gemini and OpenCode ACP adapters ([27261fb](https://github.com/chadbyte/clay/commit/27261fbded8bc59029076eb14589103d28caefb1))
+
 ## [3.3.2-beta.3](https://github.com/chadbyte/clay/compare/v3.3.2-beta.2...v3.3.2-beta.3) (2026-08-24)
 
 
