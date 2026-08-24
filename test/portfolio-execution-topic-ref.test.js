@@ -203,6 +203,10 @@ test("completion payloads accept a valid ref, tolerate none, and reject a malfor
     executionMode: "project_coordinator", terminalStatus: "needs_input",
   }))), "invalid_payload");
   assert.equal(delivery.validationReason(envelope(completionPayload({
+    executionMode: "project_coordinator", terminalStatus: "needs_input",
+    reviewOnly: true, controlRole: "project_coordinator",
+  }))), "");
+  assert.equal(delivery.validationReason(envelope(completionPayload({
     coopTopicRef: { topicId: "topic-a" },
   }))), "");
   // Explicit null is "no attribution", not a malformed ref.
@@ -289,6 +293,18 @@ test("bounded payloads emit the ref only when present so replay stays byte-ident
   }));
   assert.deepEqual(withRef.coopTopicRef, { topicId: "topic-a" });
   assert.equal(delivery.boundedPayload(completionPayload({ coopTopicRef: { topicId: "" } })), null);
+});
+
+test("review-only project coordinator attention preserves its bounded metadata", function () {
+  var bounded = delivery.boundedPayload(completionPayload({
+    executionMode: "project_coordinator",
+    terminalStatus: "needs_input",
+    reviewOnly: true,
+    controlRole: "Council",
+  }));
+
+  assert.equal(bounded.reviewOnly, true);
+  assert.equal(bounded.controlRole, "council");
 });
 
 function envelope(payload) {
