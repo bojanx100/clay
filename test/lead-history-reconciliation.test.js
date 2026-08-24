@@ -100,3 +100,17 @@ test("an unbound Lead control-plane session is inventory, not Lead-local work", 
   assert.strictEqual(result.records[0].classification, "control_plane");
   assert.strictEqual(result.unresolved.length, 0);
 });
+
+test("a terminal binding reconciles a restart-interrupted duplicate row", function () {
+  var result = ledger.classifyHistoricalLedger([record(
+    "restart-interrupted", "needs_input", "needs_input", "failed", {
+      sessionPresent: false,
+      lastCoopAction: {
+        type: "task_needs_input",
+        report: "Worker was interrupted by a restart and is not eligible for automatic resume.",
+      },
+    })]);
+  assert.equal(result.records[0].classification, "failed");
+  assert.equal(result.records[0].reconciled, true);
+  assert.equal(result.unresolved.length, 0);
+});

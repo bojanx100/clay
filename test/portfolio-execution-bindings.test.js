@@ -474,6 +474,34 @@ test("malformed binding state fails closed without overwriting it", function () 
   assert.equal(fs.readFileSync(file, "utf8"), "{not-json");
 });
 
+test("a ref-less active project binding is recovered as a cancelled missing session", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-missing-session-"));
+  var file = path.join(dir, "bindings.json");
+  fs.writeFileSync(file, JSON.stringify({
+    schema: "clay.portfolio_execution_bindings",
+    version: 2,
+    bindings: [{
+      portfolioTaskId: "portfolio-tool-route",
+      mode: "project_coordinator",
+      targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+      bindingRevision: 1,
+      idempotencyKey: "staff-portfolio-tool-route-r1",
+      source: { projectId: "system-lead", sessionStorageId: "lead-home" },
+      status: "active",
+      createdAt: 100,
+      updatedAt: 200,
+    }],
+  }, null, 2));
+
+  var recovered = createBindings({ file: file, now: function () { return 300; } });
+  assert.equal(recovered.getLoadError(), null);
+  assert.equal(recovered.get("portfolio-tool-route", 1).status, "cancelled");
+  assert.equal(recovered.get("portfolio-tool-route", 1).completedAt, 200);
+  assert.equal(recovered.get("portfolio-tool-route", 1).failureCode,
+    "session_missing_without_execution_ref");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).bindings[0].status, "cancelled");
+});
+
 test("the same work refiled under a different portfolioTaskId is refused, not duplicated", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-"));
   var file = path.join(dir, "bindings.json");
