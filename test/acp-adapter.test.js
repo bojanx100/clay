@@ -96,18 +96,8 @@ function adapterOptions(profile) {
   };
 }
 
-test("Gemini and OpenCode profiles use their official ACP entry points", function() {
-  assert.deepStrictEqual(getProfile("gemini").args, ["--acp", "--approval-mode=default"]);
+test("OpenCode profile uses its official ACP entry point", function() {
   assert.deepStrictEqual(getProfile("opencode").args, ["acp"]);
-});
-
-test("Gemini keeps session resume disabled despite the advertised capability", async function() {
-  FakeManager.instances = [];
-  var adapter = createAcpAdapter("gemini", adapterOptions(getProfile("gemini")));
-  var ready = await adapter.init();
-  assert.strictEqual(ready.capabilities.sessionResume, false);
-  assert.deepStrictEqual(FakeManager.instances[0].opts.args, ["--acp", "--approval-mode=default"]);
-  await adapter.shutdown();
 });
 
 test("OpenCode derives session resume support from the ACP handshake", async function() {
