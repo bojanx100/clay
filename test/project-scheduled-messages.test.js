@@ -93,6 +93,81 @@ test("a scheduled Lead wake keeps typed automation provenance on its response tu
   assert.equal(session.history[2].coopContinuationIngressId, undefined);
 });
 
+test("a fenceless controlled scheduled turn stays queued until recovery reattaches authority", function () {
+  var ctx = harness();
+  var session = {
+    localId: 45,
+    storageId: "restored-coop-home",
+    history: [],
+    isProcessing: false,
+    coopHome: true,
+    coopIncarnation: { incarnationId: "inc-restored", epoch: 3 },
+  };
+
+  ctx.messages.scheduleMessage(session, "continue", Date.now(),
+    "Continue after control recovery.", "↻ Resuming after restart", { autoAction: true });
+  assert.equal(ctx.messages.sendScheduledMessageNow(session), false);
+
+  assert.equal(session.history.length, 1, "the queued record remains the last durable event");
+  assert.equal(session.history[0].type, "scheduled_message_queued");
+  assert.ok(session.scheduledMessage, "the in-memory retry remains queued");
+  assert.equal(session.isProcessing, false);
+  assert.equal(ctx.started.length, 0);
+  assert.equal(ctx.pushed.length, 0);
+  clearTimeout(session.scheduledMessage.timer);
+});
+
+test("a scheduled turn is cancelled when its source is compacted before the timer fires", function () {
+  var ctx = harness();
+  var session = { localId: 47, history: [], isProcessing: false };
+
+  ctx.messages.scheduleMessage(session, "continue", Date.now(),
+    "Continue after restart.", "↻ Resuming after restart", { autoAction: true });
+  session.closedAt = Date.now();
+  session.compactedIntoLocalId = 48;
+
+  assert.equal(ctx.messages.sendScheduledMessageNow(session), false);
+  assert.deepEqual(session.history.map(function (item) { return item.type; }),
+    ["scheduled_message_queued", "scheduled_message_cancelled"]);
+  assert.equal(session.scheduledMessage, null);
+  assert.equal(session.isProcessing, false);
+  assert.equal(ctx.started.length, 0);
+  assert.equal(ctx.pushed.length, 0);
+});
+
+test("startup does not restore a scheduled turn for a terminal controlled execution", function () {
+  var ctx = harness();
+  var session = {
+    localId: 48,
+    history: [{
+      type: "scheduled_message_queued",
+      text: "↻ Resuming after restart",
+      autoAction: true,
+      resetsAt: Date.now() - 1000,
+    }],
+    isProcessing: false,
+    orchestrationPolicy: {
+      portfolioExecution: {
+        status: "needs_input",
+        control: {
+          executionId: "exec-terminal",
+          incarnationId: "inc-terminal",
+          epoch: 2,
+          role: "coordinator",
+          authorityId: "auth-terminal",
+        },
+      },
+    },
+  };
+  ctx.sm.sessions.set(session.localId, session);
+
+  ctx.messages.restoreScheduledMessageTimers();
+
+  assert.equal(session.scheduledMessage, undefined);
+  assert.equal(ctx.started.length, 0);
+  assert.equal(ctx.pushed.length, 0);
+});
+
 test("a scheduled continuation reuses an idle resident query instead of deferring forever", function () {
   var ctx = harness();
   var resident = { name: "resident-codex" };
