@@ -4,7 +4,7 @@ var assert = require("node:assert");
 var yoke = require("../lib/yoke");
 var createKiroAdapter = require("../lib/yoke/adapters/kiro").createKiroAdapter;
 
-var SUPPORTED_VENDORS = ["claude", "codex", "kiro"];
+var SUPPORTED_VENDORS = ["claude", "codex", "gemini", "opencode", "kiro"];
 
 function FakeAcpServer() {
   this.started = false;
@@ -46,10 +46,12 @@ test("YOKE registry returns null for an unknown vendor", function() {
   assert.strictEqual(yoke.getVendorInfo("nope"), null);
 });
 
-test("default vendor prefers Claude, then Codex, then Kiro", function() {
+test("default vendor follows the declared cross-vendor preference order", function() {
   assert.strictEqual(yoke.resolveDefaultVendor({ kiro: {} }), "kiro");
+  assert.strictEqual(yoke.resolveDefaultVendor({ kiro: {}, opencode: {} }), "opencode");
+  assert.strictEqual(yoke.resolveDefaultVendor({ kiro: {}, opencode: {}, gemini: {} }), "gemini");
   assert.strictEqual(yoke.resolveDefaultVendor({ kiro: {}, codex: {} }), "codex");
-  assert.strictEqual(yoke.resolveDefaultVendor({ kiro: {}, codex: {}, claude: {} }), "claude");
+  assert.strictEqual(yoke.resolveDefaultVendor({ kiro: {}, opencode: {}, gemini: {}, codex: {}, claude: {} }), "claude");
   assert.strictEqual(yoke.resolveDefaultVendor([]), "claude");
 });
 
@@ -61,6 +63,11 @@ test("every YOKE vendor supports GUI sessions", function() {
 
 test("Kiro remains unavailable for OS-user isolation", function() {
   assert.strictEqual(yoke.getVendorInfo("kiro").osUserIsolation, false);
+});
+
+test("ACP subprocess vendors remain unavailable for OS-user isolation", function() {
+  assert.strictEqual(yoke.getVendorInfo("gemini").osUserIsolation, false);
+  assert.strictEqual(yoke.getVendorInfo("opencode").osUserIsolation, false);
 });
 
 test("Kiro capabilities do not promise stubbed controls", async function() {
@@ -88,6 +95,8 @@ test("clampEffort keeps supported levels and maps unsupported ones to the neares
 
 test("clampEffort returns undefined for no-effort vendors and junk input", function() {
   assert.strictEqual(yoke.clampEffort("kiro", "high"), undefined);
+  assert.strictEqual(yoke.clampEffort("gemini", "high"), undefined);
+  assert.strictEqual(yoke.clampEffort("opencode", "high"), undefined);
   assert.strictEqual(yoke.clampEffort("claude", "turbo"), undefined);
   assert.strictEqual(yoke.clampEffort("claude", ""), undefined);
   assert.strictEqual(yoke.clampEffort("unknown-vendor", "high"), undefined);
