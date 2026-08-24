@@ -18,9 +18,9 @@ function withDir(fn) {
   }
 }
 
-function binding(taskId, status) {
+function binding(taskId, status, revision) {
   return {
-    portfolioTaskId: taskId, bindingRevision: 1, mode: "project_coordinator",
+    portfolioTaskId: taskId, bindingRevision: revision || 1, mode: "project_coordinator",
     status: status, targetProject: { projectId: PROJECT_ID }, statusReason: "",
   };
 }
@@ -99,6 +99,36 @@ test("an unbound Lead control-plane session is inventory, not Lead-local work", 
     sessionStorageId: "lead-session", lifecycleState: "running", workState: "working",
   }]);
   assert.strictEqual(result.records[0].classification, "control_plane");
+  assert.strictEqual(result.unresolved.length, 0);
+});
+
+test("an unbound project coordinator root is inventory, not project work", function () {
+  var result = ledger.classifyHistoricalLedger([{
+    projectRef: { projectId: PROJECT_ID },
+    sessionRef: { projectId: PROJECT_ID, sessionStorageId: "project-root" },
+    sessionStorageId: "project-root", title: "Project coordinator", topLevel: true,
+    role: "project_coordinator", controlRole: "project_coordinator",
+    lifecycleState: "running", workState: "working", sessionPresent: true,
+  }]);
+  assert.strictEqual(result.records[0].classification, "control_plane");
+  assert.strictEqual(result.unresolved.length, 0);
+});
+
+test("an older revision is reconciled when a later revision is terminal", function () {
+  var older = record("revisioned-task", "needs_input", "needs_input", "active");
+  older.portfolioBinding = binding("revisioned-task", "active", 1);
+  var newer = record("revisioned-task", "completed", "done", "completed", {
+    sessionStorageId: "revisioned-task-new-session",
+    sessionRef: { projectId: PROJECT_ID, sessionStorageId: "revisioned-task-new-session" },
+    portfolioBinding: binding("revisioned-task", "completed", 4),
+    terminalOutcome: { status: "completed" },
+    lastCoopAction: { type: "execution_completed" },
+  });
+  var result = ledger.classifyHistoricalLedger([older, newer]);
+  var stale = result.records.filter(function (row) { return row.bindingRevision === 1; })[0];
+  assert.strictEqual(stale.classification, "superseded");
+  assert.strictEqual(stale.reconciled, true);
+  assert.strictEqual(stale.evidenceCode, "newer_terminal_revision");
   assert.strictEqual(result.unresolved.length, 0);
 });
 
