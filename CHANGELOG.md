@@ -1,3 +1,11 @@
+# [3.4.0-beta.3](https://github.com/chadbyte/clay/compare/v3.4.0-beta.2...v3.4.0-beta.3) (2026-08-24)
+
+
+### Features
+
+* **yoke:** replace Gemini CLI with Antigravity ([0f15c35](https://github.com/chadbyte/clay/commit/0f15c35cdbc1d688493950813e83459eabd1e2d8))
+* **yoke:** replace Gemini CLI with Antigravity ([#422](https://github.com/chadbyte/clay/issues/422)) ([d80fc92](https://github.com/chadbyte/clay/commit/d80fc92d99e9609f05d4e7a4955215d923651293))
+
 # [3.4.0-beta.2](https://github.com/chadbyte/clay/compare/v3.4.0-beta.1...v3.4.0-beta.2) (2026-08-24)
 
 
