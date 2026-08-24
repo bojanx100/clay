@@ -4,7 +4,7 @@
 
   "_readme": "One switch. Flip \"enabled\" to true and Coop may start the work listed under \"categories\", in the projects listed under \"projects\", WITHOUT asking. Nothing else. Everything in \"permanentlyGated\" always needs an explicit owner approval and no edit to this file can change that.",
 
-  "enabled": false,
+  "enabled": true,
 
   "projects": [
     { "name": "clay", "projectId": "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
