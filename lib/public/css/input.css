@@ -826,6 +826,7 @@
 
 #attach-file-btn,
 #attach-image-btn,
+#shell-command-btn,
 #schedule-btn,
 #input-more-btn {
   width: 36px;
@@ -844,13 +845,75 @@
 
 #attach-file-btn .lucide,
 #attach-image-btn .lucide,
+#shell-command-btn .lucide,
 #schedule-btn .lucide,
 #input-more-btn .lucide { width: 20px; height: 20px; flex-shrink: 0; }
 
 #attach-file-btn:hover,
 #attach-image-btn:hover,
+#shell-command-btn:hover,
 #schedule-btn:hover,
 #input-more-btn:hover { background: rgba(var(--overlay-rgb), 0.06); color: var(--text); }
+
+#shell-command-btn.active {
+  background: var(--accent-12);
+  color: var(--accent);
+}
+
+#input-row.shell-command-mode {
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+#input-row.shell-command-mode #input {
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace);
+}
+
+.shell-command-card {
+  width: min(760px, calc(100% - 24px));
+  margin: 10px auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  overflow: hidden;
+}
+
+.shell-command-card.error { border-color: rgba(239, 68, 68, 0.45); }
+
+.shell-command-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.shell-command-header code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.shell-command-icon { display: inline-flex; }
+.shell-command-icon .lucide { width: 16px; height: 16px; }
+.shell-command-status { flex-shrink: 0; color: var(--text-muted); }
+
+.shell-command-card.running .shell-command-status { color: var(--accent); }
+
+.shell-command-output {
+  max-height: 320px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: var(--text-secondary);
+  font: 12px/1.5 var(--font-mono, "SFMono-Regular", Consolas, monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 #ask-mate-btn {
   width: 36px;
