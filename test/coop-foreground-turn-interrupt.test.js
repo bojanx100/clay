@@ -50,7 +50,7 @@ function harness(options) {
   };
 
   function scheduleLeadTick() {
-    if (session.isProcessing || session.queryInstance || session.scheduledMessage) return false;
+    if (session.isProcessing || session.scheduledMessage) return false;
     leadTicks++;
     session.scheduledMessage = { text: "↻ Lead tick", autoAction: true };
     session.history.push({ type: "scheduled_message_queued", text: "↻ Lead tick",
@@ -225,6 +225,36 @@ test("foreground drain wakes Lead through an idle resident Codex query", functio
   assert.match(pushed[0], /Staff, verify, close, and advance safe work/);
   assert.equal(session.history[session.history.length - 1].text, "↻ Lead tick");
   assert.equal(session.history[session.history.length - 1].autoAction, true);
+});
+
+test("a completed Lead tick does not masquerade as drained owner ingress", function () {
+  var drained = [];
+  var session = {
+    coopHome: true,
+    storageId: COOP_SESSION,
+    localId: "coop-home",
+    history: [],
+    isProcessing: false,
+  };
+  var control = conversationControl.attachCoopConversationControl({
+    sm: {
+      saveSessionFile: function () {},
+      broadcastSessionList: function () {},
+    },
+    sendToSession: function () {},
+    onIngressDrained: function (target, ingressId) {
+      drained.push({ session: target, ingressId: ingressId });
+    },
+  });
+
+  control.markIdle(session);
+  assert.equal(drained.length, 0,
+    "an automatic Lead turn has no owner ingress to resume from");
+
+  var ingressId = "coop:" + COOP_SESSION + ":534";
+  control.markDispatched(session, ingressId);
+  control.markIdle(session);
+  assert.deepEqual(drained, [{ session: session, ingressId: ingressId }]);
 });
 
 test("owner ingress 254-256 preempts each Lead tick before background work resumes", function () {
