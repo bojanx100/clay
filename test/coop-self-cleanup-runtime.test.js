@@ -1,8 +1,12 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("fs");
+var path = require("path");
 
 var runtimeModule = require("../lib/coop-self-cleanup-runtime");
 var deletionModule = require("../lib/sessions-deletion");
+var config = require("../lib/config");
+var createBindings = require("../lib/portfolio-execution-bindings").createPortfolioExecutionBindings;
 
 var NOW = 1_000_000;
 var THRESHOLDS = {
@@ -356,6 +360,59 @@ test("an immediate Lead runtime tick wakes idle Coop when admitted work exists",
   assert.equal(scheduled[0].label, "↻ Lead tick");
   assert.equal(scheduled[0].opts.autoAction, true);
   assert.match(scheduled[0].prompt, /Lead tick/);
+});
+
+test("Lead wake discovers real state-defaulted backlog and typed binding work", function (t) {
+  var leadDir = path.join(config.CONFIG_DIR, "lead");
+  var itemsFile = path.join(leadDir, "items.json");
+  var bindingsFile = path.join(leadDir, "portfolio-execution-bindings.json");
+  fs.mkdirSync(leadDir, { recursive: true });
+  t.after(function () { fs.rmSync(leadDir, { recursive: true, force: true }); });
+
+  var scheduled = 0;
+  var home = { localId: 1, storageId: "coop-home", coopHome: true };
+  var wake = runtimeModule.createLeadWakeHandler({
+    projectSlug: "lead",
+    sm: { sessions: new Map([[1, home]]) },
+    scheduleMessage: function () { scheduled++; },
+    now: function () { return NOW; },
+  });
+
+  // The canonical backlog normalizer treats a missing state as open. The old
+  // wake predicate read the raw state and silently missed exactly this item.
+  fs.writeFileSync(itemsFile, JSON.stringify([{ id: "admitted-work", title: "Admitted work" }]));
+  assert.equal(wake({ leadMode: true }), true);
+  assert.equal(scheduled, 1);
+
+  fs.writeFileSync(itemsFile, "[]");
+  var bindings = createBindings({ file: bindingsFile, now: function () { return NOW; } });
+  assert.equal(bindings.reserve({
+    portfolioTaskId: "typed-work",
+    mode: "direct_leaf",
+    targetProject: { projectId: "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04" },
+    bindingRevision: 1,
+    idempotencyKey: "typed-work-1",
+  }).ok, true);
+  assert.equal(bindings.commit("typed-work", 1, {
+    projectId: "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04",
+    sessionStorageId: "typed-worker",
+  }).ok, true);
+  assert.equal(wake({ leadMode: true }), true);
+  assert.equal(scheduled, 2);
+});
+
+test("Lead wake keeps the daily standup alive when the backlog is empty", function () {
+  var scheduled = 0;
+  var home = { localId: 1, storageId: "coop-home", coopHome: true };
+  var wake = runtimeModule.createLeadWakeHandler({
+    projectSlug: "lead",
+    sm: { sessions: new Map([[1, home]]) },
+    scheduleMessage: function () { scheduled++; },
+    now: function () { return 24 * 60 * 60 * 1000 + 1; },
+  });
+
+  assert.equal(wake({ leadMode: true }), true);
+  assert.equal(scheduled, 1);
 });
 
 test("Lead wake skips non-Lead, disabled, busy, already-scheduled, and empty states", function () {

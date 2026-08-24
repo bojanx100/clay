@@ -5,6 +5,8 @@ var os = require("os");
 var path = require("path");
 var createBindings =
   require("../lib/portfolio-execution-bindings").createPortfolioExecutionBindings;
+var readBindings =
+  require("../lib/portfolio-execution-bindings").readPortfolioExecutionBindings;
 
 var PROJECT_ID = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
 
@@ -44,6 +46,25 @@ test("portfolio execution bindings persist one idempotent canonical SessionRef",
   assert.equal(restarted.reserve(request(1, "direct_leaf", "different-command")).reason,
     "idempotency_conflict");
   assert.equal(restarted.reserve(request(2)).reason, "active_binding_exists");
+});
+
+test("background binding projection reads current work without mutating the store", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-read-only-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 25; } });
+  assert.equal(store.reserve(request(1)).ok, true);
+  assert.equal(store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "read-only-worker",
+  }).ok, true);
+  var before = fs.readFileSync(file, "utf8");
+
+  var projection = readBindings({ file: file });
+
+  assert.equal(projection.ok, true);
+  assert.equal(projection.bindings.length, 1);
+  assert.equal(projection.bindings[0].status, "active");
+  assert.equal(fs.readFileSync(file, "utf8"), before);
 });
 
 test("scope promotion and unavailable/deleted tombstones survive restart", function () {
