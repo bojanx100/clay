@@ -114,3 +114,18 @@ test("a terminal binding reconciles a restart-interrupted duplicate row", functi
   assert.equal(result.records[0].reconciled, true);
   assert.equal(result.unresolved.length, 0);
 });
+
+test("exact missing-session evidence closes an orphaned historical row", function () {
+  var result = ledger.classifyHistoricalLedger([record(
+    "missing-session", "missing", "needs_input", "active", {
+      sessionPresent: false,
+      lastCoopAction: {
+        type: "session_missing",
+        report: "The previously registered session is no longer present.",
+      },
+    })]);
+  assert.equal(result.records[0].classification, "failed");
+  assert.equal(result.records[0].terminal, true);
+  assert.equal(result.records[0].reconciled, true);
+  assert.equal(result.unresolved.length, 0);
+});

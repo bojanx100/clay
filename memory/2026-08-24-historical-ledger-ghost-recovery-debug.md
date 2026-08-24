@@ -26,7 +26,11 @@ project-coordinator shape with no completion markers, writes a durable
 `cancelled` tombstone with `session_missing_without_execution_ref`, and keeps
 all other malformed state fail-closed. Historical classification now accepts a
 terminal binding status as reconciliation evidence, including restart-
-interrupted duplicate child rows.
+interrupted duplicate child rows. It also treats the exact persisted
+`lifecycleState: missing` plus `sessionPresent: false` and
+`lastCoopAction.type: session_missing` evidence as a terminal historical
+reconciliation, so a binding that has already disappeared cannot strand its
+ledger row as an owner decision.
 
 ## Verification
 
