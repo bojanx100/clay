@@ -392,12 +392,13 @@ function readSessionMeta(h, storageId) {
   return JSON.parse(fs.readFileSync(sessionFile(h, storageId), "utf8").split("\n")[0]);
 }
 
-function countSessionTempWrites(h) {
+function countSessionTempWrites(h, storageId) {
   var originalRenameSync = fs.renameSync;
   var writes = [];
+  var targetPrefix = path.join(h.sessionsDir, storageId + ".jsonl.tmp.");
   fs.renameSync = function (oldPath, newPath) {
     var fileName = String(oldPath);
-    if (fileName.indexOf(h.sessionsDir + path.sep) === 0 && fileName.indexOf(".tmp.") !== -1) {
+    if (fileName.indexOf(targetPrefix) === 0) {
       writes.push({ file: fileName });
     }
     return originalRenameSync.apply(fs, arguments);
@@ -1099,7 +1100,7 @@ test("historical provider session ids block orphan CLI re-adoption", function ()
 
 test("light session saves write immediately each time", function () {
   var h = makeSessionHarness();
-  var counter = countSessionTempWrites(h);
+  var counter = countSessionTempWrites(h, "light-save");
   try {
     var session = h.sm.createSessionRaw({ storageId: "light-save" });
     session.title = "First title";
@@ -1352,7 +1353,7 @@ test("a SessionRef resolves the same persisted session after local IDs are reass
 
 test("heavy session save bursts write immediately once and coalesce trailing metadata", async function () {
   var h = makeSessionHarness();
-  var counter = countSessionTempWrites(h);
+  var counter = countSessionTempWrites(h, "heavy-save");
   try {
     var session = h.sm.createSessionRaw({ storageId: "heavy-save" });
     session.title = "Initial heavy title";
@@ -1379,7 +1380,7 @@ test("heavy session save bursts write immediately once and coalesce trailing met
 
 test("a rewrite that crosses the coalesce window still coalesces its trailing save", async function () {
   var h = makeSessionHarness();
-  var counter = countSessionTempWrites(h);
+  var counter = countSessionTempWrites(h, "slow-heavy-save");
   var originalWriteSync = fs.writeSync;
   var delayNextWrite = true;
   try {
@@ -1417,7 +1418,7 @@ test("a rewrite that crosses the coalesce window still coalesces its trailing sa
 
 test("deleteSession cancels pending heavy save so the file is not resurrected", async function () {
   var h = makeSessionHarness();
-  var counter = countSessionTempWrites(h);
+  var counter = countSessionTempWrites(h, "delete-heavy-save");
   try {
     var session = h.sm.createSessionRaw({ storageId: "delete-heavy-save" });
     session.title = "Delete me";
