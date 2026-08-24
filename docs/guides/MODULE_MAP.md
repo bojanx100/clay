@@ -219,7 +219,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-issue-launch-state.js` | Issue/task launch state persistence used to avoid duplicate launches and track workflow state |
 | `project-pr-review-state.js` | PR-review task state persistence for review/CI/QA follow-up passes |
 | `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
-| `coop-self-cleanup-runtime.js` | Project-scoped, Lead-mode-gated Coop projection cleanup, compaction scheduling, and durable audit replay |
+| `coop-self-cleanup-runtime.js` + `coop-self-cleanup-retry.js` | Project-scoped, Lead-mode-gated Coop projection cleanup, safe completed-turn compaction retry, and durable audit replay |
 | `coop-restart-supersession.js` | Fail-closed audited transition from one exact `restart_recovery` failure to a hidden superseded projection only after every owner-approved successor binding and completion record verifies |
 | `project-workspace.js` | `workspace_get`, `workspace_dev_*` | Session workspace context assembly: repo links, worktree binding, PR/preview metadata, dev server lifecycle, and live workspace context patches |
 | `project-workspace-live-ui-binding.js` | Safe Live UI dev-server rebinding to the selected chat's current exact project root/worktree and target origin |

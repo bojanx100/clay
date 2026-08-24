@@ -5,6 +5,7 @@ var path = require("path");
 
 var runtimeModule = require("../lib/coop-self-cleanup-runtime");
 var deletionModule = require("../lib/sessions-deletion");
+var sessionsIoModule = require("../lib/sessions-io");
 var config = require("../lib/config");
 var createBindings = require("../lib/portfolio-execution-bindings").createPortfolioExecutionBindings;
 
@@ -255,6 +256,55 @@ test("active Coop maintenance still defers while processing or unsafe", function
     assert.equal(result.channelDecisions[0].operation, "defer_maintenance", item.name);
     assert.equal(result.channelDecisions[0].reasonCode, "channel_not_idle", item.name);
   }
+});
+
+test("a continuously busy Coop home compacts at its first completed-turn boundary", function () {
+  var calls = [];
+  var immediates = [];
+  var home = {
+    localId: 1,
+    storageId: "weeks-busy-coop-home",
+    coopHome: true,
+    createdAt: NOW - (21 * 24 * 60 * 60 * 1000),
+    messageCount: 300000,
+    isProcessing: true,
+    history: [],
+  };
+  var harness = makeHarness([home], {
+    leadMode: true,
+    activeSession: home,
+    runtime: {
+      setImmediate: function (fn) { immediates.push(fn); },
+      compactAndContinue: function (session) {
+        calls.push(session);
+        return { localId: 2 };
+      },
+    },
+  });
+  harness.runtime.start();
+
+  harness.runtime.tick();
+  harness.runtime.tick();
+  assert.equal(calls.length, 0);
+  assert.ok(home._coopMaintenanceDoneListener);
+  assert.equal(home._subscribers.size, 1, "repeated busy ticks arm only one retry");
+
+  var io = sessionsIoModule.attachSessionIo({
+    send: function () {},
+    appendToSessionFile: function () {},
+    isMeaninglessUnknownError: function () { return false; },
+    getActiveSessionId: function () { return home.localId; },
+    getSingleUserUnread: function () { return {}; },
+    onSessionDone: function () {},
+  });
+  io.sendAndRecord(home, { type: "done", code: 0 });
+  assert.equal(calls.length, 0, "compaction waits until the provider stack unwinds");
+  assert.equal(immediates.length, 1);
+
+  immediates[0]();
+  assert.deepEqual(calls, [home]);
+  assert.equal(home._coopMaintenanceDoneListener, undefined);
+  harness.runtime.stop();
 });
 
 test("repeated ticks and restart replay do not repeat applied actions", function () {
