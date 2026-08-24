@@ -1,3 +1,10 @@
+## [3.3.2-beta.2](https://github.com/chadbyte/clay/compare/v3.3.2-beta.1...v3.3.2-beta.2) (2026-08-24)
+
+
+### Bug Fixes
+
+* **ui:** clear activity dots when tools take over ([8fb8ffd](https://github.com/chadbyte/clay/commit/8fb8ffdae0ecfbb07df6e3f96e2516a7c7252e52))
+
 ## [3.3.2-beta.1](https://github.com/chadbyte/clay/compare/v3.3.1...v3.3.2-beta.1) (2026-08-20)
 
 
