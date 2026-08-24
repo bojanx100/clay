@@ -1,3 +1,16 @@
+# [3.4.0-beta.2](https://github.com/chadbyte/clay/compare/v3.4.0-beta.1...v3.4.0-beta.2) (2026-08-24)
+
+
+### Bug Fixes
+
+* **codex:** handle session writer conflicts ([247483b](https://github.com/chadbyte/clay/commit/247483b4a25e64d24ed8cef40ec02f9be2390682))
+
+
+### Features
+
+* add composer shell commands and conflict handling ([#421](https://github.com/chadbyte/clay/issues/421)) ([144e4d8](https://github.com/chadbyte/clay/commit/144e4d80404fb3160460b42c8b502e759890bd17))
+* **shell:** add composer command execution ([10806b2](https://github.com/chadbyte/clay/commit/10806b2ae8ab9261e93c95c129ee3a7a0c34fde8))
+
 # [3.4.0-beta.1](https://github.com/chadbyte/clay/compare/v3.3.2-beta.3...v3.4.0-beta.1) (2026-08-24)
 
 
