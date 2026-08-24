@@ -82,11 +82,15 @@ YOKE is the vendor-agnostic interface layer. Each adapter implements the same co
 | `yoke/adapters/claude.js` | Claude adapter using `@anthropic-ai/claude-agent-sdk`. In-process + worker (OS user isolation) paths |
 | `yoke/adapters/codex.js` | Codex adapter using `codex app-server` JSON-RPC protocol. Handles approval events, skill injection, MCP bridge config |
 | `yoke/codex-app-server.js` | Codex `app-server` child process manager. JSON-RPC 2.0 over stdin/stdout, request ID tracking, event routing |
+| `yoke/adapters/acp.js` | Shared default YOKE adapter for ACP agents. Vendor drivers may augment or replace lifecycle behavior so ACP never limits the YOKE contract |
+| `yoke/acp-agent-profiles.js` + `yoke/acp-driver-runtime.js` | Gemini CLI and OpenCode process metadata plus composable vendor hooks for initialization, sessions, permissions, events, results, and optional YOKE methods |
+| `yoke/acp-query-handle.js` + `yoke/acp-event-normalizer.js` | Shared ACP session lifecycle, permission handling, and YOKE event normalization |
 | `yoke/adapters/kiro.js` | Kiro adapter using `kiro-cli acp` (Agent Client Protocol). Dynamic model catalog, event flattening (session/update), permission routing, session resume |
-| `yoke/kiro-acp-server.js` | Kiro `acp` child process manager. JSON-RPC 2.0 over stdin/stdout, request ID tracking, auth-error detection |
+| `yoke/acp-process-manager.js` | Vendor-neutral ACP child process manager. JSON-RPC 2.0 over stdin/stdout, request ID tracking, session-aware event routing |
+| `yoke/kiro-acp-server.js` | Thin Kiro ACP profile. Binary discovery, Kiro arguments, and auth-error detection |
 | `yoke/mcp-bridge-server.js` | Stdio MCP server spawned by Codex. Proxies tool list/call to Clay via HTTP at `/api/mcp-bridge` |
 
-**When adding a new vendor**: implement the YOKE interface, register in `yoke/index.js` createAdapter switch. Do not add vendor-specific logic outside the adapter.
+**When adding a new vendor**: use the shared ACP defaults when the runtime supports ACP, then keep special behavior in its driver hooks. If the runtime needs deeper semantics, retain a dedicated YOKE adapter while sharing only the ACP process manager, as Kiro does. For a non-ACP runtime, implement the YOKE interface and register it in `yoke/index.js`.
 
 **For Codex-specific patterns and gotchas**: see [CODEX-INTEGRATION.md](./CODEX-INTEGRATION.md).
 

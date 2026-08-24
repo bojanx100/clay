@@ -682,6 +682,7 @@
 .mate-vendor-label {
   pointer-events: none;
 }
+.mate-vendor-btn:not(.active) .mate-vendor-label { display: none; }
 
 /* Collapse button inside mate header: white to match header style */
 .mate-sidebar-header .sidebar-collapse-btn {

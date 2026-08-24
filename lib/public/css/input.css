@@ -799,6 +799,10 @@
 .vendor-toggle-label {
   pointer-events: none;
 }
+@media (min-width: 901px) {
+  .vendor-toggle-btn:not(.active) .vendor-toggle-label { display: none; }
+  .vendor-toggle-btn:not(.active) { padding: 0 8px; }
+}
 @media (max-width: 900px) {
   .vendor-toggle-label { display: none; }
   .vendor-toggle-btn { padding: 0 8px; }
