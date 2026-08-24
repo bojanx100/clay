@@ -121,6 +121,37 @@ test("adapter errors finish a result-less stream instead of leaving it processin
   assert.strictEqual(broadcasts, 1);
 });
 
+test("Codex writer conflicts surface a recoverable session error", async function() {
+  var recorded = [];
+  var bridge = createBridge({
+    sendAndRecord: function(session, msg) { recorded.push(msg); },
+    sendToSession: function() {},
+    broadcastSessionList: function() {},
+  });
+  var handle = createEndingHandle([{
+    yokeType: "error",
+    text: "thread-store conflict: thread abc already has an active writer",
+  }]);
+  var session = {
+    localId: 14,
+    vendor: "codex",
+    queryInstance: handle,
+    isProcessing: true,
+    pendingAskUser: {},
+    pendingPermissions: {},
+    pendingElicitations: {},
+  };
+
+  await bridge.processQueryStream(session);
+
+  var conflicts = recorded.filter(function(msg) { return msg.type === "session_writer_conflict"; });
+  assert.strictEqual(conflicts.length, 1);
+  assert.match(conflicts[0].text, /another Clay or Codex process/);
+  assert.strictEqual(recorded.filter(function(msg) { return msg.type === "error"; }).length, 0);
+  assert.strictEqual(recorded[recorded.length - 1].type, "done");
+  assert.strictEqual(session.isProcessing, false);
+});
+
 test("an old stream ending cannot stop its replacement query", async function() {
   var recorded = [];
   var replacement = { pushMessage: function() { return true; } };
