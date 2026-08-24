@@ -496,18 +496,27 @@ test("Lead wake does not retry history whose exact typed binding is durably miss
   assert.equal(scheduled, 0);
 });
 
-test("Lead wake keeps the daily standup alive when the backlog is empty", function () {
+test("Lead wake leases the daily standup tick instead of retrying it every interval", function (t) {
+  var leadDir = path.join(config.CONFIG_DIR, "lead");
+  fs.rmSync(leadDir, { recursive: true, force: true });
+  t.after(function () { fs.rmSync(leadDir, { recursive: true, force: true }); });
   var scheduled = 0;
+  var nowValue = 24 * 60 * 60 * 1000 + 1;
   var home = { localId: 1, storageId: "coop-home", coopHome: true };
   var wake = runtimeModule.createLeadWakeHandler({
     projectSlug: "lead",
     sm: { sessions: new Map([[1, home]]) },
     scheduleMessage: function () { scheduled++; },
-    now: function () { return 24 * 60 * 60 * 1000 + 1; },
+    now: function () { return nowValue; },
   });
 
   assert.equal(wake({ leadMode: true }), true);
+  assert.equal(wake({ leadMode: true }), false);
   assert.equal(scheduled, 1);
+
+  nowValue += 24 * 60 * 60 * 1000 + 1;
+  assert.equal(wake({ leadMode: true }), true);
+  assert.equal(scheduled, 2);
 });
 
 test("Lead wake skips non-Lead, disabled, busy, already-scheduled, and empty states", function () {
