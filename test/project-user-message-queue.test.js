@@ -13,11 +13,18 @@ function harness(options) {
     },
     saveSessionFile: function () { events.push("save"); },
     broadcastSessionList: function () { events.push("broadcast"); },
+    sendAndRecord: function (target, message) {
+      events.push(message.type);
+      target.history.push(message);
+    },
   };
   var api = queueModule.attachProjectUserMessageQueue({
     sm: sm,
     sdk: {
-      startQuery: function (target, text) { events.push("start:" + text); },
+      startQuery: function (target, text) {
+        events.push("start:" + text);
+        if (options.startError) return Promise.reject(options.startError);
+      },
       pushMessage: function () {
         events.push("push");
         return options.pushResult === undefined ? true : options.pushResult;
@@ -103,4 +110,17 @@ test("a stale processing state starts a fresh query when no push consumer exists
   assert.deepStrictEqual(h.events.filter(function (event) {
     return event === "push" || event.indexOf("start:") === 0;
   }), ["push", "start:recover me"]);
+});
+
+test("a rejected provider start clears processing and emits a retryable terminal error", async function () {
+  var h = harness({ startError: new Error("provider unavailable") });
+  h.api.dispatchPreparedToSdk(h.session, {
+    finalText: "retry me", images: null, steer: false, queueId: null,
+    displayText: "retry me", imageCount: 0, clientMessageId: "cm-retry",
+    pastes: null, fromQueue: false, intent: "chat",
+  });
+  await new Promise(function (resolve) { setImmediate(resolve); });
+  assert.equal(h.session.isProcessing, false);
+  assert.deepEqual(h.session.history.map(function (item) { return item.type; }), ["error", "done"]);
+  assert.match(h.session.history[0].text, /provider unavailable/);
 });

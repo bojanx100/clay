@@ -1377,6 +1377,44 @@ test("heavy session save bursts write immediately once and coalesce trailing met
   }
 });
 
+test("a rewrite that crosses the coalesce window still coalesces its trailing save", async function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h);
+  var originalWriteSync = fs.writeSync;
+  var delayNextWrite = true;
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "slow-heavy-save" });
+    session.title = "Initial slow title";
+    session.history.push({ type: "tool_result", content: "slow rewrite", _ts: Date.now() });
+
+    // Reproduce the production shape: the first synchronous rewrite itself
+    // takes longer than SAVE_COALESCE_MS. The follow-up save is issued
+    // immediately after it returns.
+    fs.writeSync = function (fd, data) {
+      if (delayNextWrite) {
+        delayNextWrite = false;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 175);
+      }
+      return originalWriteSync.apply(fs, arguments);
+    };
+    h.sm.saveSessionFile(session);
+    fs.writeSync = originalWriteSync;
+
+    session.title = "Trailing slow title";
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(counter.writes.length, 1,
+      "the trailing update joins the burst after the slow write completes");
+
+    await wait(210);
+    assert.strictEqual(counter.writes.length, 2);
+    assert.strictEqual(readSessionMeta(h, "slow-heavy-save").title, "Trailing slow title");
+  } finally {
+    fs.writeSync = originalWriteSync;
+    counter.restore();
+    h.cleanup();
+  }
+});
+
 test("deleteSession cancels pending heavy save so the file is not resurrected", async function () {
   var h = makeSessionHarness();
   var counter = countSessionTempWrites(h);

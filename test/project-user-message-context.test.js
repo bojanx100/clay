@@ -15,7 +15,7 @@ function makeContext(options) {
   var imageNumber = 0;
   var sm = {
     sessions: new Map([[session.localId, session]]),
-    appendToSessionFile: function () {},
+    appendToSessionFile: function () { return options.appendResult; },
     saveSessionFile: function () { sent.push({ type: "save" }); },
     broadcastSessionList: function () {},
     queuedUserMessagesForClient: function () { return []; },
@@ -41,6 +41,7 @@ function makeContext(options) {
     },
     browserState: browserState,
     requestTabContext: options.requestTabContext || function () { return Promise.resolve(null); },
+    contextSourceTimeoutMs: options.contextSourceTimeoutMs,
     sendTo: function (ws, message) { sent.push(message); },
     sendToSession: function (id, message) { sent.push(message); },
     sendToSessionOthers: function () {},
@@ -171,6 +172,33 @@ test("ordinary message preparation preserves echo/title/image/paste and terminal
   assert.match(text, /Uploaded image:/);
   assert.ok(text.indexOf("console line") < text.indexOf("email context"));
   assert.ok(text.indexOf("email context") < text.indexOf("term output"));
+});
+
+test("a browser context source cannot strand an accepted message", async function () {
+  var h = makeContext({
+    sources: ["tab:7"],
+    contextSourceTimeoutMs: 5,
+    requestTabContext: function () {
+      return new Promise(function () {});
+    },
+  });
+  h.context.handleUserMessage({}, { type: "message", text: "dispatch even if the tab hangs", clientMessageId: "cm-timeout" });
+  await new Promise(function (resolve) { setTimeout(resolve, 20); });
+  assert.equal(h.sdkCalls.length, 1, "the prepared message dispatches after optional context times out");
+  assert.equal(h.sdkCalls[0].text, "dispatch even if the tab hangs");
+});
+
+test("message acknowledgement follows durable append and persistence failure stops dispatch", async function () {
+  var accepted = makeContext();
+  accepted.context.handleUserMessage({}, { type: "message", text: "saved", clientMessageId: "cm-accepted" });
+  assert.equal(accepted.sent[0].type, "message_accepted");
+  assert.equal(accepted.sent[0].clientMessageId, "cm-accepted");
+
+  var failed = makeContext({ appendResult: false });
+  failed.context.handleUserMessage({}, { type: "message", text: "not saved", clientMessageId: "cm-failed" });
+  assert.equal(failed.sent.some(function (message) { return message.type === "message_failed"; }), true);
+  await waitForAsyncDispatch();
+  assert.equal(failed.sdkCalls.length, 0, "provider dispatch waits for persistence");
 });
 
 test("handoff preparation wraps and consumes context, while provider API-error retry rewrites only agent text", async function () {
