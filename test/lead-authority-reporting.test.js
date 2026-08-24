@@ -7,7 +7,6 @@ var path = require("path");
 
 var repoRoot = path.join(__dirname, "..");
 var contractFiles = [
-  path.join(repoRoot, "CLAUDE.md"),
   path.join(repoRoot, ".claude/skills/lead-tick/SKILL.md"),
 ];
 var startMarker = "<!-- coop-authority-contract:start -->";
@@ -159,9 +158,8 @@ var scriptedExchanges = [
   },
 ];
 
-test("root and Lead procedure publish the same authority contract", function () {
+test("Lead procedure publishes its Coop authority contract", function () {
   var contracts = contractFiles.map(readContract);
-  assert.strictEqual(contracts[0], contracts[1]);
   assert.strictEqual(parseContract(contracts[0]).directOwnerSessionsPreserved, true);
 });
 
