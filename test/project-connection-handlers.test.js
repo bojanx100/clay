@@ -549,6 +549,58 @@ test("Lead topic operations select a canonical lens and resolve only exact refer
   }
 });
 
+test("Main remains selectable when compaction leaves the topic index on its predecessor", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-connection-main-compacted-"));
+  var sent = [];
+  var events = [];
+  var options = { storedPresence: null, multiUser: false, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var index = createTopicIndex({ file: path.join(dir, "lead", "topics.json"), now: function () { return 10; } });
+    var predecessor = makeSession(1);
+    predecessor.storageId = "canonical-main-predecessor";
+    predecessor.coopHome = true;
+    assert.equal(index.ensureRetro(predecessor, { projects: [] }).ok, true);
+
+    var home = makeSession(2);
+    home.storageId = "canonical-main-successor";
+    home.compactedFromStorageId = predecessor.storageId;
+    home.coopHome = true;
+    assert.deepEqual(index.ensureRetro(home, { projects: [] }), {
+      ok: false,
+      code: "canonical_session_mismatch",
+    });
+
+    var ctx = makeContext(home, sent, events);
+    ctx.slug = "lead";
+    ctx.coopTopicIndex = index;
+    var replays = [];
+    ctx.sm.replayHistory = function (session, from, socket, transform, replayOptions) {
+      replays.push(replayOptions || null);
+    };
+    var connection = handlers.attachConnectionHandlers(ctx);
+    var ws = new FakeWebSocket();
+    connection.handleConnection(ws, null, function () {}, function () {});
+
+    ws.emit("message", JSON.stringify({
+      type: "coop_topic_select", topicRef: null, projectRef: null, historyScope: "main",
+    }));
+
+    assert.deepEqual(sent.filter(function (message) {
+      return message.type === "coop_topic_selected";
+    }).pop(), {
+      type: "coop_topic_selected", ok: true, topicRef: null, projectRef: null,
+    });
+    assert.deepEqual(replays.pop(), {
+      eventIndexes: [0], scope: "main", topicRef: null, projectRef: null,
+      annotateHistoryIndex: true,
+    });
+  } finally {
+    restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("Coop topic selection is isolated per socket and preserves a prior selection on denial", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-connection-topic-socket-"));
   var sent = [];
