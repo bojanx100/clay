@@ -179,6 +179,43 @@ availableTest("graceful shutdown drains ingress and checkpoints every active con
   }
 });
 
+availableTest("graceful shutdown checkpoints a coordinator waiting for owner input", function () {
+  var h = harness();
+  try {
+    var active = h.addExecution({ taskId: "owner-input-coordinator", projectId: PROJECT_A,
+      sessionStorageId: "owner-input-coordinator" });
+    active.session.orchestrationPolicy.portfolioExecution.status = "needs_input";
+    active.session.orchestrationPolicy.portfolioExecution.reason = "owner_decision_required";
+    h.router.completeControlledStartup();
+
+    var prepared = h.router.prepareControlledRestart();
+
+    assert.equal(prepared.preparedHandoffs, 1);
+    assert.equal(h.store.listHandoffs().length, 1);
+    assert.equal(h.store.listHandoffs()[0].from_session_id, "owner-input-coordinator");
+  } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("graceful shutdown still rejects a direct leaf in terminal needs_input", function () {
+  var h = harness();
+  try {
+    var active = h.addExecution({ taskId: "owner-input-direct-leaf", projectId: PROJECT_A,
+      sessionStorageId: "owner-input-direct-leaf", mode: "direct_leaf" });
+    active.session.orchestrationPolicy.portfolioExecution.status = "needs_input";
+    h.router.completeControlledStartup();
+
+    assert.throws(function () { h.router.prepareControlledRestart(); }, function (error) {
+      return error && error.code === "COOP_CONTROL_RESTART_CHECKPOINT_REQUIRED" &&
+        error.message === NO_EXACT_TARGET;
+    });
+    assert.equal(h.store.listHandoffs().length, 0);
+  } finally {
+    h.cleanup();
+  }
+});
+
 availableTest("multi-project preparation is a barrier and refuses partial checkpoint coverage", function () {
   var h = harness();
   try {
