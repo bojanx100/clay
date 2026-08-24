@@ -163,12 +163,32 @@ test("Main drops internal turns All still keeps", function () {
     userMessage("↻ Lead tick", { autoAction: true }),
     { type: "done" },
   ];
-  assert.deepEqual(relevance.mainLensEventIndexes(history), [0, 3]);
+  assert.deepEqual(relevance.mainLensEventIndexes(history), [0]);
   // All is every index; Main is a strict subset of it.
   var all = history.map(function (_, i) { return i; });
   var main = relevance.mainLensEventIndexes(history);
   for (var i = 0; i < main.length; i++) assert.ok(all.indexOf(main[i]) !== -1);
   assert.ok(main.length < all.length);
+});
+
+test("repeated internal Lead ticks keep one status pair and the owner message", function () {
+  var tick = [
+    { type: "user_message", text: "\u21bb Lead tick", autoAction: true },
+    { type: "delta", text: "Running the tick; I'll report only if the state changes." },
+    { type: "delta", text: "No state change. The worker remains active." },
+    { type: "done" },
+  ];
+  var history = tick.concat(tick).concat([
+    userMessage("send this user message"),
+    { type: "delta", text: "Delivered." },
+    { type: "done" },
+  ]);
+  var main = relevance.mainLensEventIndexes(history);
+  assert.deepEqual(main, [1, 2, 8, 9, 10]);
+  assert.equal(main.filter(function (index) {
+    return history[index].text === "No state change. The worker remains active.";
+  }).length, 1);
+  assert.equal(main.indexOf(8) !== -1, true, "the later owner message remains visible");
 });
 
 test("an unknown event type stays in Main rather than vanishing", function () {
@@ -486,8 +506,8 @@ test("a topic lens replays only owner-relevant records from its spans", function
     { type: "done" },
   ];
   var kept = relevance.ownerRelevantIndexes(history, [0,1,2,3,4,5,6,7,8,9,10]);
-  assert.deepEqual(kept, [0, 9, 10],
-    "the span keeps the owner question and the answer, nothing between");
+  assert.deepEqual(kept, [0, 9],
+    "the span keeps the owner question and one tick milestone, nothing else");
 });
 
 test("topic replay and Main agree exactly on the same history", function () {
@@ -537,8 +557,8 @@ test("boundedMembershipIndexes applies the narrowing on the real seam", function
     turnRefs: [{ sessionStorageId: "s1", startEventIndex: 0, endEventIndex: 5 }],
     eventRefs: [],
   };
-  assert.deepEqual(conn.boundedMembershipIndexes(topic, session), [0, 4, 5],
-    "the whole span is admitted, then narrowed to the conversation");
+  assert.deepEqual(conn.boundedMembershipIndexes(topic, session), [0, 4],
+    "the whole span is admitted, then narrowed to the conversation and one tick milestone");
 });
 
 test("an owner message mentioning internal terms survives topic replay", function () {

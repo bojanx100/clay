@@ -77,6 +77,31 @@ test("the live Lead tick is internal, recognised by flag not by label text", asy
   assert.ok(lens.isInternalMessage({ type: "user_message", text: "↻ Lead tick" }));
 });
 
+test("repeated internal Lead ticks coalesce live while owner messages stay deliverable", async function () {
+  var lens = await loadRelevance();
+  var tracker = lens.createTurnRelevanceTracker();
+  var running = { type: "delta", text: "Running the tick; I'll report only if the state changes." };
+  var unchanged = { type: "delta", text: "No state change. The worker remains active." };
+  var tick = { type: "user_message", text: "↻ Lead tick", autoAction: true };
+
+  assert.equal(tracker.relevance(tick), "internal");
+  assert.equal(tracker.relevance(running), "owner");
+  assert.equal(tracker.relevance(unchanged), "owner");
+  assert.equal(tracker.relevance({ type: "done" }), "internal");
+
+  assert.equal(tracker.relevance(tick), "internal");
+  assert.equal(tracker.relevance(running), "internal");
+  assert.equal(tracker.relevance(unchanged), "internal");
+  assert.equal(tracker.relevance({ type: "done" }), "internal");
+
+  assert.equal(tracker.relevance({
+    type: "user_message", text: "send this user message",
+    from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-1",
+  }), "owner");
+  assert.equal(tracker.relevance({ type: "delta", text: "Delivered." }), "owner");
+  assert.equal(tracker.relevance({ type: "done" }), "owner");
+});
+
 test("worker fan-in is internal live", async function () {
   var lens = await loadRelevance();
   assert.ok(lens.isInternalMessage({
@@ -119,11 +144,12 @@ test("the live vocabulary matches the replay vocabulary", async function () {
 
 test("every block is classified before it renders", function () {
   var messages = clientSource("app-messages.js");
-  assert.match(messages, /setCurrentBlockRelevance\(messageRelevance\(msg\)\)/);
+  assert.match(messages, /setCurrentBlockRelevance\(turnRelevanceTracker\.relevance\(msg\)\)/);
   // Before any handler runs, so every block the message produces is marked.
   var dispatch = messages.slice(messages.indexOf("export function processMessage(msg)"));
-  assert.ok(dispatch.indexOf("setCurrentBlockRelevance(messageRelevance(msg))") <
+  assert.ok(dispatch.indexOf("setCurrentBlockRelevance(turnRelevanceTracker.relevance(msg))") <
     dispatch.indexOf("if (handleLiveUiMessage(msg)) return;"));
+  assert.match(dispatch, /turnRelevanceTracker\.reset\(\)/);
 
   var rendering = clientSource("app-rendering.js");
   assert.match(rendering, /export function setCurrentBlockRelevance\(relevance\)/);
