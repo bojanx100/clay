@@ -317,6 +317,68 @@ availableTest("verified project-coordinator completion durably completes and rel
   }
 });
 
+availableTest("terminal review attention durably releases its controlled execution lease", function () {
+  var h = harness();
+  try {
+    var timeline = [];
+    var control = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var runtime = target(control, timeline);
+    var root = {
+      localId: 99,
+      storageId: "review-attention-coordinator",
+      coordinationMode: true,
+      orchestrationPolicy: {},
+      orchestrationTasks: [],
+      orchestrationEvents: [],
+      history: [],
+      pendingPermissions: {},
+      pendingAskUser: {},
+      allowedTools: {},
+    };
+    runtime.sessions.set(root.localId, root);
+    var request = coordinatorEnvelope(621, root.storageId);
+    request.payload.reviewOnly = true;
+    runtime.attached.handleEnvelope(request);
+    var session = controlledSession(runtime);
+    var metadata = session.orchestrationPolicy.portfolioExecution.control;
+    session.history.push({ type: "delta", text: "WORKER_STATUS: needs_input\n" +
+      "REASON: owner_decision_required\nSUMMARY: Review found a decision for the owner.\n" +
+      "VERIFICATION: read-only review complete\nESCALATION_REQUIRED: yes" });
+    var gate = attachCompletionGate({
+      sm: runtime.sm,
+      flushCoordinatorUpdates: function () { return false; },
+      queueCoordinatorUpdate: function () {},
+      sendState: function () {},
+      finishControlledExecution: function (targetSession, status) {
+        return finishControlledExecution(targetSession, status, { control: control });
+      },
+    });
+
+    gate.handleTurnDone(session);
+
+    var durable = control.inspect(metadata.executionId);
+    assert.equal(session.orchestrationPolicy.portfolioExecution.status, "needs_input");
+    assert.equal(durable.execution.status, "failed");
+    assert.equal(durable.current.startState, "failed");
+    assert.equal(durable.current.failureCode, "needs_input");
+    assert.equal(durable.leases.length, 0);
+    control.close();
+
+    delete session._coopExecutionFence;
+    var recoveredControl = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var recoveredTarget = require("../lib/coop-control-execution-target").createTargetExecutionControl({
+      coopExecutionControl: recoveredControl,
+      projectId: function () { return PROJECT_A; },
+    });
+    assert.equal(recoveredTarget.reconcileSession(session,
+      session.orchestrationPolicy.portfolioExecution), false);
+    assert.equal(session.orchestrationPolicy.portfolioExecution.status, "needs_input");
+    recoveredControl.close();
+  } finally {
+    h.cleanup();
+  }
+});
+
 availableTest("restart hydrates a coordinator projection after durable completion commits", function () {
   var h = harness();
   var restoreFlags = enableExecutionFlags();
