@@ -303,7 +303,7 @@ test("an anchor survives reload and an unusable one never invalidates the ref", 
   var bad = recordRequest(h.ledger, 293, 21);
   var overlong = recordRequest(h.ledger, 294, 22);
   h.ledger.markAnswered(good.ingressId, { eventIndex: 2, at: 95, messageUuid: ANSWER_UUID });
-  h.ledger.markAnswered(bad.ingressId, { eventIndex: 3, at: 95, messageUuid: "not a uuid" });
+  h.ledger.markAnswered(bad.ingressId, { eventIndex: 3, at: 95, messageUuid: "not a uuid\u0007" });
   h.ledger.markAnswered(overlong.ingressId,
     { eventIndex: 4, at: 95, messageUuid: new Array(200).join("a") });
 
