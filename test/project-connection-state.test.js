@@ -88,6 +88,39 @@ test("Lead defaults to Coop home while exact reference navigation keeps the requ
   assert.equal(exact.active, worker);
 });
 
+test("Lead exact restore follows a hidden compacted home to its recorded successor", function () {
+  var source = {
+    localId: 7,
+    storageId: "old-coop-home",
+    cliSessionId: "old-coop-cli",
+    hidden: true,
+    compactedIntoLocalId: 8,
+  };
+  var successor = {
+    localId: 8,
+    storageId: "new-coop-home",
+    cliSessionId: "new-coop-cli",
+    coopHome: true,
+    compactedFromStorageId: source.storageId,
+    lastViewedAt: 10,
+  };
+  var sessions = new Map([[source.localId, source], [successor.localId, successor]]);
+  var restored = state.findRestoredActiveSession({
+    sessions: sessions,
+    allSessions: [successor],
+    requestedSessionId: source.storageId,
+    requestedSessionExact: true,
+    canonicalCoopHome: true,
+    storedPresence: null,
+    usersModule: { canAccessSession: function () { return true; } },
+    multiUser: false,
+    user: null,
+  });
+
+  assert.equal(restored.active, successor);
+  assert.equal(restored.exactMiss, false);
+});
+
 test("stored presence is the fallback before recency, including CLI ids", function () {
   var restored = state.findRestoredActiveSession(restoreOptions({
     storedPresence: { sessionId: "cli-one" },
