@@ -45,3 +45,28 @@ browser screenshot/send verification could not be performed here. The
 canonical transcript projection and live tracker regression are the observable
 integration substitute; no live owner message or durable live state was
 mutated.
+
+## Follow-up: event-loop starvation guard
+
+The same owner-facing Main conversation also became vulnerable to server
+event-loop starvation because its canonical Coop history could grow without
+bound. Cleanup classification correctly requested compaction at the message
+threshold, but the runtime returned `active_session` before it could reach the
+existing safe `permanent_coop_conversation` continuation path. The active Coop
+home was therefore skipped even while idle.
+
+The runtime now permits only idle canonical Coop homes and project channels to
+reach the existing compaction-and-continue path. Processing, unread, attention,
+active-binding, and unresolved-work guards still defer maintenance. This keeps
+the owner conversation responsive without allowing cleanup to interrupt live
+work or owner-visible activity.
+
+Evidence:
+
+- The focused runtime and cleanup tests pass 34/34, including the new active
+  Coop home and unsafe-state regressions.
+- With the active-session guard restored temporarily, the new idle-active-home
+  regression fails 1/2 selected tests because compaction is skipped; with the
+  exemption restored, both selected tests pass 2/2.
+- The implementation is a one-line guard-ordering change; no live `~/.clay`
+  state was edited.

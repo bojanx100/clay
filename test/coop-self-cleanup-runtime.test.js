@@ -187,6 +187,72 @@ test("due compaction and rotation dispatch through the existing path", function 
   assert.equal(calls[1].options.reason, "coop_cleanup_rotation");
 });
 
+test("due maintenance compacts an idle active Coop home", function () {
+  var calls = [];
+  var home = {
+    localId: 1,
+    storageId: "coop-home",
+    coopHome: true,
+    createdAt: NOW - 100,
+    messageCount: 10,
+    compactionDepth: 0,
+  };
+  var harness = makeHarness([home], {
+    leadMode: true,
+    activeSession: home,
+    runtime: {
+      compactAndContinue: function (session) {
+        calls.push(session);
+        return { localId: 2 };
+      },
+    },
+  });
+
+  harness.runtime.tick();
+
+  assert.deepEqual(calls, [home]);
+  assert.ok(harness.events.some(function (event) {
+    return event.operation === "request_compaction" && event.outcome === "applied";
+  }));
+});
+
+test("active Coop maintenance still defers while processing or unsafe", function () {
+  var cases = [
+    { name: "processing", state: { isProcessing: true } },
+    { name: "unread", state: { unread: true } },
+    { name: "attention", state: { needsAttention: true } },
+    { name: "binding", state: { activeBinding: true } },
+    { name: "work", state: { orchestrationTasks: [{ status: "running" }] } },
+  ];
+
+  for (var i = 0; i < cases.length; i++) {
+    var item = cases[i];
+    var calls = 0;
+    var home = Object.assign({
+      localId: i + 1,
+      storageId: "coop-home-" + i,
+      coopHome: true,
+      createdAt: NOW - 100,
+      messageCount: 10,
+      compactionDepth: 0,
+    }, item.state);
+    var harness = makeHarness([home], {
+      leadMode: true,
+      activeSession: home,
+      runtime: {
+        compactAndContinue: function () { calls++; return { localId: 100 }; },
+      },
+    });
+
+    var result = harness.runtime.tick();
+
+    assert.equal(calls, 0, item.name);
+    assert.equal(result.maintenanceRequests.length, 0, item.name);
+    assert.equal(result.channelDecisions[0].operation, "defer_maintenance", item.name);
+    assert.equal(result.channelDecisions[0].reasonCode, "channel_not_idle", item.name);
+  }
+});
+
 test("repeated ticks and restart replay do not repeat applied actions", function () {
   var harness = makeHarness([worker(1)], { leadMode: true });
 
