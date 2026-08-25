@@ -67,6 +67,48 @@ test("background binding projection reads current work without mutating the stor
   assert.equal(fs.readFileSync(file, "utf8"), before);
 });
 
+test("an atomic binding rewrite preserves explicit false completion delivery flags", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-false-flags-"));
+  var file = path.join(dir, "bindings.json");
+  fs.writeFileSync(file, JSON.stringify({
+    schema: "clay.portfolio_execution_bindings",
+    version: 2,
+    bindings: [{
+      portfolioTaskId: "completed-task",
+      mode: "direct_leaf",
+      targetProject: { projectId: PROJECT_ID },
+      bindingRevision: 1,
+      idempotencyKey: "completed-task-r1",
+      status: "completed",
+      createdAt: 1,
+      updatedAt: 2,
+      worker: { projectId: PROJECT_ID, sessionStorageId: "completed-worker" },
+      completedAt: 2,
+      completionEventId: "direct-terminal-v2-completed-task",
+      resultEventId: "direct-result-completed-task",
+      completionOwnerNotification: false,
+      completionOwnerDelivered: false,
+    }],
+  }, null, 2) + "\n");
+  var store = createBindings({ file: file, now: function () { return 3; },
+    reconcileOnLoad: false });
+
+  assert.equal(store.reserve({
+    portfolioTaskId: "new-task",
+    mode: "direct_leaf",
+    targetProject: { projectId: PROJECT_ID },
+    bindingRevision: 1,
+    idempotencyKey: "new-task-r1",
+  }).ok, true);
+
+  var rewritten = JSON.parse(fs.readFileSync(file, "utf8"));
+  var completed = rewritten.bindings.filter(function (binding) {
+    return binding.portfolioTaskId === "completed-task";
+  })[0];
+  assert.equal(completed.completionOwnerNotification, false);
+  assert.equal(completed.completionOwnerDelivered, false);
+});
+
 test("scope promotion and unavailable/deleted tombstones survive restart", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-promotion-"));
   var file = path.join(dir, "bindings.json");
