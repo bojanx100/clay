@@ -1,3 +1,10 @@
+# [3.4.0-beta.6](https://github.com/chadbyte/clay/compare/v3.4.0-beta.5...v3.4.0-beta.6) (2026-08-25)
+
+
+### Bug Fixes
+
+* **sessions:** publish installed vendors before warmup ([cbda521](https://github.com/chadbyte/clay/commit/cbda521da16a4f312c355119813caf733bf49c24))
+
 # [3.4.0-beta.5](https://github.com/chadbyte/clay/compare/v3.4.0-beta.4...v3.4.0-beta.5) (2026-08-25)
 
 
