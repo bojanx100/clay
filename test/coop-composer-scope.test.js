@@ -152,6 +152,80 @@ test("an explicit Main implementation Thread command creates a project-bound exe
   });
 });
 
+test("a clear Main implementation request routes its owner ingress to the canonical ProjectRef", function () {
+  var classified = null;
+  var index = {
+    ensureRetro: function () { return { ok: true }; },
+    reconcileTopicAnchors: function () {},
+    retrofitTopicTitles: function () {},
+    classifyCanonicalIngress: function (session, msg, options) {
+      classified = { session: session, msg: JSON.parse(JSON.stringify(msg)), options: options };
+      return {
+        ok: true,
+        topicRef: { topicId: "coop-worker-visibility" },
+        threadRef: { threadId: "coop-worker-visibility" },
+        projectRef: msg.coopProjectRef,
+        created: true,
+        classification: "new_topic",
+      };
+    },
+  };
+  var routeContext = {
+    topicIndexFor: function () { return index; },
+    getProjectList: function () {
+      return [{ projectId: CLAY, slug: "clay", title: "Clay" }];
+    },
+  };
+  var session = { coopHome: true, storageId: "canonical-coop", history: [] };
+  var message = {
+    type: "message",
+    text: "Fix Coop and worker visibility in Clay — do it",
+    coopComposerScope: "main",
+  };
+
+  var route = userMessage.validateCoopTopicIngress(routeContext, session, message, {});
+
+  assert.equal(route.ok, true);
+  assert.deepEqual(route.projectRef, { projectId: CLAY });
+  assert.equal(route.classification, "new_topic");
+  assert.deepEqual(classified.msg.coopProjectRef, { projectId: CLAY });
+  assert.equal(classified.options.recordExplicitRoute, true);
+
+  var prepared = Object.assign({}, message);
+  var preparedOk = ingress.prepareIngress({
+    validateCoopTopicIngress: function (currentSession, currentMessage, ws) {
+      return userMessage.validateCoopTopicIngress(routeContext, currentSession, currentMessage, ws);
+    },
+    sendTo: function () {},
+  }, {}, prepared, session);
+  assert.equal(preparedOk, true);
+  assert.deepEqual(prepared.coopProjectRef, { projectId: CLAY });
+  assert.deepEqual(prepared.coopTopicRef, { topicId: "coop-worker-visibility" });
+  assert.deepEqual(prepared.coopImplementationDecision, {
+    intent: "fix", projectName: "Clay",
+  });
+});
+
+test("a clear Main implementation request stays fail-closed when its project name is ambiguous", function () {
+  var consulted = false;
+  var route = userMessage.validateCoopTopicIngress({
+    topicIndexFor: function () { consulted = true; return null; },
+    getProjectList: function () {
+      return [
+        { projectId: CLAY, slug: "clay", title: "Clay" },
+        { projectId: URBAN_STAY, slug: "clay", title: "Clay" },
+      ];
+    },
+  }, { coopHome: true }, {
+    type: "message",
+    text: "Fix Coop and worker visibility in Clay — do it",
+    coopComposerScope: "main",
+  }, {});
+
+  assert.deepEqual(route, { ok: false, code: "project_target_unavailable" });
+  assert.equal(consulted, false, "ambiguous owner routing must not reach Thread classification");
+});
+
 test("ordinary Main conversation remains unclassified and route-free", function () {
   var consulted = false;
   var route = userMessage.validateCoopTopicIngress({
