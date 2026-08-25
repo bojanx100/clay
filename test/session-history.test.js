@@ -161,3 +161,40 @@ test("indexed history pagination uses logical offsets without leaking canonical 
   assert.equal(page.items.some(function (item) { return item._historyIndex === 100; }), false);
   assert.equal(Object.prototype.hasOwnProperty.call(history[100], "_historyIndex"), false);
 });
+
+test("Coop replay includes predecessor history after compaction while preserving bounded paging", function () {
+  var sent = [];
+  var predecessor = {
+    storageId: "coop-before",
+    history: [
+      { type: "user_message", text: "Earlier owner request" },
+      { type: "delta", text: "Earlier answer" },
+      { type: "done" },
+    ],
+  };
+  var successor = {
+    storageId: "coop-after",
+    coopHome: true,
+    compactedFromStorageId: "coop-before",
+    history: [
+      { type: "info", text: "Compacted continuation" },
+      { type: "user_message", text: "Current owner request" },
+      { type: "delta", text: "Current answer" },
+      { type: "done" },
+    ],
+  };
+  var sessions = new Map([[1, predecessor], [2, successor]]);
+  var api = sessionHistory.attachSessionHistory({
+    send: function (msg) { sent.push(msg); },
+    sessions: sessions,
+    isMeaninglessUnknownError: function () { return false; },
+  });
+
+  api.replayHistory(successor);
+
+  assert.equal(sent[0].type, "history_meta");
+  assert.equal(sent[0].total, 7);
+  assert.equal(sent.filter(function (msg) { return msg.type === "user_message"; }).length, 2);
+  assert.equal(sent.some(function (msg) { return msg.text === "Earlier owner request"; }), true);
+  assert.equal(sent.some(function (msg) { return msg.text === "Current owner request"; }), true);
+});

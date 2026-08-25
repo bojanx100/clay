@@ -135,7 +135,7 @@ function completedHistory() {
   ];
 }
 
-function prepareFollowup(harness, message) {
+function prepareFollowup(harness, message, historyView) {
   var errors = [];
   var resolverCalls = 0;
   var routeContext = {
@@ -145,7 +145,8 @@ function prepareFollowup(harness, message) {
   var ok = ingress.prepareIngress({
     resolveCoopThreadIntentTarget: function (session, evidence) {
       resolverCalls += 1;
-      return intent.resolveDominantTarget(harness.index, session, evidence);
+      return intent.resolveDominantTarget(harness.index, session,
+        Object.assign({}, evidence, historyView ? { historyView: historyView } : {}));
     },
     validateCoopTopicIngress: function (session, msg, ws) {
       return userMessage.validateCoopTopicIngress(routeContext, session, msg, ws);
@@ -204,6 +205,16 @@ test("ordinary Main conversation does not consult contextual Thread evidence", f
   assert.equal(message.coopThreadRef, undefined);
 });
 
+test("a bare Main implementation request stays conversational when no Thread is proven", function () {
+  var h = routingHarness([]);
+  var message = { type: "message", text: "Fix it", coopComposerScope: "main" };
+  var result = prepareFollowup(h, message);
+  assert.equal(result.ok, true);
+  assert.equal(result.resolverCalls, 1);
+  assert.equal(message.coopThreadIntent, undefined);
+  assert.equal(message.coopThreadRef, undefined);
+});
+
 test("a validated reply turn anchor resolves one concrete ThreadRef", function () {
   var history = completedHistory();
   var h = routingHarness(history);
@@ -246,6 +257,30 @@ test("the canonical current owner Thread resolves a follow-up before an assistan
   assert.equal(result.ok, true);
   assert.equal(result.resolverCalls, 1);
   assert.deepEqual(message.coopThreadRef, { threadId: "thread-a" });
+  assert.equal(message.coopThreadIntent.kind, "implement");
+});
+
+test("a compacted Coop successor resolves against the exact canonical ancestor evidence", function () {
+  var history = completedHistory();
+  var h = routingHarness([{ type: "info", text: "Compacted continuation" }, { type: "delta", text: "Current answer" }]);
+  var oldStorageId = CANONICAL_STORAGE_ID;
+  var successorStorageId = "successor-coop";
+  h.session.storageId = successorStorageId;
+  h.session.history = [{ type: "info", text: "Compacted continuation" }, { type: "delta", text: "Current answer" }];
+  h.session.compactedFromStorageId = oldStorageId;
+  var historyView = {
+    history: history.concat(h.session.history),
+    entries: history.map(function (item, index) {
+      return { historyIndex: index, sessionStorageId: oldStorageId, eventIndex: index };
+    }).concat(h.session.history.map(function (item, index) {
+      return { historyIndex: history.length + index, sessionStorageId: successorStorageId, eventIndex: index };
+    })),
+  };
+  var message = { type: "message", text: "Fix it", coopComposerScope: "main" };
+  var result = prepareFollowup(h, message, historyView);
+  assert.equal(result.ok, true);
+  assert.equal(result.resolverCalls, 1);
+  assert.deepEqual(message.coopThreadRef, { threadId: "thread-b" });
   assert.equal(message.coopThreadIntent.kind, "implement");
 });
 

@@ -236,6 +236,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-deletion.js` | Session hide/delete/bulk delete, runtime cleanup, tombstoning, and active-client close handling |
 | `sessions-handoff.js` | Session handoff history inference, missing handoff context recovery, vendor/model/route replay helpers |
 | `sessions-history.js` | Session history pagination, indexed reference-only topic replay and logical-offset pages, exact-event focus, replay ordering, assistant-event classification, replay completion metadata |
+| `coop-session-history.js` | Read-only ordered history views across Coop compaction continuations and source-reference to display-index mapping |
 | `sessions-io.js` | Per-session ephemeral sends, recorded history fanout, subscriber callbacks, unread/session I/O notifications |
 | `sessions-lifecycle.js` | Session creation, raw/background session creation, switching/replay fanout, and CLI resume materialization |
 | `sessions-loader.js` | Persisted session JSONL loading, restart-interruption recovery, legacy history relabeling, moved session file adoption |
