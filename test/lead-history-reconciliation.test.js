@@ -132,6 +132,32 @@ test("an older revision is reconciled when a later revision is terminal", functi
   assert.strictEqual(result.unresolved.length, 0);
 });
 
+test("a dismissed duplicate with superseded execution evidence is not unresolved", function () {
+  var stale = record("clay-open-session-reconciliation-audit-2026-08-24",
+    "needs_input", "needs_input", "needs_input", {
+      hidden: true,
+      closedAt: 1787660752708,
+      terminalOutcome: { status: "needs_input", at: 1787581711479 },
+      lastCoopAction: { type: "execution_superseded", at: 1787660752708 },
+    });
+  var completed = record("clay-open-session-reconciliation-audit-2026-08-24",
+    "completed", "done", "needs_input", {
+      sessionStorageId: "completed-audit-session",
+      sessionRef: { projectId: PROJECT_ID, sessionStorageId: "completed-audit-session" },
+      lastCoopAction: { type: "task_completed", at: 1787583824260 },
+      terminalOutcome: { status: "completed", at: 1787583824260 },
+    });
+  var result = ledger.classifyHistoricalLedger([stale, completed]);
+  var row = result.records.filter(function (item) {
+    return item.sessionStorageId === stale.sessionStorageId;
+  })[0];
+
+  assert.equal(row.classification, "superseded");
+  assert.equal(row.terminal, true);
+  assert.equal(row.reconciled, true);
+  assert.equal(result.unresolved.length, 0);
+});
+
 test("a terminal binding reconciles a restart-interrupted duplicate row", function () {
   var result = ledger.classifyHistoricalLedger([record(
     "restart-interrupted", "needs_input", "needs_input", "failed", {

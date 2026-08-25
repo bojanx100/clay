@@ -241,6 +241,66 @@ test("Coop projects each accessible configured project into a main-lane lens wit
     channel.channel.sessionRef.sessionStorageId);
 });
 
+test("canonical project coordinator activity is summarized from the bound project session", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var coop = session(1, { storageId: "canonical-coop", coopHome: true });
+  var rootRef = { projectId: "system-lead", sessionStorageId: "control-root" };
+  var currentRef = { projectId: projectId, sessionStorageId: "current-coordinator" };
+  var current = session(10, {
+    storageId: currentRef.sessionStorageId,
+    title: "Fix current project visibility",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    coopControlledBy: { coopSessionStorageId: rootRef.sessionStorageId, since: 20 },
+    projectCoordinatorRef: rootRef,
+    orchestrationPolicy: { portfolioExecution: {
+      mode: "project_coordinator", status: "running", portfolioTaskId: "visibility-task",
+      bindingRevision: 1, idempotencyKey: "visibility-task-r1",
+    } },
+    currentActivity: "Project coordinator is active",
+  });
+  var terminal = session(11, {
+    storageId: "terminal-coordinator",
+    coordinationRole: "task_coordinator",
+    hidden: true,
+    projectCoordinatorRef: rootRef,
+    coopControlledBy: { coopSessionStorageId: rootRef.sessionStorageId, since: 20 },
+    orchestrationPolicy: { portfolioExecution: {
+      mode: "project_coordinator", status: "completed", portfolioTaskId: "old-task",
+      bindingRevision: 1, idempotencyKey: "old-task-r1",
+    } },
+  });
+  var root = session(2, {
+    storageId: rootRef.sessionStorageId,
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: coop.storageId, since: 20 },
+    orchestrationPolicy: { coopControlPlane: {
+      version: 1, role: "project_coordinator", projectRef: { projectId: projectId }, createdAt: 20,
+    } },
+    orchestrationTasks: [{
+      taskId: "visibility-root-task", title: current.title, status: "running",
+      currentActivity: current.currentActivity, externalTaskCoordinator: true,
+      workerStorageId: current.storageId, workerSessionRef: currentRef, updatedAt: 30,
+    }, {
+      taskId: "old-root-task", title: "Old coordinator", status: "completed",
+      externalTaskCoordinator: true, workerStorageId: terminal.storageId,
+      workerSessionRef: { projectId: projectId, sessionStorageId: terminal.storageId }, updatedAt: 25,
+    }],
+  });
+  var lead = project("system-lead", "lead", [coop, root], { isLead: true });
+  var target = project(projectId, "clay", [current, terminal]);
+  var projection = buildGlobalCoopProjection({ projects: [lead, target] });
+  var summary = projection.projects[0].summary;
+
+  assert.deepEqual(summary.activeWork.map(function (item) {
+    return [item.title, item.status, item.activity];
+  }), [[current.title, "running", current.currentActivity]]);
+  assert.equal(JSON.stringify(summary.activeWork).includes("terminal-coordinator"), false);
+  assert.equal(summary.coordinatorTree[0].children[0].sessionRef.sessionStorageId,
+    currentRef.sessionStorageId);
+});
+
 test("Coop projection keeps one persistent project root and retained terminal children out of active metrics", function () {
   var home = session(1, { storageId: "coop-home", coopHome: true });
   var lead = project("system-lead", "lead", [home], { isLead: true });
