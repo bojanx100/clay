@@ -1,3 +1,10 @@
+# [3.4.0-beta.7](https://github.com/chadbyte/clay/compare/v3.4.0-beta.6...v3.4.0-beta.7) (2026-08-25)
+
+
+### Bug Fixes
+
+* **sessions:** prefer installed vendors for blank sessions ([a7bbd50](https://github.com/chadbyte/clay/commit/a7bbd50a0552439ff4c4cb4ae690c74967506692))
+
 # [3.4.0-beta.6](https://github.com/chadbyte/clay/compare/v3.4.0-beta.5...v3.4.0-beta.6) (2026-08-25)
 
 
