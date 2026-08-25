@@ -648,3 +648,98 @@ test("the store canonicalizes work identity itself, not just via the staffing pa
   assert.equal(store.reserve(spelled("opaque-task", "sweep:nightly")).binding.workIdentity,
     "sweep:nightly");
 });
+
+test("missing control-plane binding recovery is narrow, durable, and idempotent", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-missing-recovery-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 700; } });
+  var root = { projectId: "system-lead", sessionStorageId: "control-plane-root" };
+  var coordinator = { projectId: PROJECT_ID, sessionStorageId: "task-coordinator" };
+  var binding = {
+    portfolioTaskId: "missing-control-plane-task",
+    mode: "project_coordinator",
+    targetProject: { projectId: PROJECT_ID },
+    bindingRevision: 1,
+    idempotencyKey: "missing-control-plane-task-r1",
+    reviewOnly: true,
+    coopTopicRef: { topicId: "owner-missing-control-plane" },
+    controlPlaneProvenance: {
+      schema: "clay.coop_control_plane_reservation",
+      version: 1,
+    },
+    taskPayloadDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    provider: "codex",
+    model: "gpt-5.6-luna",
+    status: "needs_input",
+    createdAt: 600,
+    updatedAt: 650,
+    coordinator: coordinator,
+    projectCoordinator: root,
+  };
+  var evidence = {
+    recoveredAt: 700,
+    coordinator: coordinator,
+    projectCoordinator: root,
+    rootTaskId: "task-control-plane-proof",
+  };
+
+  var recovered = store.restoreMissingProjectCoordinator(binding, evidence);
+  assert.equal(recovered.ok, true);
+  assert.equal(recovered.created, true);
+  assert.equal(recovered.binding.status, "needs_input");
+  assert.equal(recovered.binding.missingBindingRecovery.rootTaskId, "task-control-plane-proof");
+  var after = fs.readFileSync(file, "utf8");
+  assert.equal(store.restoreMissingProjectCoordinator(binding, evidence).created, false);
+  assert.equal(fs.readFileSync(file, "utf8"), after);
+
+  var reloaded = createBindings({ file: file, now: function () { return 701; } });
+  assert.equal(reloaded.get("missing-control-plane-task", 1)
+    .missingBindingRecovery.rootTaskId, "task-control-plane-proof");
+  assert.equal(reloaded.restoreMissingProjectCoordinator(Object.assign({}, binding, {
+    idempotencyKey: "conflicting-recovery-r1",
+  }), evidence).reason, "idempotency_conflict");
+  assert.equal(reloaded.restoreMissingProjectCoordinator(Object.assign({}, binding, {
+    status: "completed",
+  }), evidence).reason, "invalid_missing_binding_recovery");
+});
+
+test("only exact control-plane project coordinators can reactivate from needs_input", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-reactivation-"));
+  var file = path.join(dir, "bindings.json");
+  var clock = 10;
+  var store = createBindings({ file: file, now: function () { return clock++; } });
+  var root = { projectId: "system-lead", sessionStorageId: "control-plane-root" };
+  var coordinator = { projectId: PROJECT_ID, sessionStorageId: "task-coordinator" };
+  var binding = {
+    portfolioTaskId: "reactivate-control-plane-task",
+    mode: "project_coordinator",
+    targetProject: { projectId: PROJECT_ID },
+    bindingRevision: 1,
+    idempotencyKey: "reactivate-control-plane-task-r1",
+    reviewOnly: true,
+    controlPlaneProvenance: {
+      schema: "clay.coop_control_plane_reservation",
+      version: 1,
+    },
+    taskPayloadDigest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    status: "needs_input",
+    createdAt: 1,
+    updatedAt: 2,
+    coordinator: coordinator,
+    projectCoordinator: root,
+  };
+  assert.equal(store.restoreMissingProjectCoordinator(binding, {
+    recoveredAt: 3,
+    coordinator: coordinator,
+    projectCoordinator: root,
+    rootTaskId: "task-reactivation-proof",
+  }).ok, true);
+
+  var reactivated = store.markProjectCoordinatorAvailable("reactivate-control-plane-task", 1);
+  assert.equal(reactivated.ok, true);
+  assert.equal(reactivated.binding.status, "active");
+  assert.equal(store.markProjectCoordinatorAvailable("reactivate-control-plane-task", 1).duplicate,
+    true);
+  assert.equal(store.markProjectCoordinatorAvailable("missing-task", 1).reason,
+    "binding_not_found");
+});

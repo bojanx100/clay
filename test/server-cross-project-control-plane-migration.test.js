@@ -21,6 +21,11 @@ var LEGACY_LOCAL_ROOT_ID = "585c5ab9-8526-498a-8a88-7fc105a290ac";
 var TOPIC_ID = "auto-fb42f62b499c463e340f95b8";
 var CLEANUP_TASK = "clay-project-coordinator-visibility-session-cleanup-2026-08-15";
 var MIGRATION_TASK = "clay-control-plane-binding-migration-2026-08-15";
+var MISSING_TASK = "clay-open-session-reconciliation-audit-2026-08-24";
+var MISSING_TOPIC_ID = "owner-f2b337b32ea15daaa5020de9";
+var MISSING_COORDINATOR_ID = "351d16db-6975-403e-8765-24fcf7822682";
+var MISSING_KEY = MISSING_TASK + "-r1";
+var MISSING_DIGEST = "02aaa289e3d10e7e2169b072716cde54c437b36cf7cb3eaa605599644e2b2f0c";
 var INGRESS_ID = "coop:" + COOP_ID + ":281";
 var COOP_REF = { projectId: "system-lead", sessionStorageId: COOP_ID };
 var PRIOR_ROOT_REF = { projectId: "system-lead", sessionStorageId: PRIOR_ROOT_ID };
@@ -145,8 +150,8 @@ function coopSession() {
 
 // The former exact coordinator: a Lead-resident control-plane root for the
 // target ProjectRef that was archived (hidden, closed) but never deleted.
-function archivedControlPlaneRoot() {
-  return {
+function archivedControlPlaneRoot(options) {
+  var root = {
     localId: 2,
     storageId: PRIOR_ROOT_ID,
     hidden: true,
@@ -167,13 +172,61 @@ function archivedControlPlaneRoot() {
     createdAt: 1786794424191,
     lastActivity: 1786802100000,
   };
+  if (options && options.withMissingBindingTask) {
+    root.orchestrationTasks.push({
+      taskId: "task-7857968b-4340-4177-9b38-5b39b71ab8f2",
+      clientRef: "portfolio:" + MISSING_TASK + ":1",
+      status: "running",
+      externalTaskCoordinator: true,
+      workerSessionRef: { projectId: TARGET_ID, sessionStorageId: MISSING_COORDINATOR_ID },
+      workerStorageId: MISSING_COORDINATOR_ID,
+      reviewOnly: true,
+      coopTopicRef: { topicId: MISSING_TOPIC_ID },
+      coopProjectRef: { projectId: TARGET_ID },
+    });
+  }
+  return root;
+}
+
+function missingBindingSession(extra) {
+  return Object.assign({
+    localId: 40,
+    storageId: MISSING_COORDINATOR_ID,
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    projectCoordinatorRef: PRIOR_ROOT_REF,
+    coopControlledBy: { coopSessionStorageId: PRIOR_ROOT_ID, since: 1787565092546 },
+    orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: MISSING_TASK,
+        bindingRevision: 1,
+        idempotencyKey: MISSING_KEY,
+        mode: "project_coordinator",
+        createdAt: 1787565092547,
+        updatedAt: 1787581711479,
+        targetProject: { projectId: TARGET_ID },
+        source: PRIOR_ROOT_REF,
+        controlPlaneProvenance: {
+          schema: "clay.coop_control_plane_reservation",
+          version: 1,
+        },
+        taskPayloadDigest: MISSING_DIGEST,
+        provider: "codex",
+        model: "gpt-5.6-luna",
+        status: "needs_input",
+        reviewOnly: true,
+        coopTopicRef: { topicId: MISSING_TOPIC_ID },
+      },
+    },
+  }, extra || {});
 }
 
 function buildHarness(options) {
   var opts = options || {};
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-cpm-harness-"));
   var bindingFile = path.join(dir, "bindings.json");
-  var bindings = productionBindings().concat(opts.extraBindings || []);
+  var bindings = (Array.isArray(opts.bindings) ? opts.bindings : productionBindings())
+    .concat(opts.extraBindings || []);
   fs.writeFileSync(bindingFile, JSON.stringify({
     schema: "clay.portfolio_execution_bindings",
     version: 2,
@@ -215,7 +268,7 @@ function buildHarness(options) {
   }
 
   var leadSessions = new Map([[1, coopSession()]]);
-  if (opts.withArchivedRoot !== false) leadSessions.set(2, archivedControlPlaneRoot());
+  if (opts.withArchivedRoot !== false) leadSessions.set(2, archivedControlPlaneRoot(opts));
   var leadSm = sessionManager(leadSessions);
 
   var targetSessions = new Map();
@@ -300,6 +353,93 @@ function migrationInput(taskId, revision, prior, key) {
     priorProjectCoordinator: prior,
   };
 }
+
+test("typed migration reconstructs one missing control-plane binding from live session and root evidence", function () {
+  var target = missingBindingSession();
+  var h = buildHarness({
+    bindings: [],
+    targetSessions: [target],
+    withMissingBindingTask: true,
+    deliver: function (envelope) {
+      if (envelope.payload.type !== "portfolio_execution_message") {
+        return { ok: false, reason: "unexpected_delivery" };
+      }
+      return {
+        ok: true,
+        sessionRef: { projectId: TARGET_ID, sessionStorageId: MISSING_COORDINATOR_ID },
+      };
+    },
+  });
+  var before = fs.readFileSync(h.bindingFile, "utf8");
+
+  var repaired = h.router.migrateControlPlaneBinding(
+    migrationInput(MISSING_TASK, 1, null, MISSING_KEY));
+
+  assert.equal(repaired.ok, true);
+  assert.equal(repaired.recoveredMissingBinding, true);
+  assert.equal(repaired.alreadyControlPlane, true);
+  assert.equal(repaired.binding.status, "needs_input");
+  assert.deepEqual(repaired.binding.coordinator,
+    { projectId: TARGET_ID, sessionStorageId: MISSING_COORDINATOR_ID });
+  assert.deepEqual(repaired.binding.projectCoordinator, PRIOR_ROOT_REF);
+  assert.equal(repaired.binding.idempotencyKey, MISSING_KEY);
+  assert.equal(repaired.binding.taskPayloadDigest, MISSING_DIGEST);
+  assert.equal(repaired.binding.source, undefined,
+    "the lost caller source is not guessed from the relayed session authority");
+  assert.deepEqual(repaired.binding.missingBindingRecovery, {
+    schema: "clay.missing_portfolio_binding_recovery",
+    version: 1,
+    recoveredAt: repaired.binding.missingBindingRecovery.recoveredAt,
+    coordinator: { projectId: TARGET_ID, sessionStorageId: MISSING_COORDINATOR_ID },
+    projectCoordinator: PRIOR_ROOT_REF,
+    rootTaskId: "task-7857968b-4340-4177-9b38-5b39b71ab8f2",
+  });
+  assert.notEqual(fs.readFileSync(h.bindingFile, "utf8"), before);
+
+  var afterRepair = fs.readFileSync(h.bindingFile, "utf8");
+  var replay = h.router.migrateControlPlaneBinding(
+    migrationInput(MISSING_TASK, 1, null, MISSING_KEY));
+  assert.equal(replay.ok, true);
+  assert.equal(replay.alreadyControlPlane, true);
+  assert.equal(fs.readFileSync(h.bindingFile, "utf8"), afterRepair,
+    "an exact repair replay is byte-stable");
+
+  var steered = h.router.messageProjectExecution({
+    source: COOP_REF,
+    targetProject: { projectId: TARGET_ID },
+    targetCoordinator: { projectId: TARGET_ID, sessionStorageId: MISSING_COORDINATOR_ID },
+    portfolioTaskId: MISSING_TASK,
+    bindingRevision: 1,
+    idempotencyKey: "resume-reconstructed-binding",
+    text: "Continue the historical reconciliation with fresh evidence.",
+  });
+  assert.equal(steered.ok, true);
+  assert.equal(h.router.bindingStore.get(MISSING_TASK, 1).status, "active");
+});
+
+test("missing binding reconstruction fails closed without unique matching evidence", function () {
+  function migrate(options) {
+    var h = buildHarness(Object.assign({ bindings: [], withMissingBindingTask: true }, options));
+    var before = fs.readFileSync(h.bindingFile, "utf8");
+    var result = h.router.migrateControlPlaneBinding(
+      migrationInput(MISSING_TASK, 1, null, MISSING_KEY));
+    assert.equal(fs.readFileSync(h.bindingFile, "utf8"), before);
+    return result;
+  }
+
+  assert.equal(migrate({ targetSessions: [] }).reason, "binding_not_found");
+  assert.equal(migrate({ targetSessions: [missingBindingSession(), missingBindingSession({
+    localId: 41,
+    storageId: "duplicate-missing-binding-session",
+  })] }).reason, "ambiguous_missing_binding_evidence");
+  assert.equal(migrate({
+    targetSessions: [missingBindingSession({ coordinationRole: "worker" })],
+  }).reason, "missing_binding_session_evidence_invalid");
+  assert.equal(migrate({
+    targetSessions: [missingBindingSession()],
+    withMissingBindingTask: false,
+  }).reason, "missing_binding_task_projection_mismatch");
+});
 
 test("production revision 10 replay: dispatch and steering fail closed until the typed migration repairs the binding", function () {
   var h = buildHarness();
