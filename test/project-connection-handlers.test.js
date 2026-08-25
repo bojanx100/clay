@@ -601,6 +601,67 @@ test("Main remains selectable when compaction leaves the topic index on its pred
   }
 });
 
+test("topic selection replays predecessor-owned memberships after compaction", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-connection-topic-compacted-"));
+  var sent = [];
+  var events = [];
+  var options = { storedPresence: null, multiUser: false, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var index = createTopicIndex({ file: path.join(dir, "lead", "topics.json"), now: function () { return 10; } });
+    var predecessor = makeSession(1);
+    predecessor.storageId = "canonical-topic-predecessor";
+    predecessor.coopHome = true;
+    predecessor.history = [
+      { type: "user_message", text: "Codex auth secret-body-should-never-persist and queued ingress recovery", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
+      { type: "delta_replace", text: "Final assistant authentication and recovery reply" },
+      { type: "done" },
+    ];
+    assert.equal(index.ensureRetro(predecessor, { projects: [] }).ok, true);
+
+    var home = makeSession(2);
+    home.storageId = "canonical-topic-successor";
+    home.compactedFromStorageId = predecessor.storageId;
+    home.coopHome = true;
+    home.history = [
+      { type: "user_message", text: "Compacted continuation follow-up", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-2" },
+      { type: "delta_replace", text: "Continuation reply" },
+      { type: "done" },
+    ];
+
+    var ctx = makeContext(home, sent, events);
+    ctx.slug = "lead";
+    ctx.coopTopicIndex = index;
+    ctx.sm.sessions.set(predecessor.localId, predecessor);
+    var replays = [];
+    ctx.sm.switchSession = function (localId, socket, hydrate, replayOptions) {
+      replays.push(replayOptions || null);
+    };
+
+    assert.equal(coopTopicConnection.handleTopicMessage(ctx, { isOwner: true }, {
+      type: "coop_topic_select",
+      topicRef: { topicId: "codex-authentication" },
+      historyScope: "topic",
+    }, {
+      isCoopClient: function () { return true; },
+      globalProjectionProvider: function () { return null; },
+    }), true);
+
+    assert.deepEqual(sent.filter(function (message) {
+      return message.type === "coop_topic_selected";
+    }).pop(), {
+      type: "coop_topic_selected", ok: true, topicRef: { topicId: "codex-authentication" }, projectRef: null,
+    });
+    assert.equal(replays.length, 1);
+    assert.ok(Array.isArray(replays[0].eventIndexes));
+    assert.ok(replays[0].eventIndexes.length > 0, "topic replay keeps predecessor-owned membership");
+    assert.equal(replays[0].eventIndexes[0], 0);
+  } finally {
+    restore();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("Coop topic selection is isolated per socket and preserves a prior selection on denial", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-connection-topic-socket-"));
   var sent = [];

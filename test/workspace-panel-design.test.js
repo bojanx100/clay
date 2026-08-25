@@ -7,7 +7,7 @@ function read(relative) {
   return fs.readFileSync(path.join(__dirname, "..", relative), "utf8");
 }
 
-test("Session Context presents the live environment as its primary status card", function () {
+test("Workspace presents the live environment as its primary status card", function () {
   var sections = read("lib/public/modules/workspace-panel-sections.js");
   var css = read("lib/public/css/workspace.css");
   assert.match(sections, /ws-env-title/);

@@ -5,6 +5,7 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 
 var topics = require("../lib/coop-topic-index");
+var topicLineage = require("../lib/coop-topic-lineage");
 var classification = require("../lib/coop-topic-classification");
 
 var CLAY = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
@@ -357,6 +358,43 @@ test("retro extraction binds canonical Coop identity without a production storag
     assert.equal(expected.ensureRetro(session, retroOptions()).code, "canonical_session_mismatch");
     session.storageId = "expected-canonical-coop-home";
     assert.equal(expected.ensureRetro(session, retroOptions()).ok, true);
+  } finally { h.cleanup(); }
+});
+
+test("projection and ingress accept a compacted Coop continuation as canonical lineage", function () {
+  var h = harness();
+  try {
+    var predecessor = canonicalSession();
+    predecessor.storageId = "canonical-topic-home-predecessor";
+    assert.equal(h.index.ensureRetro(predecessor, retroOptions()).ok, true);
+
+    var successor = {
+      coopHome: true,
+      storageId: "canonical-topic-home-successor",
+      compactedFromStorageId: predecessor.storageId,
+      history: [
+        { type: "user_message", text: "Compacted continuation follow-up", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
+        { type: "delta_replace", text: "Continuation reply" },
+        { type: "done" },
+      ],
+    };
+    var replaySession = topicLineage.buildReplaySession(successor, [predecessor, successor]);
+    var projection = h.index.project({
+      history: replaySession,
+      canAccessProject: function () { return true; },
+    });
+    var auth = projection.groups.reduce(function (found, group) {
+      if (found) return found;
+      return (group.topics || []).find(function (topic) { return topic.topicRef.topicId === "codex-authentication"; }) || null;
+    }, null);
+
+    assert.ok(auth, "predecessor-owned topic stays projectable after compaction");
+    assert.equal(h.index.validateIngress(replaySession, {
+      coopTopicRef: { topicId: "codex-authentication" },
+    }, {
+      includeClosedTopics: true,
+      isProjectAvailable: function () { return true; },
+    }).ok, true);
   } finally { h.cleanup(); }
 });
 

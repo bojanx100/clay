@@ -160,7 +160,7 @@ async function ownerSidebarUi() {
   return import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "coop-owner-sidebar.js")).href + "?v=" + Date.now());
 }
 
-test("Session Context mounts owner control only for the canonical Coop conversation", async function () {
+test("Workspace mounts the Coop work tracker only for the canonical Coop conversation", async function () {
   await ownerSidebarUi();
   var root = pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules"));
   var coop = await import(root.href + "/global-coop-projection.js");
@@ -175,6 +175,7 @@ test("Session Context mounts owner control only for the canonical Coop conversat
   var container = element("div");
   assert.equal(owner.renderWorkspaceCoopOwner(container, { send: function () { return true; } }), true);
   assert.equal(byClass(container, "workspace-coop-owner").length, 1);
+  assert.equal(byClass(container, "workspace-coop-owner-title")[0].textContent, "Work tracker");
   assert.equal(byClass(container, "coop-owner-section-next").length, 1);
   assert.equal(owner.hasCoopOwnerContext([{ id: 42, coopHome: false }]), false);
   clientStore.store.set({ currentSlug: "clay" });
