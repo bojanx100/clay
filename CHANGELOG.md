@@ -1,3 +1,10 @@
+# [3.4.0-beta.5](https://github.com/chadbyte/clay/compare/v3.4.0-beta.4...v3.4.0-beta.5) (2026-08-25)
+
+
+### Bug Fixes
+
+* **mobile:** correct PWA chat layout ([#420](https://github.com/chadbyte/clay/issues/420)) ([159ee82](https://github.com/chadbyte/clay/commit/159ee8200c61e53324dc8ad93972043c230cf079))
+
 # [3.4.0-beta.4](https://github.com/chadbyte/clay/compare/v3.4.0-beta.3...v3.4.0-beta.4) (2026-08-25)
 
 
