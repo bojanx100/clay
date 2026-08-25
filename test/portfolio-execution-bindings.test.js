@@ -785,3 +785,82 @@ test("only exact control-plane project coordinators can reactivate from needs_in
   assert.equal(store.markProjectCoordinatorAvailable("missing-task", 1).reason,
     "binding_not_found");
 });
+
+test("hidden superseded review execution releases its needs-input binding", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-review-supersession-"));
+  var file = path.join(dir, "bindings.json");
+  var clock = 100;
+  var store = createBindings({ file: file, now: function () { return clock++; } });
+  var coordinator = { projectId: PROJECT_ID, sessionStorageId: "review-coordinator" };
+  var root = { projectId: "system-lead", sessionStorageId: "coop-root" };
+  var reservation = Object.assign(request(1, "project_coordinator"), { reviewOnly: true });
+  assert.equal(store.reserve(reservation).ok, true);
+  assert.equal(store.commit("portfolio-task", 1, coordinator, {
+    projectCoordinatorRef: root,
+  }).ok, true);
+  assert.equal(store.complete("portfolio-task", 1, {
+    eventId: "review-needs-input",
+    executionMode: "project_coordinator",
+    terminalStatus: "needs_input",
+    reviewOnly: true,
+    completedAt: 200,
+  }).binding.status, "needs_input");
+
+  var session = {
+    hidden: true,
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: "portfolio-task",
+      bindingRevision: 1,
+      idempotencyKey: "command-1",
+      mode: "project_coordinator",
+      status: "superseded",
+      terminalAt: 300,
+      reason: "Obsolete duplicate execution",
+    } },
+  };
+  var reconciled = store.reconcileStrandedCompletions({
+    sessionForBinding: function () { return session; },
+    saveSession: function () {},
+  });
+
+  assert.equal(reconciled.reconciled.length, 1);
+  assert.equal(reconciled.reconciled[0].status, "superseded");
+  assert.equal(reconciled.reconciled[0].statusReason, "Obsolete duplicate execution");
+  assert.equal(store.listCurrent().length, 0);
+  assert.equal(store.reconcileStrandedCompletions({
+    sessionForBinding: function () { return session; },
+    saveSession: function () {},
+  }).reconciled.length, 0, "reconciliation must be idempotent");
+});
+
+test("visible superseded review execution does not release its needs-input binding", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-review-visible-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 100; } });
+  var reservation = Object.assign(request(1, "project_coordinator"), { reviewOnly: true });
+  store.reserve(reservation);
+  store.commit("portfolio-task", 1,
+    { projectId: PROJECT_ID, sessionStorageId: "visible-review" }, {
+      projectCoordinatorRef: { projectId: "system-lead", sessionStorageId: "coop-root" },
+    });
+  store.complete("portfolio-task", 1, {
+    eventId: "visible-review-needs-input",
+    executionMode: "project_coordinator",
+    terminalStatus: "needs_input",
+    reviewOnly: true,
+  });
+
+  var reconciled = store.reconcileStrandedCompletions({
+    sessionForBinding: function () { return { hidden: false, orchestrationPolicy: {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-task", bindingRevision: 1,
+        idempotencyKey: "command-1",
+        mode: "project_coordinator", status: "superseded", terminalAt: 300,
+      },
+    } }; },
+    saveSession: function () {},
+  });
+
+  assert.equal(reconciled.reconciled.length, 0);
+  assert.equal(store.get("portfolio-task", 1).status, "needs_input");
+});
