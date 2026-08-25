@@ -1,3 +1,10 @@
+# [3.4.0-beta.4](https://github.com/chadbyte/clay/compare/v3.4.0-beta.3...v3.4.0-beta.4) (2026-08-25)
+
+
+### Features
+
+* **notes:** track deferred defects proactively ([#423](https://github.com/chadbyte/clay/issues/423)) ([8c17a82](https://github.com/chadbyte/clay/commit/8c17a82b94cdc697675d3f004d62072a57ace554))
+
 # [3.4.0-beta.3](https://github.com/chadbyte/clay/compare/v3.4.0-beta.2...v3.4.0-beta.3) (2026-08-24)
 
 
