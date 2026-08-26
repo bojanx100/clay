@@ -1,3 +1,10 @@
+# [3.5.0-beta.3](https://github.com/chadbyte/clay/compare/v3.5.0-beta.2...v3.5.0-beta.3) (2026-08-26)
+
+
+### Bug Fixes
+
+* **ui:** dock document viewer on the right ([f649210](https://github.com/chadbyte/clay/commit/f649210f452336f8f26af802c80c383efee98a31))
+
 # [3.5.0-beta.2](https://github.com/chadbyte/clay/compare/v3.5.0-beta.1...v3.5.0-beta.2) (2026-08-26)
 
 
