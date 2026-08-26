@@ -1,3 +1,10 @@
+# [3.4.0-beta.26](https://github.com/chadbyte/clay/compare/v3.4.0-beta.25...v3.4.0-beta.26) (2026-08-26)
+
+
+### Bug Fixes
+
+* **yoke:** share one 90s initialize timeout across vendors ([2047d30](https://github.com/chadbyte/clay/commit/2047d30cbc6ebce57689064f813552cdb465cda0))
+
 # [3.4.0-beta.25](https://github.com/chadbyte/clay/compare/v3.4.0-beta.24...v3.4.0-beta.25) (2026-08-26)
 
 
