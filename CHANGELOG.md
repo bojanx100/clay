@@ -1,3 +1,10 @@
+# [3.4.0-beta.23](https://github.com/chadbyte/clay/compare/v3.4.0-beta.22...v3.4.0-beta.23) (2026-08-26)
+
+
+### Features
+
+* **ui:** dock document viewer leftmost with a global tab bar ([20f7659](https://github.com/chadbyte/clay/commit/20f7659d16f5405eafc49b37e90d17f83995876b)), closes [#file-viewer](https://github.com/chadbyte/clay/issues/file-viewer) [#main-panels](https://github.com/chadbyte/clay/issues/main-panels)
+
 # [3.4.0-beta.22](https://github.com/chadbyte/clay/compare/v3.4.0-beta.21...v3.4.0-beta.22) (2026-08-26)
 
 
