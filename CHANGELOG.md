@@ -1,3 +1,10 @@
+# [3.4.0-beta.20](https://github.com/chadbyte/clay/compare/v3.4.0-beta.19...v3.4.0-beta.20) (2026-08-26)
+
+
+### Bug Fixes
+
+* **ui:** match delegation notice border to input focus state ([965f873](https://github.com/chadbyte/clay/commit/965f873c8322b009b37c9194aa5388fcf4c143fa))
+
 # [3.4.0-beta.19](https://github.com/chadbyte/clay/compare/v3.4.0-beta.18...v3.4.0-beta.19) (2026-08-26)
 
 
