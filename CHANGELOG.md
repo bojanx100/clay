@@ -1,3 +1,10 @@
+# [3.4.0-beta.21](https://github.com/chadbyte/clay/compare/v3.4.0-beta.20...v3.4.0-beta.21) (2026-08-26)
+
+
+### Bug Fixes
+
+* **sessions:** report interrupted worker turns as interrupted ([87dac13](https://github.com/chadbyte/clay/commit/87dac13853529bbbd46c99548befb1663e1fe8ac))
+
 # [3.4.0-beta.20](https://github.com/chadbyte/clay/compare/v3.4.0-beta.19...v3.4.0-beta.20) (2026-08-26)
 
 
