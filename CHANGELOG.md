@@ -1,3 +1,10 @@
+# [3.4.0-beta.25](https://github.com/chadbyte/clay/compare/v3.4.0-beta.24...v3.4.0-beta.25) (2026-08-26)
+
+
+### Bug Fixes
+
+* **kiro:** widen ACP initialize timeout to 90s ([38f6def](https://github.com/chadbyte/clay/commit/38f6def1ef55831a2913b56d28690ef8df4263b0))
+
 # [3.4.0-beta.24](https://github.com/chadbyte/clay/compare/v3.4.0-beta.23...v3.4.0-beta.24) (2026-08-26)
 
 
