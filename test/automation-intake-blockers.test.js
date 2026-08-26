@@ -48,6 +48,17 @@ function withTestPass(admission) {
   return admission;
 }
 
+function ownerDecision(store, projectId, candidateKey, approved) {
+  var record = store.get({ projectId: projectId }, candidateKey);
+  var stage = record && record.approvalStage || {};
+  return store.decideOwner({ projectId: projectId }, candidateKey, {
+    approved: approved,
+    by: "user-owner",
+    portfolioTaskId: stage.portfolioTaskId,
+    bindingRevision: stage.bindingRevision,
+  });
+}
+
 function fakeRouter() {
   var bound = {};
   var calls = [];
@@ -58,6 +69,9 @@ function fakeRouter() {
     },
     getExecutionBinding: function (taskId, revision) {
       return bound[taskId + ":" + revision] || null;
+    },
+    getExecutionBindings: function () {
+      return Object.keys(bound).map(function (key) { return bound[key]; });
     },
     createProjectExecution: function (input) {
       calls.push(input);
@@ -100,8 +114,7 @@ test("owner approval waits for a fresh eligible scan, then admits once", functio
     assert.strictEqual(h.store.pending({ statuses: ["pending", "owner_approved"] }).candidates.length, 0);
 
     // The owner says yes.
-    var decided = h.store.decideOwner({ projectId: WEBAPP }, "launch:trialview/v2#2517",
-      { approved: true, by: "user-owner" });
+    var decided = ownerDecision(h.store, WEBAPP, "launch:trialview/v2#2517", true);
     assert.strictEqual(decided.ok, true);
     assert.strictEqual(decided.candidate.status, "owner_approved");
     assert.strictEqual(decided.candidate.attention, undefined, "the decision resolves attention");
@@ -134,8 +147,7 @@ test("an owner NO resolves attention and never re-prompts", function () {
     h.store.upsert(candidate());
     h.admission.admitPending();
 
-    h.store.decideOwner({ projectId: WEBAPP }, "launch:trialview/v2#2517",
-      { approved: false, by: "user-owner" });
+    ownerDecision(h.store, WEBAPP, "launch:trialview/v2#2517", false);
     var record = h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517");
     assert.strictEqual(record.status, "owner_declined");
     assert.strictEqual(record.attention, undefined);
@@ -191,7 +203,30 @@ test("an owner decision requires a real approver and an explicit verdict", funct
   }
 });
 
-test("approving already-admitted work does not create a second admission", function () {
+test("an owner decision cannot escape the exact staged task revision", function () {
+  var dir = tempDir();
+  var router = fakeRouter();
+  try {
+    var h = admissionFor(dir, router);
+    h.store.upsert(candidate());
+    h.admission.admitPending();
+    var record = h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517");
+    var wrong = h.store.decideOwner({ projectId: WEBAPP }, "launch:trialview/v2#2517", {
+      approved: true,
+      by: "user-owner",
+      portfolioTaskId: record.approvalStage.portfolioTaskId,
+      bindingRevision: record.approvalStage.bindingRevision + 1,
+    });
+    assert.equal(wrong.ok, false);
+    assert.equal(wrong.reason, "owner_approval_scope_mismatch");
+    assert.equal(h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517").status,
+      "awaiting_owner");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a post-hoc approval of already-admitted work fails closed", function () {
   var dir = tempDir();
   var router = fakeRouter();
   try {
@@ -200,7 +235,8 @@ test("approving already-admitted work does not create a second admission", funct
     h.admission.admitPending();
     var again = h.store.decideOwner({ projectId: WEBAPP }, "launch:trialview/v2#2517",
       { approved: true, by: "user-owner" });
-    assert.strictEqual(again.alreadyAdmitted, true);
+    assert.strictEqual(again.ok, false);
+    assert.strictEqual(again.reason, "owner_approval_not_staged");
     assert.strictEqual(h.admission.admitPending().admitted, 0);
     assert.strictEqual(router.calls.length, 1);
   } finally {

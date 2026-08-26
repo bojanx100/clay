@@ -2059,19 +2059,36 @@ test("the standing grant route refuses work the policy does not cover", function
 // and PREDATES the owner's turn, so affirmative wording can only ever identify
 // work already queued and put to the owner -- it can never manufacture it.
 var pendingQuestionAdmission = require("../lib/coop-pending-question-admission");
+var approvalQuestionStaging = require("../lib/coop-approval-question-staging");
 
 var ANSWER_TASK = "clay-sidebar-activity-indicator-2026-08-22";
 
 function questionTask(extra) {
+  var scope = {
+    portfolioTaskId: ANSWER_TASK,
+    bindingRevision: 1,
+    targetProject: { projectId: PROJECT },
+  };
+  var question = approvalQuestionStaging.questionFor([scope]);
   return Object.assign({
     taskId: "task-sidebar-1",
     clientRef: "portfolio:" + ANSWER_TASK + ":1",
     status: "waiting_user",
-    userQuestion: "Fix the sidebar indicator now, or defer it behind the latency work?",
+    userQuestion: question,
     waitingReason: "one owner decision",
     userAnsweredAt: null,
     updatedAt: 5000,
+    approvalSet: {
+      setId: approvalQuestionStaging.setIdFor([scope]),
+      scopes: [scope],
+      stagedAt: 5000,
+    },
   }, extra || {});
+}
+
+function assistantQuestion(text, at) {
+  return { type: "assistant_message", text: text,
+    _ts: typeof at === "number" ? at : 5500 };
 }
 
 function ownerAnswer(text, at) {
@@ -2084,9 +2101,11 @@ function answeredHarness(t, opts) {
   var options = opts || {};
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-answered-q-"));
   t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+  var defaultTask = questionTask();
   var coopSession = { coopHome: true, storageId: "canonical-coop", localId: 1,
-    history: options.history || [ownerAnswer("do 1 and 2 what you think is best")],
-    orchestrationTasks: options.tasks === undefined ? [questionTask()] : options.tasks };
+    history: options.history || [assistantQuestion(defaultTask.userQuestion),
+      ownerAnswer("do 1 and 2 what you think is best")],
+    orchestrationTasks: options.tasks === undefined ? [defaultTask] : options.tasks };
   var delivered = [];
   var topicIndex = createTopicIndex({ file: path.join(dir, "topics.json") });
   var built = executionRouter([], delivered, [], { dir: dir, coopSession: coopSession });
@@ -2145,6 +2164,7 @@ test("only the FIRST owner turn after the question can answer it", function (t) 
   // the router's old unscoped hijack adopted owner turn :482 ("FIX!").
   var h = answeredHarness(t, {
     history: [
+      assistantQuestion(questionTask().userQuestion, 5500),
       ownerAnswer("what should I do next?", 6000),
       ownerAnswer("yes", 7000),
     ],
@@ -2156,7 +2176,9 @@ test("only the FIRST owner turn after the question can answer it", function (t) 
 
 test("a question with no assent, no pending question, or already answered all refuse",
   function (t) {
-    var refused = answeredHarness(t, { history: [ownerAnswer("not yet, hold off")] });
+    var refusedTask = questionTask();
+    var refused = answeredHarness(t, { history: [assistantQuestion(refusedTask.userQuestion),
+      ownerAnswer("not yet, hold off")] });
     assert.equal(refused.dispatch().ok, false, "an explicit refusal must not authorize");
     assert.equal(refused.delivered.length, 0);
 
@@ -2173,6 +2195,102 @@ test("a question with no assent, no pending question, or already answered all re
     assert.equal(running.dispatch().ok, false, "only waiting_user is a pending question");
     assert.equal(running.delivered.length, 0);
   });
+
+test("a staged record with no later assistant question cannot adopt a post-hoc yes", function (t) {
+  var h = answeredHarness(t, { history: [ownerAnswer("yes", 6000)] });
+  var result = h.dispatch();
+  assert.equal(result.ok, false);
+  assert.equal(h.delivered.length, 0);
+  assert.equal(h.topics().length, 0);
+});
+
+test("the exact asked question is proven across recorded streaming deltas", function (t) {
+  var task = questionTask();
+  var split = Math.floor(task.userQuestion.length / 2);
+  var h = answeredHarness(t, {
+    tasks: [task],
+    history: [
+      { type: "delta", text: task.userQuestion.slice(0, split), _ts: 5400 },
+      { type: "delta", text: task.userQuestion.slice(split), _ts: 5500 },
+      { type: "done", _ts: 5600 },
+      ownerAnswer("Yes", 6000),
+    ],
+  });
+  assert.equal(h.dispatch().ok, true);
+});
+
+test("one affirmative answer binds only the exact plural set that was staged and asked", function (t) {
+  var otherTask = "webapp-staged-second-approval";
+  var scopes = [{
+    portfolioTaskId: ANSWER_TASK,
+    bindingRevision: 1,
+    targetProject: { projectId: PROJECT },
+  }, {
+    portfolioTaskId: otherTask,
+    bindingRevision: 4,
+    targetProject: { projectId: PROJECT },
+  }];
+  var question = approvalQuestionStaging.questionFor(scopes);
+  var setId = approvalQuestionStaging.setIdFor(scopes);
+  var tasks = scopes.map(function (scope, index) {
+    return questionTask({
+      taskId: "task-staged-" + index,
+      clientRef: "portfolio:" + scope.portfolioTaskId + ":" + scope.bindingRevision,
+      userQuestion: question,
+      approvalSet: { setId: setId, scopes: scopes, stagedAt: 5000 },
+    });
+  });
+  var h = answeredHarness(t, {
+    tasks: tasks,
+    history: [assistantQuestion(question), ownerAnswer("Yes")],
+  });
+
+  assert.equal(h.dispatch().ok, true, "the first exact member is admitted");
+  assert.equal(h.dispatch({
+    portfolioTaskId: otherTask,
+    bindingRevision: 4,
+    idempotencyKey: otherTask + "-r4",
+  }).ok, true, "the second exact member is admitted by the same answer");
+  assert.equal(h.dispatch({
+    portfolioTaskId: "clay-not-in-the-staged-set",
+    bindingRevision: 1,
+    idempotencyKey: "clay-not-in-the-staged-set-r1",
+  }).ok, false, "the same yes cannot escape the staged set");
+});
+
+test("an explicit plural selection binds only the selected staged members", function (t) {
+  var otherTask = "webapp-staged-selected-second";
+  var scopes = [{
+    portfolioTaskId: ANSWER_TASK,
+    bindingRevision: 1,
+    targetProject: { projectId: PROJECT },
+  }, {
+    portfolioTaskId: otherTask,
+    bindingRevision: 4,
+    targetProject: { projectId: PROJECT },
+  }];
+  var question = approvalQuestionStaging.questionFor(scopes);
+  var setId = approvalQuestionStaging.setIdFor(scopes);
+  var tasks = scopes.map(function (scope, index) {
+    return questionTask({
+      taskId: "task-selected-" + index,
+      clientRef: "portfolio:" + scope.portfolioTaskId + ":" + scope.bindingRevision,
+      userQuestion: question,
+      approvalSet: { setId: setId, scopes: scopes, stagedAt: 5000 },
+    });
+  });
+  var h = answeredHarness(t, {
+    tasks: tasks,
+    history: [assistantQuestion(question), ownerAnswer("do 2")],
+  });
+
+  assert.equal(h.dispatch().ok, false, "do 2 does not approve member 1");
+  assert.equal(h.dispatch({
+    portfolioTaskId: otherTask,
+    bindingRevision: 4,
+    idempotencyKey: otherTask + "-r4",
+  }).ok, true, "do 2 approves only member 2");
+});
 
 test("a bare assent never releases a permanently gated external action", function (t) {
   // The question text is authored by Coop, not the owner, so "yes" must not

@@ -861,6 +861,9 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
     getExecutionBinding: function (taskId, revision) {
       return bound[taskId + ":" + revision] || null;
     },
+    getExecutionBindings: function () {
+      return Object.keys(bound).map(function (key) { return bound[key]; });
+    },
     createProjectExecution: function (input) {
       executions.push(input);
       var key = input.portfolioTaskId + ":" + input.bindingRevision;
@@ -1011,8 +1014,10 @@ test("an assigned:any recipe reaches its canonical binding after owner admission
       "awaiting_owner", "unscoped Urban-style work must not silently auto-admit");
     assert.strictEqual(h.executions.length, 0);
 
+    var stage = store.get({ projectId: URBAN_STAY_PROJECT }, key).approvalStage;
     var approved = store.decideOwner({ projectId: URBAN_STAY_PROJECT }, key,
-      { approved: true, by: "bojan" });
+      { approved: true, by: "bojan", portfolioTaskId: stage.portfolioTaskId,
+        bindingRevision: stage.bindingRevision });
     assert.strictEqual(approved.ok, true);
 
     await h.autoLaunch.launchScheduled("assigned-to-me");
@@ -1285,8 +1290,10 @@ test("owner-approved work is revalidated by the current scan before binding", as
     assert.strictEqual(store.get({ projectId: CUTOVER_PROJECT }, key).status,
       "awaiting_owner");
 
+    var stage = store.get({ projectId: CUTOVER_PROJECT }, key).approvalStage;
     var approved = store.decideOwner({ projectId: CUTOVER_PROJECT }, key,
-      { approved: true, by: "bojan" });
+      { approved: true, by: "bojan", portfolioTaskId: stage.portfolioTaskId,
+        bindingRevision: stage.bindingRevision });
     assert.strictEqual(approved.ok, true);
     assert.strictEqual(approved.candidate.status, "owner_approved");
     assert.strictEqual(approved.candidate.eligibilityPass, null);

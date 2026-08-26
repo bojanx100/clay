@@ -148,15 +148,21 @@ test("verified project completion commits the controlled incarnation before its 
 
 test("orchestration MCP exposes lifecycle, provider, and authoritative Coop session query operations", function () {
   var noop = function () {};
-  var names = orchestrationMcp.getToolDefs(
+  var definitions = orchestrationMcp.getToolDefs(
     noop, noop, noop, noop, noop, noop, noop, noop, noop
-  ).map(function (definition) { return definition.name; });
+  );
+  var names = definitions.map(function (definition) { return definition.name; });
 
   assert.ok(names.indexOf("dismiss_task") !== -1);
   assert.ok(names.indexOf("request_task_input") !== -1);
   assert.ok(names.indexOf("steer_project_coordinator") !== -1);
   assert.ok(names.indexOf("switch_session_provider") !== -1);
   assert.ok(names.indexOf("list_coop_sessions") !== -1);
+  var requestInput = definitions.find(function (definition) {
+    return definition.name === "request_task_input";
+  });
+  assert.ok(requestInput.inputSchema.approvalScopes,
+    "the public tool contract must expose exact approval staging");
 });
 
 test("list_coop_sessions requires exact project references and exposes no hidden-session switch", function () {
@@ -308,6 +314,27 @@ test("a recorded user decision pauses and resumes without an automatic loop", fu
   assert.equal(h.session.orchestrationTasks[0].status, "reviewing");
   assert.ok(h.session.orchestrationTasks[0].userAnsweredAt);
   assert.equal(taskGraph.graphResolutionState(h.session).phase, "reconciling");
+});
+
+test("a staged portfolio approval stays pending until exact admission consumes it", function () {
+  var h = gateHarness([task("approval", "waiting_user", {
+    userQuestion: "Approve clay-exact-work revision 3?",
+    approvalSet: {
+      setId: "approval-set-exact",
+      stagedAt: 100,
+      scopes: [{
+        portfolioTaskId: "clay-exact-work",
+        bindingRevision: 3,
+        targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+      }],
+    },
+  })]);
+
+  var directive = h.gate.resumeWaitingFromUser(h.session, "Yes");
+
+  assert.match(directive, /dispatch only the exact recorded portfolio revisions/);
+  assert.equal(h.session.orchestrationTasks[0].status, "waiting_user");
+  assert.equal(h.session.orchestrationTasks[0].userAnsweredAt, undefined);
 });
 
 test("retrying a stalled reconciliation starts one fresh bounded pass", function () {

@@ -17,6 +17,7 @@ var { createCandidateAdmission, idempotencyKeyFor, portfolioTaskIdFor, selectBin
 var { createCandidateStore } = require("../lib/project-automation-candidates");
 var automationAudit = require("../lib/project-automation-audit");
 var scopedAutonomy = require("../lib/coop-scoped-autonomy-policy");
+var approvalStaging = require("../lib/coop-approval-question-staging");
 
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 var OTHER = "11111111-2222-4333-8444-555555555555";
@@ -749,10 +750,19 @@ test("#2517: owner-gated work becomes a durable awaiting_owner decision", functi
     assert.strictEqual(result.ownerDecisions.length, 1,
       "the owner must be asked exactly once, precisely");
     assert.strictEqual(result.ownerDecisions[0].itemKey, "trialview/v2#2517");
+    assert.equal(result.ownerDecisions[0].portfolioTaskId, portfolioTaskIdFor(candidate({
+      admission: "owner_approval", itemClass: "feature",
+    })));
+    assert.equal(result.ownerDecisions[0].bindingRevision, 1);
+    assert.match(result.ownerDecisions[0].question,
+      new RegExp(result.ownerDecisions[0].portfolioTaskId + " revision 1"));
 
     var record = h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517");
     assert.strictEqual(record.status, "awaiting_owner");
     assert.strictEqual(record.attention.needsOwner, true);
+    assert.equal(record.approvalStage.portfolioTaskId,
+      result.ownerDecisions[0].portfolioTaskId);
+    assert.equal(record.approvalStage.bindingRevision, 1);
 
     // And it is no longer re-deferred as fresh pending work every tick.
     var second = h.admission.admitPending();
@@ -762,6 +772,136 @@ test("#2517: owner-gated work becomes a durable awaiting_owner decision", functi
     var items = h.store.attentionItems();
     assert.strictEqual(items.ok, true);
     assert.strictEqual(items.items.length, 1, "it stays visible until decided");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("candidate refresh preserves admission, binding, owner decision, and attention facts", function () {
+  var h = harness();
+  try {
+    var ownerCandidate = candidate({ admission: "owner_approval", itemClass: "feature" });
+    h.store.upsert(ownerCandidate);
+    var requested = h.admission.admitPending().ownerDecisions[0];
+    var decided = h.store.decideOwner({ projectId: WEBAPP }, ownerCandidate.candidateKey, {
+      approved: true,
+      by: "owner-1",
+      portfolioTaskId: requested.portfolioTaskId,
+      bindingRevision: requested.bindingRevision,
+    });
+    assert.equal(decided.ok, true, decided.reason);
+
+    h.store.upsert(ownerCandidate);
+    assert.equal(h.admission.admitPending().admitted, 1);
+    h.store.recordAttention({ projectId: WEBAPP }, ownerCandidate.candidateKey,
+      "terminal_delivery_pending", false);
+    var before = h.store.get({ projectId: WEBAPP }, ownerCandidate.candidateKey);
+
+    var refreshed = h.store.upsert(candidate({
+      admission: "owner_approval",
+      itemClass: "feature",
+      policyDigest: "digest-2",
+      intent: Object.assign({}, ownerCandidate.intent, { title: "Updated title" }),
+    }), { bindingSnapshot: h.cross.getExecutionBindings() });
+    assert.equal(refreshed.ok, true, refreshed.reason);
+    assert.equal(refreshed.changed, true);
+    assert.equal(refreshed.candidate.admittedAt, before.admittedAt);
+    assert.deepEqual(refreshed.candidate.binding, before.binding);
+    assert.deepEqual(refreshed.candidate.ownerDecision, before.ownerDecision);
+    assert.deepEqual(refreshed.candidate.attention, before.attention);
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("an admitted candidate reopens only from its exact terminal binding snapshot", function () {
+  var h = harness();
+  try {
+    var work = candidate();
+    h.store.upsert(work);
+    assert.equal(h.admission.admitPending().admitted, 1);
+    var admitted = h.store.get({ projectId: WEBAPP }, work.candidateKey);
+    var exact = h.cross.getBinding(admitted.binding.portfolioTaskId,
+      admitted.binding.bindingRevision);
+
+    var activeRefresh = h.store.upsert(candidate({ policyDigest: "digest-active" }), {
+      bindingSnapshot: h.cross.getExecutionBindings(),
+    });
+    assert.equal(activeRefresh.candidate.status, "admitted",
+      "an active exact binding can never be recreated");
+    assert.equal(h.admission.admitPending().admitted, 0);
+
+    var missingRefresh = h.store.upsert(candidate({ policyDigest: "digest-missing" }), {
+      bindingSnapshot: [],
+    });
+    assert.equal(missingRefresh.candidate.status, "admitted",
+      "absence is not terminal evidence and cannot reopen work");
+
+    exact.status = "unrouted";
+    var rearmableRefresh = h.store.upsert(candidate({ policyDigest: "digest-unrouted" }), {
+      bindingSnapshot: h.cross.getExecutionBindings(),
+    });
+    assert.equal(rearmableRefresh.candidate.status, "admitted",
+      "a rearmable reservation state is not terminal evidence");
+
+    exact.status = "failed";
+    exact.statusReason = "verified_terminal_failure";
+    var terminalSnapshot = h.cross.getExecutionBindings();
+    var reopened = h.store.upsert(candidate({ policyDigest: "digest-terminal" }), {
+      bindingSnapshot: terminalSnapshot,
+    });
+    assert.equal(reopened.candidate.status, "pending");
+    assert.equal(reopened.candidate.admittedAt, admitted.admittedAt,
+      "historical admission evidence is retained");
+    assert.deepEqual(reopened.candidate.binding, admitted.binding,
+      "the exact terminal binding remains attached as reconciliation evidence");
+    assert.equal(reopened.candidate.terminalReconciliation.status, "failed");
+    assert.equal(reopened.candidate.terminalReconciliation.bindingRevision, 1);
+
+    var again = h.store.upsert(candidate({ policyDigest: "digest-terminal" }), {
+      bindingSnapshot: terminalSnapshot,
+    });
+    assert.equal(again.candidate.status, "pending");
+    assert.deepEqual(again.candidate.terminalReconciliation,
+      reopened.candidate.terminalReconciliation, "the exact reconcile is idempotent");
+
+    assert.equal(h.admission.admitPending().admitted, 1);
+    assert.equal(h.cross.calls.length, 2);
+    assert.equal(h.cross.calls[1].bindingRevision, 2,
+      "only terminal evidence permits the next revision to start");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("a malformed or foreign terminal snapshot cannot rewrite an admitted candidate", function () {
+  var h = harness();
+  try {
+    var work = candidate();
+    h.store.upsert(work);
+    assert.equal(h.admission.admitPending().admitted, 1);
+    var admitted = h.store.get({ projectId: WEBAPP }, work.candidateKey);
+    var exact = h.cross.getBinding(admitted.binding.portfolioTaskId,
+      admitted.binding.bindingRevision);
+    exact.status = "failed";
+
+    var malformed = h.store.upsert(candidate({ policyDigest: "digest-malformed" }), {
+      bindingSnapshot: [{
+        portfolioTaskId: exact.portfolioTaskId,
+        bindingRevision: exact.bindingRevision,
+        status: "failed",
+      }],
+    });
+    assert.equal(malformed.ok, false);
+    assert.equal(malformed.reason, "binding_snapshot_malformed");
+    assert.equal(h.store.get({ projectId: WEBAPP }, work.candidateKey).status, "admitted");
+
+    var foreign = Object.assign({}, exact, { targetProject: { projectId: OTHER } });
+    var untouched = h.store.upsert(candidate({ policyDigest: "digest-foreign" }), {
+      bindingSnapshot: [foreign],
+    });
+    assert.equal(untouched.ok, true);
+    assert.equal(untouched.candidate.status, "admitted");
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
   }
@@ -897,10 +1037,17 @@ test("#2517: pending() filters the state it validated, not a fresh read", functi
   try {
     var store = createCandidateStore({ cwd: dir });
     store.upsert(candidate());
-    store.upsert(candidate({
+    var ownerCandidate = candidate({
       candidateKey: "launch:x#1", itemKey: "x#1", admission: "owner_approval",
-    }));
-    store.recordAttention({ projectId: WEBAPP }, "launch:x#1", "owner_approval_required", true);
+    });
+    store.upsert(ownerCandidate);
+    var scope = {
+      portfolioTaskId: portfolioTaskIdFor(ownerCandidate),
+      bindingRevision: 1,
+      targetProject: { projectId: WEBAPP },
+    };
+    store.recordAttention({ projectId: WEBAPP }, "launch:x#1", "owner_approval_required", true,
+      Object.assign({}, scope, { question: approvalStaging.questionFor([scope]), stagedAt: Date.now() }));
     var pending = store.pending({ status: "pending" });
     assert.strictEqual(pending.ok, true);
     assert.strictEqual(pending.candidates.length, 1);
