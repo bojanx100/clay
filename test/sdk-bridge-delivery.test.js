@@ -225,6 +225,101 @@ test("accepted pushes track turns queued behind the active turn", function() {
   assert.strictEqual(session._queuedTurnCount, 1);
 });
 
+test("task-stop stream end resets queued-turn state", async function() {
+  var bridge = createBridge({
+    sendAndRecord: function() {},
+    sendToSession: function() {},
+    broadcastSessionList: function() {},
+  });
+  var handle = createEndingHandle([]);
+  var session = {
+    localId: 16,
+    vendor: "codex",
+    queryInstance: handle,
+    isProcessing: true,
+    taskStopRequested: true,
+    _awaitingTurnResult: true,
+    _queuedTurnCount: 2,
+    pendingAskUser: {},
+    pendingPermissions: {},
+    pendingElicitations: {},
+  };
+
+  await bridge.processQueryStream(session);
+
+  assert.strictEqual(session.isProcessing, false);
+  assert.strictEqual(session._awaitingTurnResult, false);
+  assert.strictEqual(session._queuedTurnCount, 0);
+});
+
+test("post-interrupt result does not restore processing status", async function() {
+  var events = [];
+  var bridge = createBridge({
+    sendAndRecord: function(session, msg) { events.push({ channel: "recorded", msg: msg }); },
+    sendToSession: function(session, msg) { events.push({ channel: "direct", msg: msg }); },
+    broadcastSessionList: function() {},
+  });
+  var interruptedHandle = createEndingHandle([]);
+  var session = {
+    localId: 17,
+    vendor: "codex",
+    queryInstance: interruptedHandle,
+    isProcessing: true,
+    taskStopRequested: true,
+    _awaitingTurnResult: true,
+    _queuedTurnCount: 1,
+    pendingAskUser: {},
+    pendingPermissions: {},
+    pendingElicitations: {},
+    activeTaskToolIds: {},
+    taskIdMap: {},
+    history: [],
+    turnCount: 0,
+  };
+
+  await bridge.processQueryStream(session);
+  events = [];
+  session.queryInstance = { pushMessage: function() { return true; } };
+  session.isProcessing = true;
+
+  assert.strictEqual(bridge.pushMessage(session, "fresh message"), true);
+  assert.strictEqual(session._awaitingTurnResult, true);
+  assert.strictEqual(session._queuedTurnCount || 0, 0);
+  bridge.processSDKMessage(session, { yokeType: "result", cost: 1, duration: 10 });
+
+  var doneIndex = events.findIndex(function(event) { return event.msg.type === "done"; });
+  assert.notStrictEqual(doneIndex, -1);
+  assert.strictEqual(events.slice(doneIndex + 1).some(function(event) {
+    return event.msg.type === "status" && event.msg.status === "processing";
+  }), false);
+});
+
+test("result-less adapter-error end resets queued-turn state", async function() {
+  var bridge = createBridge({
+    sendAndRecord: function() {},
+    sendToSession: function() {},
+    broadcastSessionList: function() {},
+  });
+  var handle = createEndingHandle([{ yokeType: "error", text: "turn failed" }]);
+  var session = {
+    localId: 18,
+    vendor: "codex",
+    queryInstance: handle,
+    isProcessing: true,
+    _awaitingTurnResult: true,
+    _queuedTurnCount: 2,
+    pendingAskUser: {},
+    pendingPermissions: {},
+    pendingElicitations: {},
+  };
+
+  await bridge.processQueryStream(session);
+
+  assert.strictEqual(session.isProcessing, false);
+  assert.strictEqual(session._awaitingTurnResult, false);
+  assert.strictEqual(session._queuedTurnCount, 0);
+});
+
 test("background task state replaces the prior set and init clears it", function() {
   var direct = [];
   var broadcasts = 0;
@@ -253,10 +348,11 @@ test("background task state replaces the prior set and init clears it", function
 test("a result keeps processing active while a queued turn continues", function() {
   var recorded = [];
   var direct = [];
+  var sequence = [];
   var processingChanges = 0;
   var bridge = createBridge({
-    sendAndRecord: function(session, msg) { recorded.push(msg); },
-    sendToSession: function(session, msg) { direct.push(msg); },
+    sendAndRecord: function(session, msg) { recorded.push(msg); sequence.push(msg); },
+    sendToSession: function(session, msg) { direct.push(msg); sequence.push(msg); },
     broadcastSessionList: function() {},
   }, function() { processingChanges++; });
   var session = {
@@ -281,6 +377,8 @@ test("a result keeps processing active while a queued turn continues", function(
   assert.strictEqual(session._queuedTurnCount, 0);
   assert.strictEqual(processingChanges, 0);
   assert.deepStrictEqual(direct[direct.length - 1], { type: "status", status: "processing" });
+  var doneIndex = sequence.findIndex(function(msg) { return msg.type === "done"; });
+  assert.deepStrictEqual(sequence[doneIndex + 1], { type: "status", status: "processing" });
 
   bridge.processSDKMessage(session, { yokeType: "result", cost: 1, duration: 10 });
 
