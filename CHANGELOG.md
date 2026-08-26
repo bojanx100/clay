@@ -1,3 +1,10 @@
+# [3.4.0-beta.13](https://github.com/chadbyte/clay/compare/v3.4.0-beta.12...v3.4.0-beta.13) (2026-08-26)
+
+
+### Features
+
+* **sessions:** add configurable session handoffs ([6c0bb98](https://github.com/chadbyte/clay/commit/6c0bb98f569e3fb02e9f74a3722d71444a34ef4d))
+
 # [3.4.0-beta.12](https://github.com/chadbyte/clay/compare/v3.4.0-beta.11...v3.4.0-beta.12) (2026-08-26)
 
 
