@@ -1,3 +1,10 @@
+# [3.5.0-beta.2](https://github.com/chadbyte/clay/compare/v3.5.0-beta.1...v3.5.0-beta.2) (2026-08-26)
+
+
+### Bug Fixes
+
+* **sessions:** restore split view after daemon restart ([62e024a](https://github.com/chadbyte/clay/commit/62e024a8d46a3a5a042797eb617551f755acd375))
+
 # [3.5.0-beta.1](https://github.com/chadbyte/clay/compare/v3.4.0...v3.5.0-beta.1) (2026-08-26)
 
 
