@@ -637,6 +637,124 @@ test("sidebar hides historical failed coordinator revisions and retains latest a
   }).length, 4);
 });
 
+test("Lead-reconciled terminal failures leave Clay and Webapp foreground hierarchy while current attention remains", function () {
+  var canonicalCoopId = "871a194b-8879-40f7-a1fe-656e48e722af";
+  var clayRootId = "clay-project-coordinator-root";
+  var webappRootId = "webapp-project-coordinator-root";
+
+  function execution(taskId, status, reconciled) {
+    return Object.assign({
+      portfolioTaskId: taskId,
+      bindingRevision: 1,
+      idempotencyKey: taskId + "-key",
+      mode: "project_coordinator",
+      status: status,
+    }, reconciled ? {
+      terminalAt: 100,
+      projectCompletionResultEventId: "result-" + taskId,
+      projectCompletionDeliveryEventId: "delivery-" + taskId,
+    } : {});
+  }
+
+  function child(localId, projectId, rootId, title, taskId, status, reconciled) {
+    return session(localId, {
+      storageId: projectId + "-" + localId,
+      title: title,
+      coordinationMode: true,
+      coordinationRole: "task_coordinator",
+      coopControlledBy: { coopSessionStorageId: canonicalCoopId, since: 1 },
+      projectCoordinatorRef: { projectId: "system-lead", sessionStorageId: rootId },
+      orchestrationPolicy: { portfolioExecution: Object.assign(
+        execution(taskId, status, reconciled), { targetProject: { projectId: projectId } }) },
+    });
+  }
+
+  function root(localId, projectId, rootId, title, tasks) {
+    return session(localId, {
+      storageId: rootId,
+      title: title,
+      coordinationMode: true,
+      coordinationRole: "project_coordinator",
+      coopControlledBy: { coopSessionStorageId: canonicalCoopId, since: 1 },
+      orchestrationPolicy: { coopControlPlane: {
+        version: 1,
+        role: "project_coordinator",
+        projectRef: { projectId: projectId },
+        createdAt: 1,
+      } },
+      orchestrationTasks: tasks.map(function (item) {
+        return Object.assign(task("task-" + item.localId, item.parentTaskStatus || "running", item), {
+          workerSessionRef: { projectId: projectId, sessionStorageId: item.storageId },
+        });
+      }),
+    });
+  }
+
+  function binding(item, projectId) {
+    var executionMetadata = item.orchestrationPolicy.portfolioExecution;
+    return Object.assign({}, executionMetadata, {
+      targetProject: { projectId: projectId },
+      coordinator: { projectId: projectId, sessionStorageId: item.storageId },
+      createdAt: 1,
+      updatedAt: 100,
+      completedAt: null,
+    });
+  }
+
+  var clayHistorical = child(101, CLAY, clayRootId, "Historical Clay restart failure",
+    "clay-historical-restart", "failed", true);
+  var clayCurrent = child(102, CLAY, clayRootId, "Current Clay failure",
+    "clay-current-failure", "failed", true);
+  clayCurrent.parentTaskStatus = "failed";
+  var clayAttention = child(103, CLAY, clayRootId, "Current Clay owner attention",
+    "clay-owner-attention", "needs_input", false);
+  var webappHistorical = child(201, WEBAPP, webappRootId, "Historical Webapp restart failure",
+    "webapp-historical-restart", "failed", true);
+  var webappCurrent = child(202, WEBAPP, webappRootId, "Current Webapp failure",
+    "webapp-current-failure", "failed", false);
+
+  var clayRoot = root(10, CLAY, clayRootId, "Clay coordinator",
+    [clayHistorical, clayCurrent, clayAttention]);
+  var webappRoot = root(20, WEBAPP, webappRootId, "Webapp coordinator",
+    [webappHistorical, webappCurrent]);
+  var coopHome = session(1, { storageId: canonicalCoopId, coopHome: true });
+  var lead = project("system-lead", "lead", "Coop", [coopHome, clayRoot, webappRoot], { isLead: true });
+  var clay = project(CLAY, "clay", "Clay", [clayHistorical, clayCurrent, clayAttention]);
+  var webapp = project(WEBAPP, "webapp", "Webapp", [webappHistorical, webappCurrent]);
+  var historicalChildEvidence = JSON.stringify({
+    execution: clayHistorical.orchestrationPolicy.portfolioExecution,
+    binding: binding(clayHistorical, CLAY),
+  });
+  var projection = buildGlobalCoopProjection({
+    projects: [lead, clay, webapp],
+    // Historical terminal bindings remain queryable in the session ledger but
+    // are not required to remain in the active binding-store list.
+    portfolioBindings: [],
+    coopTopicIndex: {
+      ensureRetro: function () { return { ok: true }; },
+      project: function () { return { groups: [] }; },
+    },
+  });
+
+  function childTitles(projectProjection) {
+    return projectProjection.summary.coordinatorTree[0].children.map(function (item) {
+      return item.title;
+    }).sort();
+  }
+
+  assert.deepEqual(childTitles(projection.projects[0]), [
+    "Current Clay failure",
+    "Current Clay owner attention",
+  ]);
+  assert.deepEqual(childTitles(projection.projects[1]), ["Current Webapp failure"]);
+  assert.equal(JSON.stringify(projection).includes("Historical Clay restart failure"), false);
+  assert.equal(JSON.stringify(projection).includes("Historical Webapp restart failure"), false);
+  assert.equal(JSON.stringify({
+    execution: clayHistorical.orchestrationPolicy.portfolioExecution,
+    binding: binding(clayHistorical, CLAY),
+  }), historicalChildEvidence, "hierarchy projection does not rewrite durable failure evidence");
+});
+
 test("global Coop hierarchy fails closed on ambiguous storage records regardless of order", function () {
   var fixture = coordinatorFixture();
   fixture.clay.sm.sessions.set(fixture.duplicateWorker.localId, fixture.duplicateWorker);
