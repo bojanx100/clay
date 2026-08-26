@@ -213,3 +213,64 @@ test("canonical Coop accepts predecessor owner refs across a compacted continuat
   assert.equal(session.coopConversationIngress.pendingOwnerResponse.requests[0].requestRef.sessionStorageId, OLD);
   assert.equal(saves, 1);
 });
+
+test("canonical Coop hydrates missing compacted predecessors before linking owner refs", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-answer-link-hydrate-"));
+  var ledger = ownerRequests.attachCoopOwnerRequests({ file: path.join(dir, "owner.json") });
+  var ingressId = "coop:" + OLD + ":293";
+  var requestRef = { projectId: LEAD, sessionStorageId: OLD, eventIndex: 21 };
+  ledger.record({
+    ingressId: ingressId,
+    ingressSequence: 293,
+    sessionRef: { projectId: LEAD, sessionStorageId: OLD },
+    requestRef: requestRef,
+  });
+  var predecessor = { localId: 1, storageId: OLD, coopHome: true, history: [] };
+  var middle = {
+    localId: 2,
+    storageId: MID,
+    compactedFromStorageId: OLD,
+    coopHome: true,
+    history: [],
+  };
+  var session = {
+    localId: 3,
+    coopHome: true,
+    storageId: COOP,
+    compactedFromStorageId: MID,
+    isProcessing: true,
+    history: [{ type: "user_message", text: "↻ Lead tick",
+      autoAction: true, synthetic: true }],
+    coopConversationIngress: { nextSequence: 294, recent: [], activeIngressId: null },
+  };
+  var saves = 0;
+  var adopted = [];
+  var sessions = new Map([[session.localId, session]]);
+  var sm = {
+    sessions: sessions,
+    getProjectId: function () { return LEAD; },
+    saveSessionFile: function () { saves++; },
+    adoptSessionFile: function (storageId) {
+      adopted.push(storageId);
+      if (storageId === MID) {
+        sessions.set(middle.localId, middle);
+        return middle.localId;
+      }
+      if (storageId === OLD) {
+        sessions.set(predecessor.localId, predecessor);
+        return predecessor.localId;
+      }
+      return null;
+    },
+  };
+  var linked = parsed(control.linkOwnerResponse({
+    sm: sm,
+    ownerRequests: ledger,
+  }, { sessionId: COOP, requests: [{ ingressId: ingressId, requestRef: requestRef }] }));
+
+  assert.equal(linked.ok, true);
+  assert.deepEqual(adopted, [MID, OLD]);
+  assert.equal(linked.link.requests[0].requestRef.sessionStorageId, OLD);
+  assert.equal(session.coopConversationIngress.pendingOwnerResponse.requests[0].requestRef.sessionStorageId, OLD);
+  assert.equal(saves, 1);
+});
