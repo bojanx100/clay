@@ -1,3 +1,10 @@
+# [3.4.0-beta.18](https://github.com/chadbyte/clay/compare/v3.4.0-beta.17...v3.4.0-beta.18) (2026-08-26)
+
+
+### Features
+
+* **sessions:** auto-approve worker proposals when skip permissions is on ([bb151a4](https://github.com/chadbyte/clay/commit/bb151a4f6644bb1c2894c5dcd05e2951cfd00d4f))
+
 # [3.4.0-beta.17](https://github.com/chadbyte/clay/compare/v3.4.0-beta.16...v3.4.0-beta.17) (2026-08-26)
 
 
