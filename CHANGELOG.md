@@ -1,3 +1,10 @@
+# [3.4.0-beta.22](https://github.com/chadbyte/clay/compare/v3.4.0-beta.21...v3.4.0-beta.22) (2026-08-26)
+
+
+### Features
+
+* **yoke:** emit background_tasks_changed from codex background terminals ([7903132](https://github.com/chadbyte/clay/commit/790313229e046134006fef8161ebaeaab8c3cacc))
+
 # [3.4.0-beta.21](https://github.com/chadbyte/clay/compare/v3.4.0-beta.20...v3.4.0-beta.21) (2026-08-26)
 
 
