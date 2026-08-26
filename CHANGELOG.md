@@ -1,3 +1,48 @@
+# [3.4.0](https://github.com/chadbyte/clay/compare/v3.3.1...v3.4.0) (2026-08-26)
+
+
+### Bug Fixes
+
+* **codex:** handle session writer conflicts ([247483b](https://github.com/chadbyte/clay/commit/247483b4a25e64d24ed8cef40ec02f9be2390682))
+* **daemon:** create IPC socket before project registration ([6329f12](https://github.com/chadbyte/clay/commit/6329f12be3edf104d6cb3cd6543a0458b9403731))
+* **debate:** prevent proposal failures from stopping daemon ([05ee090](https://github.com/chadbyte/clay/commit/05ee090b70bfd291a80b1081c77daf94f422bda6))
+* **files:** make file watching resilient ([cfaa188](https://github.com/chadbyte/clay/commit/cfaa188cf1a1d25f1484758a42996f7d8114155b))
+* **kiro:** widen ACP initialize timeout to 90s ([38f6def](https://github.com/chadbyte/clay/commit/38f6def1ef55831a2913b56d28690ef8df4263b0))
+* **mobile:** correct PWA chat layout ([#420](https://github.com/chadbyte/clay/issues/420)) ([159ee82](https://github.com/chadbyte/clay/commit/159ee8200c61e53324dc8ad93972043c230cf079))
+* **models:** harden model discovery and selection ([bc01d84](https://github.com/chadbyte/clay/commit/bc01d8452645746e4e9822c2ab153fee4b775f09))
+* **models:** isolate model state per session and vendor ([db4b062](https://github.com/chadbyte/clay/commit/db4b06221cad1575bf3f77791e0c02a83f0bfadd))
+* **sessions:** prefer installed vendors for blank sessions ([a7bbd50](https://github.com/chadbyte/clay/commit/a7bbd50a0552439ff4c4cb4ae690c74967506692))
+* **sessions:** publish installed vendors before warmup ([cbda521](https://github.com/chadbyte/clay/commit/cbda521da16a4f312c355119813caf733bf49c24))
+* **sessions:** report interrupted worker turns as interrupted ([87dac13](https://github.com/chadbyte/clay/commit/87dac13853529bbbd46c99548befb1663e1fe8ac))
+* **sessions:** reset queued-turn state on result-less turn endings ([17bba30](https://github.com/chadbyte/clay/commit/17bba30f53add46c5353ad1443e49b934e2ff931))
+* **ui:** clear activity dots when tools take over ([8fb8ffd](https://github.com/chadbyte/clay/commit/8fb8ffdae0ecfbb07df6e3f96e2516a7c7252e52))
+* **ui:** match delegation notice border to input focus state ([965f873](https://github.com/chadbyte/clay/commit/965f873c8322b009b37c9194aa5388fcf4c143fa))
+* **ui:** open pane web links in new tabs ([77b0bad](https://github.com/chadbyte/clay/commit/77b0bad1b5f9ac52ac7a53e0fcd190df84478436))
+* **ui:** show connecting wording and quiet pane connection overlay ([567a8d6](https://github.com/chadbyte/clay/commit/567a8d6a83e26a83f7ef1b1401ae1c545c4e1e33))
+* **ui:** show split notification banner once ([bc33ad7](https://github.com/chadbyte/clay/commit/bc33ad7cf6771282879d6228b6ee36a95c31fee7))
+* **worker:** delegate follow-up implementation ([d00c2e7](https://github.com/chadbyte/clay/commit/d00c2e73b9428bd4d09e7a879c8ff44be3f2ddbe))
+* **yoke:** clarify adapter registration logs ([783d456](https://github.com/chadbyte/clay/commit/783d4568958450f4160663a8b1414259ec294ecb))
+* **yoke:** share one 90s initialize timeout across vendors ([2047d30](https://github.com/chadbyte/clay/commit/2047d30cbc6ebce57689064f813552cdb465cda0))
+
+
+### Features
+
+* add composer shell commands and conflict handling ([#421](https://github.com/chadbyte/clay/issues/421)) ([144e4d8](https://github.com/chadbyte/clay/commit/144e4d80404fb3160460b42c8b502e759890bd17))
+* **notes:** add deferred-proposal exception to sticky note guidance ([1cc7a5b](https://github.com/chadbyte/clay/commit/1cc7a5bc5ce63fb01fdb5a23220474016d7645ee))
+* **notes:** track deferred defects proactively ([#423](https://github.com/chadbyte/clay/issues/423)) ([8c17a82](https://github.com/chadbyte/clay/commit/8c17a82b94cdc697675d3f004d62072a57ace554))
+* **sessions:** add configurable session handoffs ([6c0bb98](https://github.com/chadbyte/clay/commit/6c0bb98f569e3fb02e9f74a3722d71444a34ef4d))
+* **sessions:** auto-approve worker proposals when skip permissions is on ([bb151a4](https://github.com/chadbyte/clay/commit/bb151a4f6644bb1c2894c5dcd05e2951cfd00d4f))
+* **sessions:** show active background tasks with stop controls ([4e2cca5](https://github.com/chadbyte/clay/commit/4e2cca510a74ae70a3e5346da5d34df015796c00))
+* **shell:** add composer command execution ([10806b2](https://github.com/chadbyte/clay/commit/10806b2ae8ab9261e93c95c129ee3a7a0c34fde8))
+* **ui:** dock document viewer leftmost with a global tab bar ([20f7659](https://github.com/chadbyte/clay/commit/20f7659d16f5405eafc49b37e90d17f83995876b)), closes [#file-viewer](https://github.com/chadbyte/clay/issues/file-viewer) [#main-panels](https://github.com/chadbyte/clay/issues/main-panels)
+* **ui:** reorganize session header controls ([478b31a](https://github.com/chadbyte/clay/commit/478b31aacad2fcd0fab756dac8d036ce7fa9c5a2))
+* **vendors:** add experimental agent integrations ([80348c4](https://github.com/chadbyte/clay/commit/80348c4ed2f4962d50bdf696cc3bbfcce4c40845))
+* **worktrees:** allow access outside project folder ([2c1a23e](https://github.com/chadbyte/clay/commit/2c1a23e3f6082ff319d47112303df28d25b3f8e4))
+* **yoke:** add Gemini and OpenCode ACP adapters ([27261fb](https://github.com/chadbyte/clay/commit/27261fbded8bc59029076eb14589103d28caefb1))
+* **yoke:** emit background_tasks_changed from codex background terminals ([7903132](https://github.com/chadbyte/clay/commit/790313229e046134006fef8161ebaeaab8c3cacc))
+* **yoke:** replace Gemini CLI with Antigravity ([0f15c35](https://github.com/chadbyte/clay/commit/0f15c35cdbc1d688493950813e83459eabd1e2d8))
+* **yoke:** replace Gemini CLI with Antigravity ([#422](https://github.com/chadbyte/clay/issues/422)) ([d80fc92](https://github.com/chadbyte/clay/commit/d80fc92d99e9609f05d4e7a4955215d923651293))
+
 # [3.4.0-beta.26](https://github.com/chadbyte/clay/compare/v3.4.0-beta.25...v3.4.0-beta.26) (2026-08-26)
 
 
