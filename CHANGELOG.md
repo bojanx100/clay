@@ -1,3 +1,10 @@
+# [3.4.0-beta.9](https://github.com/chadbyte/clay/compare/v3.4.0-beta.8...v3.4.0-beta.9) (2026-08-26)
+
+
+### Features
+
+* **worktrees:** allow access outside project folder ([2c1a23e](https://github.com/chadbyte/clay/commit/2c1a23e3f6082ff319d47112303df28d25b3f8e4))
+
 # [3.4.0-beta.8](https://github.com/chadbyte/clay/compare/v3.4.0-beta.7...v3.4.0-beta.8) (2026-08-26)
 
 
