@@ -155,6 +155,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-loop-wizard.js` | Ralph Loop wizard: step navigation, mode/authorship selection, data collection |
 | `app-notifications.js` | Notification center panel, badge, rendering, click-to-navigate |
 | `app-debate-ui.js` | Debate sticky banner, floor/conclude/ended modes, bottom bar, hand raise |
+| `background-tasks-ui.js` | Active background-task indicator and task stop controls |
 | `app-skills-install.js` | Skill install dialog, requireSkills, requireClayMateInterview |
 | `app-favicon.js` | Dynamic favicon, IO blink, urgent blink, send button mode, activity indicator |
 | `app-header.js` | Session rename, session info popover, progressive history loading |
