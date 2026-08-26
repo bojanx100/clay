@@ -10,21 +10,25 @@ var responseLinkage = require("../lib/coop-owner-response-linkage");
 var responseResolution = require("../lib/coop-owner-response-resolution");
 
 var LEAD = "system-lead";
+var OLD = "065eb04d-3fa1-4420-be9a-7f3b249941a1";
+var MID = "f4078e19-545e-44f9-9235-3644ff874716";
 var COOP = "871a194b-8879-40f7-a1fe-656e48e722af";
 
-function requestLink(sequence, eventIndex) {
+function requestLink(sequence, eventIndex, sessionStorageId) {
+  var storageId = sessionStorageId || COOP;
   return {
-    ingressId: "coop:" + COOP + ":" + sequence,
-    requestRef: { projectId: LEAD, sessionStorageId: COOP, eventIndex: eventIndex },
+    ingressId: "coop:" + storageId + ":" + sequence,
+    requestRef: { projectId: LEAD, sessionStorageId: storageId, eventIndex: eventIndex },
   };
 }
 
-function recordRequest(ledger, sequence, eventIndex) {
-  var link = requestLink(sequence, eventIndex);
+function recordRequest(ledger, sequence, eventIndex, sessionStorageId) {
+  var storageId = sessionStorageId || COOP;
+  var link = requestLink(sequence, eventIndex, storageId);
   ledger.record({
     ingressId: link.ingressId,
     ingressSequence: sequence,
-    sessionRef: { projectId: LEAD, sessionStorageId: COOP },
+    sessionRef: { projectId: LEAD, sessionStorageId: storageId },
     requestRef: link.requestRef,
   });
   return link;
@@ -142,6 +146,51 @@ test("a request superseded after staging stays superseded while its exact peer i
   assert.deepEqual(finalized, { ok: true, answered: 1, preserved: 1 });
   assert.equal(h.ledger.get(first.ingressId).response.state, "superseded");
   assert.equal(h.ledger.get(second.ingressId).response.state, "answered");
+});
+
+test("a compacted Coop continuation can stage exact owner refs from an older predecessor", function () {
+  var h = harness();
+  var first = recordRequest(h.ledger, 292, 20, OLD);
+  var predecessor = {
+    localId: 3,
+    storageId: OLD,
+    coopHome: true,
+    history: [{ type: "user_message", text: "older owner ask", _ts: 1 }],
+  };
+  var middle = {
+    localId: 4,
+    storageId: MID,
+    compactedFromStorageId: OLD,
+    coopHome: true,
+    history: [{ type: "user_message", text: "middle continuation", _ts: 2 }],
+  };
+  h.session.compactedFromStorageId = MID;
+
+  var staged = responseLinkage.stageOwnerResponse({
+    session: h.session,
+    sessions: new Map([[predecessor.localId, predecessor], [middle.localId, middle], [h.session.localId, h.session]]),
+    ownerRequests: h.ledger,
+    requests: [first],
+    saveSession: h.save,
+  });
+
+  assert.equal(staged.ok, true);
+  assert.equal(staged.link.requests[0].requestRef.sessionStorageId, OLD);
+  h.session.history.push({ type: "delta_replace", text: "Answered the older owner ask exactly." });
+  h.session.history.push({ type: "done", code: 0, _ts: 100 });
+
+  var finalized = responseLinkage.finalizeOwnerResponse({
+    session: h.session,
+    ownerRequests: h.ledger,
+    responseEvent: { answered: true, eventIndex: 2 },
+    saveSession: h.save,
+  });
+
+  assert.deepEqual(finalized, { ok: true, answered: 1, preserved: 0 });
+  // The response ref stays on the request's durable session lineage; the
+  // answering event's anchor keeps that ref resolvable after compaction/reload.
+  assert.deepEqual(h.ledger.get(first.ingressId).response.responseRef,
+    { projectId: LEAD, sessionStorageId: OLD, eventIndex: 2 });
 });
 
 test("restart replay is idempotent and byte-stable after linked finalization", function () {

@@ -10,6 +10,8 @@ var topics = require("../lib/coop-topic-index");
 
 var CLAY = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var LEAD = "system-lead";
+var OLD = "065eb04d-3fa1-4420-be9a-7f3b249941a1";
+var MID = "f4078e19-545e-44f9-9235-3644ff874716";
 var COOP = "871a194b-8879-40f7-a1fe-656e48e722af";
 var WORKER = "a1eccb6a-78ba-44ab-99ab-3b659a1f9b38";
 var TASK = "clay-coop-conflict-safe-ledger-reconciliation-fix-2026-08-13";
@@ -33,8 +35,9 @@ function smFor(session) {
 }
 
 function leadSmFor(session, saveSessionFile) {
+  var sessions = session && typeof session.get === "function" ? session : new Map([[1, session]]);
   return {
-    sessions: new Map([[1, session]]),
+    sessions: sessions,
     getProjectId: function () { return LEAD; },
     saveSessionFile: saveSessionFile || function () {},
   };
@@ -164,4 +167,49 @@ test("canonical Coop can stage exact answer_owner refs without changing response
     auth({ requests: [{ ingressId: ingressId, requestRef: requestRef }] }));
   assert.equal(denied.isError, true);
   assert.equal(parsed(denied).code, "not_authorized");
+});
+
+test("canonical Coop accepts predecessor owner refs across a compacted continuation chain", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-answer-link-compacted-"));
+  var ledger = ownerRequests.attachCoopOwnerRequests({ file: path.join(dir, "owner.json") });
+  var ingressId = "coop:" + OLD + ":292";
+  var requestRef = { projectId: LEAD, sessionStorageId: OLD, eventIndex: 20 };
+  ledger.record({
+    ingressId: ingressId,
+    ingressSequence: 292,
+    sessionRef: { projectId: LEAD, sessionStorageId: OLD },
+    requestRef: requestRef,
+  });
+  var predecessor = { localId: 1, storageId: OLD, coopHome: true, history: [] };
+  var middle = {
+    localId: 2,
+    storageId: MID,
+    compactedFromStorageId: OLD,
+    coopHome: true,
+    history: [],
+  };
+  var session = {
+    localId: 3,
+    coopHome: true,
+    storageId: COOP,
+    compactedFromStorageId: MID,
+    isProcessing: true,
+    history: [{ type: "user_message", text: "↻ Lead tick",
+      autoAction: true, synthetic: true }],
+    coopConversationIngress: { nextSequence: 293, recent: [], activeIngressId: null },
+  };
+  var saves = 0;
+  var linked = parsed(control.linkOwnerResponse({
+    sm: leadSmFor(new Map([
+      [predecessor.localId, predecessor],
+      [middle.localId, middle],
+      [session.localId, session],
+    ]), function () { saves++; }),
+    ownerRequests: ledger,
+  }, { sessionId: COOP, requests: [{ ingressId: ingressId, requestRef: requestRef }] }));
+
+  assert.equal(linked.ok, true);
+  assert.equal(linked.link.requests[0].requestRef.sessionStorageId, OLD);
+  assert.equal(session.coopConversationIngress.pendingOwnerResponse.requests[0].requestRef.sessionStorageId, OLD);
+  assert.equal(saves, 1);
 });
