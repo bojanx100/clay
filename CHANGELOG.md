@@ -1,3 +1,10 @@
+# [3.4.0-beta.10](https://github.com/chadbyte/clay/compare/v3.4.0-beta.9...v3.4.0-beta.10) (2026-08-26)
+
+
+### Features
+
+* **vendors:** add experimental agent integrations ([80348c4](https://github.com/chadbyte/clay/commit/80348c4ed2f4962d50bdf696cc3bbfcce4c40845))
+
 # [3.4.0-beta.9](https://github.com/chadbyte/clay/compare/v3.4.0-beta.8...v3.4.0-beta.9) (2026-08-26)
 
 
