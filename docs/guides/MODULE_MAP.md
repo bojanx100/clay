@@ -150,6 +150,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-projects.js` | Project list, switching, add/remove project modals, update available pill, topbar presence |
 | `app-panels.js` | Config chip (model/mode/effort/thinking/beta), usage panel, status panel, context panel, context popover |
 | `model-picker.js` | Vendor model loading state, request correlation, retry/error UI, and acknowledged model selection |
+| `filebrowser-tabs.js` | Global document-viewer tab lifecycle, focus, and close behavior |
 | `worker-proposal.js` | Inline Worker recommendation card with model/reasoning selection and lifecycle states |
 | `app-loop-ui.js` | Ralph Loop UI: bars, banners, preview modal, execution modal |
 | `app-loop-wizard.js` | Ralph Loop wizard: step navigation, mode/authorship selection, data collection |

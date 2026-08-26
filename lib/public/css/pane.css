@@ -23,6 +23,8 @@ body.pane-mode #sticky-notes-container {
   display: none !important;
 }
 
+body.pane-mode #file-viewer { display: none !important; }
+
 body.pane-mode .notif-banner-container {
   display: none !important;
 }
