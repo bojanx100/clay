@@ -1,3 +1,10 @@
+# [3.4.0-beta.12](https://github.com/chadbyte/clay/compare/v3.4.0-beta.11...v3.4.0-beta.12) (2026-08-26)
+
+
+### Bug Fixes
+
+* **models:** harden model discovery and selection ([bc01d84](https://github.com/chadbyte/clay/commit/bc01d8452645746e4e9822c2ab153fee4b775f09))
+
 # [3.4.0-beta.11](https://github.com/chadbyte/clay/compare/v3.4.0-beta.10...v3.4.0-beta.11) (2026-08-26)
 
 
