@@ -111,6 +111,7 @@ test("handoff creates and switches to a new vendor session with bounded context"
   assert.match(f.started[0].prompt, /Current user request, verbatim:\nContinue and run the focused tests\./);
   assert.match(f.started[0].prompt, /Source agent: Claude Code/);
   assert.match(f.started[0].prompt, /Target agent: Codex/);
+  assert.doesNotMatch(f.started[0].prompt, /read_handoff_source/);
   assert.ok(f.started[0].prompt.length <= contextBuilder.MAX_CONTEXT_CHARS);
   assert.strictEqual(f.source.history[f.source.history.length - 1].type, "handoff_created");
   assert.strictEqual(f.started[0].session.history[0].type, "handoff_context");
@@ -148,6 +149,7 @@ test("handoff supports a new session with the same vendor", function () {
   assert.strictEqual(same.started[0].session.cliSessionId, undefined);
   assert.match(same.started[0].prompt, /Source agent: Claude Code/);
   assert.match(same.started[0].prompt, /Target agent: Claude Code/);
+  assert.match(same.started[0].prompt, /read_handoff_source/);
 });
 
 test("handoff rejects missing vendors and split-group sources", function () {
