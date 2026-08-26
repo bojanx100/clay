@@ -1,3 +1,10 @@
+# [3.4.0-beta.17](https://github.com/chadbyte/clay/compare/v3.4.0-beta.16...v3.4.0-beta.17) (2026-08-26)
+
+
+### Features
+
+* **notes:** add deferred-proposal exception to sticky note guidance ([1cc7a5b](https://github.com/chadbyte/clay/commit/1cc7a5bc5ce63fb01fdb5a23220474016d7645ee))
+
 # [3.4.0-beta.16](https://github.com/chadbyte/clay/compare/v3.4.0-beta.15...v3.4.0-beta.16) (2026-08-26)
 
 
