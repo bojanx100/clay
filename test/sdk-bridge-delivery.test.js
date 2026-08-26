@@ -225,6 +225,31 @@ test("accepted pushes track turns queued behind the active turn", function() {
   assert.strictEqual(session._queuedTurnCount, 1);
 });
 
+test("background task state replaces the prior set and init clears it", function() {
+  var direct = [];
+  var broadcasts = 0;
+  var bridge = createBridge({
+    sendAndRecord: function() {},
+    sendToSession: function(session, msg) { direct.push(msg); },
+    broadcastSessionList: function() { broadcasts++; },
+  });
+  var session = { localId: 15, activeBackgroundTasks: [{ task_id: "old" }] };
+  var tasks = [{ task_id: "new", task_type: "shell", description: "Waiting" }];
+  bridge.processSDKMessage(session, { yokeType: "background_tasks_changed", tasks: tasks });
+  assert.deepStrictEqual(session.activeBackgroundTasks, tasks);
+  assert.deepStrictEqual(direct[0], { type: "active_background_tasks", tasks: tasks });
+  assert.strictEqual(broadcasts, 0);
+  bridge.processSDKMessage(session, { yokeType: "background_tasks_changed", tasks: [] });
+  assert.deepStrictEqual(session.activeBackgroundTasks, []);
+  assert.deepStrictEqual(direct[1], { type: "active_background_tasks", tasks: [] });
+  assert.strictEqual(broadcasts, 1);
+  session.activeBackgroundTasks = tasks;
+  bridge.processSDKMessage(session, { yokeType: "init" });
+  assert.deepStrictEqual(session.activeBackgroundTasks, []);
+  assert.deepStrictEqual(direct[2], { type: "active_background_tasks", tasks: [] });
+  assert.strictEqual(broadcasts, 2);
+});
+
 test("a result keeps processing active while a queued turn continues", function() {
   var recorded = [];
   var direct = [];
