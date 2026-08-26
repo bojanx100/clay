@@ -460,6 +460,48 @@ test("terminal child bindings outrank stale task-coordinator runtime state", fun
   assert.equal(persistent.workState, "working");
 });
 
+test("a ledger root ignores an orphaned running task whose worker is terminal", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-orphaned-task-"));
+  var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
+  var root = {
+    storageId: "orphaned-task-root",
+    title: "Project coordinator",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 100 },
+    orchestrationTasks: [{
+      taskId: "orphaned-restart-task",
+      workerStorageId: "terminal-task-coordinator",
+      status: "running",
+      currentActivity: "Task coordinator is running",
+      updatedAt: 300,
+    }],
+  };
+  var worker = {
+    storageId: "terminal-task-coordinator",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    hidden: true,
+    closedAt: 400,
+    orchestrationPolicy: { portfolioExecution: execution(
+      "orphaned-restart", "project_coordinator", "failed", {
+        reason: "restart_recovery", terminalAt: 400,
+      }
+    ) },
+  };
+
+  assert.equal(ledger.reconcile({
+    bindings: [], projects: [project(CLAY_ID, [root, worker])],
+  }).ok, true);
+  var projected = ledger.get({
+    projectId: CLAY_ID, sessionStorageId: root.storageId,
+  });
+  assert.equal(projected.lifecycleState, "idle");
+  assert.equal(projected.workState, "idle");
+  assert.equal(projected.terminalOutcome, null,
+    "the reusable root remains visible without inventing a terminal outcome");
+});
+
 test("an exact completed legacy project-coordinator binding outranks stale running metadata", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-ledger-completed-root-"));
   var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });

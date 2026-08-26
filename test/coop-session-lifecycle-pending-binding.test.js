@@ -127,3 +127,50 @@ test("a session with no binding at all is still idle", function () {
     session({ hidden: true }), PROJECT, [live], [pendingBinding()]), "idle",
     "and a hidden session is idle whatever its binding says");
 });
+
+test("a legacy running task does not keep the project active after its worker is terminal", function () {
+  var root = {
+    storageId: "legacy-project-root",
+    coordinationMode: true,
+    coordinationRole: "project_coordinator",
+    orchestrationTasks: [{
+      taskId: "stale-restart-task",
+      workerStorageId: "failed-task-coordinator",
+      status: "running",
+    }],
+  };
+  var worker = {
+    storageId: "failed-task-coordinator",
+    coordinationMode: true,
+    coordinationRole: "task_coordinator",
+    hidden: true,
+    closedAt: 200,
+    orchestrationPolicy: {
+      portfolioExecution: {
+        mode: "project_coordinator",
+        status: "failed",
+        reason: "restart_recovery",
+      },
+    },
+  };
+
+  assert.equal(lifecycle.projectActivityState(root, PROJECT, [root, worker], []), "idle",
+    "a stale parent task must not be mistaken for active project work");
+  assert.equal(lifecycle.projectHasActiveWork([root, worker], PROJECT, []), false);
+});
+
+test("terminal outcomes retain the persisted execution reason and terminal timestamp", function () {
+  var outcome = lifecycle.terminalOutcome("failed", "task_coordinator", {
+    execution: {
+      status: "failed",
+      reason: "restart_recovery",
+      terminalAt: 1234,
+    },
+  });
+
+  assert.deepEqual(outcome, {
+    status: "failed",
+    at: 1234,
+    summary: "restart_recovery",
+  });
+});
