@@ -1,3 +1,10 @@
+# [3.5.0-beta.1](https://github.com/chadbyte/clay/compare/v3.4.0...v3.5.0-beta.1) (2026-08-26)
+
+
+### Features
+
+* **session:** add handoff source history tool ([1d09e47](https://github.com/chadbyte/clay/commit/1d09e47367a6071a5471c6c4b1215b45e0c53466))
+
 # [3.4.0](https://github.com/chadbyte/clay/compare/v3.3.1...v3.4.0) (2026-08-26)
 
 
