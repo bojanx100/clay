@@ -65,6 +65,26 @@ test("stale model responses cannot replace a newer vendor request", async functi
   assert.strictEqual(accepted.modelListStatus, "ready");
 });
 
+test("model info for another vendor or session is ignored", async function() {
+  var f = await loadPicker({
+    activeSessionId: "claude-session",
+    currentVendor: "claude",
+    currentModels: ["sonnet"],
+    modelListVendor: "claude",
+    modelListStatus: "ready",
+    modelRequestId: "",
+    vendorInfo: {},
+  });
+  assert.strictEqual(f.picker.getModelInfoUpdate({ vendor: "codex", sessionId: "claude-session", model: "gpt-5.6", models: ["gpt-5.6"] }), null);
+  assert.strictEqual(f.picker.getModelInfoUpdate({ vendor: "claude", sessionId: "codex-session", model: "gpt-5.6", models: ["gpt-5.6"] }), null);
+});
+
+test("model router rejects an unlisted id and keeps a valid current selection", function() {
+  var source = fs.readFileSync(path.join(__dirname, "../lib/public/modules/app-messages.js"), "utf8");
+  assert.match(source, /Ignoring model not listed for vendor/);
+  assert.match(source, /_miUpdate\.currentModel = _curInList \? _curModel : modelEntryValue/);
+});
+
 test("Fable selection is optimistic, acknowledged, and rolled back on failure", async function() {
   var f = await loadPicker({
     currentVendor: "claude",

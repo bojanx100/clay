@@ -7,7 +7,7 @@ function fixture(options) {
   var sent = [];
   var session = options.session || { vendor: "claude" };
   var sm = {
-    currentModel: options.currentModel || "",
+    defaultModelByVendor: { claude: options.currentModel || "" },
     defaultVendor: "claude",
     modelsByVendor: {},
     capabilitiesByVendor: {},
