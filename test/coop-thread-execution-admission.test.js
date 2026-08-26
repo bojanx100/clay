@@ -2310,6 +2310,43 @@ test("the exact asked question is proven across recorded streaming deltas", func
   assert.equal(h.dispatch().ok, true);
 });
 
+test("the live replaced prompt and exact 'Yes I approve' answer admit the staged revision",
+  function (t) {
+    var task = questionTask();
+    var taskId = task.approvalSet.scopes[0].portfolioTaskId;
+    var projectId = task.approvalSet.scopes[0].targetProject.projectId;
+    var visible = [
+      "Lead mode is on: admitted work can continue within budget.",
+      "The popup fix is a separate control-plane change.",
+      "Do you approve implementation of `" + taskId + "` revision 1 for ProjectRef `" +
+        projectId + "`?",
+    ].join("\n\n");
+    var h = answeredHarness(t, {
+      tasks: [task],
+      history: [
+        { type: "delta", text: "An intermediate draft without the exact question.", _ts: 5400 },
+        { type: "delta_replace", text: visible, _ts: 5500 },
+        { type: "done", _ts: 5600 },
+        ownerAnswer("Yes i approve", 6000),
+      ],
+    });
+
+    assert.equal(pendingQuestionAdmission.explicitOwnerAssent("Yes i approve"), true);
+    assert.equal(h.dispatch().ok, true,
+      "the live prompt shape and its first affirmative owner answer authorize the exact scope");
+
+    var mismatched = answeredHarness(t, {
+      tasks: [task],
+      history: [
+        { type: "delta_replace", text: visible.replace(taskId, taskId + "-other"), _ts: 5500 },
+        { type: "done", _ts: 5600 },
+        ownerAnswer("Yes i approve", 6000),
+      ],
+    });
+    assert.equal(mismatched.dispatch().ok, false,
+      "surrounding prose and Markdown cannot make a different task question authoritative");
+  });
+
 test("one affirmative answer binds only the exact plural set that was staged and asked", function (t) {
   var otherTask = "webapp-staged-second-approval";
   var scopes = [{

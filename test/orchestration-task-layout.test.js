@@ -3,6 +3,67 @@ var assert = require("node:assert/strict");
 var fs = require("node:fs");
 var path = require("node:path");
 var pathToFileURL = require("node:url").pathToFileURL;
+var approvalStaging = require("../lib/coop-approval-question-staging");
+var itemApproval = require("../lib/coop-item-approval");
+
+function element(tag) {
+  var node = {
+    tagName: String(tag).toUpperCase(),
+    children: [],
+    attributes: {},
+    dataset: {},
+    listeners: {},
+    className: "",
+    disabled: false,
+    _innerHTML: "",
+    _text: "",
+  };
+  Object.defineProperty(node, "innerHTML", {
+    get: function () { return node._innerHTML; },
+    set: function (value) {
+      node._innerHTML = String(value);
+      node.children = [];
+    },
+  });
+  Object.defineProperty(node, "textContent", {
+    get: function () {
+      if (!node.children.length) return node._text;
+      return node.children.map(function (child) { return child.textContent; }).join("");
+    },
+    set: function (value) {
+      node._text = String(value);
+      node.children = [];
+    },
+  });
+  node.classList = {
+    add: function (name) {
+      if (!node.classList.contains(name)) node.className = (node.className + " " + name).trim();
+    },
+    contains: function (name) {
+      return node.className.split(/\s+/).indexOf(name) !== -1;
+    },
+  };
+  node.setAttribute = function (name, value) { node.attributes[name] = String(value); };
+  node.appendChild = function (child) { node.children.push(child); return child; };
+  node.addEventListener = function (type, handler) {
+    node.listeners[type] = (node.listeners[type] || []).concat(handler);
+  };
+  node.click = function () {
+    var handlers = node.listeners.click || [];
+    var event = { preventDefault: function () {}, stopPropagation: function () {} };
+    for (var i = 0; i < handlers.length; i++) handlers[i](event);
+  };
+  return node;
+}
+
+function byClass(node, name) {
+  var found = [];
+  for (var i = 0; i < node.children.length; i++) {
+    if (node.children[i].classList.contains(name)) found.push(node.children[i]);
+    found = found.concat(byClass(node.children[i], name));
+  }
+  return found;
+}
 
 test("worker preview defaults to one compact expandable row", function () {
   var source = fs.readFileSync(
@@ -76,4 +137,106 @@ test("chat worker preview keeps unfinished work and hides resolved-only groups",
 
   assert.equal(rendered, null);
   assert.equal(host.innerHTML, "");
+});
+
+test("clicking a staged approval submits one exact Main-scope owner decision", async function () {
+  var modulePath = path.join(
+    __dirname, "../lib/public/modules/orchestration-task-preview.js"
+  );
+  var previousDocument = globalThis.document;
+  var previousAnimationFrame = globalThis.requestAnimationFrame;
+  var previousLucide = globalThis.lucide;
+  globalThis.document = { createElement: element };
+  globalThis.requestAnimationFrame = function (callback) { callback(); return 1; };
+  globalThis.lucide = { createIcons: function () {} };
+
+  var preview = await import(pathToFileURL(modulePath).href);
+  var storeModule = await import(pathToFileURL(path.join(
+    __dirname, "../lib/public/modules/store.js"
+  )).href);
+  var wsModule = await import(pathToFileURL(path.join(
+    __dirname, "../lib/public/modules/ws-ref.js"
+  )).href);
+  var sent = [];
+  storeModule.createStore({
+    activeCoopHome: true,
+    activeSessionId: 77,
+    orchestrationTaskPreviewExpanded: true,
+  });
+  wsModule.setWs({
+    readyState: 1,
+    send: function (raw) { sent.push(JSON.parse(raw)); },
+  });
+
+  try {
+    var taskId = "clay-fix-approval-popup-click-noop-20260827";
+    var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+    var scope = {
+      portfolioTaskId: taskId,
+      bindingRevision: 1,
+      targetProject: { projectId: projectId },
+    };
+    var task = {
+      taskId: "task-staged-popup-fix",
+      clientRef: approvalStaging.clientRefFor(scope),
+      title: "Approval: " + taskId + " revision 1",
+      status: "waiting_user",
+      userQuestion: approvalStaging.questionFor([scope]),
+      approvalSet: {
+        setId: approvalStaging.setIdFor([scope]),
+        stagedAt: 100,
+        scopes: [scope],
+      },
+    };
+    var host = element("div");
+    preview.renderOrchestrationTaskPreview(host, [task], { phase: "waiting_user" });
+    var approve = byClass(host, "orchestration-task-approve")[0];
+    assert.ok(approve, "the staged placeholder exposes an affirmative control");
+
+    approve.click();
+    approve.click();
+
+    assert.equal(sent.length, 1, "a double click submits exactly one owner message");
+    assert.deepEqual(sent[0], {
+      type: "message",
+      text: "Approve " + taskId + " revision 1 implementation for ProjectRef " + projectId,
+      clientMessageId: sent[0].clientMessageId,
+      intent: "chat",
+      sessionId: 77,
+      coopComposerScope: "main",
+    });
+    assert.match(sent[0].clientMessageId, /^cm-/);
+    assert.equal(approve.disabled, true);
+    assert.equal(approve.textContent, "Approval sent");
+    var discovered = itemApproval.approvalEventForTask([{
+      type: "user_message",
+      text: sent[0].text,
+      coopIngressId: "coop:popup-click:1",
+      coopComposerScope: sent[0].coopComposerScope,
+      _ts: 200,
+    }], scope, [{
+      type: "cutover_attention",
+      portfolioTaskId: taskId,
+      bindingRevision: 1,
+      attentionKey: taskId + ":1",
+      at: 100,
+    }]);
+    assert.equal(discovered.event.coopIngressId, "coop:popup-click:1",
+      "the real named-approval route discovers the exact message produced by the click");
+
+    wsModule.setWs(null);
+    var retryHost = element("div");
+    preview.renderOrchestrationTaskPreview(retryHost, [task], { phase: "waiting_user" });
+    var retry = byClass(retryHost, "orchestration-task-approve")[0];
+    retry.click();
+    assert.equal(retry.disabled, false, "a failed send remains retryable");
+    assert.match(byClass(retryHost, "orchestration-task-approval-error")[0].textContent,
+      /not connected/i);
+    assert.equal(sent.length, 1, "a disconnected click sends no decision");
+  } finally {
+    wsModule.setWs(null);
+    globalThis.document = previousDocument;
+    globalThis.requestAnimationFrame = previousAnimationFrame;
+    globalThis.lucide = previousLucide;
+  }
 });
