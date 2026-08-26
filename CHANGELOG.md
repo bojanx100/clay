@@ -1,3 +1,10 @@
+# [3.4.0-beta.11](https://github.com/chadbyte/clay/compare/v3.4.0-beta.10...v3.4.0-beta.11) (2026-08-26)
+
+
+### Bug Fixes
+
+* **yoke:** clarify adapter registration logs ([783d456](https://github.com/chadbyte/clay/commit/783d4568958450f4160663a8b1414259ec294ecb))
+
 # [3.4.0-beta.10](https://github.com/chadbyte/clay/compare/v3.4.0-beta.9...v3.4.0-beta.10) (2026-08-26)
 
 
