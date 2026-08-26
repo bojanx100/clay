@@ -1,3 +1,16 @@
+# [3.4.0-beta.8](https://github.com/chadbyte/clay/compare/v3.4.0-beta.7...v3.4.0-beta.8) (2026-08-26)
+
+
+### Bug Fixes
+
+* **ui:** open pane web links in new tabs ([77b0bad](https://github.com/chadbyte/clay/commit/77b0bad1b5f9ac52ac7a53e0fcd190df84478436))
+* **ui:** show split notification banner once ([bc33ad7](https://github.com/chadbyte/clay/commit/bc33ad7cf6771282879d6228b6ee36a95c31fee7))
+
+
+### Features
+
+* **ui:** reorganize session header controls ([478b31a](https://github.com/chadbyte/clay/commit/478b31aacad2fcd0fab756dac8d036ce7fa9c5a2))
+
 # [3.4.0-beta.7](https://github.com/chadbyte/clay/compare/v3.4.0-beta.6...v3.4.0-beta.7) (2026-08-25)
 
 
