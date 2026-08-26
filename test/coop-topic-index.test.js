@@ -101,7 +101,9 @@ test("retro extraction is complete, deterministic, idempotent, and reference-onl
     assert.equal(saved.includes('"text"'), false);
 
     var state = h.index.load();
-    var automaticId = classification.automaticTopicId("A quiet unmatched turn", { kind: "uncategorised" });
+    var automaticId = classification.automaticTopicId("A quiet unmatched turn", { kind: "uncategorised" }, {
+      projectId: "system-lead", sessionStorageId: "canonical-topic-home", eventIndex: 15,
+    });
     assert.deepEqual(Object.keys(state.topics).sort(), [
       automaticId,
       "clay-sidebar-hierarchy", "codex-authentication", "coop-conversation-architecture",
@@ -220,15 +222,21 @@ test("topic metadata operations preserve references and nested execution links",
     h.index.ensureRetro(session, retroOptions());
     var available = { isProjectAvailable: function () { return true; } };
     var selected = h.index.classifyCanonicalIngress(session, { text: "Quartz cedar poppy" }, available);
-    var mergeSource = h.index.classifyCanonicalIngress(session, { text: "Vellum lichen quasar" }, available);
-    assert.equal(h.index.resolve(selected.topicRef).topic.source, "automatic");
-    assert.equal(h.index.resolve(mergeSource.topicRef).topic.source, "automatic");
     session.history.push(
       { type: "user_message", text: "owner-selected body is never copied", coopTopicRef: selected.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" },
       { type: "delta_replace", text: "final response body is never copied" },
       { type: "done" }
     );
     h.index.ensureRetro(session, retroOptions());
+    var mergeSource = h.index.classifyCanonicalIngress(session, { text: "Vellum lichen quasar" }, available);
+    session.history.push(
+      { type: "user_message", text: "merge source body is never copied", coopTopicRef: mergeSource.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-merge" },
+      { type: "delta_replace", text: "merge source reply" },
+      { type: "done" }
+    );
+    h.index.ensureRetro(session, retroOptions());
+    assert.equal(h.index.resolve(selected.topicRef).topic.source, "automatic");
+    assert.equal(h.index.resolve(mergeSource.topicRef).topic.source, "automatic");
     assert.deepEqual(h.index.resolve(selected.topicRef).topic.eventRefs, [{
       projectId: "system-lead", sessionStorageId: "canonical-topic-home", eventIndex: 18,
     }]);
@@ -642,18 +650,30 @@ test("automatic classification reuses durable topics and infers a bounded projec
     assert.deepEqual(h.index.resolve(first.topicRef).topic.keywords, ["renderer", "caching", "regression", "details", "workbench"]);
     assert.equal(fs.readFileSync(h.index.file, "utf8").includes(firstText), false);
 
+    session.history.push(
+      { type: "user_message", text: firstText, coopTopicRef: first.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-first" },
+      { type: "delta_replace", text: "first reply" }, { type: "done" }
+    );
+
     var related = h.index.classifyCanonicalIngress(session, {
       text: "Renderer caching regression details need another verification",
     }, options);
     assert.deepEqual(related.topicRef, first.topicRef);
     assert.equal(related.created, false);
+    session.history.push(
+      { type: "user_message", text: "Renderer caching regression details need another verification", coopTopicRef: first.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-related" },
+      { type: "delta_replace", text: "related reply" }, { type: "done" }
+    );
     // Re-sending the same text reuses the topic it already minted, so it is a
     // reuse both by `created` and by the routing decision the ledger records.
     assert.deepEqual(h.index.classifyCanonicalIngress(session, { text: firstText }, options),
       Object.assign({}, first, { created: false, classification: "existing_topic" }));
     assert.equal(Object.keys(h.index.load().topics).length, before + 1, "related and duplicate ingress do not create a topic per turn");
 
-    session.history.push({ type: "user_message", text: firstText, coopTopicRef: first.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner" }, { type: "done" });
+    session.history.push(
+      { type: "user_message", text: firstText, coopTopicRef: first.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-duplicate" },
+      { type: "delta_replace", text: "duplicate reply" }, { type: "done" }
+    );
     var followUp = h.index.classifyCanonicalIngress(session, { text: "yes, continue" }, options);
     assert.deepEqual(followUp.topicRef, first.topicRef, "low-information follow-up keeps the recent durable topic");
 
@@ -661,12 +681,24 @@ test("automatic classification reuses durable topics and infers a bounded projec
       text: "Workbench Alpha and Beta Platform boundary review",
     }, options);
     assert.equal(h.index.resolve(multiple.topicRef).topic.group.kind, "cross_project");
+    session.history.push(
+      { type: "user_message", text: "Workbench Alpha and Beta Platform boundary review", coopTopicRef: multiple.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-multiple" },
+      { type: "delta_replace", text: "multiple reply" }, { type: "done" }
+    );
     var none = h.index.classifyCanonicalIngress(session, { text: "Saffron heliotrope ledger review" }, options);
     assert.equal(h.index.resolve(none.topicRef).topic.group.kind, "uncategorised");
+    session.history.push(
+      { type: "user_message", text: "Saffron heliotrope ledger review", coopTopicRef: none.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-none" },
+      { type: "delta_replace", text: "none reply" }, { type: "done" }
+    );
     var exactLens = h.index.classifyCanonicalIngress(session, {
       text: "Saffron heliotrope ledger review", coopProjectRef: { projectId: WEBAPP },
     }, options);
     assert.deepEqual(exactLens.projectRef, { projectId: WEBAPP });
+    session.history.push(
+      { type: "user_message", text: "Saffron heliotrope ledger review", coopTopicRef: exactLens.topicRef, from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-exact" },
+      { type: "delta_replace", text: "exact reply" }, { type: "done" }
+    );
 
     h.index.load().topics["legacy-manual-topic"] = {
       topicRef: { topicId: "legacy-manual-topic" }, title: "Ledger Reconciliation Rollout",
@@ -733,6 +765,86 @@ test("a low-information turn still reuses a recent open topic instead of falling
     session.history.push({ type: "user_message", text: "x", coopTopicRef: first.topicRef }, { type: "done" });
     var followUp = h.index.classifyCanonicalIngress(session, { text: "yes, continue" }, options);
     assert.deepEqual(followUp.topicRef, first.topicRef);
+  } finally { h.cleanup(); }
+});
+
+test("canonical lineage identity converges alternate title variants and preserves distinct turns", function () {
+  var session = canonicalSession();
+  var h = harness();
+  try {
+    h.index.ensureRetro(session, retroOptions());
+    var options = { projects: [], isProjectAvailable: function () { return false; } };
+    var first = h.index.classifyCanonicalIngress(session, {
+      text: "Quartz renderer cache regression in Workbench Alpha",
+    }, options);
+    var alternate = h.index.classifyCanonicalIngress(session, {
+      text: "Heliotrope ledger reconciliation needs verification",
+    }, options);
+    assert.equal(first.created, true);
+    assert.equal(alternate.created, false,
+      "an alternate display summary at the same canonical turn anchor is reuse");
+    assert.deepEqual(alternate.topicRef, first.topicRef,
+      "title changes cannot mint a second Thread identity");
+    var topic = h.index.resolve(first.topicRef, true).topic;
+    assert.deepEqual(topic.threadIdentity.eventRef, {
+      projectId: "system-lead", sessionStorageId: session.storageId, eventIndex: session.history.length,
+    });
+
+    session.history.push(
+      { type: "user_message", text: "Quartz renderer cache regression in Workbench Alpha", coopTopicRef: first.topicRef,
+        from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-identity" },
+      { type: "delta_replace", text: "Renderer cache reply" }, { type: "done" });
+    h.index.ensureRetro(session, retroOptions());
+
+    var state = h.index.load();
+    var legacyId = "auto-ffffffffffffffffffffffff";
+    var legacy = JSON.parse(JSON.stringify(state.topics[first.topicRef.topicId]));
+    legacy.topicRef = { topicId: legacyId };
+    legacy.threadRef = { threadId: legacyId };
+    legacy.title = "Heliotrope ledger reconciliation needs verification";
+    delete legacy.threadIdentity;
+    state.topics[legacyId] = legacy;
+    h.index.save();
+
+    h.index.ensureRetro(session, retroOptions());
+    state = h.index.load();
+    assert.equal(state.topics[legacyId].status, "merged",
+      "an existing title-only variant with the same durable turn evidence is merged");
+    assert.deepEqual(state.topics[legacyId].mergedInto, first.topicRef);
+    assert.ok(state.threadCorrections.some(function (item) {
+      return item.operation === "merge" && item.threadRefs && item.threadRefs.some(function (ref) {
+        return ref.threadId === legacyId;
+      });
+    }), "the convergence remains auditable as a Thread correction");
+
+    var distinct = h.index.classifyCanonicalIngress(session, {
+      text: "Separate heliotrope ledger reconciliation subject",
+    }, options);
+    assert.notDeepEqual(distinct.topicRef, first.topicRef,
+      "a different canonical turn anchor remains a distinct Thread");
+  } finally { h.cleanup(); }
+});
+
+test("noise-only uncategorised membership stays durable but is not projected as a Thread", function () {
+  var h = harness();
+  try {
+    var session = {
+      coopHome: true, storageId: "canonical-noise-home", history: [
+        { type: "user_message", text: "Where are we now", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-noise" },
+        { type: "delta_replace", text: "A short reply" }, { type: "done" },
+      ],
+    };
+    h.index.ensureRetro(session, {});
+    var projection = h.index.project({ history: session.history });
+    var projectedIds = [];
+    for (var gi = 0; gi < projection.groups.length; gi++) {
+      for (var ti = 0; ti < projection.groups[gi].topics.length; ti++) {
+        projectedIds.push(projection.groups[gi].topics[ti].topicRef.topicId);
+      }
+    }
+    assert.deepEqual(projectedIds, [], "genuine noise must not become a visible uncategorised Thread");
+    assert.equal(h.index.load().topics["uncategorised-conversations"].turnRefs.length, 1,
+      "the original membership remains available for audit and replay");
   } finally { h.cleanup(); }
 });
 
