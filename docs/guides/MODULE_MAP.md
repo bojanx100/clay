@@ -80,7 +80,7 @@ YOKE is the vendor-agnostic interface layer. Each adapter implements the same co
 | Module | Concern |
 |--------|---------|
 | `yoke/index.js` | Adapter factory, wraps createQuery with project instructions |
-| `yoke/interface.js` | YOKE interface contract definition |
+| `yoke/interface.js` | YOKE interface contract definition, plus vendor-neutral shared constants (`INITIALIZE_TIMEOUT_MS`) |
 | `yoke/adapters/claude.js` | Claude adapter using `@anthropic-ai/claude-agent-sdk`. In-process + worker (OS user isolation) paths |
 | `yoke/adapters/codex.js` | Codex adapter using `codex app-server` JSON-RPC protocol. Handles approval events, skill injection, MCP bridge config |
 | `yoke/codex-app-server.js` | Codex `app-server` child process manager. JSON-RPC 2.0 over stdin/stdout, request ID tracking, event routing |
