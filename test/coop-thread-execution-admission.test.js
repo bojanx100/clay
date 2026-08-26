@@ -20,6 +20,7 @@ var portfolioBindings = require("../lib/portfolio-execution-bindings");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 
 var PROJECT = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+var WEBAPP_PROJECT = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 var TOPIC = { topicId: "auto-a7daa4cc660639337d144d93" };
 var INGRESS = "coop:canonical-coop:7";
 
@@ -1629,6 +1630,96 @@ test("one exact owner turn dispatches every named task and keeps their scopes in
     assert.deepEqual(entry.implementationScopes.map(function (scope) {
       return [scope.projectRef.projectId, scope.portfolioTaskId, scope.bindingRevision];
     }), [[PROJECT, tasks[0].portfolioTaskId, 3], [PROJECT, tasks[1].portfolioTaskId, 1]]);
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
+test("a named plural approval adds Webapp's exact scope after Clay's first scope", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-cross-project-named-approval-"));
+  var delivered = [];
+  var approvalIngress = "coop:canonical-coop:700";
+  var clayTask = "clay-archive-six-dormant-coop-sessions-20260826";
+  var webappTask = "webapp-archive-six-dormant-coop-sessions-20260826";
+  var history = [{
+    type: "user_message",
+    text: "Approve clay-fix-two-touch-approval-admission-flow-20260826 revision 1 implementation\n" +
+      "Approve clay-repair-orphaned-admitted-automation-bindings-20260826 revision 1 implementation\n" +
+      "Approve " + clayTask + " revision 1 implementation\n" +
+      "Approve " + webappTask + " revision 1 implementation",
+    coopIngressId: approvalIngress,
+    coopComposerScope: "main",
+    _ts: 700000,
+  }];
+  var ownerLedger = require("../lib/coop-owner-requests").attachCoopOwnerRequests({
+    file: path.join(dir, "owner-requests.json"),
+  });
+  var topicIndex = createTopicIndex({ file: path.join(dir, "topics.json") });
+  ownerLedger.record({
+    ingressId: approvalIngress,
+    ingressSequence: 700,
+    ingressKind: "text",
+    sessionRef: { projectId: "system-lead", sessionStorageId: "canonical-coop" },
+    requestRef: { projectId: "system-lead", sessionStorageId: "canonical-coop", eventIndex: 0 },
+    receivedAt: 700000,
+  });
+  ownerLedger.classify(approvalIngress, { kind: "existing_topic", source: "ingress_route" });
+  assert.equal(ownerLedger.scopeImplementation(approvalIngress, {
+    projectRef: { projectId: PROJECT },
+    topicRef: TOPIC,
+    portfolioTaskId: clayTask,
+    bindingRevision: 1,
+    idempotencyKey: "lead-tick-20260826-clay-archive-six-dormant-r1",
+    implementationDecision: {
+      intent: "implement", source: "explicit_item_approval", at: 700000,
+    },
+  }).ok, true);
+  var approved = executionRouter([], delivered, [], {
+    dir: dir,
+    targetProjectId: WEBAPP_PROJECT,
+    ownerRequests: ownerLedger,
+    history: history,
+    leadEvents: [{
+      type: "cutover_attention", portfolioTaskId: clayTask, bindingRevision: 1,
+      attentionKey: clayTask + ":1", at: 600000,
+    }, {
+      type: "cutover_attention", portfolioTaskId: webappTask, bindingRevision: 1,
+      attentionKey: webappTask + ":1", at: 600000,
+    }],
+  });
+  var source = { localId: 1, storageId: "canonical-coop", coopHome: true, history: history };
+  var coordinate = createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return "system-lead"; },
+    ownerRequests: ownerLedger,
+    readLeadEvents: function () { return [{
+      type: "cutover_attention", portfolioTaskId: clayTask, bindingRevision: 1,
+      attentionKey: clayTask + ":1", at: 600000,
+    }, {
+      type: "cutover_attention", portfolioTaskId: webappTask, bindingRevision: 1,
+      attentionKey: webappTask + ":1", at: 600000,
+    }]; },
+    ensureOwnerThread: function (input) { return topicIndex.ensureOwnerThread(input); },
+    createProjectExecution: approved.router.createProjectExecution,
+  });
+  try {
+    var result = coordinate({
+      coordinatorSessionId: "canonical-coop",
+      portfolioTaskId: webappTask,
+      bindingRevision: 1,
+      idempotencyKey: "lead-tick-20260826-webapp-archive-six-dormant-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: WEBAPP_PROJECT },
+      title: "Archive six dormant Webapp sessions",
+      objective: "Archive only the six exact Webapp sessions the owner approved.",
+    });
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(delivered.length, 1);
+    assert.equal(delivered[0].destination.projectId, WEBAPP_PROJECT);
+    assert.equal(delivered[0].payload.coopApprovalIngressId, approvalIngress);
+    var entry = ownerLedger.get(approvalIngress);
+    assert.deepEqual(entry.implementationScopes.map(function (scope) {
+      return [scope.projectRef.projectId, scope.portfolioTaskId, scope.bindingRevision];
+    }), [[PROJECT, clayTask, 1], [WEBAPP_PROJECT, webappTask, 1]]);
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
 });
 
