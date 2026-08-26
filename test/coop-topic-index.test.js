@@ -484,6 +484,63 @@ test("canonical event resolution keeps the exact lineage segment after compactio
   } finally { h.cleanup(); }
 });
 
+test("projection keeps lineage order when successor local indexes reset after compaction", function () {
+  var h = harness();
+  try {
+    function turn(textUser, textAssistant, clientId) {
+      return [
+        { type: "user_message", text: textUser, from: "a66ce4a1", fromName: "Admin", clientMessageId: clientId },
+        { type: "delta_replace", text: textAssistant },
+        { type: "done" },
+      ];
+    }
+    var predecessor = {
+      coopHome: true,
+      storageId: "canonical-topic-home-predecessor",
+      history: turn("Unrelated design discussion", "Initial design reply", "cm-design")
+        .concat(turn("Codex auth predecessor turn", "Initial auth reply", "cm-auth-predecessor")),
+    };
+    var successor = {
+      coopHome: true,
+      storageId: "canonical-topic-home-successor",
+      compactedFromStorageId: predecessor.storageId,
+      history: turn("Codex auth successor follow-up", "Successor auth reply", "cm-auth-successor"),
+    };
+    var replaySession = topicLineage.buildReplaySession(successor, [predecessor, successor]);
+    assert.equal(h.index.ensureRetro(predecessor, retroOptions()).ok, true);
+    assert.equal(h.index.ensureRetro(replaySession, retroOptions()).ok, true);
+
+    var projection = h.index.project({
+      history: replaySession,
+      canAccessProject: function () { return true; },
+    });
+    var auth = projection.groups.reduce(function (found, group) {
+      return found || (group.topics || []).find(function (topic) {
+        return topic.topicRef.topicId === "codex-authentication";
+      }) || null;
+    }, null);
+
+    assert.ok(auth);
+    assert.deepEqual(auth.eventRefs, [
+      { projectId: "system-lead", sessionStorageId: predecessor.storageId, eventIndex: 3 },
+      { projectId: "system-lead", sessionStorageId: successor.storageId, eventIndex: 0 },
+    ]);
+    assert.deepEqual(auth.turnRefs, [
+      { projectId: "system-lead", sessionStorageId: predecessor.storageId, startEventIndex: 3, endEventIndex: 5 },
+      { projectId: "system-lead", sessionStorageId: successor.storageId, startEventIndex: 0, endEventIndex: 2 },
+    ]);
+    assert.deepEqual(auth.firstEventRef, {
+      projectId: "system-lead", sessionStorageId: predecessor.storageId, eventIndex: 3,
+    });
+    assert.deepEqual(auth.lastEventRef, {
+      projectId: "system-lead", sessionStorageId: successor.storageId, eventIndex: 0,
+    });
+    assert.deepEqual(auth.lastTurnRef, {
+      projectId: "system-lead", sessionStorageId: successor.storageId, startEventIndex: 0, endEventIndex: 2,
+    });
+  } finally { h.cleanup(); }
+});
+
 test("projection computes bounded activity metadata without persisting it", function () {
   var h = harness();
   try {
