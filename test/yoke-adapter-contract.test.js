@@ -102,10 +102,20 @@ test("YOKE background-task producers emit the normalized level-state contract", 
       { task_id: "agent-1", task_type: "agent", description: "Review changes" },
       { task_id: "unknown-1", task_type: "other", description: "Check status" },
     ],
+  }, {
+    name: "Codex",
+    produce: require("../lib/yoke/codex-background-tasks").mapTerminals,
+    rawEvent: {
+      terminals: [{ id: "terminal-1", commandLine: "npm test" }],
+    },
+    expectedTasks: [
+      { task_id: "terminal-1", task_type: "shell", description: "npm test" },
+    ],
   }];
   for (var i = 0; i < producers.length; i++) {
     var producer = producers[i];
-    assertBackgroundTaskContract(producer.normalize(producer.rawEvent), producer.expectedTasks);
+    if (producer.normalize) assertBackgroundTaskContract(producer.normalize(producer.rawEvent), producer.expectedTasks);
+    else assertBackgroundTaskContract({ yokeType: "background_tasks_changed", tasks: producer.produce(producer.rawEvent) }, producer.expectedTasks);
   }
 });
 
