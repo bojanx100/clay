@@ -1,3 +1,10 @@
+# [3.4.0-beta.15](https://github.com/chadbyte/clay/compare/v3.4.0-beta.14...v3.4.0-beta.15) (2026-08-26)
+
+
+### Features
+
+* **sessions:** show active background tasks with stop controls ([4e2cca5](https://github.com/chadbyte/clay/commit/4e2cca510a74ae70a3e5346da5d34df015796c00))
+
 # [3.4.0-beta.14](https://github.com/chadbyte/clay/compare/v3.4.0-beta.13...v3.4.0-beta.14) (2026-08-26)
 
 
