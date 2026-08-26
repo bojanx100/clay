@@ -1,3 +1,10 @@
+# [3.4.0-beta.14](https://github.com/chadbyte/clay/compare/v3.4.0-beta.13...v3.4.0-beta.14) (2026-08-26)
+
+
+### Bug Fixes
+
+* **daemon:** create IPC socket before project registration ([6329f12](https://github.com/chadbyte/clay/commit/6329f12be3edf104d6cb3cd6543a0458b9403731))
+
 # [3.4.0-beta.13](https://github.com/chadbyte/clay/compare/v3.4.0-beta.12...v3.4.0-beta.13) (2026-08-26)
 
 
