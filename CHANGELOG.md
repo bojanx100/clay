@@ -1,3 +1,10 @@
+# [3.4.0-beta.19](https://github.com/chadbyte/clay/compare/v3.4.0-beta.18...v3.4.0-beta.19) (2026-08-26)
+
+
+### Bug Fixes
+
+* **models:** isolate model state per session and vendor ([db4b062](https://github.com/chadbyte/clay/commit/db4b06221cad1575bf3f77791e0c02a83f0bfadd))
+
 # [3.4.0-beta.18](https://github.com/chadbyte/clay/compare/v3.4.0-beta.17...v3.4.0-beta.18) (2026-08-26)
 
 
