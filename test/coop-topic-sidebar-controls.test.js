@@ -190,7 +190,7 @@ test("all empty Coop control groups are omitted without headings or placeholders
     ui.projection.buildGlobalCoopDisplayModel(""))), []);
 });
 
-test("project coordinators retain visible terminal workers but omit empty terminal thread history", async function () {
+test("project coordinators omit terminal task history and keep only live or attention work", async function () {
   var ui = await loadTopicControls();
   ui.projection.setGlobalCoopProjection(projectionMessage({
     projects: [{
@@ -238,8 +238,8 @@ test("project coordinators retain visible terminal workers but omit empty termin
   assert.deepEqual(sectionShape(sections), ["project_coordinators:Project coordinators"]);
   assert.deepEqual(sections[0].coordinators.map(function (coordinator) {
     return coordinator.label;
-  }), ["Terminal", "Active", "Attention"]);
-  assert.equal(JSON.stringify(sections).includes("Completed visible worker"), true);
+  }), ["Active", "Attention"]);
+  assert.equal(JSON.stringify(sections).includes("Completed visible worker"), false);
   assert.equal(JSON.stringify(sections).includes("Handed-off history"), false);
   assert.equal(JSON.stringify(sections).includes("Completed history"), false);
 });

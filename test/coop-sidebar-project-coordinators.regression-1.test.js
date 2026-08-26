@@ -909,7 +909,7 @@ test("shared Coop renderer places only active project coordinator rows in deskto
   }, "clicking a worker opens its exact canonical SessionRef");
 });
 
-test("desktop and mobile sidebars retain and navigate completed visible task coordinators", async function () {
+test("desktop and mobile sidebars omit completed terminal task coordinators", async function () {
   globalThis.document = { createElement: createElement };
   var modelModule = await import(moduleUrl("sidebar-coop-topic-model.js") + "?terminal=" + Date.now());
   var hierarchyModel = await import(moduleUrl("sidebar-coop-hierarchy-model.js") + "?terminal=" + Date.now());
@@ -926,39 +926,25 @@ test("desktop and mobile sidebars retain and navigate completed visible task coo
   var sections = modelModule.coopTopicSections(model);
   var normalized = hierarchyModel.cloneCoopProjectHierarchy(
     terminalProject.summary.coordinatorTree);
-  assert.equal(normalized[0].children[0].status, "completed");
-  assert.equal(normalized[0].children[0].sessionRef.sessionStorageId,
-    "clay-task-coordinator");
+  assert.deepEqual(sections, []);
+  assert.deepEqual(normalized, []);
 
   var desktopSent = [];
   var mobileSent = [];
   var desktop = createElement("div");
   var mobile = createElement("div");
-  renderer.renderCoopProjectHierarchy(desktop, sections[0].coordinators[0].hierarchy, {
+  assert.equal(renderer.renderCoopProjectHierarchy(desktop, normalized, {
     mobile: false,
     send: function (message) { desktopSent.push(message); return true; },
-  });
-  renderer.renderCoopProjectHierarchy(mobile, sections[0].coordinators[0].hierarchy, {
+  }), 0);
+  assert.equal(renderer.renderCoopProjectHierarchy(mobile, normalized, {
     mobile: true,
     send: function (message) { mobileSent.push(message); return true; },
-  });
-
-  var desktopTerminal = byClass(desktop, "coop-project-coordinator-row").filter(function (row) {
-    return row.classList.contains("child");
-  })[0];
-  var mobileTerminal = byClass(mobile, "mobile-coop-project-coordinator-row").filter(function (row) {
-    return row.classList.contains("child");
-  })[0];
-  assert.equal(desktopTerminal.children[2].textContent, "Done");
-  assert.equal(mobileTerminal.children[2].textContent, "Done");
-  desktopTerminal.listeners.click();
-  mobileTerminal.listeners.click();
-  assert.deepEqual(desktopSent[0], {
-    type: "resolve_session_ref",
-    sessionRef: { projectId: CLAY, sessionStorageId: "clay-task-coordinator" },
-    scope: "owner_request_hierarchy",
-  });
-  assert.deepEqual(mobileSent[0], desktopSent[0]);
+  }), 0);
+  assert.deepEqual(desktopSent, []);
+  assert.deepEqual(mobileSent, []);
+  assert.equal(byClass(desktop, "coop-project-coordinator-row").length, 0);
+  assert.equal(byClass(mobile, "mobile-coop-project-coordinator-row").length, 0);
 });
 
 test("desktop and mobile render a navigable Thread container above task coordinators", async function () {

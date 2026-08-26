@@ -60,6 +60,33 @@ function retroOptions() {
   };
 }
 
+function compactedAuthSessions() {
+  var predecessor = {
+    coopHome: true,
+    storageId: "canonical-topic-home-predecessor",
+    history: [
+      { type: "user_message", text: "Codex auth predecessor turn", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-1" },
+      { type: "delta_replace", text: "Initial auth reply" },
+      { type: "done" },
+    ],
+  };
+  var successor = {
+    coopHome: true,
+    storageId: "canonical-topic-home-successor",
+    compactedFromStorageId: predecessor.storageId,
+    history: [
+      { type: "user_message", text: "Codex auth successor follow-up", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-owner-2" },
+      { type: "delta_replace", text: "Successor auth reply" },
+      { type: "done" },
+    ],
+  };
+  return {
+    predecessor: predecessor,
+    successor: successor,
+    replaySession: topicLineage.buildReplaySession(successor, [predecessor, successor]),
+  };
+}
+
 test("retro extraction is complete, deterministic, idempotent, and reference-only", function () {
   var h = harness();
   try {
@@ -395,6 +422,65 @@ test("projection and ingress accept a compacted Coop continuation as canonical l
       includeClosedTopics: true,
       isProjectAvailable: function () { return true; },
     }).ok, true);
+  } finally { h.cleanup(); }
+});
+
+test("split preserves successor-segment refs after compaction", function () {
+  var h = harness();
+  try {
+    var sessions = compactedAuthSessions();
+    assert.equal(h.index.ensureRetro(sessions.predecessor, retroOptions()).ok, true);
+    assert.equal(h.index.ensureRetro(sessions.replaySession, retroOptions()).ok, true);
+
+    var split = h.index.split({ topicId: "codex-authentication" }, [{
+      topicId: "split-successor-follow-up",
+      title: "Successor follow up",
+      eventRefs: [{ sessionStorageId: sessions.successor.storageId, eventIndex: 0 }],
+    }]);
+    assert.deepEqual(split, { ok: true, topicRefs: [{ topicId: "split-successor-follow-up" }] });
+    assert.deepEqual(h.index.resolve({ topicId: "split-successor-follow-up" }).topic.eventRefs, [{
+      projectId: "system-lead", sessionStorageId: sessions.successor.storageId, eventIndex: 0,
+    }]);
+    assert.equal(h.index.split({ topicId: "codex-authentication" }, [{
+      title: "Invalid follow up",
+      eventRefs: [{ sessionStorageId: "foreign-successor", eventIndex: 0 }],
+    }]).code, "invalid_event_ref");
+  } finally { h.cleanup(); }
+});
+
+test("canonical event resolution keeps the exact lineage segment after compaction", function () {
+  var h = harness();
+  try {
+    var sessions = compactedAuthSessions();
+    assert.equal(h.index.ensureRetro(sessions.predecessor, retroOptions()).ok, true);
+    assert.equal(h.index.ensureRetro(sessions.replaySession, retroOptions()).ok, true);
+
+    assert.deepEqual(h.index.resolveCanonicalEvent({ topicId: "codex-authentication" }, {
+      sessionStorageId: sessions.predecessor.storageId, eventIndex: 0,
+    }), {
+      ok: true,
+      topicRef: { topicId: "codex-authentication" },
+      threadRef: { threadId: "codex-authentication" },
+      eventRef: {
+        projectId: "system-lead", sessionStorageId: sessions.predecessor.storageId, eventIndex: 0,
+      },
+      turnRef: {
+        projectId: "system-lead", sessionStorageId: sessions.predecessor.storageId, startEventIndex: 0, endEventIndex: 2,
+      },
+    });
+    assert.deepEqual(h.index.resolveCanonicalEvent({ topicId: "codex-authentication" }, {
+      sessionStorageId: sessions.successor.storageId, eventIndex: 0,
+    }), {
+      ok: true,
+      topicRef: { topicId: "codex-authentication" },
+      threadRef: { threadId: "codex-authentication" },
+      eventRef: {
+        projectId: "system-lead", sessionStorageId: sessions.successor.storageId, eventIndex: 0,
+      },
+      turnRef: {
+        projectId: "system-lead", sessionStorageId: sessions.successor.storageId, startEventIndex: 0, endEventIndex: 2,
+      },
+    });
   } finally { h.cleanup(); }
 });
 
