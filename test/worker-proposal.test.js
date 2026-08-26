@@ -222,3 +222,26 @@ test("accepting a Worker suggestion creates the split, delegates, and returns th
   assert.ok(f.updates.some(function (message) { return message.status === "running"; }));
   assert.ok(f.updates.some(function (message) { return message.status === "completed"; }));
 });
+
+test("an interrupted Worker proposal stays interrupted and warns the Driver", async function () {
+  var f = fixture();
+  f.attached = proposalModule.attachWorkerProposal({
+    sm: f.sm,
+    isMate: false,
+    splitStore: { groupForMember: function () { return null; } },
+    getSdk: function () { return { pushMessage: function () { return false; }, startQuery: function (target, text) { f.starts.push({ session: target, text: text }); return Promise.resolve(); } }; },
+    sendTo: function (ws, message) { f.directEvents.push(message); },
+    usersModule: { isMultiUser: function () { return false; } },
+    getLinuxUserForSession: function () { return null; },
+    onProcessingChanged: function () {},
+    adapters: {},
+    createPairRecord: function () { return { worker: { localId: 2 }, group: { id: "sg_worker", members: [1, 2] } }; },
+    sendToPartner: function () { return Promise.resolve({ content: [{ type: "text", text: JSON.stringify({ status: "interrupted", response: "Partial implementation" }) }] }); },
+  });
+  var proposal = await postProposal(f);
+  await f.attached.respondToProposal(f.ws, { proposalId: proposal.proposalId, accepted: true, vendor: "codex", model: "gpt-5.6-sol", effort: "high" });
+  await nextTurn();
+  assert.strictEqual(proposal.status, "interrupted");
+  assert.match(f.starts[0].text, /Worker execution interrupted/);
+  assert.match(f.starts[0].text, /PARTIAL/);
+});
