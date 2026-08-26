@@ -1,3 +1,10 @@
+# [3.4.0-beta.16](https://github.com/chadbyte/clay/compare/v3.4.0-beta.15...v3.4.0-beta.16) (2026-08-26)
+
+
+### Bug Fixes
+
+* **sessions:** reset queued-turn state on result-less turn endings ([17bba30](https://github.com/chadbyte/clay/commit/17bba30f53add46c5353ad1443e49b934e2ff931))
+
 # [3.4.0-beta.15](https://github.com/chadbyte/clay/compare/v3.4.0-beta.14...v3.4.0-beta.15) (2026-08-26)
 
 
