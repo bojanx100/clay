@@ -1,3 +1,10 @@
+# [3.4.0-beta.24](https://github.com/chadbyte/clay/compare/v3.4.0-beta.23...v3.4.0-beta.24) (2026-08-26)
+
+
+### Bug Fixes
+
+* **ui:** show connecting wording and quiet pane connection overlay ([567a8d6](https://github.com/chadbyte/clay/commit/567a8d6a83e26a83f7ef1b1401ae1c545c4e1e33))
+
 # [3.4.0-beta.23](https://github.com/chadbyte/clay/compare/v3.4.0-beta.22...v3.4.0-beta.23) (2026-08-26)
 
 
