@@ -12,6 +12,8 @@ test("Worker proposal card exposes runtime controls and sends one decision messa
   assert.match(source, /worker-proposal-effort-btn/);
   assert.match(source, /type: "worker_proposal_response"/);
   assert.match(source, /Run with Worker/);
+  assert.match(source, /status === "completed"\) return "Completed"/);
+  assert.match(source, /statusLabel\(status\) \+ \(autoApproved \? " · auto-approved" : ""\)/);
 });
 
 test("message routing renders and updates Worker proposal lifecycle events", function () {
