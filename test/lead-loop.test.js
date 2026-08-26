@@ -19,7 +19,7 @@ function pItem(id, score, taskClass, risk, routeTier) {
 test("staffs the top item when idle, small work needs no approval", function () {
   var d = loop.leadTick({
     portfolio: { items: [pItem("a", 100), pItem("b", 50)] },
-    inFlight: [], now: NOW, lastStandupAt: NOW,
+    inFlight: [], capacity: 1, now: NOW, lastStandupAt: NOW,
   });
   assert.strictEqual(d.length, 1);
   assert.strictEqual(d[0].action, "staff");
@@ -44,6 +44,71 @@ test("at capacity: waits, staffs nothing", function () {
   assert.strictEqual(d.length, 1);
   assert.strictEqual(d[0].action, "wait");
   assert.ok(/at capacity/.test(d[0].reason));
+});
+
+test("safe parallel capacity aligns with task orchestration and floors live occupancy", function () {
+  var targetProject = { projectId: "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04" };
+  var active = function (taskId) {
+    return {
+      portfolioTaskId: taskId, bindingRevision: 1,
+      mode: "project_coordinator", targetProject: targetProject, status: "active",
+    };
+  };
+  assert.equal(loop.safeParallelCapacity({ inFlight: [], portfolioBindings: [] }), 3);
+  assert.equal(loop.safeParallelCapacity({
+    inFlight: [],
+    portfolioBindings: [active("a"), active("b")],
+  }), 3);
+  assert.equal(loop.safeParallelCapacity({
+    capacity: 2,
+    inFlight: [],
+    portfolioBindings: [active("a"), active("b"), active("c"), active("d")],
+  }), 4, "occupancy floors the policy when more coordinators are already active");
+  assert.equal(loop.safeParallelCapacity({
+    capacity: 5,
+    inFlight: [],
+    portfolioBindings: [active("a")],
+  }), 5, "an explicit higher cap still wins");
+});
+
+test("default safe parallel capacity staffs multiple independent items when room exists", function () {
+  var targetProject = { projectId: "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04" };
+  var active = {
+    portfolioTaskId: "portfolio-running", bindingRevision: 1,
+    mode: "project_coordinator", targetProject: targetProject, status: "active",
+  };
+  var d = loop.leadTick({
+    portfolio: { items: [pItem("a", 100), pItem("b", 90), pItem("c", 80)] },
+    inFlight: [],
+    portfolioBindings: [active],
+    now: NOW,
+    lastStandupAt: NOW,
+  });
+  assert.deepStrictEqual(d.filter(function (item) {
+    return item.action === "staff";
+  }).map(function (item) {
+    return item.item.id;
+  }), ["a", "b"]);
+});
+
+test("parallel headroom still refuses duplicate typed work", function () {
+  var targetProject = { projectId: "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04" };
+  var active = {
+    portfolioTaskId: "a", bindingRevision: 1,
+    mode: "project_coordinator", targetProject: targetProject, status: "active",
+  };
+  var d = loop.leadTick({
+    portfolio: { items: [pItem("a", 100), pItem("b", 90), pItem("c", 80)] },
+    inFlight: [],
+    portfolioBindings: [active],
+    now: NOW,
+    lastStandupAt: NOW,
+  });
+  assert.deepStrictEqual(d.filter(function (item) {
+    return item.action === "staff";
+  }).map(function (item) {
+    return item.item.id;
+  }), ["b", "c"]);
 });
 
 test("typed ProjectRef bindings are part of the Lead capacity and stale-premise view", function () {

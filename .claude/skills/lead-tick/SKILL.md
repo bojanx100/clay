@@ -28,8 +28,9 @@ node scripts/lead-tick-state.js
 ```
 
 This is the ONLY state command for steps 0 and 1. It returns `leadMode`,
-`ownerRequests`, `bindings`, `looseItems`, `leadLedger`, `historicalLedger`, `providerHealth` and
-`budget` in a single process, so read `leadMode` off it and continue — do not
+`ownerRequests`, `bindings`, `capacity`, `looseItems`, `leadLedger`,
+`historicalLedger`, `providerHealth` and `budget` in a single process, so read
+`leadMode` off it and continue — do not
 issue a separate command per source. Every extra bash step is a full model
 round trip, and the reads themselves are only 20-50ms each, so splitting them
 was costing whole seconds per turn to save nothing. A per-source read is
@@ -148,6 +149,15 @@ fields below out of it; do not re-run any of these reads.
   itself, so do not pass a different project name (2026-08-06: stale Webapp
   launchers copied into Clay made one issue appear as both `clay#2507` and
   `webapp#2507`).
+- **Capacity** (`snapshot.capacity`): the Lead's safe slot budget for THIS
+  tick. `safeParallel` is the number to pass to `leadTick`: when the caller
+  provides no explicit cap, it aligns with Clay task orchestration's default
+  parallelism of 3 and is floored by current live occupancy so a real
+  `3`-binding portfolio can never be misreported as `3/1`. `occupied` is
+  `leadLoop.inFlightForTick` across legacy and typed state, `available` is the
+  remaining headroom, and `source` tells you whether the default or the
+  occupancy floor set the number. Use this field for reporting instead of
+  narrating a hard-coded one-slot policy.
 - **Provider health** (`snapshot.providerHealth`, derived from the recovery
   log): inject it into every `routeWorkItem` call. Missing/empty data
   means assume healthy. NEVER route to a vendor the snapshot marks
@@ -173,12 +183,13 @@ fields below out of it; do not re-run any of these reads.
 
 ## 2. Decide
 
-Run `lib/lead-loop.leadTick` with the gathered state (capacity 1 unless
-the boss raised it; inject `routeFn` from `lib/lead-routing`, real clock,
-the legacy ledger's `inFlight`, `snapshot.bindings.typedHistory` as
-`portfolioBindings` — the all-status slice, since `bindingBlocksRestaff`
-(`lib/lead-loop.js:100`) needs terminal records to block restaffing —
-and the unanswered owner requests as `unansweredRequests`). Pass
+Run `lib/lead-loop.leadTick` with the gathered state (`capacity:
+snapshot.capacity.safeParallel`; inject `routeFn` from `lib/lead-routing`,
+real clock, the legacy ledger's `inFlight`, `snapshot.bindings.typedHistory`
+as `portfolioBindings` — the all-status slice, since
+`bindingBlocksRestaff` (`lib/lead-loop.js:100`) needs terminal records to
+block restaffing — and the unanswered owner requests as
+`unansweredRequests`). Pass
 `snapshot.historicalLedger` as `historicalLedger` unchanged. If it returns a
 `reconcile_history` decision, execute that decision before any standup, wait,
 or new staffing decision.
@@ -302,7 +313,8 @@ backlog only in conversation memory), then run a tick.
 
 Plain language, short. Evidence strings are concrete (counts, commits,
 paths). Big-ticket news (blocked, gate failure, standup) leads; routine
-staffing is one line. The boss's touchpoints are plan/goal discussions
+staffing can be several one-line launches in the same tick. The boss's
+touchpoints are plan/goal discussions
 at admission time and accepting verified results — not dispatch. The
 standup is a report, never a permission gate: admitted work proceeds
 without waiting for it.

@@ -143,6 +143,28 @@ function readBindings() {
   };
 }
 
+function capacityProjection(input) {
+  var leadLoop = require("../lib/lead-loop");
+  var value = input || {};
+  var occupied = leadLoop.inFlightForTick({
+    inFlight: value.inFlight,
+    portfolioBindings: value.portfolioBindings,
+  }).length;
+  var safeParallel = leadLoop.safeParallelCapacity({
+    capacity: value.capacity,
+    inFlight: value.inFlight,
+    portfolioBindings: value.portfolioBindings,
+  }, occupied);
+  var baseline = leadLoop.DEFAULT_PARALLEL_CAPACITY;
+  return {
+    safeParallel: safeParallel,
+    occupied: occupied,
+    available: Math.max(0, safeParallel - occupied),
+    defaultParallel: baseline,
+    source: occupied > baseline ? "occupancy_floor" : "task_orchestration_default",
+  };
+}
+
 // `lead-backlog.collectPortfolioItems` already skips every item whose state is
 // not "open" (lib/lead-backlog.js:75), and a missing state normalizes to "open"
 // (line 21). So withholding closed items from the snapshot is equivalent, not a
@@ -260,6 +282,14 @@ function gather(options) {
       snapshot.errors.push({ source: step.label, error: step.error });
     }
   }
+  if (snapshot.bindings && snapshot.leadLedger) {
+    snapshot.capacity = capacityProjection({
+      inFlight: snapshot.leadLedger.inFlight,
+      portfolioBindings: snapshot.bindings.typedHistory,
+    });
+  } else {
+    snapshot.capacity = null;
+  }
   snapshot.elapsedMs = Date.now() - startedAt;
   return snapshot;
 }
@@ -292,6 +322,7 @@ if (require.main === module) process.exitCode = main(process.argv.slice(2));
 // projection instead of a hand-built copy of it. A previous test built its own
 // fixtures and therefore could not catch that `needs_input` was being thinned.
 module.exports = {
+  capacityProjection: capacityProjection,
   gather: gather,
   localMidnight: localMidnight,
   main: main,

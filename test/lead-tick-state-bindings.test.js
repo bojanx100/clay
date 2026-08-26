@@ -131,6 +131,39 @@ test("the typedHistory slice keeps restaff blocking that a capacity slice loses"
   );
 });
 
+test("capacity projection reports the safe parallel default and occupancy floor", function () {
+  var state = require("../scripts/lead-tick-state.js");
+  var activeOne = bindingWith("active", 1);
+  var activeTwo = bindingWith("active", 1);
+  var activeThree = bindingWith("active", 1);
+  var activeFour = bindingWith("active", 1);
+  activeTwo.portfolioTaskId = "portfolio-clay-9999";
+  activeThree.portfolioTaskId = "portfolio-clay-10000";
+  activeFour.portfolioTaskId = "portfolio-clay-10001";
+
+  assert.deepStrictEqual(state.capacityProjection({
+    inFlight: [],
+    portfolioBindings: [activeOne, activeTwo],
+  }), {
+    safeParallel: 3,
+    occupied: 2,
+    available: 1,
+    defaultParallel: 3,
+    source: "task_orchestration_default",
+  });
+  assert.deepStrictEqual(state.capacityProjection({
+    capacity: 1,
+    inFlight: [],
+    portfolioBindings: [activeOne, activeTwo, activeThree, activeFour],
+  }), {
+    safeParallel: 4,
+    occupied: 4,
+    available: 0,
+    defaultParallel: 3,
+    source: "occupancy_floor",
+  });
+});
+
 // These drive the REAL projection in scripts/lead-tick-state.js. The earlier
 // tests built their own fixtures, so they could not have caught that a status
 // missing from the copied list was being thinned.
