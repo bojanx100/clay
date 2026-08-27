@@ -26,6 +26,7 @@ function loadAppMisc(wsRef) {
     "var copyToClipboard = function () {};",
     "var updateBrowserTabList = function (tabs) { globalThis.__clayTestBrowserTabs = tabs; };",
     "var setExtensionConnected = function (connected) { globalThis.__clayTestExtensionConnected = connected; };",
+    "var recoverInvalidatedExtensionContext = function () { return false; };",
     "var initConfirmModal = function () {};",
     source
   ].join("\n");
