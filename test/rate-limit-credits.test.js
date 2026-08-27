@@ -94,6 +94,19 @@ function resetRejectedMessage() {
   };
 }
 
+function allowedMessage() {
+  return {
+    yokeType: "rate_limit",
+    rateLimitInfo: {
+      status: "allowed",
+      resetsAt: Math.floor(Date.now() / 1000) + 3600,
+      rateLimitType: "five_hour",
+      utilization: 0.2,
+      isUsingOverage: false,
+    },
+  };
+}
+
 function monthlySpendLimitToolResult() {
   return {
     yokeType: "tool_result",
@@ -175,6 +188,24 @@ test("Claude tool-result images remain visible when persistence fails", function
     data: "aGVsbG8=",
   }]);
   assert.strictEqual(session.history[0].imageRefs, undefined);
+});
+
+test("routine allowed rate-limit events do not flood the daemon log", function () {
+  var spies = { scheduled: 0, cancelled: 0, continued: 0 };
+  var processor = makeProcessor(spies);
+  var session = makeSession(true);
+  var logs = [];
+  var originalLog = console.log;
+  console.log = function () { logs.push(Array.prototype.join.call(arguments, " ")); };
+  try {
+    processor.processSDKMessage(session, allowedMessage());
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.strictEqual(logs.some(function (line) {
+    return line.indexOf("rate_limit_event") !== -1;
+  }), false);
 });
 
 test("usage-credit rate limit rejection does not schedule while turn is processing", function () {

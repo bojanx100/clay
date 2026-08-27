@@ -90,6 +90,10 @@ test("the coordinator picker explicitly offers the session as a worker", functio
 
 test("notes, terminal permissions, and browser extension connect/disconnect/result routes work", async function () {
   var h = makeHarness();
+  var logs = [];
+  var originalLog = console.log;
+  console.log = function () { logs.push(Array.prototype.join.call(arguments, " ")); };
+  try {
   h.api.handleAuxiliaryMessage({}, { type: "note_create" });
   h.api.handleAuxiliaryMessage({}, { type: "note_update", id: "n1", text: "updated" });
   h.api.handleAuxiliaryMessage({}, { type: "note_delete", id: "n1" });
@@ -114,9 +118,23 @@ test("notes, terminal permissions, and browser extension connect/disconnect/resu
   };
   h.api.handleAuxiliaryMessage(extensionWs, { type: "extension_result", requestId: "req", result: { ok: true } });
   assert.deepEqual(result, { ok: true });
-  h.api.handleAuxiliaryMessage(extensionWs, { type: "browser_tab_list", connected: false });
+  h.api.handleAuxiliaryMessage(extensionWs, {
+    type: "browser_tab_list",
+    connected: false,
+    disconnectReason: "Extension context invalidated\nreload required",
+  });
   assert.equal(h.browserState._extensionWs, null);
   assert.deepEqual(h.browserState._browserTabList, {});
+  } finally {
+    console.log = originalLog;
+  }
+  assert.ok(logs.some(function (line) {
+    return line.indexOf("[browser-extension] state=connected") !== -1;
+  }));
+  assert.ok(logs.some(function (line) {
+    return line.indexOf("[browser-extension] state=disconnected") !== -1 &&
+      line.indexOf("reason=Extension context invalidated reload required") !== -1;
+  }));
 });
 
 test("loop permission and delegation, adoption, close-task, and scheduling routes preserve gates", function () {

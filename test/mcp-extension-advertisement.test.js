@@ -4,6 +4,8 @@ var fs = require("node:fs");
 var path = require("node:path");
 var attachProjectBrowserExtension =
   require("../lib/project-browser-extension").attachProjectBrowserExtension;
+var disconnectBrowserExtension =
+  require("../lib/project-browser-extension").disconnectBrowserExtension;
 var attachUserMessage =
   require("../lib/project-user-message").attachUserMessage;
 var createProjectLocalMcpServers =
@@ -71,7 +73,7 @@ test("extension disconnect clears the client cache and sends only disconnected s
     tabs: [{ id: 42, title: "Cached tab" }],
     extensionId: "extension-1"
   });
-  appMisc.handleExtensionDisconnect();
+  appMisc.handleExtensionDisconnect({ reason: "Extension context invalidated" });
 
   assert.equal(globalThis.__clayTestExtensionConnected, false);
   assert.deepEqual(globalThis.__clayTestBrowserTabs, []);
@@ -81,7 +83,8 @@ test("extension disconnect clears the client cache and sends only disconnected s
   assert.deepEqual(sent, [{
     type: "browser_tab_list",
     tabs: [],
-    connected: false
+    connected: false,
+    disconnectReason: "Extension context invalidated"
   }]);
 
   appMisc.flushPendingExtMessages();
@@ -216,7 +219,7 @@ test("browser tools are advertised before the extension connects", async functio
   var coopControlServer = servers && servers["clay-coop-control"];
 
   assert.ok(browserServer);
-  assert.equal(browserServer.tools.length, 19);
+  assert.equal(browserServer.tools.length, 20);
   assert.ok(coopControlServer);
   assert.deepEqual(coopControlServer.tools.map(function (tool) { return tool.name; }),
     ["inspect_ledger_records", "link_owner_response", "reconcile_ledger_records"]);
@@ -289,10 +292,10 @@ test("Live UI bridge messages wait for the Clay WebSocket to reconnect", async f
   assert.equal(sent[1].event, "target.reconnect");
 });
 
-test("browser click preserves an extension evaluator error", async function () {
+test("browser click preserves a trusted-input extension error", async function () {
   var browserTools = getBrowserToolDefs(function (command) {
-    assert.equal(command, "tab_evaluate");
-    return Promise.resolve({ error: "CSP blocked tab_evaluate" });
+    assert.equal(command, "tab_click");
+    return Promise.resolve({ error: "Trusted click failed" });
   }, function () { return []; });
   var click = browserTools.find(function (tool) {
     return tool.name === "browser_click";
@@ -300,6 +303,93 @@ test("browser click preserves an extension evaluator error", async function () {
 
   await assert.rejects(
     click.handler({ tabId: 42, selector: "#voice-button" }),
-    /CSP blocked tab_evaluate/
+    /Trusted click failed/
   );
+});
+
+test("browser reconnect requests the extension through a connected Clay page", async function () {
+  var extension = attachProjectBrowserExtension({ sendTo: function () {} });
+  var sent = [];
+  var client = {
+    readyState: 1,
+    send: function (payload) {
+      sent.push(JSON.parse(payload));
+      extension.browserState._extensionWs = { readyState: 1 };
+    },
+  };
+  var localMcpServers = createProjectLocalMcpServers({
+    adapter: { createToolServer: function (config) { return config; } },
+    isMate: false,
+    isHostAgent: false,
+    slug: "test",
+    sm: {},
+    clients: new Set([client]),
+    browserState: extension.browserState,
+    sendExtensionCommandAny: extension.sendExtensionCommandAny,
+    loadContextSources: function () { return []; },
+    saveContextSources: function () {},
+    getAllProjectsWithSessions: function () { return []; },
+    pendingDebateProposals: {},
+    email: { createMcpDeps: function () { return {}; } },
+    mateDatastore: {},
+  });
+  var browserTools = localMcpServers.getLocalMcpServers()["clay-browser"].tools;
+  var reconnect = browserTools.find(function (tool) {
+    return tool.name === "browser_reconnect";
+  });
+
+  assert.ok(reconnect);
+  var result = await reconnect.handler({});
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, "extension_command");
+  assert.equal(sent[0].command, "extension_reconnect");
+  assert.match(result.content[0].text, /connected/i);
+});
+
+test("extension socket loss is logged and rejects pending browser commands immediately", async function () {
+  var sent = [];
+  var extension = attachProjectBrowserExtension({
+    sendTo: function (ws, message) { sent.push(message); },
+  });
+  var extensionWs = { readyState: 1 };
+  var logs = [];
+  var originalLog = console.log;
+  extension.browserState._extensionWs = extensionWs;
+  extension.browserState._browserTabList[42] = { id: 42 };
+  console.log = function () { logs.push(Array.prototype.join.call(arguments, " ")); };
+  var command = extension.sendExtensionCommandAny("tab_page_text", { tabId: 42 }, 5000);
+  try {
+    assert.equal(disconnectBrowserExtension(
+      extension.browserState, extensionWs, "clay_websocket", "socket closed\nunexpectedly"), true);
+    await assert.rejects(command, /Browser extension disconnected: socket closed unexpectedly/);
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(sent.length, 1);
+  assert.deepEqual(extension.browserState._browserTabList, {});
+  assert.deepEqual(extension.browserState.pendingExtensionRequests, {});
+  assert.ok(logs.some(function (line) {
+    return line.indexOf("state=disconnected source=clay_websocket") !== -1 &&
+      line.indexOf("reason=socket closed unexpectedly") !== -1;
+  }));
+});
+
+test("browser command timeout rejects with a diagnostic log", async function () {
+  var extension = attachProjectBrowserExtension({ sendTo: function () {} });
+  var warnings = [];
+  var originalWarn = console.warn;
+  extension.browserState._extensionWs = { readyState: 1 };
+  console.warn = function () { warnings.push(Array.prototype.join.call(arguments, " ")); };
+  try {
+    await assert.rejects(
+      extension.sendExtensionCommandAny("tab_page_text", { tabId: 42 }, 5),
+      /timed out: tab_page_text/
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.ok(warnings.some(function (line) {
+    return line.indexOf("command=tab_page_text state=timeout timeoutMs=5") !== -1;
+  }));
 });
