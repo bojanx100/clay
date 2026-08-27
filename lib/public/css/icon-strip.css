@@ -36,14 +36,17 @@
   position: absolute;
   width: 38px;
   height: 38px;
+  box-sizing: border-box;
   border-radius: 12px;
   background: var(--bg-alt);
-  transition: background 0.2s ease;
+  box-shadow: 0 1px 2px rgba(var(--shadow-rgb), 0.08);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
   z-index: -1;
 }
 
 .icon-strip-home:hover::before {
-  background: var(--accent);
+  background: var(--bg);
+  box-shadow: 0 2px 6px rgba(var(--shadow-rgb), 0.14);
 }
 
 .icon-strip-home .icon-strip-logo {
@@ -53,11 +56,12 @@
 }
 
 .icon-strip-home:hover .icon-strip-logo {
-  opacity: 0.8;
+  opacity: 1;
 }
 
 .icon-strip-home.active::before {
-  background: var(--accent);
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgba(var(--shadow-rgb), 0.14);
 }
 
 /* First separator aligns with title bar border (48px line) */
@@ -184,26 +188,32 @@
   position: absolute;
   width: 38px;
   height: 38px;
+  box-sizing: border-box;
   border-radius: 12px;
-  background: var(--bg-alt);
-  transition: background 0.2s ease;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(var(--shadow-rgb), 0.1);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
   z-index: -1;
 }
 
 .icon-strip-item:hover::before {
-  background: var(--accent);
+  background: var(--bg-alt);
+  box-shadow: 0 2px 6px rgba(var(--shadow-rgb), 0.14);
 }
 
 .icon-strip-item:hover {
-  color: #fff;
+  color: var(--text);
 }
 
 .icon-strip-item.active::before {
-  background: var(--accent);
+  background: var(--bg);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--link) 62%, var(--border)),
+    0 1px 3px rgba(var(--shadow-rgb), 0.16);
 }
 
 .icon-strip-item.active {
-  color: #fff;
+  color: var(--text);
 }
 
 /* --- Socket status indicator on icon (top-left dot) --- */
@@ -485,6 +495,8 @@
 .icon-strip-item .project-emoji {
   width: 22px;
   height: 22px;
+  position: relative;
+  z-index: 1;
   pointer-events: none;
 }
 
@@ -1229,22 +1241,25 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: var(--bg-alt);
-  opacity: 0.7;
-  transition: opacity 0.15s, background 0.15s;
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(var(--shadow-rgb), 0.1);
+  transition: background 0.15s, box-shadow 0.15s;
 }
 
 .icon-strip-wt-item:hover::before {
-  opacity: 1;
+  background: var(--bg-alt);
+  box-shadow: 0 2px 5px rgba(var(--shadow-rgb), 0.14);
 }
 
 .icon-strip-wt-item.active::before {
-  background: var(--accent);
-  opacity: 1;
+  background: var(--bg);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--link) 58%, var(--border)),
+    0 1px 3px rgba(var(--shadow-rgb), 0.16);
 }
 
 .icon-strip-wt-item.active {
-  color: #fff;
+  color: var(--text);
 }
 
 .icon-strip-wt-item .wt-branch-abbrev {

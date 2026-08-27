@@ -21,6 +21,12 @@
   border-color: var(--border);
 }
 
+#header-session-actions-btn:focus { outline: none; }
+#header-session-actions-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--link) 48%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--link) 18%, transparent);
+}
+
 #header-session-actions-btn.hidden { display: none; }
 #header-session-actions-btn .lucide { width: 16px; height: 16px; }
 
@@ -68,14 +74,14 @@
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: rgba(var(--overlay-rgb), 0.035);
-  color: var(--accent2);
+  color: color-mix(in srgb, var(--accent2) 38%, var(--text-secondary));
 }
 
 .session-actions-row-icon .lucide { width: 15px; height: 15px; }
 .session-actions-row-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .session-actions-row-copy strong { font-size: 12px; font-weight: 750; }
-.session-actions-row-copy > span { color: var(--text-dimmer); font-size: 10px; line-height: 1.25; }
-.session-actions-row-chevron { color: var(--text-dimmer); }
+.session-actions-row-copy > span { color: var(--text-muted); font-size: 11px; line-height: 1.35; }
+.session-actions-row-chevron { color: var(--text-muted); }
 .session-actions-row-chevron .lucide { width: 13px; height: 13px; }
 
 .handoff-modal { width: min(420px, calc(100vw - 32px)); }

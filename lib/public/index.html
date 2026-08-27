@@ -206,7 +206,7 @@
     <div id="sidebar-column">
       <div class="title-bar-sidebar">
         <button class="title-bar-project-dropdown" id="title-bar-project-dropdown">
-          <span class="title-bar-project-icon" id="title-bar-project-icon"></span>
+          <span class="title-bar-project-icon" id="title-bar-project-icon" aria-hidden="true"></span>
           <span class="title-bar-project-name" id="title-bar-project-name"></span>
           <i data-lucide="chevron-down" class="title-bar-chevron"></i>
         </button>
@@ -685,6 +685,10 @@
     <div class="file-viewer-header">
       <div class="file-viewer-tabbar">
         <div class="file-viewer-tabs" id="file-viewer-tabs" role="tablist"></div>
+        <div class="file-viewer-window-actions" aria-label="Document viewer controls">
+          <button class="file-viewer-btn" id="file-viewer-fullscreen" title="Toggle fullscreen" aria-label="Toggle document viewer fullscreen"><i data-lucide="maximize-2"></i></button>
+          <button class="file-viewer-btn" id="file-viewer-close" title="Close viewer" aria-label="Close document viewer"><i data-lucide="x"></i></button>
+        </div>
       </div>
       <div class="file-viewer-breadcrumbs">
         <div class="file-viewer-path" id="file-viewer-path" aria-label="Current file path"></div>
@@ -701,8 +705,6 @@
           <button class="file-viewer-btn" id="file-viewer-refresh" title="Refresh"><i data-lucide="refresh-cw"></i></button>
           <button class="file-viewer-btn" id="file-viewer-copy" title="Copy contents" aria-label="Copy contents"><i data-lucide="copy"></i></button>
           <button class="file-viewer-btn hidden" id="file-viewer-copy-formatted" title="Copy Markdown formatting" aria-label="Copy Markdown formatting"><i data-lucide="clipboard-copy"></i></button>
-          <button class="file-viewer-btn" id="file-viewer-fullscreen" title="Toggle fullscreen"><i data-lucide="maximize-2"></i></button>
-          <button class="file-viewer-btn" id="file-viewer-close" title="Close"><i data-lucide="x"></i></button>
         </div>
       </div>
     </div>
@@ -1212,9 +1214,6 @@
             <option value="notifications">Notifications</option>
             <option value="security">Security</option>
           </optgroup>
-          <optgroup label="Defaults">
-            <option value="models">Model</option>
-          </optgroup>
           <optgroup label="Config">
             <option value="claudemd">Instructions</option>
             <option value="environment">Environment</option>
@@ -1237,9 +1236,6 @@
           <button class="settings-nav-item active" data-section="overview"><span>Status</span></button>
           <button class="settings-nav-item" data-section="notifications"><span>Notifications</span></button>
           <button class="settings-nav-item" data-section="security"><span>Security</span></button>
-          <div class="settings-nav-separator"></div>
-          <div class="settings-nav-category">Defaults</div>
-          <button class="settings-nav-item" data-section="models"><span>Model</span></button>
           <div class="settings-nav-separator"></div>
           <div class="settings-nav-category">Config</div>
           <button class="settings-nav-item" data-section="claudemd"><span>Instructions</span></button>
@@ -1334,55 +1330,6 @@
             <div class="settings-field-row">
               <label class="settings-label">Project Slug</label>
               <span class="settings-value settings-mono" id="settings-project-slug">-</span>
-            </div>
-          </div>
-        </div>
-        <div class="server-settings-section" data-section="models">
-          <h2>Model</h2>
-          <p class="settings-hint" style="margin-bottom: 20px;">Configure which model to use and how Claude behaves during sessions.</p>
-          <div class="settings-card">
-            <div class="settings-field">
-              <label class="settings-label">Model</label>
-              <div class="settings-hint">Choose the Claude model to use. Larger models are slower but more capable.</div>
-              <div id="ss-model-list" class="settings-model-list"></div>
-            </div>
-          </div>
-          <div class="settings-card" id="ss-beta-card" style="display:none">
-            <div class="settings-field">
-              <label class="settings-label">Extended Context (Beta)</label>
-              <div class="settings-hint">Enable 1M token context window for Sonnet models. Allows processing much larger codebases and files, but may increase latency.</div>
-              <label class="settings-toggle-row ss-beta-toggle-row">
-                <div>
-                  <span class="settings-label">1M Context</span>
-                </div>
-                <input type="checkbox" id="ss-beta-1m">
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-          </div>
-          <div class="settings-card">
-            <div class="settings-field">
-              <label class="settings-label">Mode</label>
-              <div class="settings-hint">Controls how Claude handles tool use and file edits.</div>
-              <div id="ss-mode-list" class="settings-model-list"></div>
-            </div>
-          </div>
-          <div class="settings-card" id="ss-effort-card">
-            <div class="settings-field">
-              <label class="settings-label">Effort</label>
-              <div class="settings-hint">Controls how much thinking effort Claude puts into responses. Higher effort means longer, more thorough responses.</div>
-              <div class="settings-btn-group" id="ss-effort-bar"></div>
-            </div>
-          </div>
-          <div class="settings-card" id="ss-thinking-card">
-            <div class="settings-field">
-              <label class="settings-label">Thinking</label>
-              <div class="settings-hint">Controls whether Claude shows its reasoning process. Budget mode lets you set a token limit.</div>
-              <div class="settings-btn-group" id="ss-thinking-bar"></div>
-              <div id="ss-thinking-budget-row" class="settings-budget-row" style="display:none">
-                <label class="settings-budget-label">Budget tokens</label>
-                <input id="ss-thinking-budget" type="number" class="settings-budget-input" min="1024" max="128000" step="1024" value="10000">
-              </div>
             </div>
           </div>
         </div>
