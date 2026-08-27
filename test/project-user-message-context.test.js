@@ -100,7 +100,8 @@ test("canonical topic ingress rejects stale Thread refs and Main records a newly
     },
   });
   h.context.handleUserMessage({ _clayUser: { id: "owner" } }, {
-    type: "message", text: "must not be written",
+    type: "message", text: "must not be written", clientMessageId: "cm-stale-topic",
+    images: [{ mediaType: "image/png", data: "image-data" }], pastes: ["paste-data"],
     coopComposerScope: "topic",
     coopTopicRef: { topicId: "selected-topic" }, coopProjectRef: { projectId: "system-lead" },
   });
@@ -109,6 +110,19 @@ test("canonical topic ingress rejects stale Thread refs and Main records a newly
   });
   assert.equal(session.history.length, 0);
   assert.equal(h.sdkCalls.length, 0);
+  var failed = h.sent.find(function (message) { return message.type === "message_failed"; });
+  assert.deepEqual(failed, {
+    type: "message_failed", sessionId: 14, clientMessageId: "cm-stale-topic",
+    reason: "topic_closed", silent: true, recoverCoopMain: true,
+    coopThreadRef: null, coopTopicRef: { topicId: "selected-topic" },
+    coopProjectRef: { projectId: "system-lead" },
+    retryDraft: {
+      text: "must not be written",
+      images: [{ mediaType: "image/png", data: "image-data" }],
+      pastes: ["paste-data"],
+    },
+    text: "The selected Coop Thread is unavailable. Coop did not fall back to another conversation or project.",
+  });
   assert.equal(h.sent.some(function (message) { return message.type === "error"; }), true);
 
   seen = "not called";
