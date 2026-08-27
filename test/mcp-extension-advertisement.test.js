@@ -373,9 +373,10 @@ test("Live UI bridge messages wait for the Clay WebSocket to reconnect", async f
   assert.equal(sent[1].event, "target.reconnect");
 });
 
-test("browser click preserves a trusted-input extension error", async function () {
-  var browserTools = getBrowserToolDefs(function (command) {
+test("browser click preserves trusted-input errors and allows debugger latency", async function () {
+  var browserTools = getBrowserToolDefs(function (command, args, timeout) {
     assert.equal(command, "tab_click");
+    assert.equal(timeout, 10000);
     return Promise.resolve({ error: "Trusted click failed" });
   }, function () { return []; });
   var click = browserTools.find(function (tool) {
