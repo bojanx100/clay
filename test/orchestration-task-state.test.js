@@ -1,5 +1,6 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var approvalStaging = require("../lib/coop-approval-question-staging");
 var buildOrchestrationSessionGroups =
   require("../lib/orchestration-task-state").buildOrchestrationSessionGroups;
 var orchestrationGroupParentForClient =
@@ -42,6 +43,8 @@ test("task projection exposes stable orchestration identity separately from work
 
   assert.deepEqual(result, [{
     taskId: "task-stable",
+    clientRef: null,
+    approvalSet: null,
     title: "Review reconnect logic",
     objective: "Fix reconnect",
     acceptanceCriteria: "One reconnect",
@@ -71,6 +74,36 @@ test("task projection exposes stable orchestration identity separately from work
     createdAt: 100,
     updatedAt: 200,
   }]);
+});
+
+test("task projection preserves the exact staged approval scope", function () {
+  var scope = {
+    portfolioTaskId: "clay-fix-approval-popup-click-noop-20260827",
+    bindingRevision: 2,
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+  };
+  var approvalSet = {
+    setId: approvalStaging.setIdFor([scope]),
+    stagedAt: 100,
+    scopes: [scope],
+  };
+  var stagedInput = approvalStaging.stagedTaskInput(
+    scope,
+    approvalSet,
+    approvalStaging.questionFor([scope]),
+    "owner_implementation_decision_required"
+  );
+  var task = Object.assign({
+    taskId: "task-staged-popup-fix-r2",
+    status: "waiting_user",
+    createdAt: 100,
+    updatedAt: 100,
+  }, stagedInput);
+
+  var result = orchestrationTasksForClient({ orchestrationTasks: [task] })[0];
+
+  assert.equal(result.clientRef, approvalStaging.clientRefFor(scope));
+  assert.deepEqual(result.approvalSet, approvalSet);
 });
 
 test("retry attempts retain coordinator grouping with distinct attempt numbers", function () {

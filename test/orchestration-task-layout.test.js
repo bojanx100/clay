@@ -5,6 +5,8 @@ var path = require("node:path");
 var pathToFileURL = require("node:url").pathToFileURL;
 var approvalStaging = require("../lib/coop-approval-question-staging");
 var itemApproval = require("../lib/coop-item-approval");
+var orchestrationTasksForClient =
+  require("../lib/orchestration-task-state").orchestrationTasksForClient;
 
 function element(tag) {
   var node = {
@@ -139,7 +141,7 @@ test("chat worker preview keeps unfinished work and hides resolved-only groups",
   assert.equal(host.innerHTML, "");
 });
 
-test("clicking a staged approval submits one exact Main-scope owner decision", async function () {
+test("serialized staged approval clicks one exact Main-scope owner decision", async function () {
   var modulePath = path.join(
     __dirname, "../lib/public/modules/orchestration-task-preview.js"
   );
@@ -173,21 +175,42 @@ test("clicking a staged approval submits one exact Main-scope owner decision", a
     var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
     var scope = {
       portfolioTaskId: taskId,
-      bindingRevision: 1,
+      bindingRevision: 2,
       targetProject: { projectId: projectId },
     };
-    var task = {
-      taskId: "task-staged-popup-fix",
-      clientRef: approvalStaging.clientRefFor(scope),
-      title: "Approval: " + taskId + " revision 1",
-      status: "waiting_user",
-      userQuestion: approvalStaging.questionFor([scope]),
-      approvalSet: {
-        setId: approvalStaging.setIdFor([scope]),
-        stagedAt: 100,
-        scopes: [scope],
-      },
+    var approvalSet = {
+      setId: approvalStaging.setIdFor([scope]),
+      stagedAt: 100,
+      scopes: [scope],
     };
+    var stagedInput = approvalStaging.stagedTaskInput(
+      scope,
+      approvalSet,
+      approvalStaging.questionFor([scope]),
+      "owner_implementation_decision_required"
+    );
+    var serverTask = Object.assign({
+      taskId: "task-staged-popup-fix-r2",
+      status: "waiting_user",
+      createdAt: 100,
+      updatedAt: 100,
+    }, stagedInput);
+    var task = JSON.parse(JSON.stringify(
+      orchestrationTasksForClient({ orchestrationTasks: [serverTask] })[0]
+    ));
+    var mismatchedTask = JSON.parse(JSON.stringify(orchestrationTasksForClient({
+      orchestrationTasks: [Object.assign({}, serverTask, {
+        clientRef: "portfolio:other-task:2",
+      })],
+    })[0]));
+    var mismatchedHost = element("div");
+    preview.renderOrchestrationTaskPreview(
+      mismatchedHost,
+      [mismatchedTask],
+      { phase: "waiting_user" }
+    );
+    assert.equal(byClass(mismatchedHost, "orchestration-task-approve").length, 0,
+      "a serialized clientRef outside the staged scope remains fail-closed");
     var host = element("div");
     preview.renderOrchestrationTaskPreview(host, [task], { phase: "waiting_user" });
     var approve = byClass(host, "orchestration-task-approve")[0];
@@ -199,7 +222,7 @@ test("clicking a staged approval submits one exact Main-scope owner decision", a
     assert.equal(sent.length, 1, "a double click submits exactly one owner message");
     assert.deepEqual(sent[0], {
       type: "message",
-      text: "Approve " + taskId + " revision 1 implementation for ProjectRef " + projectId,
+      text: "Approve " + taskId + " revision 2 implementation for ProjectRef " + projectId,
       clientMessageId: sent[0].clientMessageId,
       intent: "chat",
       sessionId: 77,
@@ -208,6 +231,8 @@ test("clicking a staged approval submits one exact Main-scope owner decision", a
     assert.match(sent[0].clientMessageId, /^cm-/);
     assert.equal(approve.disabled, true);
     assert.equal(approve.textContent, "Approval sent");
+    assert.equal(byClass(host, "orchestration-task-approve").length, 1,
+      "a successful socket write keeps the staged control until server confirmation");
     var discovered = itemApproval.approvalEventForTask([{
       type: "user_message",
       text: sent[0].text,
@@ -217,8 +242,8 @@ test("clicking a staged approval submits one exact Main-scope owner decision", a
     }], scope, [{
       type: "cutover_attention",
       portfolioTaskId: taskId,
-      bindingRevision: 1,
-      attentionKey: taskId + ":1",
+      bindingRevision: 2,
+      attentionKey: taskId + ":2",
       at: 100,
     }]);
     assert.equal(discovered.event.coopIngressId, "coop:popup-click:1",
@@ -233,6 +258,28 @@ test("clicking a staged approval submits one exact Main-scope owner decision", a
     assert.match(byClass(retryHost, "orchestration-task-approval-error")[0].textContent,
       /not connected/i);
     assert.equal(sent.length, 1, "a disconnected click sends no decision");
+
+    wsModule.setWs({
+      readyState: 1,
+      send: function (raw) { sent.push(JSON.parse(raw)); },
+    });
+    retry.click();
+    retry.click();
+    assert.equal(sent.length, 2, "the same control retries once after transport recovery");
+    assert.equal(sent[1].text,
+      "Approve " + taskId + " revision 2 implementation for ProjectRef " + projectId);
+    assert.equal(retry.disabled, true);
+    assert.equal(byClass(retryHost, "orchestration-task-approval-error")[0].textContent, "");
+
+    var completedTask = JSON.parse(JSON.stringify(orchestrationTasksForClient({
+      orchestrationTasks: [Object.assign({}, serverTask, {
+        status: "completed",
+        updatedAt: 200,
+      })],
+    })[0]));
+    preview.renderOrchestrationTaskPreview(host, [completedTask], { phase: "complete" });
+    assert.equal(byClass(host, "orchestration-task-approve").length, 0,
+      "authoritative completion removes the staged control");
   } finally {
     wsModule.setWs(null);
     globalThis.document = previousDocument;
