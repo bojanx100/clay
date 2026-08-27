@@ -389,6 +389,35 @@ test("browser click preserves trusted-input errors and allows debugger latency",
   );
 });
 
+test("browser open reports the extension tabId", async function () {
+  var browserTools = getBrowserToolDefs(function (command) {
+    assert.equal(command, "tab_open");
+    return Promise.resolve({ tabId: 73 });
+  }, function () { return []; });
+  var open = browserTools.find(function (tool) {
+    return tool.name === "browser_open";
+  });
+
+  var result = await open.handler({ url: "https://example.com", active: false });
+  assert.match(result.content[0].text, /Opened tab 73/);
+});
+
+test("browser screenshot preserves the extension failure reason", async function () {
+  var browserTools = getBrowserToolDefs(function (command, args, timeout) {
+    assert.equal(command, "tab_screenshot");
+    assert.equal(timeout, 10000);
+    return Promise.resolve({ error: "No tab with given id 42" });
+  }, function () { return []; });
+  var screenshot = browserTools.find(function (tool) {
+    return tool.name === "browser_screenshot";
+  });
+
+  await assert.rejects(
+    screenshot.handler({ tabId: 42 }),
+    /No tab with given id 42/
+  );
+});
+
 test("browser reconnect requests the extension through a connected Clay page", async function () {
   var extension = attachProjectBrowserExtension({ sendTo: function () {} });
   var sent = [];
