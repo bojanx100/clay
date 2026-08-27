@@ -30,7 +30,7 @@
   padding: 2px 10px;
   font-family: inherit;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--font-weight-ui);
   cursor: pointer;
   white-space: nowrap;
   line-height: 1;
@@ -252,7 +252,7 @@
 .title-bar-project-name {
   font-family: "Pretendard", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 17px;
-  font-weight: 800;
+  font-weight: var(--font-weight-heading);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -276,7 +276,7 @@
   width: 100%;
   font-family: "Pretendard", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 17px;
-  font-weight: 800;
+  font-weight: var(--font-weight-heading);
   color: var(--text);
   background: var(--bg-alt);
   border: 1px solid var(--accent);

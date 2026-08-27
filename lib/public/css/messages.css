@@ -393,6 +393,7 @@
 
 .md-content {
   font-size: 15px;
+  font-weight: var(--font-weight-body);
   line-height: 1.7;
   word-break: break-word;
   color: var(--text);
@@ -477,7 +478,7 @@ pre:hover .code-copy-btn { opacity: 1; }
   border-radius: 0;
 }
 
-.md-content strong { font-weight: 600; }
+.md-content strong { font-weight: var(--font-weight-heading); }
 .md-content em { font-style: italic; font-synthesis: style; }
 
 .md-content a {
@@ -1728,7 +1729,7 @@ pre.mermaid-error {
 }
 
 .dm-msg-name {
-  font-weight: 700;
+  font-weight: var(--font-weight-heading);
   font-size: 15px;
   color: var(--text);
 }
@@ -1859,7 +1860,7 @@ pre.mermaid-error {
 
 .dm-header-name {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: var(--font-weight-heading);
   color: #fff;
   white-space: nowrap;
   overflow: hidden;

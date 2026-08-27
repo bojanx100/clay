@@ -95,6 +95,10 @@ img.emoji {
   --brand-paper: #f2f2ef;
   --brand-indigo: #5857fc;
   --brand-green: #07e5a3;
+  --font-weight-body: 400;
+  --font-weight-ui: 500;
+  --font-weight-heading: 600;
+  --font-weight-emphasis: 700;
   --bg: #171715;
   --bg-alt: #20201d;
   --text: #e8e8e2;
@@ -248,6 +252,7 @@ html, body {
   color: var(--text);
   font-family: "Pretendard", "Twemoji", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 15px;
+  font-weight: var(--font-weight-body);
   line-height: 1.6;
   overflow: hidden;
   overscroll-behavior: none;

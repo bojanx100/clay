@@ -59,7 +59,7 @@
 
 .us-modal-title {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: var(--font-weight-heading);
   color: var(--text);
   letter-spacing: 0.01em;
 }
@@ -196,7 +196,7 @@
 .us-section h2 {
   margin: 0 0 14px;
   font-size: 18px;
-  font-weight: 700;
+  font-weight: var(--font-weight-heading);
   color: var(--text);
   letter-spacing: -0.01em;
 }
@@ -204,7 +204,7 @@
 .us-section h3 {
   margin: 22px 0 10px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--font-weight-heading);
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -249,7 +249,7 @@
 #user-settings .theme-picker-header {
   padding: 0 2px 8px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--font-weight-heading);
   color: var(--text-dimmer);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -384,7 +384,7 @@
 
 #user-settings .us-account-name {
   font-size: 17px;
-  font-weight: 700;
+  font-weight: var(--font-weight-heading);
   color: var(--text);
   line-height: 1.2;
   letter-spacing: -0.01em;
@@ -439,7 +439,7 @@
   display: block;
   margin-bottom: 4px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--font-weight-ui);
   color: var(--text-secondary);
 }
 
@@ -620,7 +620,7 @@
   background: var(--accent);
   color: #fff;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--font-weight-ui);
   cursor: pointer;
 }
 
@@ -682,7 +682,7 @@
 #user-settings .settings-pin-form-title {
   margin-bottom: 8px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--font-weight-heading);
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -775,7 +775,7 @@
 
 #user-settings .layout-option-label {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--font-weight-heading);
   color: var(--text);
 }
 
