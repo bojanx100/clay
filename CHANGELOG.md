@@ -1,3 +1,10 @@
+## [3.5.1](https://github.com/chadbyte/clay/compare/v3.5.0...v3.5.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* **session:** persist active Worker identity immediately ([15d8996](https://github.com/chadbyte/clay/commit/15d8996b9c4bb665761a28c055d07f958bbe52f9))
+
 ## [3.5.1-beta.1](https://github.com/chadbyte/clay/compare/v3.5.0...v3.5.1-beta.1) (2026-08-27)
 
 
