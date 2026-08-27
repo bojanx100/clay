@@ -171,6 +171,11 @@ back to a 13ms median on the current boot (see the verified-live section). Close
 measurement rather than assumption; if it returns, the `matchesRecoveredRoute` hypothesis
 recorded there is the first thing to check.
 
+> **RETRACTED 2026-08-27:** the observation was accurate for that boot, but the
+> “resolved” conclusion did not hold. Later canaries showed repeated synchronous
+> full-transcript rewrites up to 10.1 s. The repair targets that remaining path;
+> `matchesRecoveredRoute` is not the primary recurrence hypothesis.
+
 **A provider failover storm** worth its own look: ~20 consecutive
 `provider_failover_budget_exhausted` entries between 18:22 and 18:32 CEST on session 490
 (claude → claude, fable tier). After the rev2 dispatch and on a different session and

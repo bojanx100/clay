@@ -1116,6 +1116,46 @@ test("light session saves write immediately each time", function () {
   }
 });
 
+test("append-only activity saves avoid a full rewrite and recover on restart", async function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h, "append-only-save");
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "append-only-save" });
+    session.title = "Append-only session";
+    h.sm.saveSessionFile(session, { durable: true });
+    var savedActivity = readSessionMeta(h, "append-only-save").lastActivity;
+
+    await wait(10);
+    var event = { type: "user_message", text: "already appended" };
+    h.sm.sendAndRecord(session, event);
+    assert.ok(event._ts > savedActivity, "the appended event is newer than line-one metadata");
+
+    assert.strictEqual(h.sm.saveSessionFile(session, { durable: true }), true);
+    assert.strictEqual(counter.writes.length, 1,
+      "the save must reuse the already-appended transcript rather than rewrite it");
+    assert.strictEqual(readSessionMeta(h, "append-only-save").lastActivity, savedActivity,
+      "only append-driven activity changed, so line-one metadata was not rewritten");
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = [...restored.sessions.values()].find(function (candidate) {
+      return candidate.storageId === "append-only-save";
+    });
+    assert.ok(restoredSession, "the session is still discoverable after restart");
+    assert.ok(restoredSession.history.some(function (item) {
+      return item && item.text === "already appended";
+    }), "the appended event survived without a rewrite");
+    assert.ok(restoredSession.lastActivity >= event._ts,
+      "restart takes the newer durable event timestamp over stale line-one activity");
+  } finally {
+    counter.restore();
+    h.cleanup();
+  }
+});
+
 test("large session saves write bounded chunks instead of one whole-history payload", function () {
   var h = makeSessionHarness();
   var originalWriteFileSync = fs.writeFileSync;

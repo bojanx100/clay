@@ -29,6 +29,7 @@ function makeLedger(options) {
   var clock = { value: opts.start || 1000 };
   var ledger = ownerRequests.attachCoopOwnerRequests({
     file: opts.file || tempFile(),
+    fs: opts.fs,
     now: function () { return clock.value; },
   });
   ledger._clock = clock;
@@ -79,6 +80,49 @@ test("recording the same ingress twice is idempotent and never resets an answer"
   var again = ledger.record(ingress(182));
   assert.equal(again.response.state, "answered");
   assert.equal(ledger.list().length, 1);
+});
+
+test("read-only owner-request projections reuse the unchanged file and reload a real external update", function () {
+  var file = tempFile();
+  var reads = 0;
+  var cachedFs = {
+    readFileSync: function () { reads++; return fs.readFileSync.apply(fs, arguments); },
+    statSync: fs.statSync,
+    existsSync: fs.existsSync,
+    lstatSync: fs.lstatSync,
+    renameSync: fs.renameSync,
+    mkdirSync: fs.mkdirSync,
+    writeFileSync: fs.writeFileSync,
+    unlinkSync: fs.unlinkSync,
+  };
+  var cached = makeLedger({ file: file, fs: cachedFs });
+  cached.record(ingress(182));
+  reads = 0;
+
+  assert.equal(cached.get("coop:" + COOP_SESSION + ":182").ingressSequence, 182);
+  assert.equal(cached.unanswered().length, 1);
+  assert.equal(reads, 0, "unchanged read projections use the cached parsed ledger");
+
+  var external = makeLedger({ file: file });
+  external.record(ingress(183));
+
+  assert.equal(cached.get("coop:" + COOP_SESSION + ":183").ingressSequence, 183,
+    "the actual external write invalidates the cache and is visible to this reader");
+  assert.ok(reads > 0, "the changed size/mtime caused one real ledger reload");
+});
+
+test("a live Coop ledger lock fails fast instead of blocking the daemon event loop", function () {
+  var file = tempFile();
+  fs.writeFileSync(file + ".lock", JSON.stringify({ token: "other", pid: process.pid }) + "\n");
+  var ledger = makeLedger({ file: file });
+  var started = Date.now();
+  try {
+    assert.equal(ledger.record(ingress(182)), null);
+    assert.ok(Date.now() - started < 500,
+      "contention must return through the persistence-failure path, not sleep for seconds");
+  } finally {
+    try { fs.unlinkSync(file + ".lock"); } catch (error) {}
+  }
 });
 
 test("two live ledger instances preserve disjoint owner-request mutations", function () {

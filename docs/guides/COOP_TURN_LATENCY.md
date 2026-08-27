@@ -238,9 +238,11 @@ append **0.022ms**, in-place padded-meta `pwrite` **0.934ms**.
 
 Verdict: **viable with caveats**, in two increments.
 
-- **First, no format change:** skip the rewrite when the serialized meta is
-  unchanged (normalizing `lastActivity` out) and no mutation flag is set — the
-  appends have already made the file correct.
+- **Implemented 2026-08-27, no format change:** skip the rewrite when the
+  serialized meta is unchanged (normalizing `lastActivity` out), the append
+  high-water mark matches the in-memory history, and no mutation flag is set.
+  The loader takes a newer durable event timestamp over stale line-one activity
+  on restart; actual transcript mutations still take the atomic full rewrite.
 - **Then, if warranted:** a fixed-width padded meta block written in place with
   `pwrite`. `JSON.parse` tolerates trailing whitespace, so the loader needs no
   change; an 8KB floor costs 15MB across the whole store.
@@ -256,10 +258,16 @@ threshold is 200ms, and a typical save on this file is ~110ms, so 6-12 saves per
 turn means roughly **0.7-1.3s of blocking per turn that never appears in the diag
 log at all**.
 
-This work is **proposed, not done**. Nothing in this document's measured wins
-touches it — the Lead-tick numbers above are real, and they are not this.
+> **RETRACTED 2026-08-27:** “This work is **proposed, not done**.” The first,
+> no-format-change increment is implemented in `sessions-persistence.js` with
+> regression and restart-recovery coverage. It still needs a deployed-canary
+> observation; the padded-meta second increment remains unimplemented.
 
-Two smaller items from the same investigation, also unfixed:
+> **RETRACTED 2026-08-27:** the two smaller items below were also described as
+> unfixed. Owner-request reads now reuse a parsed state only while file size and
+> mtime match (mutations still force a fresh locked read), and a live ledger
+> lock now fails through the typed persistence path instead of sleeping on the
+> daemon event loop.
 
 - `coop-owner-requests.js:136` `read()` calls `refresh()` unconditionally and has
   **no cache at all** (contrast `coop-topic-index-store.js:86`, which at least
