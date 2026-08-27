@@ -685,7 +685,14 @@
     <div class="file-viewer-header">
       <div class="file-viewer-tabbar">
         <div class="file-viewer-tabs" id="file-viewer-tabs" role="tablist"></div>
-        <div class="file-viewer-toolbar" aria-label="Editor actions">
+      </div>
+      <div class="file-viewer-breadcrumbs">
+        <div class="file-viewer-path" id="file-viewer-path" aria-label="Current file path"></div>
+        <span class="file-viewer-live-status hidden" id="file-viewer-live-status" aria-live="polite">
+          <span class="file-viewer-live-dot"></span>
+          <span class="file-viewer-live-label">Editing</span>
+        </span>
+        <div class="file-viewer-toolbar" aria-label="Current file actions">
           <button class="file-viewer-btn hidden" id="file-viewer-render" title="Toggle rendered view"><i data-lucide="book-open"></i></button>
           <button class="file-viewer-btn hidden" id="file-viewer-pdf" title="Export PDF"><i data-lucide="file-down"></i></button>
           <button class="file-viewer-btn hidden" id="file-viewer-slides" title="Present as slides" aria-label="Present Markdown as slides" aria-pressed="false"><i data-lucide="presentation"></i></button>
@@ -697,13 +704,6 @@
           <button class="file-viewer-btn" id="file-viewer-fullscreen" title="Toggle fullscreen"><i data-lucide="maximize-2"></i></button>
           <button class="file-viewer-btn" id="file-viewer-close" title="Close"><i data-lucide="x"></i></button>
         </div>
-      </div>
-      <div class="file-viewer-breadcrumbs">
-        <div class="file-viewer-path" id="file-viewer-path" aria-label="Current file path"></div>
-        <span class="file-viewer-live-status hidden" id="file-viewer-live-status" aria-live="polite">
-          <span class="file-viewer-live-dot"></span>
-          <span class="file-viewer-live-label">Editing</span>
-        </span>
       </div>
     </div>
     <div class="file-viewer-body" id="file-viewer-body"></div>

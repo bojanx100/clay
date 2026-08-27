@@ -1039,17 +1039,16 @@
   align-items: center;
   flex: 0 0 auto;
   gap: 1px;
-  padding: 0 6px;
-  background: var(--bg-deep);
-  border-left: 1px solid var(--border-subtle);
+  margin-left: auto;
+  padding: 0 0 0 8px;
 }
 
 .file-viewer-breadcrumbs {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 34px;
+  padding: 0 6px 0 10px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg);
 }

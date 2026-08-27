@@ -31,9 +31,10 @@ test("file tree clicks preview files while double clicks pin them", function() {
 test("document viewer uses an editor tab strip with a separate breadcrumb row", function() {
   var html = fs.readFileSync(path.join(__dirname, "../lib/public/index.html"), "utf8");
   var css = fs.readFileSync(path.join(__dirname, "../lib/public/css/filebrowser.css"), "utf8");
-  assert.match(html, /file-viewer-tabbar[\s\S]*file-viewer-toolbar[\s\S]*file-viewer-breadcrumbs/);
+  assert.match(html, /file-viewer-tabbar[\s\S]*file-viewer-breadcrumbs[\s\S]*file-viewer-path[\s\S]*file-viewer-toolbar/);
   assert.match(css, /\.file-viewer-tab\.active::before\s*\{[^}]*var\(--accent\)/s);
   assert.match(css, /\.file-viewer-breadcrumbs\s*\{/);
+  assert.match(css, /\.file-viewer-toolbar\s*\{[^}]*margin-left:\s*auto/s);
 });
 
 test("document viewer renders SVG files safely with a source toggle", function() {
