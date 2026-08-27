@@ -1694,6 +1694,28 @@
   border: 1px solid var(--border-subtle);
 }
 
+.file-viewer-svg-preview {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: clamp(24px, 5vw, 56px);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(45deg, var(--bg-alt) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--bg-alt) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--bg-alt) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--bg-alt) 75%);
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  background-size: 20px 20px;
+}
+
+.file-viewer-svg-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100dvh - 150px);
+  filter: drop-shadow(0 8px 24px rgba(var(--shadow-rgb), 0.18));
+}
+
 /* --- Web Terminal --- */
 
 /* Terminal header with tabs */

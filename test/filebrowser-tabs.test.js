@@ -36,6 +36,15 @@ test("document viewer uses an editor tab strip with a separate breadcrumb row", 
   assert.match(css, /\.file-viewer-breadcrumbs\s*\{/);
 });
 
+test("document viewer renders SVG files safely with a source toggle", function() {
+  var source = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser.js"), "utf8");
+  var css = fs.readFileSync(path.join(__dirname, "../lib/public/css/filebrowser.css"), "utf8");
+  assert.match(source, /currentIsSvg = ext === "svg"/);
+  assert.match(source, /image\.src = "api\/file\?path=" \+ encodeURIComponent\(currentFilePath\)/);
+  assert.doesNotMatch(source, /file-viewer-svg-preview[^\n]*currentContent/);
+  assert.match(css, /\.file-viewer-svg-preview\s*\{/);
+});
+
 test("document viewer docks on the right side of the workspace", function() {
   var browser = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser.js"), "utf8");
   var css = fs.readFileSync(path.join(__dirname, "../lib/public/css/filebrowser.css"), "utf8");
