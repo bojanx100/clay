@@ -22,6 +22,20 @@ test("document viewer reset clears every tab before full teardown", function() {
   assert.match(reset, /teardownFileViewer\(\);/);
 });
 
+test("file tree clicks preview files while double clicks pin them", function() {
+  var source = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser.js"), "utf8");
+  assert.strictEqual((source.match(/previewFileViewerTab\(filePath\)/g) || []).length, 2);
+  assert.strictEqual((source.match(/rowEl\.addEventListener\("dblclick"/g) || []).length, 2);
+});
+
+test("document viewer uses an editor tab strip with a separate breadcrumb row", function() {
+  var html = fs.readFileSync(path.join(__dirname, "../lib/public/index.html"), "utf8");
+  var css = fs.readFileSync(path.join(__dirname, "../lib/public/css/filebrowser.css"), "utf8");
+  assert.match(html, /file-viewer-tabbar[\s\S]*file-viewer-toolbar[\s\S]*file-viewer-breadcrumbs/);
+  assert.match(css, /\.file-viewer-tab\.active::before\s*\{[^}]*var\(--accent\)/s);
+  assert.match(css, /\.file-viewer-breadcrumbs\s*\{/);
+});
+
 test("document viewer docks on the right side of the workspace", function() {
   var browser = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser.js"), "utf8");
   var css = fs.readFileSync(path.join(__dirname, "../lib/public/css/filebrowser.css"), "utf8");
@@ -47,6 +61,7 @@ test("document viewer tabs execute focus and close click handlers", async functi
       classList: { add: function() {}, remove: function() {}, toggle: function() {} },
       appendChild: function(child) { this.children.push(child); },
       addEventListener: function(type, handler) { this.handlers[type] = handler; },
+      setAttribute: function() {},
     };
     Object.defineProperty(node, "innerHTML", {
       get: function() { return ""; },
@@ -73,11 +88,50 @@ test("document viewer tabs execute focus and close click handlers", async functi
   assert.strictEqual(tabs.focusedFileViewerTab(), "one.md");
   root.children[0].handlers.click({ stopPropagation: function() {} });
   assert.strictEqual(focused[0], "one.md");
-  root.children[0].children[0].handlers.click({ stopPropagation: function() {} });
+  root.children[0].children[2].handlers.click({ stopPropagation: function() {} });
   assert.strictEqual(root.children.length, 1);
   assert.strictEqual(tabs.focusedFileViewerTab(), "two.md");
   assert.strictEqual(focused[1], "two.md");
   tabs.closeFileViewerTab("two.md");
   assert.strictEqual(emptied, 1);
+  delete global.document;
+});
+
+test("document viewer reuses one preview tab until the file is explicitly opened", async function() {
+  function element() {
+    var node = {
+      children: [], handlers: {},
+      appendChild: function(child) { this.children.push(child); },
+      addEventListener: function(type, handler) { this.handlers[type] = handler; },
+      setAttribute: function() {},
+    };
+    Object.defineProperty(node, "innerHTML", {
+      get: function() { return ""; },
+      set: function() { node.children = []; },
+    });
+    return node;
+  }
+  var root = element();
+  global.document = {
+    getElementById: function(id) { return id === "file-viewer-tabs" ? root : null; },
+    createElement: element,
+  };
+  var moduleUrl = "file://" + path.join(__dirname, "../lib/public/modules/filebrowser-tabs.js") + "?preview=" + Date.now();
+  var tabs = await import(moduleUrl);
+  tabs.initFileViewerTabs({});
+  tabs.previewFileViewerTab("one.md");
+  tabs.previewFileViewerTab("two.md");
+  assert.strictEqual(root.children.length, 1);
+  assert.strictEqual(tabs.focusedFileViewerTab(), "two.md");
+  tabs.openFileViewerTab("two.md");
+  tabs.previewFileViewerTab("three.md");
+  assert.strictEqual(root.children.length, 2);
+  tabs.previewFileViewerTab("four.md");
+  assert.strictEqual(root.children.length, 2);
+  assert.strictEqual(tabs.focusedFileViewerTab(), "four.md");
+  tabs.updateFileViewerTab("four.md", { content: "updated" });
+  assert.strictEqual(root.children.length, 2);
+  assert.strictEqual(tabs.updateFileViewerTab("stale.md", { content: "late" }), false);
+  assert.strictEqual(root.children.length, 2);
   delete global.document;
 });

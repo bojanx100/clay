@@ -1002,31 +1002,73 @@
 }
 
 .file-viewer-header {
+  display: block;
+  padding: 0;
+  flex-shrink: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.file-viewer-tabbar {
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  min-width: 0;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.file-viewer-tabs { display: flex; min-width: 0; flex: 1; overflow-x: auto; overflow-y: hidden; gap: 0; scrollbar-width: none; }
+.file-viewer-tabs::-webkit-scrollbar { display: none; }
+.file-viewer-tab { position: relative; display: inline-flex; align-items: center; flex: 0 0 auto; gap: 7px; min-width: 108px; max-width: 190px; height: 36px; overflow: hidden; white-space: nowrap; border: 0; border-right: 1px solid var(--border-subtle); border-radius: 0; padding: 0 8px 0 10px; background: var(--bg-alt); color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.file-viewer-tab::before { content: ""; position: absolute; inset: 0 0 auto; height: 1px; background: transparent; }
+.file-viewer-tab:hover { background: var(--bg-hover); color: var(--text); }
+.file-viewer-tab.active { background: var(--bg); color: var(--text); }
+.file-viewer-tab.active::before { background: var(--accent); }
+.file-viewer-tab.preview .file-viewer-tab-label { font-style: italic; }
+.file-viewer-tab-icon { display: inline-flex; width: 16px; height: 16px; flex: 0 0 16px; }
+.file-viewer-tab-icon:empty { display: none; }
+.file-viewer-tab-icon svg { width: 16px; height: 16px; }
+.file-viewer-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.file-viewer-tab-close { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: auto; border-radius: 4px; flex: 0 0 18px; color: var(--text-muted); font-size: 16px; font-style: normal; line-height: 1; opacity: 0; }
+.file-viewer-tab:hover .file-viewer-tab-close, .file-viewer-tab.active .file-viewer-tab-close { opacity: 1; }
+.file-viewer-tab-close:hover { background: var(--bg-hover); color: var(--text); }
+
+.file-viewer-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-  min-height: 44px;
+  flex: 0 0 auto;
+  gap: 1px;
+  padding: 0 6px;
+  background: var(--bg-deep);
+  border-left: 1px solid var(--border-subtle);
 }
 
-.file-viewer-tabs { display: flex; min-width: 0; flex: 1; overflow-x: auto; gap: 2px; }
-.file-viewer-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; border-radius: 5px; padding: 4px 7px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
-.file-viewer-tab.active { background: var(--sidebar-hover); color: var(--text); }
-.file-viewer-tab-close { font-size: 16px; line-height: 12px; color: var(--text-muted); }
+.file-viewer-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg);
+}
 
 .file-viewer-path {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
   flex: 1;
-  font-family: "Roboto Mono", monospace;
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text-muted);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
 }
+
+.file-viewer-path-segment { flex: 0 0 auto; }
+.file-viewer-path-segment.current { color: var(--text-secondary); }
+.file-viewer-path-separator { color: var(--text-dimmer); font-size: 15px; line-height: 1; }
 
 .file-viewer-btn {
   display: flex;
@@ -1179,10 +1221,10 @@
   color: var(--text);
 }
 
-#file-viewer.panel-fullscreen .file-viewer-header {
-  padding-left: clamp(18px, 3vw, 48px);
-  padding-right: clamp(18px, 3vw, 48px);
-  background: var(--bg);
+#file-viewer.panel-fullscreen .file-viewer-breadcrumbs { padding-left: clamp(18px, 3vw, 48px); padding-right: clamp(18px, 3vw, 48px); }
+
+@media (hover: none) {
+  .file-viewer-tab-close { opacity: 1; }
 }
 
 #file-viewer.panel-fullscreen .file-viewer-body {
