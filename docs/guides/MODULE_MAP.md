@@ -111,7 +111,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 
 | Module | Concern |
 |--------|---------|
-| `project-browser-extension.js` | Browser extension auth token, shared tab state, command dispatch, and tab context request helpers |
+| `project-browser-extension.js` | Browser extension auth token, daemon-shared tab/connection state, command dispatch, and tab context request helpers |
 | `server-live-ui-registry.js` | Server-instance Live UI pairing identities, proof, reconnect credentials, deduplication, isolation, and revocation |
 | `server-lead.js` | Permanent Coop pseudo-project registration, designated-owner resolution, managed no-local-execution directive, and immutable legacy Lead reference/supersession helpers |
 | `lead-mode.js` | Server-authoritative Coop Lead mode: one-time owner-preference migration, designated Clay-owner mutation authority, durable audit trail, and cross-project state fanout; it gates autonomous powers, not Coop persistence |

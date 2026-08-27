@@ -4,6 +4,8 @@ var fs = require("node:fs");
 var path = require("node:path");
 var attachProjectBrowserExtension =
   require("../lib/project-browser-extension").attachProjectBrowserExtension;
+var createBrowserExtensionState =
+  require("../lib/project-browser-extension").createBrowserExtensionState;
 var disconnectBrowserExtension =
   require("../lib/project-browser-extension").disconnectBrowserExtension;
 var attachUserMessage =
@@ -240,6 +242,83 @@ test("browser tools are advertised before the extension connects", async functio
     readPage.handler({ tabId: 42 }),
     /Browser extension not connected/
   );
+});
+
+test("browser tools use the daemon bridge connected through another project", async function () {
+  var daemonBrowserState = createBrowserExtensionState();
+  var projectPage = attachProjectBrowserExtension({
+    browserState: daemonBrowserState,
+    sendTo: function () {},
+  });
+  var agentProject = attachProjectBrowserExtension({
+    browserState: daemonBrowserState,
+    sendTo: function () {},
+  });
+  var extensionWs = { readyState: 1 };
+  var userMessage = attachUserMessage({
+    cwd: process.cwd(),
+    slug: "visible-project",
+    isMate: false,
+    osUsers: false,
+    sm: {},
+    sdk: {},
+    nm: {},
+    tm: {},
+    send: function () {},
+    sendTo: function () {},
+    sendToSession: function () {},
+    sendToSessionOthers: function () {},
+    clients: new Set(),
+    opts: {},
+    usersModule: {},
+    matesModule: {},
+    getSessionForWs: function () { return null; },
+    getLinuxUserForSession: function () { return null; },
+    ensureProjectAccessForSession: function () {},
+    getOsUserInfoForWs: function () { return null; },
+    hydrateImageRefs: function (item) { return item; },
+    saveImageFile: function () { return null; },
+    imagesDir: process.cwd(),
+    onProcessingChanged: function () {},
+    _loop: { handleLoopMessage: function () { return false; } },
+    browserState: projectPage.browserState,
+    sendExtensionCommandAny: projectPage.sendExtensionCommandAny,
+    requestTabContext: projectPage.requestTabContext,
+    scheduleMessage: function () {},
+    cancelScheduledMessage: function () {},
+    loadContextSources: function () { return []; },
+    saveContextSources: function () {},
+    adapter: { createToolServer: function (config) { return config; } },
+  });
+
+  userMessage.handleUserMessage(extensionWs, {
+    type: "browser_tab_list",
+    tabs: [{ id: 73, title: "Connected through another project" }],
+    extensionId: "extension-1",
+  });
+
+  var localMcpServers = createProjectLocalMcpServers({
+    adapter: { createToolServer: function (config) { return config; } },
+    isMate: false,
+    isHostAgent: false,
+    slug: "agent-project",
+    sm: {},
+    clients: new Set(),
+    browserState: agentProject.browserState,
+    sendExtensionCommandAny: agentProject.sendExtensionCommandAny,
+    loadContextSources: function () { return []; },
+    saveContextSources: function () {},
+    getAllProjectsWithSessions: function () { return []; },
+    pendingDebateProposals: {},
+    email: { createMcpDeps: function () { return {}; } },
+    mateDatastore: {},
+  });
+  var listTabs = localMcpServers.getLocalMcpServers()["clay-browser"].tools.find(
+    function (tool) { return tool.name === "browser_list_tabs"; });
+  var result = await listTabs.handler({});
+
+  assert.equal(agentProject.browserState, projectPage.browserState);
+  assert.match(result.content[0].text, /Connected through another project/);
 });
 
 test("cached MCP advertisement sends once when the WebSocket reconnects", async function () {
