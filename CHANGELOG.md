@@ -1,3 +1,11 @@
+# [3.6.0-beta.2](https://github.com/chadbyte/clay/compare/v3.6.0-beta.1...v3.6.0-beta.2) (2026-08-27)
+
+
+### Features
+
+* **brand:** establish Clay Studio identity ([73fd417](https://github.com/chadbyte/clay/commit/73fd4177090b5e6429ad0742190c9e5c47b6092d))
+* **theme:** add Clay Studio default themes ([403080d](https://github.com/chadbyte/clay/commit/403080ddd1b666955b9893a2d1350c93a7e9af48))
+
 # [3.6.0-beta.1](https://github.com/chadbyte/clay/compare/v3.5.1...v3.6.0-beta.1) (2026-08-27)
 
 
