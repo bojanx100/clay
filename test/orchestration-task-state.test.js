@@ -106,6 +106,34 @@ test("task projection preserves the exact staged approval scope", function () {
   assert.deepEqual(result.approvalSet, approvalSet);
 });
 
+test("task projection shape-limits staged approval data before JSON transport", function () {
+  var scope = {
+    portfolioTaskId: "clay-fix-approval-popup-click-noop-20260827",
+    bindingRevision: 2,
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+  };
+  var approvalSet = {
+    setId: approvalStaging.setIdFor([scope]),
+    stagedAt: 100,
+    scopes: [Object.assign({}, scope, { internalScopeSecret: "drop-me" })],
+    internalSetSecret: "drop-me",
+  };
+  var result = JSON.parse(JSON.stringify(orchestrationTasksForClient({
+    orchestrationTasks: [{
+      taskId: "task-staged-popup-fix-r2",
+      clientRef: approvalStaging.clientRefFor(scope),
+      status: "waiting_user",
+      approvalSet: approvalSet,
+    }],
+  })[0]));
+
+  assert.deepEqual(result.approvalSet, {
+    setId: approvalSet.setId,
+    stagedAt: 100,
+    scopes: [scope],
+  });
+});
+
 test("retry attempts retain coordinator grouping with distinct attempt numbers", function () {
   var taskId = "task-review";
   var coordinator = {
