@@ -22,8 +22,11 @@ function harness() {
       now: function () { return now; },
       reload: function () { reloads++; },
       schedule: function (callback, delay) {
-        scheduled.push({ callback: callback, delay: delay });
+        var entry = { callback: callback, cancelled: false, delay: delay };
+        scheduled.push(entry);
+        return entry;
       },
+      cancel: function (entry) { entry.cancelled = true; },
       setGuard: function (value) { stored = value; },
       warn: function (message) { warnings.push(message); },
     },
@@ -37,7 +40,7 @@ test("invalidated extension context schedules one guarded Clay page reload", asy
   var recovery = await loadRecovery();
   var state = harness();
 
-  assert.equal(recovery.recoverInvalidatedExtensionContext({
+  assert.equal(recovery.recoverDisconnectedExtensionBridge({
     reason: "Extension context invalidated.",
   }, state.env), true);
   assert.equal(state.scheduled.length, 1);
@@ -47,21 +50,36 @@ test("invalidated extension context schedules one guarded Clay page reload", asy
   state.scheduled[0].callback();
   assert.equal(state.reloads(), 1);
 
-  assert.equal(recovery.recoverInvalidatedExtensionContext({
+  assert.equal(recovery.recoverDisconnectedExtensionBridge({
     reason: "Extension context invalidated.",
   }, state.env), false);
   assert.equal(state.scheduled.length, 1);
 });
 
-test("ordinary port disconnects do not reload the Clay page", async function () {
+test("an ordinary port reconnect cancels the fallback page reload", async function () {
   var recovery = await loadRecovery();
   var state = harness();
 
-  assert.equal(recovery.recoverInvalidatedExtensionContext({
+  assert.equal(recovery.recoverDisconnectedExtensionBridge({
     reason: "port_disconnected",
-  }, state.env), false);
-  assert.equal(state.scheduled.length, 0);
+  }, state.env), true);
+  assert.equal(state.scheduled.length, 1);
+  assert.equal(state.scheduled[0].delay, 2000);
+  assert.equal(recovery.cancelPendingExtensionRecovery(), true);
+  assert.equal(state.scheduled[0].cancelled, true);
   assert.equal(state.reloads(), 0);
+});
+
+test("a port that stays disconnected reloads Clay after the grace period", async function () {
+  var recovery = await loadRecovery();
+  var state = harness();
+
+  assert.equal(recovery.recoverDisconnectedExtensionBridge({
+    reason: "port_disconnected",
+  }, state.env), true);
+  assert.equal(state.scheduled.length, 1);
+  state.scheduled[0].callback();
+  assert.equal(state.reloads(), 1);
 });
 
 test("workspace message handler invokes invalidated-context recovery", function () {
@@ -70,5 +88,6 @@ test("workspace message handler invokes invalidated-context recovery", function 
 
   assert.match(source, /from '\.\/extension-bridge-recovery\.js'/);
   assert.match(source,
-    /recoverInvalidatedExtensionContext\(diagnostic\)/);
+    /recoverDisconnectedExtensionBridge\(diagnostic\)/);
+  assert.match(source, /cancelPendingExtensionRecovery\(\)/);
 });
