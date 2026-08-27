@@ -481,10 +481,13 @@ pre:hover .code-copy-btn { opacity: 1; }
 .md-content em { font-style: italic; font-synthesis: style; }
 
 .md-content a {
-  color: var(--accent);
+  color: var(--link);
   text-decoration: none;
 }
-.md-content a:hover { text-decoration: underline; }
+.md-content a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
 
 .md-content ul, .md-content ol {
   padding-left: 24px;

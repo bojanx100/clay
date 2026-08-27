@@ -79,6 +79,8 @@ accent2 -> --accent2      Secondary accent
 
 Derived values (sidebar-bg, input-bg, etc.) are auto-calculated from base values by theme.js. They are not defined directly in theme files.
 
+The bundled default pair is **Clay Studio Light** (`clay-light`) and **Clay Studio Dark** (`clay-dark`). New users follow their system light/dark preference within this pair. Clay Studio Light uses Clay Indigo as its primary interaction color; Clay Studio Dark uses an accessibility-adjusted indigo tint. Both use Clay Green as the secondary brand signal. Explicitly selected alternative skins remain user-controlled.
+
 ### 3.3 Base16 slot mapping
 
 | Slot | Role | Light | Dark |

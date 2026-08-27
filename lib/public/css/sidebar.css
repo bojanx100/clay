@@ -1755,30 +1755,6 @@
   transition: background 0.15s, color 0.15s;
 }
 
-.user-island-actions button#user-theme-toggle-btn {
-  color: var(--text-secondary);
-}
-
-.user-island-actions button#user-theme-toggle-btn:hover {
-  color: var(--text);
-}
-
-.user-island-actions button#user-theme-toggle-btn.theme-toggle-light {
-  color: #7b8cff;
-}
-
-.user-island-actions button#user-theme-toggle-btn.theme-toggle-light:hover {
-  color: #98a4ff;
-}
-
-.user-island-actions button#user-theme-toggle-btn.theme-toggle-dark {
-  color: #f2b84d;
-}
-
-.user-island-actions button#user-theme-toggle-btn.theme-toggle-dark:hover {
-  color: #ffca6b;
-}
-
 .user-island-actions button .lucide {
   width: 16px;
   height: 16px;
@@ -1896,99 +1872,6 @@
 #hamburger-btn .lucide {
   width: 20px;
   height: 20px;
-}
-
-/* --- Theme picker --- */
-.theme-picker {
-  position: fixed;
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 0;
-  min-width: 220px;
-  max-height: 70vh;
-  overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(var(--shadow-rgb), 0.5);
-  z-index: 200;
-  opacity: 0;
-  transform: translateY(8px);
-  pointer-events: none;
-  transition: opacity 0.15s, transform 0.15s;
-}
-
-.theme-picker.visible {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-
-.theme-picker-header {
-  padding: 8px 14px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dimmer);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  position: sticky;
-  top: 0;
-  background: var(--bg-alt);
-  z-index: 1;
-}
-
-.theme-picker-section {
-  padding-bottom: 4px;
-}
-
-.theme-picker-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 7px 14px;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.theme-picker-item:hover {
-  background: rgba(var(--overlay-rgb), 0.05);
-}
-
-.theme-picker-item.active {
-  color: var(--text);
-}
-
-.theme-swatches {
-  display: flex;
-  gap: 3px;
-  flex-shrink: 0;
-}
-
-.theme-swatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-  border: 1px solid rgba(var(--overlay-rgb), 0.1);
-}
-
-.theme-picker-label {
-  flex: 1;
-  text-align: left;
-}
-
-.theme-picker-check {
-  font-size: 14px;
-  color: var(--accent);
-  opacity: 0;
-  flex-shrink: 0;
-}
-
-.theme-picker-item.active .theme-picker-check {
-  opacity: 1;
 }
 
 /* --- Sidebar resize handle (overlay, no layout space) --- */
