@@ -1,3 +1,16 @@
+# [3.5.0](https://github.com/chadbyte/clay/compare/v3.4.0...v3.5.0) (2026-08-27)
+
+
+### Bug Fixes
+
+* **sessions:** restore split view after daemon restart ([62e024a](https://github.com/chadbyte/clay/commit/62e024a8d46a3a5a042797eb617551f755acd375))
+* **ui:** dock document viewer on the right ([f649210](https://github.com/chadbyte/clay/commit/f649210f452336f8f26af802c80c383efee98a31))
+
+
+### Features
+
+* **session:** add handoff source history tool ([1d09e47](https://github.com/chadbyte/clay/commit/1d09e47367a6071a5471c6c4b1215b45e0c53466))
+
 # [3.5.0-beta.3](https://github.com/chadbyte/clay/compare/v3.5.0-beta.2...v3.5.0-beta.3) (2026-08-26)
 
 
