@@ -91,6 +91,10 @@ img.emoji {
 }
 
 :root {
+  --brand-ink: #171717;
+  --brand-paper: #f2f2ef;
+  --brand-indigo: #5857fc;
+  --brand-green: #07e5a3;
   --bg: #282a36;
   --bg-alt: #363447;
   --text: #f0f1f4;
@@ -283,4 +287,3 @@ html, body {
   border-color: var(--warning);
   color: var(--warning);
 }
-
