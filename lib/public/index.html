@@ -11,10 +11,10 @@
   if(!isIOS){var l=document.createElement("link");l.rel="manifest";l.href="/manifest.json";document.head.appendChild(l)}
 })();
 </script>
-<meta name="theme-color" content="#282a36">
-<link rel="icon" type="image/png" href="favicon-banded.png">
+<meta name="theme-color" content="#171715">
+<link rel="icon" type="image/png" sizes="32x32" href="clay-studio-favicon-32.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<title>Clay</title>
+<title>Clay Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
@@ -30,7 +30,7 @@
 (function(){try{var k="clay-theme-vars",v=localStorage.getItem(k),r=document.documentElement;if(v){var o=JSON.parse(v),p;for(p in o)r.style.setProperty(p,o[p]);var vt=localStorage.getItem(k.replace("-vars","-variant"));if(vt==="light"){r.classList.add("light-theme");r.classList.remove("dark-theme")}else{r.classList.add("dark-theme");r.classList.remove("light-theme")}var m=document.querySelector('meta[name="theme-color"]');if(m&&o["--bg"])m.setAttribute("content",o["--bg"])}else{var sl=window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches;if(sl){r.classList.add("light-theme");r.classList.remove("dark-theme")}}}catch(e){}})();
 </script>
 <script>if(window.navigator.standalone||window.matchMedia("(display-mode:standalone)").matches){document.documentElement.classList.add("pwa-standalone")}</script>
-<link rel="stylesheet" href="style.css?v=20260826a">
+<link rel="stylesheet" href="style.css?v=20260828-clay-theme1">
 <style>
 @media(max-width:768px){
   /* User messages: vertical stack, avatar on top, right-aligned */
@@ -101,9 +101,9 @@
 
   <!-- === Icon Strip === -->
   <div id="icon-strip">
-    <div class="icon-strip-home" title="Clay">
+    <div class="icon-strip-home" title="Clay Studio">
       <span class="icon-strip-pill"></span>
-      <img class="icon-strip-logo" src="icon-banded-76.png" width="38" height="38" alt="Clay">
+      <img class="icon-strip-logo" src="clay-studio-symbol.png" width="38" height="38" alt="Clay Studio">
     </div>
     <div class="icon-strip-separator"></div>
     <button type="button" class="icon-strip-hint" id="icon-strip-hint-project" data-switcher-mode="project" aria-label="Switch project"></button>
@@ -206,7 +206,7 @@
     <div id="sidebar-column">
       <div class="title-bar-sidebar">
         <button class="title-bar-project-dropdown" id="title-bar-project-dropdown">
-          <span class="title-bar-project-icon" id="title-bar-project-icon"></span>
+          <span class="title-bar-project-icon" id="title-bar-project-icon" aria-hidden="true"></span>
           <span class="title-bar-project-name" id="title-bar-project-name"></span>
           <i data-lucide="chevron-down" class="title-bar-chevron"></i>
         </button>
@@ -399,10 +399,13 @@
           <button id="terminal-toggle-btn" title="Terminal"><i data-lucide="square-terminal"></i><span id="terminal-count" class="hidden"></span></button>
         </div>
       </div>
-      <div id="main-panels">
+    <div id="main-panels">
       <div id="app">
         <div id="connect-overlay">
-      <canvas id="ascii-logo-canvas"></canvas>
+      <div class="connect-brand">
+        <img class="connect-symbol" src="clay-studio-symbol.png" alt="">
+        <div class="connect-wordmark" role="img" aria-label="Clay Studio"></div>
+      </div>
       <p id="connect-overlay-msg">Connecting…</p>
     </div>
     <div id="sticky-notes-container" class="hidden"></div>
@@ -673,7 +676,7 @@
   <div id="mobile-tab-bar">
     <button class="mobile-tab" data-tab="chat" id="mob-tab-chat"><i data-lucide="message-square"></i><span class="mobile-tab-label">Chat</span></button>
     <button class="mobile-tab" data-tab="search" id="mob-tab-search"><i data-lucide="search"></i><span class="mobile-tab-label">Search</span></button>
-    <button class="mobile-tab-home" id="mobile-home-btn"><img src="/icon-banded-76.png" alt="Home" class="mobile-home-icon"></button>
+    <button class="mobile-tab-home" id="mobile-home-btn"><img src="/clay-studio-symbol.png" alt="Clay Studio home" class="mobile-home-icon"></button>
     <button class="mobile-tab" data-tab="tools" id="mob-tab-tools"><i data-lucide="wrench"></i><span class="mobile-tab-label">Tools</span></button>
     <button class="mobile-tab" data-tab="settings" id="mob-tab-settings"><i data-lucide="settings"></i><span class="mobile-tab-label">Settings</span></button>
   </div>
@@ -682,17 +685,9 @@
     <div class="file-viewer-header">
       <div class="file-viewer-tabbar">
         <div class="file-viewer-tabs" id="file-viewer-tabs" role="tablist"></div>
-        <div class="file-viewer-toolbar" aria-label="Editor actions">
-          <button class="file-viewer-btn hidden" id="file-viewer-render" title="Toggle rendered view"><i data-lucide="book-open"></i></button>
-          <button class="file-viewer-btn hidden" id="file-viewer-pdf" title="Export PDF"><i data-lucide="file-down"></i></button>
-          <button class="file-viewer-btn hidden" id="file-viewer-slides" title="Present as slides" aria-label="Present Markdown as slides" aria-pressed="false"><i data-lucide="presentation"></i></button>
-          <button class="file-viewer-btn file-viewer-slide-level hidden" id="file-viewer-slide-level" title="Split slides by heading level" aria-haspopup="menu" aria-expanded="false"><span>H1</span><i data-lucide="chevron-down"></i></button>
-          <button class="file-viewer-btn hidden" id="file-viewer-history" title="Edit history"><i data-lucide="clock"></i></button>
-          <button class="file-viewer-btn" id="file-viewer-refresh" title="Refresh"><i data-lucide="refresh-cw"></i></button>
-          <button class="file-viewer-btn" id="file-viewer-copy" title="Copy contents" aria-label="Copy contents"><i data-lucide="copy"></i></button>
-          <button class="file-viewer-btn hidden" id="file-viewer-copy-formatted" title="Copy Markdown formatting" aria-label="Copy Markdown formatting"><i data-lucide="clipboard-copy"></i></button>
-          <button class="file-viewer-btn" id="file-viewer-fullscreen" title="Toggle fullscreen"><i data-lucide="maximize-2"></i></button>
-          <button class="file-viewer-btn" id="file-viewer-close" title="Close"><i data-lucide="x"></i></button>
+        <div class="file-viewer-window-actions" aria-label="Document viewer controls">
+          <button class="file-viewer-btn" id="file-viewer-fullscreen" title="Toggle fullscreen" aria-label="Toggle document viewer fullscreen"><i data-lucide="maximize-2"></i></button>
+          <button class="file-viewer-btn" id="file-viewer-close" title="Close viewer" aria-label="Close document viewer"><i data-lucide="x"></i></button>
         </div>
       </div>
       <div class="file-viewer-breadcrumbs">
@@ -701,6 +696,16 @@
           <span class="file-viewer-live-dot"></span>
           <span class="file-viewer-live-label">Editing</span>
         </span>
+        <div class="file-viewer-toolbar" aria-label="Current file actions">
+          <button class="file-viewer-btn hidden" id="file-viewer-render" title="Toggle rendered view"><i data-lucide="book-open"></i></button>
+          <button class="file-viewer-btn hidden" id="file-viewer-pdf" title="Export PDF"><i data-lucide="file-down"></i></button>
+          <button class="file-viewer-btn hidden" id="file-viewer-slides" title="Present as slides" aria-label="Present Markdown as slides" aria-pressed="false"><i data-lucide="presentation"></i></button>
+          <button class="file-viewer-btn file-viewer-slide-level hidden" id="file-viewer-slide-level" title="Split slides by heading level" aria-haspopup="menu" aria-expanded="false"><span>H1</span><i data-lucide="chevron-down"></i></button>
+          <button class="file-viewer-btn hidden" id="file-viewer-history" title="Edit history"><i data-lucide="clock"></i></button>
+          <button class="file-viewer-btn" id="file-viewer-refresh" title="Refresh"><i data-lucide="refresh-cw"></i></button>
+          <button class="file-viewer-btn" id="file-viewer-copy" title="Copy contents" aria-label="Copy contents"><i data-lucide="copy"></i></button>
+          <button class="file-viewer-btn hidden" id="file-viewer-copy-formatted" title="Copy Markdown formatting" aria-label="Copy Markdown formatting"><i data-lucide="clipboard-copy"></i></button>
+        </div>
       </div>
     </div>
     <div class="file-viewer-body" id="file-viewer-body"></div>
@@ -957,7 +962,6 @@
       </div>
     </div>
     <div class="user-island-actions">
-      <button id="user-theme-toggle-btn" title="Themes" aria-label="Themes"><i data-lucide="palette"></i></button>
       <button id="user-settings-btn" title="User settings"><i data-lucide="settings"></i></button>
     </div>
   </div>
@@ -1079,6 +1083,13 @@
         <!-- Appearance section -->
         <div class="us-section" data-section="us-appearance">
           <h2>Appearance</h2>
+          <div class="settings-card settings-theme-card">
+            <div class="settings-field">
+              <div class="settings-label">Theme</div>
+              <div class="settings-hint">Choose the color palette used across Clay Studio.</div>
+              <div id="us-theme-picker" class="settings-theme-picker" aria-label="Theme selection"></div>
+            </div>
+          </div>
           <div class="settings-card">
             <div class="settings-label" style="margin-bottom:10px;">Chat layout</div>
             <div class="layout-switcher" id="us-layout-switcher">
@@ -1203,9 +1214,6 @@
             <option value="notifications">Notifications</option>
             <option value="security">Security</option>
           </optgroup>
-          <optgroup label="Defaults">
-            <option value="models">Model</option>
-          </optgroup>
           <optgroup label="Config">
             <option value="claudemd">Instructions</option>
             <option value="environment">Environment</option>
@@ -1228,9 +1236,6 @@
           <button class="settings-nav-item active" data-section="overview"><span>Status</span></button>
           <button class="settings-nav-item" data-section="notifications"><span>Notifications</span></button>
           <button class="settings-nav-item" data-section="security"><span>Security</span></button>
-          <div class="settings-nav-separator"></div>
-          <div class="settings-nav-category">Defaults</div>
-          <button class="settings-nav-item" data-section="models"><span>Model</span></button>
           <div class="settings-nav-separator"></div>
           <div class="settings-nav-category">Config</div>
           <button class="settings-nav-item" data-section="claudemd"><span>Instructions</span></button>
@@ -1325,55 +1330,6 @@
             <div class="settings-field-row">
               <label class="settings-label">Project Slug</label>
               <span class="settings-value settings-mono" id="settings-project-slug">-</span>
-            </div>
-          </div>
-        </div>
-        <div class="server-settings-section" data-section="models">
-          <h2>Model</h2>
-          <p class="settings-hint" style="margin-bottom: 20px;">Configure which model to use and how Claude behaves during sessions.</p>
-          <div class="settings-card">
-            <div class="settings-field">
-              <label class="settings-label">Model</label>
-              <div class="settings-hint">Choose the Claude model to use. Larger models are slower but more capable.</div>
-              <div id="ss-model-list" class="settings-model-list"></div>
-            </div>
-          </div>
-          <div class="settings-card" id="ss-beta-card" style="display:none">
-            <div class="settings-field">
-              <label class="settings-label">Extended Context (Beta)</label>
-              <div class="settings-hint">Enable 1M token context window for Sonnet models. Allows processing much larger codebases and files, but may increase latency.</div>
-              <label class="settings-toggle-row ss-beta-toggle-row">
-                <div>
-                  <span class="settings-label">1M Context</span>
-                </div>
-                <input type="checkbox" id="ss-beta-1m">
-                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              </label>
-            </div>
-          </div>
-          <div class="settings-card">
-            <div class="settings-field">
-              <label class="settings-label">Mode</label>
-              <div class="settings-hint">Controls how Claude handles tool use and file edits.</div>
-              <div id="ss-mode-list" class="settings-model-list"></div>
-            </div>
-          </div>
-          <div class="settings-card" id="ss-effort-card">
-            <div class="settings-field">
-              <label class="settings-label">Effort</label>
-              <div class="settings-hint">Controls how much thinking effort Claude puts into responses. Higher effort means longer, more thorough responses.</div>
-              <div class="settings-btn-group" id="ss-effort-bar"></div>
-            </div>
-          </div>
-          <div class="settings-card" id="ss-thinking-card">
-            <div class="settings-field">
-              <label class="settings-label">Thinking</label>
-              <div class="settings-hint">Controls whether Claude shows its reasoning process. Budget mode lets you set a token limit.</div>
-              <div class="settings-btn-group" id="ss-thinking-bar"></div>
-              <div id="ss-thinking-budget-row" class="settings-budget-row" style="display:none">
-                <label class="settings-budget-label">Budget tokens</label>
-                <input id="ss-thinking-budget" type="number" class="settings-budget-input" min="1024" max="128000" step="1024" value="10000">
-              </div>
             </div>
           </div>
         </div>

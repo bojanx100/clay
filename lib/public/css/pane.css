@@ -26,7 +26,6 @@ body.pane-mode #sticky-notes-container {
 body.pane-mode #file-viewer { display: none !important; }
 
 body.pane-mode #connect-overlay { background: var(--bg); }
-body.pane-mode #connect-overlay #ascii-logo-canvas { display: none; }
 body.pane-mode #connect-overlay-msg { color: var(--text-dimmer); }
 
 body.pane-mode .notif-banner-container {

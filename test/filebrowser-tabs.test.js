@@ -31,9 +31,14 @@ test("file tree clicks preview files while double clicks pin them", function() {
 test("document viewer uses an editor tab strip with a separate breadcrumb row", function() {
   var html = fs.readFileSync(path.join(__dirname, "../lib/public/index.html"), "utf8");
   var css = fs.readFileSync(path.join(__dirname, "../lib/public/css/filebrowser.css"), "utf8");
-  assert.match(html, /file-viewer-tabbar[\s\S]*file-viewer-toolbar[\s\S]*file-viewer-breadcrumbs/);
+  assert.match(html, /file-viewer-tabbar[\s\S]*file-viewer-breadcrumbs[\s\S]*file-viewer-path[\s\S]*file-viewer-toolbar/);
+  assert.ok(html.indexOf('class="file-viewer-window-actions"') < html.indexOf('class="file-viewer-breadcrumbs"'));
+  assert.ok(html.indexOf('id="file-viewer-fullscreen"') < html.indexOf('id="file-viewer-close"'));
+  assert.ok(html.indexOf('class="file-viewer-tabbar"') < html.indexOf('id="file-viewer-close"'));
+  assert.ok(html.indexOf('id="file-viewer-close"') < html.indexOf('class="file-viewer-breadcrumbs"'));
   assert.match(css, /\.file-viewer-tab\.active::before\s*\{[^}]*var\(--accent\)/s);
   assert.match(css, /\.file-viewer-breadcrumbs\s*\{/);
+  assert.match(css, /\.file-viewer-toolbar\s*\{[^}]*margin-left:\s*auto/s);
 });
 
 test("document viewer renders SVG files safely with a source toggle", function() {
@@ -45,13 +50,15 @@ test("document viewer renders SVG files safely with a source toggle", function()
   assert.match(css, /\.file-viewer-svg-preview\s*\{/);
 });
 
-test("document viewer docks on the right side of the workspace", function() {
+test("document and terminal viewers float above the workspace", function() {
   var browser = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser.js"), "utf8");
   var css = fs.readFileSync(path.join(__dirname, "../lib/public/css/filebrowser.css"), "utf8");
   var init = browser.slice(browser.indexOf("export function initFileBrowser"), browser.indexOf("// Load material file icons"));
   assert.match(init, /mainPanels\.appendChild\(ctx\.fileViewerEl\)/);
   assert.doesNotMatch(init, /mainPanels\.insertBefore/);
-  assert.match(css, /#file-viewer\s*\{[^}]*border-left:\s*1px solid var\(--border\)/s);
+  assert.match(css, /#file-viewer\s*\{[^}]*margin:\s*8px 8px 8px 10px[^}]*border-radius:\s*12px[^}]*box-shadow:/s);
+  assert.match(css, /#terminal-container\s*\{[^}]*margin:\s*8px 8px 8px 10px[^}]*border-radius:\s*12px[^}]*box-shadow:/s);
+  assert.match(css, /@keyframes workbench-panel-in/);
 });
 
 test("split and pane markdown presents use the parent-owned viewer path", function() {
