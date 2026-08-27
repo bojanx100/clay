@@ -54,6 +54,23 @@ test("pushMessage retires a query handle that rejects delivery", function() {
   assert.strictEqual(session.messageQueue, null);
 });
 
+test("a started session persists its identity and refreshes split anchors immediately", function() {
+  var saved = [];
+  var assigned = [];
+  var recorded = [];
+  var bridge = createBridge({
+    saveSessionFile: function(session) { saved.push(session.cliSessionId); },
+    notifySessionIdentityAssigned: function(localId) { assigned.push(localId); },
+    sendAndRecord: function(session, msg) { recorded.push(msg); },
+  });
+  var session = { localId: 5, cliSessionId: null };
+  bridge.processSDKMessage(session, { yokeType: "session_started", sessionId: "thread-worker" });
+  assert.strictEqual(session.cliSessionId, "thread-worker");
+  assert.deepStrictEqual(saved, ["thread-worker"]);
+  assert.deepStrictEqual(assigned, [5]);
+  assert.deepStrictEqual(recorded, [{ type: "session_id", cliSessionId: "thread-worker" }]);
+});
+
 test("mention sessions preserve the mapped Linux user", async function() {
   var capturedOptions = null;
   var handle = createEndingHandle([]);
