@@ -149,7 +149,9 @@ test("live disclosure projection agrees with replay and repairs split assistant 
 
   var projector = lens.createMainAuthorityDisclosureProjector();
   var first = projector.project({ type: "delta", text: "Useful status.\n\n" + disclosure.slice(0, 43) });
-  assert.equal(first.type, "delta", "ordinary streaming stays append-only until the exact sentence is complete");
+  assert.equal(first.type, "delta_replace", "an exact disclosure prefix never briefly enters Main");
+  assert.equal(first.text.indexOf(disclosure.slice(0, 43)), -1,
+    "the pending exact prefix is withheld instead of repaired after it renders");
   var completed = projector.project({
     type: "delta",
     text: disclosure.slice(43) + "\n\nThe owner-facing blocker remains visible.",
@@ -158,6 +160,11 @@ test("live disclosure projection agrees with replay and repairs split assistant 
   assert.equal(completed.text.indexOf(disclosure), -1);
   assert.match(completed.text, /Useful status/);
   assert.match(completed.text, /owner-facing blocker remains visible/);
+
+  var serverProjector = server.createMainAuthorityDisclosureProjector();
+  var serverFirst = serverProjector.project({ type: "delta", text: "Useful status.\n\n" + disclosure.slice(0, 43) });
+  assert.equal(serverFirst.type, "delta_replace", "replay holds the same pending exact prefix");
+  assert.equal(serverFirst.text.indexOf(disclosure.slice(0, 43)), -1);
 
   projector.project({ type: "done" });
   var ownerQuote = { type: "user_message", text: disclosure, from: "owner-1", clientMessageId: "quote-1" };
