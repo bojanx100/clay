@@ -1,3 +1,30 @@
+# [3.7.0-beta.1](https://github.com/chadbyte/clay/compare/v3.6.0...v3.7.0-beta.1) (2026-08-28)
+
+
+### Features
+
+* **codex:** show image generation progress ([8b2a199](https://github.com/chadbyte/clay/commit/8b2a199961f8b4ca305abd1ce879865020723aef))
+* **codex:** support inline image generation ([71282a6](https://github.com/chadbyte/clay/commit/71282a62e65087e730bd31c98c2d23a231308f9a))
+
+# [3.6.0](https://github.com/chadbyte/clay/compare/v3.5.1...v3.6.0) (2026-08-27)
+
+
+### Features
+
+* **brand:** establish Clay Studio identity ([73fd417](https://github.com/chadbyte/clay/commit/73fd4177090b5e6429ad0742190c9e5c47b6092d))
+* **document-viewer:** add SVG preview mode ([d44335d](https://github.com/chadbyte/clay/commit/d44335d4d2b3f081bf824b1c507ba9ecda51e89c))
+* **document-viewer:** add VS Code-style preview tabs ([10d6919](https://github.com/chadbyte/clay/commit/10d6919f900759e6176e94de3a64a97ea34d51bb))
+* **os-users:** add compatibility diagnostics ([715d502](https://github.com/chadbyte/clay/commit/715d5025edd7d388fb0ee12928b6390d54b81875))
+* **theme:** add Clay Studio default themes ([403080d](https://github.com/chadbyte/clay/commit/403080ddd1b666955b9893a2d1350c93a7e9af48))
+
+# [3.6.0-beta.2](https://github.com/chadbyte/clay/compare/v3.6.0-beta.1...v3.6.0-beta.2) (2026-08-27)
+
+
+### Features
+
+* **brand:** establish Clay Studio identity ([73fd417](https://github.com/chadbyte/clay/commit/73fd4177090b5e6429ad0742190c9e5c47b6092d))
+* **theme:** add Clay Studio default themes ([403080d](https://github.com/chadbyte/clay/commit/403080ddd1b666955b9893a2d1350c93a7e9af48))
+
 # [3.6.0-beta.1](https://github.com/chadbyte/clay/compare/v3.5.1...v3.6.0-beta.1) (2026-08-27)
 
 

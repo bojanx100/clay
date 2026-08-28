@@ -30,7 +30,7 @@
 (function(){try{var k="clay-theme-vars",v=localStorage.getItem(k),r=document.documentElement;if(v){var o=JSON.parse(v),p;for(p in o)r.style.setProperty(p,o[p]);var vt=localStorage.getItem(k.replace("-vars","-variant"));if(vt==="light"){r.classList.add("light-theme");r.classList.remove("dark-theme")}else{r.classList.add("dark-theme");r.classList.remove("light-theme")}var m=document.querySelector('meta[name="theme-color"]');if(m&&o["--bg"])m.setAttribute("content",o["--bg"])}else{var sl=window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches;if(sl){r.classList.add("light-theme");r.classList.remove("dark-theme")}}}catch(e){}})();
 </script>
 <script>if(window.navigator.standalone||window.matchMedia("(display-mode:standalone)").matches){document.documentElement.classList.add("pwa-standalone")}</script>
-<link rel="stylesheet" href="style.css?v=20260828-clay-theme1">
+<link rel="stylesheet" href="style.css?v=20260829-imagegen3">
 <style>
 @media(max-width:768px){
   /* User messages: vertical stack, avatar on top, right-aligned */
@@ -524,48 +524,6 @@
               </div>
             </div>
             <div id="input-bottom-right">
-              <div id="vendor-toggle-wrap">
-                <button id="vendor-btn-claude" class="vendor-toggle-btn active" data-vendor="claude">
-                  <img src="/claude-code-avatar.png" class="vendor-toggle-icon" alt="Claude">
-                  <span class="vendor-toggle-label">Claude Code</span>
-                </button>
-                <button id="vendor-btn-codex" class="vendor-toggle-btn" data-vendor="codex">
-                  <img src="/codex-avatar.png" class="vendor-toggle-icon" alt="Codex">
-                  <span class="vendor-toggle-label">Codex</span>
-                </button>
-                <button id="vendor-btn-antigravity" class="vendor-toggle-btn" data-vendor="antigravity">
-                  <img src="/antigravity-avatar.png" class="vendor-toggle-icon" alt="Antigravity">
-                  <span class="vendor-toggle-label">Antigravity CLI</span>
-                </button>
-                <button id="vendor-btn-opencode" class="vendor-toggle-btn" data-vendor="opencode">
-                  <img src="/opencode-avatar.svg" class="vendor-toggle-icon" alt="OpenCode">
-                  <span class="vendor-toggle-label">OpenCode</span>
-                </button>
-                <button id="vendor-btn-kimi" class="vendor-toggle-btn" data-vendor="kimi">
-                  <img src="/kimi-avatar.svg" class="vendor-toggle-icon" alt="Kimi">
-                  <span class="vendor-toggle-label">Kimi Code</span>
-                </button>
-                <button id="vendor-btn-grok" class="vendor-toggle-btn" data-vendor="grok">
-                  <img src="/grok-avatar.svg" class="vendor-toggle-icon" alt="Grok">
-                  <span class="vendor-toggle-label">Grok Build</span>
-                </button>
-                <button id="vendor-btn-copilot" class="vendor-toggle-btn" data-vendor="copilot">
-                  <img src="/copilot-avatar.svg" class="vendor-toggle-icon" alt="GitHub Copilot">
-                  <span class="vendor-toggle-label">GitHub Copilot CLI</span>
-                </button>
-                <button id="vendor-btn-qwen" class="vendor-toggle-btn" data-vendor="qwen">
-                  <img src="/qwen-avatar.svg" class="vendor-toggle-icon" alt="Qwen">
-                  <span class="vendor-toggle-label">Qwen Code</span>
-                </button>
-                <button id="vendor-btn-junie" class="vendor-toggle-btn" data-vendor="junie">
-                  <img src="/junie-avatar.svg" class="vendor-toggle-icon" alt="Junie">
-                  <span class="vendor-toggle-label">Junie CLI</span>
-                </button>
-                <button id="vendor-btn-kiro" class="vendor-toggle-btn" data-vendor="kiro">
-                  <img src="/kiro-avatar.svg" class="vendor-toggle-icon" alt="Kiro">
-                  <span class="vendor-toggle-label">Kiro CLI</span>
-                </button>
-              </div>
               <div id="active-vendor-indicator" class="hidden" title="Session vendor">
                 <img id="active-vendor-icon" alt="">
               </div>
@@ -2324,7 +2282,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0/lib/addon-fit.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0/lib/addon-web-links.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0/lib/addon-webgl.min.js"></script>
-<script type="module" src="app.js?v=20260826a"></script>
+<script type="module" src="app.js?v=20260829-imagegen3"></script>
 <div id="pwa-install-modal" class="pwa-modal hidden">
   <div class="pwa-modal-backdrop"></div>
   <div class="pwa-modal-card">
