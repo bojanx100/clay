@@ -1,0 +1,124 @@
+.generated-image-card {
+  width: min(640px, calc(100% - 40px));
+  margin: 4px auto 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-alt);
+  box-shadow: 0 8px 28px rgba(var(--shadow-rgb), 0.16);
+}
+
+.generated-image-preview {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  max-height: 680px;
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, rgba(var(--overlay-rgb), 0.025) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(var(--overlay-rgb), 0.025) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(var(--overlay-rgb), 0.025) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(var(--overlay-rgb), 0.025) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+}
+
+.generated-image-preview img {
+  display: block;
+  width: 100%;
+  max-height: 680px;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
+.generated-image-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 52px;
+  padding: 9px 10px 9px 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.generated-image-meta {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.generated-image-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.generated-image-label .lucide {
+  width: 13px;
+  height: 13px;
+  color: var(--accent);
+}
+
+.generated-image-prompt {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generated-image-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.generated-image-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.generated-image-action:hover {
+  border-color: var(--border);
+  background: rgba(var(--overlay-rgb), 0.04);
+  color: var(--text);
+}
+
+.generated-image-action .lucide {
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 560px) {
+  .generated-image-card {
+    width: calc(100% - 24px);
+    border-radius: 12px;
+  }
+
+  .generated-image-action span {
+    display: none;
+  }
+
+  .generated-image-action {
+    width: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+}
