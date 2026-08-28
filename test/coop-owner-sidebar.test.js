@@ -8,121 +8,160 @@ var buildOwnerSidebar = require("../lib/coop-owner-sidebar-projection").buildOwn
 var priorities = require("../lib/coop-owner-sidebar-priority");
 var handleOwnerSidebarMessage = require("../lib/coop-owner-sidebar-connection").handleOwnerSidebarMessage;
 
-function topic(id, state, extra) {
+var LEAD = "system-lead";
+var PROJECT = "11111111-1111-5111-8111-111111111111";
+
+function ref(id) {
+  return { projectId: PROJECT, sessionStorageId: id };
+}
+
+function request(sequence, state, extra) {
+  var id = "coop:owner-ledger:" + sequence;
   return Object.assign({
-    topicRef: { topicId: id }, threadRef: { threadId: id }, title: "Thread " + id,
-    projectRef: { projectId: "project-a" }, workState: state, updatedAt: 10,
-    relatedSessions: [], executionProjectRefs: [{ projectId: "project-a" }],
+    ingressId: id,
+    ingressSequence: sequence,
+    receivedAt: sequence * 10,
+    updatedAt: sequence * 10,
+    topicRef: { topicId: "topic-" + sequence },
+    requestRef: { projectId: LEAD, sessionStorageId: "coop-home", eventIndex: sequence },
+    response: { state: "unanswered" },
+    links: { coordinators: [], tasks: [], sessions: [] },
+    projectRefs: [{ projectId: PROJECT }],
+    state: state,
+    expectsExecution: state === "working",
+    outcome: null,
   }, extra || {});
 }
 
-function thread(id, status, title) {
-  return {
-    role: "thread", topicRef: { topicId: id }, threadRef: { threadId: id },
-    title: title || "Thread " + id, status: status, children: [{
-      role: "task_coordinator", title: "Task " + id, status: status,
-      sessionRef: { projectId: "project-a", sessionStorageId: "task-" + id }, children: [],
-    }],
-  };
+function session(id, topic, lifecycleState, extra) {
+  return Object.assign({
+    sessionRef: ref(id), title: id, role: "worker", controlRole: null,
+    sessionPresent: true, hidden: false, lifecycleState: lifecycleState,
+    workState: lifecycleState === "running" ? "working" : "idle",
+    coopTopicRefs: [{ topicId: topic }], portfolioBindings: [], updatedAt: 100,
+  }, extra || {});
 }
 
-function projectionInput() {
-  return {
-    topics: [
-      topic("now", "working", { updatedAt: 40 }),
-      topic("later", "working", { updatedAt: 30 }),
-      topic("needs", "needs_input", { updatedAt: 20 }),
-      topic("blocked", "needs_input", { updatedAt: 10 }),
-      topic("done", "done", { updatedAt: 50 }),
-    ],
-    projects: [{
-      projectRef: { projectId: "project-a" }, title: "Project A",
-      summary: { coordinatorTree: [{
-        role: "project_coordinator", title: "Project A coordinator",
-        sessionRef: { projectId: "system-lead", sessionStorageId: "coord-a" },
-        children: [thread("now", "running"), thread("later", "ready"), thread("needs", "needs_input"), thread("blocked", "blocked")],
-      }] },
-    }],
-    nowIndex: [{ topicRef: { topicId: "now" }, reason: "Working now", kind: "working" }],
-    actionQueue: [
-      { itemId: "needs-action", topicRef: { topicId: "needs" }, title: "Need approval", status: "needs_input", decision: "Approve the migration plan", updatedAt: 22 },
-      { itemId: "blocked-action", topicRef: { topicId: "blocked" }, title: "Blocked task", status: "blocked", decision: "Choose the data source", evidence: "Waiting on the owner", updatedAt: 12 },
-    ],
-    priority: { revision: 4, order: ["later"] },
-  };
+function topicList() {
+  var result = [];
+  for (var i = 1; i <= 9; i++) {
+    result.push({ topicRef: { topicId: "topic-" + i }, title: "Owner ask " + i });
+  }
+  return result;
 }
 
-test("owner sidebar groups canonical Threads into truthful, noise-free owner sections", function () {
-  var sidebar = buildOwnerSidebar(projectionInput());
-  assert.deepEqual(sidebar.now.map(function (entry) { return [entry.entryId, entry.status, entry.reason]; }),
-    [["now", "running", "Working now"]]);
-  assert.deepEqual(sidebar.next.map(function (entry) { return [entry.entryId, entry.status]; }), [["later", "ready"]]);
-  assert.deepEqual(sidebar.needsYou.map(function (entry) { return [entry.entryId, entry.reason]; }),
-    [["needs-action", "Approve the migration plan"]]);
-  assert.deepEqual(sidebar.blocked.map(function (entry) { return [entry.entryId, entry.status, entry.unblockAction]; }),
-    [["blocked-action", "blocked", "Choose the data source"]]);
-  assert.deepEqual(sidebar.recentlyCompleted.map(function (entry) { return [entry.entryId, entry.status]; }), [["done", "completed"]]);
-  assert.equal(sidebar.next[0].coordinator.sessionRef.sessionStorageId, "coord-a");
-  assert.equal(sidebar.next[0].sessions[0].sessionRef.sessionStorageId, "task-later");
-  assert.equal(JSON.stringify(sidebar).includes("taskRef"), false);
+test("owner ledger projects every durable ask with typed truthful principal states", function () {
+  var records = [
+    request(1, "needs_input"),
+    request(2, "open", { expectsExecution: true }),
+    request(3, "working"),
+    request(4, "working"),
+    request(5, "working"),
+    request(6, "working"),
+    request(7, "done", { outcome: { status: "completed", at: 70, summary: "Merged and verified" } }),
+    request(8, "open", { response: { state: "superseded" } }),
+    request(9, "working"),
+  ];
+  var sidebar = buildOwnerSidebar({
+    requests: records,
+    topics: topicList(),
+    sessions: [
+      session("running-worker", "topic-3", "running"),
+      session("failed-worker", "topic-5", "failed"),
+      // A terminal Triage session is retained as an audit destination only. It
+      // must not revive the owner request as Working.
+      session("triage-finished", "topic-9", "completed", { controlRole: "triage", role: "triage" }),
+      session("project-coordinator", "topic-3", "running", { role: "project_coordinator" }),
+      session("task-coordinator", "topic-3", "running", {
+        role: "task_coordinator", parentSessionRef: ref("project-coordinator"),
+      }),
+    ],
+    executionBindings: [
+      { portfolioTaskId: "queued", bindingRevision: 1, status: "pending", coopTopicRef: { topicId: "topic-4" } },
+      { portfolioTaskId: "unrouted", bindingRevision: 1, status: "unrouted", coopTopicRef: { topicId: "topic-6" } },
+      { portfolioTaskId: "acceptance", bindingRevision: 1, status: "completed",
+        ownerAcceptanceRequired: true, ownerAcceptance: { status: "pending" }, coopTopicRef: { topicId: "topic-7" } },
+    ],
+  });
+  assert.equal(sidebar.defaultOpen, true);
+  assert.deepEqual(sidebar.open.map(function (entry) { return [entry.ingressSequence, entry.status]; }), [
+    [1, "needs_owner"], [2, "planned"], [3, "working"], [4, "queued"],
+    [5, "failed"], [6, "blocked"], [7, "verified_awaiting_acceptance"],
+    [8, "dismissed"], [9, "queued"],
+  ]);
+  assert.deepEqual(sidebar.open[2].sessions.map(function (entry) { return entry.role; }),
+    ["worker", "project_coordinator", "task_coordinator"]);
+  assert.equal(sidebar.open[8].status, "queued",
+    "a terminal Triage record is never inferred to be running owner work");
+  assert.equal(sidebar.open[7].clearable, true);
+  assert.equal(sidebar.open[6].clearable, false);
 });
 
-test("Now never borrows a queued or blocked sibling status", function () {
-  var input = projectionInput();
-  input.projects[0].summary.coordinatorTree[0].children[0].children[0].status = "blocked";
-  var sidebar = buildOwnerSidebar(input);
-  assert.equal(sidebar.now[0].status, "running");
-  assert.equal(sidebar.now[0].reason, "Working now");
+test("failed and unrouted durable records outrank stale running session metadata", function () {
+  var failed = request(1, "working");
+  var sidebar = buildOwnerSidebar({
+    requests: [failed], topics: topicList(),
+    sessions: [session("stale-title-running", "topic-1", "running")],
+    executionBindings: [{ portfolioTaskId: "failed-bind", bindingRevision: 1,
+      status: "failed", coopTopicRef: { topicId: "topic-1" } }],
+  });
+  assert.equal(sidebar.open[0].status, "failed");
 });
 
-test("client display model retains the owner sidebar only on the Coop projection", async function () {
-  var client = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "global-coop-projection.js")).href + "?v=" + Date.now());
-  client.setGlobalCoopProjection(Object.assign({ type: "global_coop_projection", projects: [], topics: [] }, {
-    ownerSidebar: { priorityRevision: 2, now: [], next: [{ entryId: "next" }], needsYou: [], blocked: [], recentlyCompleted: [] },
-  }));
-  assert.equal(client.buildGlobalCoopDisplayModel("").ownerSidebar.next[0].entryId, "next");
-  client.clearGlobalCoopProjection();
+test("Clear and Restore are durable projection-only operations with stable provenance and order", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-ledger-"));
+  var file = path.join(dir, "owner-ledger-view.json");
+  var records = [
+    request(1, "done", { outcome: { status: "completed", at: 10, summary: "Done" } }),
+    request(2, "open", { response: { state: "superseded" } }),
+  ];
+  var initial = buildOwnerSidebar({ requests: records, topics: topicList(), visibility: priorities.priorityRecord({ file: file }) });
+  var cleared = priorities.applyVisibility(records[0].ingressId, true, initial.entries, { file: file });
+  assert.equal(cleared.ok, true);
+  assert.equal(cleared.changed, true);
+  var hidden = buildOwnerSidebar({ requests: records, topics: topicList(), visibility: priorities.priorityRecord({ file: file }) });
+  assert.deepEqual(hidden.open.map(function (entry) { return entry.ingressId; }), [records[1].ingressId]);
+  assert.deepEqual(hidden.hidden.map(function (entry) { return [entry.ingressId, entry.status, entry.requestRef.eventIndex]; }),
+    [[records[0].ingressId, "completed", 1]]);
+  var restored = priorities.applyVisibility(records[0].ingressId, false, hidden.entries, { file: file });
+  assert.equal(restored.ok, true);
+  var replayed = buildOwnerSidebar({ requests: records, topics: topicList(), visibility: priorities.priorityRecord({ file: file }) });
+  assert.deepEqual(replayed.open.map(function (entry) { return entry.ingressId; }),
+    [records[0].ingressId, records[1].ingressId]);
+  assert.equal(replayed.hidden.length, 0);
+  assert.deepEqual(priorities.applyVisibility(records[1].ingressId, true, replayed.entries, { file: file }),
+    { ok: true, changed: true, priority: priorities.priorityRecord({ file: file }) });
 });
 
-test("priority order is atomic, durable, and only reorders visible Next Threads", function () {
-  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-sidebar-"));
-  var file = path.join(dir, "topic-index.json");
-  var initial = priorities.applyPriority({ topicId: "second" }, "earlier", [
-    { topicId: "first" }, { topicId: "second" }, { topicId: "quiet" },
-  ], { file: file });
-  assert.equal(initial.ok, true);
-  assert.equal(initial.changed, true);
-  assert.deepEqual(initial.priority.order.slice(0, 3), ["second", "first", "quiet"]);
-  assert.deepEqual(priorities.priorityRecord({ file: file }), initial.priority);
-  assert.deepEqual(priorities.applyPriority({ topicId: "second" }, "earlier", [
-    { topicId: "first" }, { topicId: "second" },
-  ], { file: file }), { ok: true, changed: false, priority: initial.priority });
-});
-
-test("priority transport requires the canonical owner and rejects stale UI", function () {
-  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-sidebar-transport-"));
+test("visibility transport is owner-gated, stale-safe, and never clears active work", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-ledger-transport-"));
   var sent = [];
   var refreshed = 0;
-  var sidebar = { priorityRevision: 0, next: [
-    { topicRef: { topicId: "first" } }, { topicRef: { topicId: "second" } },
+  var sidebar = { revision: 2, entries: [
+    { entryId: "completed", status: "completed", clearable: true },
+    { entryId: "active", status: "working", clearable: false },
   ] };
   var ctx = {
-    slug: "lead",
-    isCoopTopicOwner: function () { return true; },
+    slug: "lead", isCoopTopicOwner: function () { return true; },
     getGlobalCoopProjection: function () { return { ownerSidebar: sidebar }; },
     refreshCoopTopicViewers: function () { refreshed++; },
     sendTo: function (_ws, message) { sent.push(message); },
-    coopOwnerSidebarPriorityOptions: { file: path.join(dir, "priority.json") },
+    coopOwnerSidebarPriorityOptions: { file: path.join(dir, "view.json") },
   };
   assert.equal(handleOwnerSidebarMessage(ctx, {}, {
-    type: "coop_owner_sidebar_prioritize", topicRef: { topicId: "second" }, direction: "earlier", expectedRevision: 0,
+    type: "coop_owner_ledger_visibility", entryId: "completed", hidden: true, expectedRevision: 2,
   }), true);
-  assert.deepEqual(sent[0], { type: "coop_owner_sidebar_priority_result", ok: true, changed: true, priorityRevision: 1 });
+  assert.equal(sent[0].ok, true);
+  assert.equal(sent[0].type, "coop_owner_ledger_visibility_result");
   assert.equal(refreshed, 1);
   assert.equal(handleOwnerSidebarMessage(ctx, {}, {
-    type: "coop_owner_sidebar_prioritize", topicRef: { topicId: "first" }, direction: "later", expectedRevision: 3,
+    type: "coop_owner_ledger_visibility", entryId: "active", hidden: true, expectedRevision: 2,
   }), true);
-  assert.deepEqual(sent[1], { type: "coop_owner_sidebar_priority_result", ok: false, code: "stale_priority", currentRevision: 0 });
+  assert.equal(sent[1].code, "entry_not_clearable");
+  assert.equal(handleOwnerSidebarMessage(ctx, {}, {
+    type: "coop_owner_ledger_visibility", entryId: "completed", hidden: true, expectedRevision: 3,
+  }), true);
+  assert.equal(sent[2].code, "stale_priority");
 });
 
 function element(tag) {
@@ -160,51 +199,60 @@ async function ownerSidebarUi() {
   return import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "coop-owner-sidebar.js")).href + "?v=" + Date.now());
 }
 
-test("Workspace mounts the Coop work tracker only for the canonical Coop conversation", async function () {
+test("Coop mounts a default-open owner ledger instead of generic workspace context", async function () {
   await ownerSidebarUi();
   var root = pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules"));
   var coop = await import(root.href + "/global-coop-projection.js");
   var owner = await import(root.href + "/workspace-coop-owner.js?v=" + Date.now());
   var clientStore = await import(root.href + "/store.js");
   clientStore.store.set({ currentSlug: "lead", activeSessionId: 42 });
-  coop.setGlobalCoopProjection({ type: "global_coop_projection", projects: [], topics: [],
-    ownerSidebar: { priorityRevision: 1, now: [], next: [{ entryId: "next", title: "Next", topicRef: { topicId: "next" } }], needsYou: [], blocked: [], recentlyCompleted: [] },
-  });
+  coop.setGlobalCoopProjection({ type: "global_coop_projection", projects: [], topics: [{
+    topicRef: { topicId: "topic-1" }, title: "Owner ask 1",
+  }], ownerSidebar: {
+    defaultOpen: true, revision: 1, open: [{ entryId: "one", title: "Owner ask 1", status: "planned",
+      topicRef: { topicId: "topic-1" }, sessions: [] }], hidden: [], entries: [],
+  } });
   var sessions = [{ id: 42, coopHome: true }];
   assert.equal(owner.hasCoopOwnerContext(sessions), true);
+  assert.equal(owner.shouldDefaultOpenCoopOwnerLedger(sessions), true);
   var container = element("div");
   assert.equal(owner.renderWorkspaceCoopOwner(container, { send: function () { return true; } }), true);
-  assert.equal(byClass(container, "workspace-coop-owner").length, 1);
-  assert.equal(byClass(container, "workspace-coop-owner-title")[0].textContent, "Work tracker");
-  assert.equal(byClass(container, "coop-owner-section-next").length, 1);
+  assert.equal(byClass(container, "workspace-coop-owner-title")[0].textContent, "Owner work ledger");
+  assert.equal(byClass(container, "coop-owner-section-open").length, 1);
+  coop.setGlobalCoopProjection({ type: "global_coop_projection", projects: [], topics: [{
+    topicRef: { topicId: "topic-1" }, title: "Owner ask 1",
+  }], ownerSidebar: {
+    defaultOpen: true, revision: 2, open: [{ entryId: "one", title: "Owner ask 1", status: "working",
+      topicRef: { topicId: "topic-1" }, sessions: [] }], hidden: [], entries: [],
+  } });
+  assert.equal(coop.buildGlobalCoopDisplayModel("").ownerSidebar.open[0].status, "working",
+    "a live global projection replaces the prior ledger state without a duplicate row");
+  var workspace = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "workspace-panel.js"), "utf8");
+  assert.match(workspace, /openDefaultCoopLedger\(\)/);
+  assert.match(workspace, /shouldDefaultOpenCoopOwnerLedger/);
   assert.equal(owner.hasCoopOwnerContext([{ id: 42, coopHome: false }]), false);
-  clientStore.store.set({ currentSlug: "clay" });
-  assert.equal(owner.hasCoopOwnerContext(sessions), false);
   coop.clearGlobalCoopProjection();
 });
 
-test("desktop and mobile owner renderers hide empty sections and send typed priority changes", async function () {
+test("owner ledger renderer exposes Thread/session links and Clear/Restore controls", async function () {
   var ui = await ownerSidebarUi();
   var messages = [];
   var sidebar = {
-    priorityRevision: 7,
-    now: [],
-    next: [{ entryId: "one", title: "First", status: "ready", topicRef: { topicId: "one" } }, {
-      entryId: "two", title: "Second", status: "queued", topicRef: { topicId: "two" },
-    }],
-    needsYou: [], blocked: [], recentlyCompleted: [],
+    revision: 7,
+    open: [{ entryId: "completed", title: "Completed owner ask", status: "completed", clearable: true,
+      topicRef: { topicId: "topic-1" }, sessions: [{ sessionRef: ref("coordinator"), role: "project_coordinator", title: "Coordinator" }] }],
+    hidden: [{ entryId: "dismissed", title: "Dismissed owner ask", status: "dismissed", hidden: true,
+      topicRef: { topicId: "topic-2" }, sessions: [] }], entries: [],
   };
   var desktop = element("div");
   assert.equal(ui.renderCoopOwnerSidebar(desktop, sidebar, { send: function (message) { messages.push(message); return true; } }), 2);
-  assert.equal(byClass(desktop, "coop-owner-section").length, 1);
-  assert.equal(byClass(desktop, "coop-owner-section-next").length, 1);
-  var earlier = byClass(desktop, "coop-owner-priority-button")[2];
-  earlier.click();
-  assert.deepEqual(messages[0], {
-    type: "coop_owner_sidebar_prioritize", topicRef: { topicId: "two" }, direction: "earlier", expectedRevision: 7,
-  });
-  var mobile = element("div");
-  ui.renderCoopOwnerSidebar(mobile, sidebar, { mobile: true, send: function () { return true; } });
-  assert.equal(byClass(mobile, "mobile-coop-owner-section-next").length, 1);
-  assert.equal(byClass(mobile, "mobile-coop-owner-title").length, 2);
+  assert.equal(byClass(desktop, "coop-owner-section").length, 2);
+  assert.equal(byClass(desktop, "coop-owner-link").length, 3);
+  var controls = byClass(desktop, "coop-owner-visibility-button");
+  controls[0].click();
+  controls[1].click();
+  assert.deepEqual(messages, [
+    { type: "coop_owner_ledger_visibility", entryId: "completed", hidden: true, expectedRevision: 7 },
+    { type: "coop_owner_ledger_visibility", entryId: "dismissed", hidden: false, expectedRevision: 7 },
+  ]);
 });

@@ -179,7 +179,7 @@ test("exact Council and archived Triage executions project without persistent pl
     "waiting remains visible without a processing pulse");
 });
 
-test("a canonical Coop plan decision projects into the owner Needs you surface", function () {
+test("a canonical Coop plan decision projects into the owner work ledger", function () {
   var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
   var topicRef = { topicId: "post-council-plan" };
   var home = session(1, {
@@ -225,7 +225,7 @@ test("a canonical Coop plan decision projects into the owner Needs you surface",
   assert.deepEqual(projection.actionQueue.map(function (item) {
     return [item.projectRef.projectId, item.taskId, item.status, item.topicRef.topicId];
   }), [["system-lead", "plan-decision", "needs_input", "post-council-plan"]]);
-  assert.deepEqual(projection.ownerSidebar.needsYou.map(function (entry) {
+  assert.deepEqual(projection.ownerSidebar.open.map(function (entry) {
     return [entry.entryId, entry.reason, entry.topicRef.topicId];
   }), [["system-lead|owner-decision:owner-decision-123", "Accept these Council-derived defaults?", "post-council-plan"]]);
 });
