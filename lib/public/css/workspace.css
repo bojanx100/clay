@@ -592,6 +592,12 @@
 .workspace-coop-owner .coop-owner-evidence { color: var(--text-secondary); font-size: 12px; line-height: 1.4; margin: 4px 0 0; }
 .workspace-coop-owner .coop-owner-unblock { color: var(--text); }
 .workspace-coop-owner .coop-owner-evidence { color: var(--text-muted); }
+.workspace-coop-owner .coop-owner-detail { background: rgba(var(--overlay-rgb), .045); border: 1px solid rgba(var(--overlay-rgb), .11); border-radius: 7px; color: var(--text-secondary); font-size: 12px; line-height: 1.45; margin-top: 8px; padding: 9px 10px; }
+.workspace-coop-owner .coop-owner-detail-label { color: var(--text); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.workspace-coop-owner .coop-owner-detail-message { color: var(--text); margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.workspace-coop-owner .coop-owner-detail-note,
+.workspace-coop-owner .coop-owner-detail-provenance { color: var(--text-muted); font-size: 11px; margin: 6px 0 0; }
+.workspace-coop-owner .coop-owner-detail-history { margin: 7px 0 0; padding-left: 18px; }
 .workspace-coop-owner .coop-owner-links,
 .workspace-coop-owner .coop-owner-priority,
 .workspace-coop-owner .coop-owner-visibility { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

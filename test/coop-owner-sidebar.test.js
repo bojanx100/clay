@@ -164,6 +164,42 @@ test("visibility transport is owner-gated, stale-safe, and never clears active w
   assert.equal(sent[2].code, "stale_priority");
 });
 
+test("owner ledger detail resolves a drifted request index by immutable ingress identity", function () {
+  var sent = [];
+  var ingressId = "coop:owner-ledger:detail";
+  var requestRef = { projectId: LEAD, sessionStorageId: "compacted-home", eventIndex: 0 };
+  var entry = { entryId: ingressId, ingressId: ingressId, status: "working",
+    reason: "Project coordinator is active", updatedAt: 40, taskRefs: [{ projectId: PROJECT, taskId: "task-1" }] };
+  var history = [
+    { type: "user_message", text: "Different request", coopIngressId: "coop:other" },
+    { type: "user_message", text: "Show me the original request", coopIngressId: ingressId },
+  ];
+  var ctx = {
+    slug: "lead",
+    isCoopTopicOwner: function () { return true; },
+    getGlobalCoopProjection: function () { return { ownerSidebar: { entries: [entry] } }; },
+    coopOwnerRequests: { get: function () { return {
+      ingressId: ingressId, requestRef: requestRef, sessionRef: ref("source-home"),
+      receivedAt: 10, updatedAt: 40, response: { state: "unanswered" },
+      projectRefs: [{ projectId: PROJECT }],
+    }; } },
+    resolveGlobalSessionRef: function () { return { ok: true, session: { history: history } }; },
+    sendTo: function (_ws, message) { sent.push(message); },
+  };
+  assert.equal(handleOwnerSidebarMessage(ctx, {}, {
+    type: "coop_owner_ledger_detail", entryId: ingressId,
+  }), true);
+  assert.equal(sent[0].type, "coop_owner_ledger_detail_result");
+  assert.equal(sent[0].ok, true);
+  assert.equal(sent[0].detail.originalMessage, "Show me the original request");
+  assert.equal(sent[0].detail.requestRef.eventIndex, 1,
+    "the returned provenance is repaired instead of echoing the stale stored index");
+  assert.equal(sent[0].detail.history[1].label, "Response: unanswered");
+  ctx.isCoopTopicOwner = function () { return false; };
+  handleOwnerSidebarMessage(ctx, {}, { type: "coop_owner_ledger_detail", entryId: ingressId });
+  assert.equal(sent[1].code, "access_denied");
+});
+
 function element(tag) {
   var node = { tagName: String(tag).toUpperCase(), children: [], className: "", attributes: {}, listeners: {}, type: "", title: "", disabled: false };
   node.appendChild = function (child) { child.parentNode = node; node.children.push(child); return child; };
@@ -255,4 +291,60 @@ test("owner ledger renderer exposes Thread/session links and Clear/Restore contr
     { type: "coop_owner_ledger_visibility", entryId: "completed", hidden: true, expectedRevision: 7 },
     { type: "coop_owner_ledger_visibility", entryId: "dismissed", hidden: false, expectedRevision: 7 },
   ]);
+});
+
+test("a row without a resolvable Thread expands its original message instead of no-oping", async function () {
+  var ui = await ownerSidebarUi();
+  var messages = [];
+  var details = {};
+  var sidebar = {
+    revision: 8,
+    open: [{ entryId: "no-thread", ingressId: "coop:no-thread", title: "Unthreaded owner ask",
+      status: "planned", reason: "Waiting to be routed", topicRef: null, sessions: [] }],
+    hidden: [], entries: [],
+  };
+  var first = element("div");
+  ui.renderCoopOwnerSidebar(first, sidebar, {
+    details: details,
+    send: function (message) { messages.push(message); return true; },
+    onDetailsChange: function (next) { details = next; },
+  });
+  var title = byClass(first, "coop-owner-title")[0];
+  assert.equal(title.tagName, "BUTTON", "native button activation covers pointer, Enter, and Space");
+  assert.equal(title.getAttribute("aria-expanded"), "false");
+  title.click();
+  assert.deepEqual(messages, [{ type: "coop_owner_ledger_detail", entryId: "no-thread" }]);
+  assert.equal(details["no-thread"].state, "loading");
+  assert.equal(details["no-thread"].expanded, true);
+
+  details = ui.applyCoopOwnerLedgerDetailResult(details, {
+    type: "coop_owner_ledger_detail_result", entryId: "no-thread", ok: true,
+    detail: {
+      originalMessage: "This is the exact owner message.", ingressId: "coop:no-thread",
+      requestRef: { eventIndex: 12 }, sourceSessionRef: ref("source-home"),
+      history: [{ label: "Received" }, { label: "Current status: planned" }],
+    },
+  });
+  var ready = element("div");
+  ui.renderCoopOwnerSidebar(ready, sidebar, { details: details, send: function () { return true; } });
+  assert.equal(byClass(ready, "coop-owner-detail-message")[0].textContent,
+    "This is the exact owner message.");
+  assert.match(byClass(ready, "coop-owner-detail-provenance")[0].textContent,
+    /coop:no-thread · message #12/);
+  assert.equal(byClass(ready, "coop-owner-link").some(function (button) {
+    return button.textContent === "Open source session";
+  }), true);
+
+  var unavailable = ui.applyCoopOwnerLedgerDetailResult({}, {
+    type: "coop_owner_ledger_detail_result", entryId: "no-thread", ok: false,
+    code: "source_session_unavailable",
+  });
+  var fallback = element("div");
+  ui.renderCoopOwnerSidebar(fallback, sidebar, { details: unavailable, send: function () { return true; } });
+  assert.match(byClass(fallback, "coop-owner-detail")[0].textContent, /original message is unavailable/i);
+
+  var workspaceMessages = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules",
+    "app-messages-workspace.js"), "utf8");
+  assert.match(workspaceMessages, /coop_owner_ledger_detail_result[\s\S]*applyCoopOwnerLedgerDetailResult/,
+    "the websocket result is routed into reactive ledger detail state");
 });
