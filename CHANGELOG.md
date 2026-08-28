@@ -1,3 +1,11 @@
+# [3.7.0-beta.1](https://github.com/chadbyte/clay/compare/v3.6.0...v3.7.0-beta.1) (2026-08-28)
+
+
+### Features
+
+* **codex:** show image generation progress ([8b2a199](https://github.com/chadbyte/clay/commit/8b2a199961f8b4ca305abd1ce879865020723aef))
+* **codex:** support inline image generation ([71282a6](https://github.com/chadbyte/clay/commit/71282a62e65087e730bd31c98c2d23a231308f9a))
+
 # [3.6.0](https://github.com/chadbyte/clay/compare/v3.5.1...v3.6.0) (2026-08-27)
 
 
