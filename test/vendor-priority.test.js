@@ -39,3 +39,13 @@ test("only vendors without direct use testing are marked experimental", async fu
     assert.strictEqual(vendorPriority.isExperimentalVendor(experimental[j]), true);
   }
 });
+
+test("composer relies on vendor priority instead of a segmented vendor picker", function () {
+  var html = fs.readFileSync(path.join(__dirname, "../lib/public/index.html"), "utf8");
+  var panelSource = fs.readFileSync(path.join(__dirname, "../lib/public/modules/app-panels.js"), "utf8");
+
+  assert.doesNotMatch(html, /id="vendor-toggle-wrap"|class="vendor-toggle-btn/);
+  assert.doesNotMatch(panelSource, /vendor-btn-|updateVendorToggle|onVendorClick/);
+  assert.match(html, /id="config-chip"/);
+  assert.match(html, /id="active-vendor-indicator"/);
+});
