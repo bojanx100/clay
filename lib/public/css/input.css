@@ -762,7 +762,7 @@
   color: var(--text-muted);
 }
 
-/* --- Bottom toolbar (attach left, model+send right) --- */
+/* --- Bottom toolbar (attach left, session config + send right) --- */
 #input-bottom {
   display: flex;
   align-items: center;
@@ -777,21 +777,7 @@
   flex-shrink: 0;
 }
 
-/* --- Vendor toggle (split toggle) --- */
-#vendor-toggle-wrap {
-  display: flex;
-  align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  height: 30px;
-  flex-shrink: 0;
-}
-#vendor-toggle-wrap.hidden { display: none; }
-
-/* Compact session-vendor icon shown next to the config-chip when the
-   full vendor-toggle is hidden (because the session's vendor is already
-   committed). Visual only - not clickable. */
+/* Compact committed-session vendor icon next to the config chip. */
 #active-vendor-indicator {
   display: inline-flex;
   align-items: center;
@@ -806,72 +792,12 @@
   border-radius: 4px;
   object-fit: cover;
 }
-#vendor-toggle-wrap.locked {
-  border: none;
-  height: auto;
-  pointer-events: none;
-}
-#vendor-toggle-wrap.locked .vendor-toggle-btn:not(.active) { display: none; }
-#vendor-toggle-wrap.locked .vendor-toggle-btn.active {
-  background: transparent;
-  padding: 0;
-  gap: 0;
-  opacity: 0.7;
-}
-#vendor-toggle-wrap.locked .vendor-toggle-btn.active .vendor-toggle-label { display: none; }
-#vendor-toggle-wrap.locked .vendor-toggle-btn:first-child { border-right: none; }
-.vendor-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 10px;
-  height: 100%;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  transition: background 0.15s, color 0.15s;
-  white-space: nowrap;
-}
-.vendor-toggle-btn:first-child { border-right: 1px solid var(--border); }
-.vendor-toggle-btn.active {
-  background: var(--accent-12);
-  color: var(--accent);
-  font-weight: 600;
-}
-.vendor-toggle-btn.disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-.vendor-toggle-btn.disabled:not(.active) { display: none; }
-.vendor-toggle-icon {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  object-fit: cover;
-}
-.vendor-toggle-label {
-  pointer-events: none;
-}
-.vendor-toggle-btn.experimental::after,
 .vendor-experimental-badge {
-  content: "🧪";
   font-size: 10px;
   line-height: 1;
   font-weight: 400;
   filter: saturate(0.85);
-}
-.vendor-experimental-badge {
   margin-left: auto;
-}
-@media (min-width: 901px) {
-  .vendor-toggle-btn:not(.active) .vendor-toggle-label { display: none; }
-  .vendor-toggle-btn:not(.active) { padding: 0 8px; }
-}
-@media (max-width: 900px) {
-  .vendor-toggle-label { display: none; }
-  .vendor-toggle-btn { padding: 0 8px; }
 }
 
 /* --- Attach buttons & menu --- */
@@ -1290,7 +1216,6 @@
    Attach (files/images -> path injection) and voice input stay available. */
 body.tui-composer-active #schedule-btn,
 body.tui-composer-active #ask-mate-btn,
-body.tui-composer-active #vendor-toggle-wrap,
 body.tui-composer-active #active-vendor-indicator,
 body.tui-composer-active #config-chip-wrap {
   display: none !important;
