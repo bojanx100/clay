@@ -108,6 +108,42 @@ test("request changes on one item does not rework the other", function () {
   assert.equal(a.ownerDecision, undefined);
 });
 
+test("an exact popup decision answers typed plan provenance without accepting arbitrary prose", function () {
+  var typed = task("plan-decision", {
+    status: "needs_input",
+    clientRef: "owner-decision:owner-decision-123",
+    ownerDecision: {
+      version: 1,
+      decisionRef: "owner-decision-123",
+      status: "unanswered",
+      state: "unanswered",
+      scope: {
+        targetProject: { projectId: WEBAPP },
+        portfolioTaskId: "council-plan",
+        bindingRevision: 1,
+        planRevision: 2,
+        planDigest: "0123456789abcdef",
+        coopTopicRef: { topicId: "council-plan" },
+      },
+      createdAt: 1,
+    },
+  });
+  var project = projectDouble([typed]);
+  var out = apply(project, req("plan-decision", "request_changes", {
+    itemId: queue.canonicalIdentity(typed, WEBAPP).key,
+    note: "Keep the existing Triage name.",
+  }));
+  assert.equal(out.ok, true);
+  assert.equal(typed.status, "reviewing");
+  assert.equal(typed.ownerDecision.decisionRef, "owner-decision-123");
+  assert.equal(typed.ownerDecision.status, "answered");
+  assert.equal(typed.ownerDecision.state, "answered");
+  assert.equal(typed.ownerDecision.answer.kind, "request_changes");
+  assert.equal(typed.ownerDecision.answer.note, "Keep the existing Triage name.");
+  assert.equal(typed.ownerDecision.scope.planRevision, 2,
+    "the answer cannot replace the immutable staged plan scope");
+});
+
 test("keep waiting changes nothing at all", function () {
   var a = task2503(), b = task2517();
   var project = projectDouble([a, b]);

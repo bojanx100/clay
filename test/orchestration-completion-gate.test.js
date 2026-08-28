@@ -163,6 +163,8 @@ test("orchestration MCP exposes lifecycle, provider, and authoritative Coop sess
   });
   assert.ok(requestInput.inputSchema.approvalScopes,
     "the public tool contract must expose exact approval staging");
+  assert.ok(requestInput.inputSchema.ownerDecisionScope,
+    "the public tool contract must expose explicit durable plan-decision staging");
 });
 
 test("list_coop_sessions requires exact project references and exposes no hidden-session switch", function () {

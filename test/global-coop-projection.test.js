@@ -179,6 +179,57 @@ test("exact Council and archived Triage executions project without persistent pl
     "waiting remains visible without a processing pulse");
 });
 
+test("a canonical Coop plan decision projects into the owner Needs you surface", function () {
+  var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var topicRef = { topicId: "post-council-plan" };
+  var home = session(1, {
+    storageId: "coop-plan-home",
+    coopHome: true,
+    orchestrationTasks: [{
+      taskId: "plan-decision",
+      clientRef: "owner-decision:owner-decision-123",
+      title: "Owner decision: coherent role plan revision 1",
+      status: "needs_input",
+      userQuestion: "Accept these Council-derived defaults?",
+      coopTopicRef: topicRef,
+      updatedAt: 20,
+      ownerDecision: {
+        version: 1,
+        decisionRef: "owner-decision-123",
+        state: "unanswered",
+        scope: {
+          targetProject: { projectId: clayId }, portfolioTaskId: "coherent-role-plan",
+          bindingRevision: 1, planRevision: 1, planDigest: "0123456789abcdef",
+          coopTopicRef: topicRef,
+        },
+        createdAt: 10,
+      },
+    }],
+  });
+  var lead = project("system-lead", "lead", [home], { isLead: true });
+  var clay = project(clayId, "clay", []);
+  var index = {
+    ensureRetro: function () { return { ok: true }; },
+    project: function () {
+      return { groups: [{ kind: "project", projectRef: { projectId: clayId }, topics: [{
+        topicRef: topicRef, title: "Post-Council plan", status: "open", threadState: "exploring",
+        projectRef: { projectId: clayId },
+      }] }] };
+    },
+  };
+  var projection = buildGlobalCoopProjection({
+    projects: [lead, clay], coopTopicIndex: index,
+    canAccessProject: function () { return true; },
+    canAccessSession: function () { return true; },
+  });
+  assert.deepEqual(projection.actionQueue.map(function (item) {
+    return [item.projectRef.projectId, item.taskId, item.status, item.topicRef.topicId];
+  }), [["system-lead", "plan-decision", "needs_input", "post-council-plan"]]);
+  assert.deepEqual(projection.ownerSidebar.needsYou.map(function (entry) {
+    return [entry.entryId, entry.reason, entry.topicRef.topicId];
+  }), [["system-lead|owner-decision:owner-decision-123", "Accept these Council-derived defaults?", "post-council-plan"]]);
+});
+
 test("Coop projects each accessible configured project into a main-lane lens with canonical nested sessions", function () {
   var home = session(1, { storageId: "coop-home", coopHome: true });
   var lead = project("system-lead", "lead", [home], { isLead: true });

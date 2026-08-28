@@ -51,6 +51,39 @@ test("filtered history replay is never hidden by the live-turn gate", async func
   assert.equal(loaded.filter.shouldSuppressCoopTopicStream({ type: "delta", text: "Retro answer" }), false);
 });
 
+test("a persisted owner-decision stage reveals only its selected automated response turn", async function () {
+  var loaded = await loadModules();
+  loaded.storeModule.createStore({
+    activeCoopHome: true,
+    activeCoopTopicRef: { topicId: "council-plan" },
+    replayingHistory: false,
+  });
+  assert.equal(loaded.filter.shouldSuppressCoopTopicStream({
+    type: "user_message", text: "↻ Lead tick", synthetic: true, autoAction: true,
+  }), true);
+  assert.equal(loaded.filter.handleCoopOwnerDecisionStaged({
+    type: "coop_owner_decision_staged",
+    decisionRef: "owner-decision-123",
+    coopTopicRef: { topicId: "council-plan" },
+  }), true);
+  assert.equal(loaded.filter.shouldSuppressCoopTopicStream({
+    type: "delta", text: "Accept these Council defaults?" }), false);
+  assert.equal(loaded.filter.shouldSuppressCoopTopicStream({ type: "done" }), false);
+
+  loaded.storeModule.createStore({
+    activeCoopHome: true,
+    activeCoopTopicRef: { topicId: "other-topic" },
+    replayingHistory: false,
+    coopTopicLiveTurnVisible: false,
+  });
+  assert.equal(loaded.filter.handleCoopOwnerDecisionStaged({
+    type: "coop_owner_decision_staged",
+    coopTopicRef: { topicId: "council-plan" },
+  }), true);
+  assert.equal(loaded.filter.shouldSuppressCoopTopicStream({ type: "delta", text: "other topic" }), true,
+    "a staged decision cannot reveal a different Topic's synthetic turn");
+});
+
 test("completed canonical turns request a fresh topic projection", async function () {
   var loaded = await loadModules();
   var sent = [];

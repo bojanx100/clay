@@ -3,6 +3,7 @@ var assert = require("node:assert");
 
 var compaction = require("../lib/project-session-compaction");
 var processorModule = require("../lib/sdk-message-processor");
+var decisionStaging = require("../lib/coop-owner-decision-staging");
 
 test("compact continuation prompt moves latest user message into current block", function () {
   var session = {
@@ -296,6 +297,57 @@ test("compaction refuses to orphan unresolved coordinator workers", function () 
   assert.ok(source.coopChannel);
   assert.strictEqual(source.hidden, undefined);
   assert.match(errors[0][1].text, /worker tasks still need attention/);
+});
+
+test("compaction transfers an unanswered typed owner decision without treating it as a worker", function () {
+  var decisionScope = {
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    portfolioTaskId: "coherent-plan", bindingRevision: 1, planRevision: 1,
+    planDigest: "0123456789abcdef", coopTopicRef: { topicId: "coherent-plan" },
+  };
+  var decisionRef = decisionStaging.decisionRefFor(decisionScope);
+  var source = {
+    localId: 1,
+    storageId: "coop-owner-decision-source",
+    coopHome: true,
+    coordinationMode: true,
+    orchestrationTasks: [{
+      taskId: "plan-decision",
+      status: "needs_input",
+      ownerDecision: {
+        version: 1,
+        decisionRef: decisionRef,
+        status: "unanswered",
+        scope: decisionScope,
+        createdAt: 1,
+      },
+    }],
+    history: [{ type: "user_message", text: "Continue", _ts: 1 }],
+  };
+  var sessions = new Map([[source.localId, source]]);
+  var api = compaction.attachSessionCompaction({
+    cwd: "/tmp/lead",
+    sm: {
+      sessions: sessions,
+      createSessionRaw: function (options) {
+        var next = Object.assign({ localId: 2, history: [] }, options);
+        sessions.set(next.localId, next);
+        return next;
+      },
+      sendAndRecord: function (session, event) { session.history.push(event); },
+      saveSessionFile: function () {},
+      switchSession: function () {},
+      broadcastSessionList: function () {},
+    },
+    sdk: { startQuery: function () {} },
+    sendToSession: function () {},
+  });
+
+  var continuation = api.compactAndContinue(source, { reason: "manual" });
+  assert.ok(continuation);
+  assert.equal(continuation.orchestrationTasks[0].ownerDecision.status, "unanswered");
+  assert.equal(continuation.orchestrationTasks[0].ownerDecision.decisionRef, decisionRef);
+  assert.equal(source.orchestrationTasks, undefined);
 });
 
 test("Coop rotation resets compaction depth through the existing compaction path", function () {

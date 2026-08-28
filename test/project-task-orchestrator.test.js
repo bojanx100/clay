@@ -2562,6 +2562,89 @@ test("coordinator records one precise user decision and resumes it on the answer
   assert.ok(task.userAnsweredAt);
 });
 
+test("an explicit Coop plan decision survives ordinary chat and supersedes only a newer plan revision", function () {
+  var ctx = testContext();
+  var parent = coordinator(ctx);
+  parent.coopHome = true;
+  parent.isProcessing = true;
+  parent.history = [{ type: "user_message", text: "↻ Lead tick", synthetic: true, autoAction: true }];
+  var scope = {
+    targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    portfolioTaskId: "coherent-plan-owner-decision",
+    bindingRevision: 1,
+    planRevision: 1,
+    planDigest: "0123456789abcdef0123456789abcdef",
+    coopTopicRef: { topicId: "coherent-plan" },
+  };
+  var first = ctx.api.requestInputFromTool({
+    coordinatorSessionId: parent.storageId,
+    ownerDecisionScope: scope,
+    question: "Accept these Council-derived plan defaults?",
+    reason: "Council completed; the owner must choose the exact plan revision.",
+  });
+  assert.equal(first.isError, undefined);
+  assert.equal(parent.orchestrationTasks.length, 1);
+  var staged = parent.orchestrationTasks[0];
+  assert.equal(staged.status, "needs_input");
+  assert.equal(staged.ownerDecision.status, "unanswered");
+  assert.equal(staged.ownerDecision.state, "unanswered");
+  assert.equal(staged.ownerDecision.scope.planDigest, scope.planDigest);
+  assert.equal(staged.ownerDecision.responseTurn.startEventIndex, 1);
+  assert.equal(ctx.events.some(function (entry) {
+    return entry.event.type === "coop_owner_decision_staged" &&
+      entry.event.coopTopicRef.topicId === "coherent-plan";
+  }), true, "the selected Topic lens gets an explicit persisted-decision visibility signal");
+
+  assert.equal(ctx.api.resumeWaitingCoordinator(parent, "Please continue normally."), "",
+    "ordinary prose must not answer a typed owner decision");
+  assert.equal(staged.status, "needs_input");
+  assert.equal(staged.ownerDecision.state, "unanswered");
+
+  var duplicate = ctx.api.requestInputFromTool({
+    coordinatorSessionId: parent.storageId,
+    ownerDecisionScope: scope,
+    question: "Accept these Council-derived plan defaults?",
+    reason: "Council completed; the owner must choose the exact plan revision.",
+  });
+  assert.equal(duplicate.isError, undefined);
+  assert.equal(parent.orchestrationTasks.length, 1, "the stable decision ref is idempotent");
+
+  var next = Object.assign({}, scope, {
+    planRevision: 2,
+    planDigest: "fedcba9876543210fedcba9876543210",
+  });
+  var revised = ctx.api.requestInputFromTool({
+    coordinatorSessionId: parent.storageId,
+    ownerDecisionScope: next,
+    question: "Accept the revised Council plan defaults?",
+    reason: "The semantic plan changed and requires a fresh owner decision.",
+  });
+  assert.equal(revised.isError, undefined);
+  assert.equal(parent.orchestrationTasks.length, 2);
+  assert.equal(staged.status, "dismissed");
+  assert.equal(staged.ownerDecision.status, "superseded");
+  assert.equal(staged.ownerDecision.state, "superseded");
+  assert.equal(parent.orchestrationTasks[1].status, "needs_input");
+  assert.equal(parent.orchestrationTasks[1].ownerDecision.state, "unanswered");
+
+  var independent = Object.assign({}, scope, {
+    portfolioTaskId: "triage-plan-owner-decision",
+    planDigest: "00112233445566778899aabbccddeeff",
+    coopTopicRef: { topicId: "triage-plan" },
+  });
+  var additional = ctx.api.requestInputFromTool({
+    coordinatorSessionId: parent.storageId,
+    ownerDecisionScope: independent,
+    question: "Accept this Triage-derived plan?",
+    reason: "Triage completed independently and needs its own owner decision.",
+  });
+  assert.equal(additional.isError, undefined);
+  assert.equal(parent.orchestrationTasks.length, 3,
+    "an unrelated explicit plan decision remains independently pending");
+  assert.equal(parent.orchestrationTasks[1].ownerDecision.state, "unanswered");
+  assert.equal(parent.orchestrationTasks[2].ownerDecision.state, "unanswered");
+});
+
 test("coordinator cannot record two different pending user decisions", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
