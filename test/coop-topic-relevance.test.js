@@ -2,6 +2,8 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var relevance = require("../lib/coop-topic-relevance");
 var completeTurns = require("../lib/coop-topic-extraction").completeTurns;
+var sessionHistory = require("../lib/sessions-history");
+var topicConnection = require("../lib/coop-topic-connection");
 
 // Owner-relevance is decided from durable flags the writer already sets, never
 // from message text. `internalOnly` predates this module: the orchestrator
@@ -464,6 +466,65 @@ test("All keeps everything the injected filter removes from Main", function () {
   var all = history.map(function (_, i) { return i; });
   main.forEach(function (i) { assert.ok(all.indexOf(i) !== -1); });
   assert.ok(main.length < all.length, "All stays full fidelity");
+});
+
+test("Main replays Lead authority disclosure-free while All, Topics, and owner quotes stay intact", function () {
+  var disclosure = relevance.LEAD_AUTHORITY_DISCLOSURES[0];
+  var ownerQuote = userMessage("Why does Coop keep saying: " + disclosure);
+  var history = [
+    ownerQuote,
+    { type: "delta", text: disclosure + "\n\nThe project coordinator is checking the fix." },
+    { type: "done" },
+    userMessage("Continue with the fix."),
+    { type: "delta", text: disclosure },
+    { type: "delta", text: "The ordinary owner-facing update remains visible." },
+    { type: "done" },
+  ];
+  var mainIndexes = relevance.mainLensEventIndexes(history);
+  assert.deepEqual(mainIndexes, [0, 1, 2, 3, 5, 6],
+    "a disclosure-only assistant record cannot enter Main");
+  assert.deepEqual(relevance.ownerRelevantIndexes(history, history.map(function (_, index) { return index; })),
+    [0, 1, 2, 3, 4, 5, 6], "Topic membership is not reclassified as Main");
+
+  var mainMessages = [];
+  var historyApi = sessionHistory.attachSessionHistory({
+    send: function (message) { mainMessages.push(message); },
+    sendTo: null,
+    sessions: new Map(),
+    isMeaninglessUnknownError: function () { return false; },
+  });
+  var session = { storageId: "authority-main", history: history };
+  historyApi.replayHistory(session, 0, null,
+    topicConnection.replayTransform({ hydrateImageRefs: function (item) { return item; } }, { scope: "main" }), {
+      eventIndexes: mainIndexes,
+      historyView: { history: history },
+      scope: "main",
+    });
+  var mainText = mainMessages.filter(function (message) {
+    return message.type === "delta" || message.type === "delta_replace";
+  }).map(function (message) { return message.text; }).join("\n");
+  assert.equal(mainText.indexOf(disclosure), -1, "the canonical Main replay removes only the contract line");
+  assert.match(mainText, /project coordinator is checking the fix/);
+  assert.match(mainText, /ordinary owner-facing update remains visible/);
+  assert.ok(mainMessages.some(function (message) {
+    return message.type === "user_message" && message.text === ownerQuote.text;
+  }), "an owner-authored quote is replayed byte-for-byte");
+
+  var allMessages = [];
+  var allHistoryApi = sessionHistory.attachSessionHistory({
+    send: function (message) { allMessages.push(message); },
+    sendTo: null,
+    sessions: new Map(),
+    isMeaninglessUnknownError: function () { return false; },
+  });
+  allHistoryApi.replayHistory(session, 0, null, function (item) { return item; }, {
+    historyView: { history: history },
+    scope: "canonical",
+  });
+  var allText = allMessages.filter(function (message) {
+    return message.type === "delta" || message.type === "delta_replace";
+  }).map(function (message) { return message.text; }).join("\n");
+  assert.ok(allText.indexOf(disclosure) !== -1, "All remains the full-fidelity audit view");
 });
 
 test("server and client agree about injected user messages", function () {

@@ -140,6 +140,31 @@ test("the live vocabulary matches the replay vocabulary", async function () {
   }
 });
 
+test("live disclosure projection agrees with replay and repairs split assistant deltas", async function () {
+  var lens = await loadRelevance();
+  var server = require("../lib/coop-topic-relevance");
+  var disclosure = server.LEAD_AUTHORITY_DISCLOSURES[0];
+  assert.deepEqual(lens.LEAD_AUTHORITY_DISCLOSURES, server.LEAD_AUTHORITY_DISCLOSURES,
+    "the client and replay paths share the exact, deliberately narrow fallback contract");
+
+  var projector = lens.createMainAuthorityDisclosureProjector();
+  var first = projector.project({ type: "delta", text: "Useful status.\n\n" + disclosure.slice(0, 43) });
+  assert.equal(first.type, "delta", "ordinary streaming stays append-only until the exact sentence is complete");
+  var completed = projector.project({
+    type: "delta",
+    text: disclosure.slice(43) + "\n\nThe owner-facing blocker remains visible.",
+  });
+  assert.equal(completed.type, "delta_replace");
+  assert.equal(completed.text.indexOf(disclosure), -1);
+  assert.match(completed.text, /Useful status/);
+  assert.match(completed.text, /owner-facing blocker remains visible/);
+
+  projector.project({ type: "done" });
+  var ownerQuote = { type: "user_message", text: disclosure, from: "owner-1", clientMessageId: "quote-1" };
+  assert.equal(projector.project(ownerQuote), ownerQuote,
+    "the exact sentence in a genuine owner message is not suppression evidence");
+});
+
 // --- wiring: classified at dispatch, marked at the one appender -------------
 
 test("every block is classified before it renders", function () {

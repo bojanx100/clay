@@ -84,6 +84,47 @@ test("a persisted owner-decision stage reveals only its selected automated respo
     "a staged decision cannot reveal a different Topic's synthetic turn");
 });
 
+test("live Main removes only the exact Lead disclosure while All and owner quotes retain it", async function () {
+  var loaded = await loadModules();
+  var disclosure = "Lead mode is on: I can autonomously staff admitted, non-self-modification work within budget; self-modification, unadmitted approval-class work, and spend or budget exceptions require owner approval.";
+  loaded.storeModule.createStore({
+    activeCoopHome: true,
+    activeCoopLensScope: "main",
+    replayingHistory: false,
+  });
+  var main = loaded.filter.projectMainCoopStreamMessage({
+    type: "delta",
+    text: disclosure + "\n\nThe requested blocker remains visible.",
+  });
+  assert.equal(main.type, "delta_replace");
+  assert.equal(main.text.indexOf(disclosure), -1);
+  assert.match(main.text, /requested blocker remains visible/);
+
+  loaded.storeModule.createStore({
+    activeCoopHome: true,
+    activeCoopLensScope: "canonical",
+    replayingHistory: false,
+  });
+  var all = { type: "delta", text: disclosure };
+  assert.equal(loaded.filter.projectMainCoopStreamMessage(all), all,
+    "All must receive the original audit record");
+
+  loaded.storeModule.createStore({
+    activeCoopHome: true,
+    activeCoopLensScope: "main",
+    replayingHistory: false,
+  });
+  var quote = {
+    type: "user_message",
+    text: disclosure,
+    from: "owner-1",
+    fromName: "Owner",
+    clientMessageId: "quote-1",
+  };
+  assert.equal(loaded.filter.projectMainCoopStreamMessage(quote), quote,
+    "a genuine owner quote is never prose-filtered");
+});
+
 test("completed canonical turns request a fresh topic projection", async function () {
   var loaded = await loadModules();
   var sent = [];
