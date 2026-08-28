@@ -564,6 +564,10 @@
 .workspace-coop-owner .coop-owner-section-blocked { border-left-color: rgba(225, 123, 83, .72); }
 .workspace-coop-owner .coop-owner-section-recent { border-left-color: rgba(94, 177, 137, .64); }
 .workspace-coop-owner .coop-owner-section-open { border-left-color: rgba(var(--accent-rgb), .56); }
+.workspace-coop-owner .coop-owner-section-working { border-left-color: rgba(var(--accent-rgb), .72); }
+.workspace-coop-owner .coop-owner-section-attention { border-left-color: rgba(225, 123, 83, .72); }
+.workspace-coop-owner .coop-owner-section-landed { border-left-color: rgba(94, 177, 137, .72); }
+.workspace-coop-owner .coop-owner-section-dismissed { border-left-color: rgba(var(--overlay-rgb), .22); opacity: .8; }
 .workspace-coop-owner .coop-owner-section-hidden { border-left-color: rgba(var(--overlay-rgb), .22); opacity: .8; }
 .workspace-coop-owner .coop-owner-heading { color: var(--text-secondary); font-size: 10px; font-weight: 700; letter-spacing: .09em; margin: 0 0 8px; text-transform: uppercase; }
 .workspace-coop-owner .coop-owner-row { border-bottom: 1px solid rgba(var(--overlay-rgb), .07); padding: 9px 0 10px; }
@@ -588,8 +592,10 @@
 .workspace-coop-owner .coop-owner-status-verified-awaiting-acceptance { color: #d6a45b; }
 .workspace-coop-owner .coop-owner-status-dismissed { color: var(--text-muted); }
 .workspace-coop-owner .coop-owner-reason,
+.workspace-coop-owner .coop-owner-activity,
 .workspace-coop-owner .coop-owner-unblock,
 .workspace-coop-owner .coop-owner-evidence { color: var(--text-secondary); font-size: 12px; line-height: 1.4; margin: 4px 0 0; }
+.workspace-coop-owner .coop-owner-activity { color: var(--text-muted); }
 .workspace-coop-owner .coop-owner-unblock { color: var(--text); }
 .workspace-coop-owner .coop-owner-evidence { color: var(--text-muted); }
 .workspace-coop-owner .coop-owner-detail { background: rgba(var(--overlay-rgb), .045); border: 1px solid rgba(var(--overlay-rgb), .11); border-radius: 7px; color: var(--text-secondary); font-size: 12px; line-height: 1.45; margin-top: 8px; padding: 9px 10px; }
@@ -600,14 +606,25 @@
 .workspace-coop-owner .coop-owner-detail-history { margin: 7px 0 0; padding-left: 18px; }
 .workspace-coop-owner .coop-owner-links,
 .workspace-coop-owner .coop-owner-priority,
-.workspace-coop-owner .coop-owner-visibility { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.workspace-coop-owner .coop-owner-visibility,
+.workspace-coop-owner .coop-owner-decisions,
+.workspace-coop-owner .coop-owner-decision-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .workspace-coop-owner .coop-owner-link,
 .workspace-coop-owner .coop-owner-priority-button,
-.workspace-coop-owner .coop-owner-visibility-button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 11px; min-height: 30px; padding: 2px 0; }
+.workspace-coop-owner .coop-owner-visibility-button,
+.workspace-coop-owner .coop-owner-decision-button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 11px; min-height: 30px; padding: 2px 0; }
 .workspace-coop-owner .coop-owner-link + .coop-owner-link::before { color: var(--border); content: "·"; margin-right: 6px; }
 .workspace-coop-owner .coop-owner-priority-button { border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; }
 .workspace-coop-owner .coop-owner-priority-button:disabled { cursor: default; opacity: .45; }
 .workspace-coop-owner .coop-owner-visibility-button { border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; }
+.workspace-coop-owner .coop-owner-decision-button { border: 1px solid var(--border); border-radius: 5px; color: var(--text); padding: 3px 8px; }
+.workspace-coop-owner .coop-owner-decision-button:disabled { cursor: default; opacity: .45; }
+.workspace-coop-owner .coop-owner-action-note { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font: inherit; font-size: 12px; min-height: 54px; padding: 6px 8px; resize: vertical; width: 100%; }
+.workspace-coop-owner .coop-owner-action-note:focus-visible,
+.workspace-coop-owner .coop-owner-decision-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.workspace-coop-owner .coop-owner-decision-state,
+.workspace-coop-owner .coop-owner-decision-error { font-size: 11px; margin: 0; width: 100%; }
+.workspace-coop-owner .coop-owner-decision-error { color: var(--danger, #de835d); }
 
 @media (max-width: 1023px) {
   .workspace-coop-owner { gap: 18px; padding-bottom: 18px; }
@@ -615,7 +632,9 @@
   .workspace-coop-owner .coop-owner-meta { font-size: 12px; }
   .workspace-coop-owner .coop-owner-link,
   .workspace-coop-owner .coop-owner-priority-button,
-  .workspace-coop-owner .coop-owner-visibility-button { font-size: 12px; min-height: 38px; padding: 5px 3px; }
+  .workspace-coop-owner .coop-owner-visibility-button,
+  .workspace-coop-owner .coop-owner-decision-button { font-size: 12px; min-height: 38px; padding: 5px 3px; }
   .workspace-coop-owner .coop-owner-priority-button { padding: 5px 10px; }
   .workspace-coop-owner .coop-owner-visibility-button { padding: 5px 10px; }
+  .workspace-coop-owner .coop-owner-decision-button { padding: 5px 10px; }
 }

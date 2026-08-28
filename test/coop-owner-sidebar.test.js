@@ -75,6 +75,10 @@ test("owner ledger projects every durable ask with typed truthful principal stat
       session("task-coordinator", "topic-3", "running", {
         role: "task_coordinator", parentSessionRef: ref("project-coordinator"),
       }),
+      session("verified-worker", "topic-7", "completed", {
+        terminalOutcome: { status: "completed", at: 70, summary: "Merged and verified",
+          verification: "Focused owner-sidebar tests passed" },
+      }),
     ],
     executionBindings: [
       { portfolioTaskId: "queued", bindingRevision: 1, status: "pending", coopTopicRef: { topicId: "topic-4" } },
@@ -108,6 +112,58 @@ test("failed and unrouted durable records outrank stale running session metadata
   assert.equal(sidebar.open[0].status, "failed");
 });
 
+test("owner ledger separates working, attention, and landed work without trusting an unverified terminal row", function () {
+  var records = [
+    request(1, "working"),
+    request(2, "done", { outcome: { status: "completed", at: 20, summary: "Worker said done" } }),
+    request(3, "done", { outcome: { status: "completed", at: 30, summary: "Commit abc123" } }),
+    request(4, "open", { response: { state: "superseded" } }),
+    request(5, "open"),
+  ];
+  var sidebar = buildOwnerSidebar({
+    requests: records,
+    topics: topicList(),
+    sessions: [
+      session("active-worker", "topic-1", "running"),
+      session("verified-worker", "topic-3", "completed", {
+        terminalOutcome: { status: "completed", at: 31, summary: "Commit abc123 pushed",
+          verification: "Focused owner-ledger test passed" },
+      }),
+      session("stale-triage", "topic-3", "completed", {
+        controlRole: "triage", role: "triage",
+        terminalOutcome: { status: "completed", at: 32, summary: "Triage finished",
+          verification: "This must not prove delivery" },
+      }),
+    ],
+    executionBindings: [
+      { portfolioTaskId: "active", bindingRevision: 1, status: "active", coopTopicRef: { topicId: "topic-1" } },
+      { portfolioTaskId: "unverified", bindingRevision: 1, status: "completed", coopTopicRef: { topicId: "topic-2" } },
+      { portfolioTaskId: "verified", bindingRevision: 1, status: "completed", coopTopicRef: { topicId: "topic-3" } },
+    ],
+    actionQueue: [{
+      itemId: "decision-1", projectRef: { projectId: PROJECT }, taskId: "decision-task",
+      title: "Choose the safe migration", status: "needs_input", kind: "decision",
+      decision: "Approve the migration plan?", evidence: "Council review is complete",
+      topicRef: { topicId: "topic-5" }, updatedAt: 40,
+    }],
+  });
+  assert.deepEqual(sidebar.working.map(function (entry) { return entry.ingressId; }), [records[0].ingressId]);
+  assert.deepEqual(sidebar.attention.map(function (entry) { return entry.ingressId; }),
+    [records[1].ingressId, records[4].ingressId]);
+  assert.deepEqual(sidebar.landed.map(function (entry) { return entry.ingressId; }), [records[2].ingressId]);
+  assert.deepEqual(sidebar.dismissed.map(function (entry) { return entry.ingressId; }), [records[3].ingressId]);
+  assert.equal(sidebar.counts.working, 1);
+  assert.equal(sidebar.counts.attention, 2);
+  assert.equal(sidebar.counts.landed, 1);
+  var unverified = sidebar.attention.find(function (entry) { return entry.ingressId === records[1].ingressId; });
+  var staged = sidebar.attention.find(function (entry) { return entry.ingressId === records[4].ingressId; });
+  assert.equal(unverified.status, "needs_owner",
+    "a completed binding without concrete terminal verification is not Done");
+  assert.match(unverified.reason, /verification/i);
+  assert.equal(staged.action.itemId, "decision-1");
+  assert.match(sidebar.landed[0].evidence, /Focused owner-ledger test passed/);
+});
+
 test("Clear and Restore are durable projection-only operations with stable provenance and order", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-ledger-"));
   var file = path.join(dir, "owner-ledger-view.json");
@@ -115,17 +171,28 @@ test("Clear and Restore are durable projection-only operations with stable prove
     request(1, "done", { outcome: { status: "completed", at: 10, summary: "Done" } }),
     request(2, "open", { response: { state: "superseded" } }),
   ];
-  var initial = buildOwnerSidebar({ requests: records, topics: topicList(), visibility: priorities.priorityRecord({ file: file }) });
+  var evidence = {
+    sessions: [session("done-worker", "topic-1", "completed", {
+      terminalOutcome: { status: "completed", at: 10, summary: "Done",
+        verification: "Owner-ledger regression passed" },
+    })],
+    executionBindings: [{ portfolioTaskId: "done", bindingRevision: 1, status: "completed",
+      coopTopicRef: { topicId: "topic-1" } }],
+  };
+  var initial = buildOwnerSidebar(Object.assign({ requests: records, topics: topicList(),
+    visibility: priorities.priorityRecord({ file: file }) }, evidence));
   var cleared = priorities.applyVisibility(records[0].ingressId, true, initial.entries, { file: file });
   assert.equal(cleared.ok, true);
   assert.equal(cleared.changed, true);
-  var hidden = buildOwnerSidebar({ requests: records, topics: topicList(), visibility: priorities.priorityRecord({ file: file }) });
+  var hidden = buildOwnerSidebar(Object.assign({ requests: records, topics: topicList(),
+    visibility: priorities.priorityRecord({ file: file }) }, evidence));
   assert.deepEqual(hidden.open.map(function (entry) { return entry.ingressId; }), [records[1].ingressId]);
   assert.deepEqual(hidden.hidden.map(function (entry) { return [entry.ingressId, entry.status, entry.requestRef.eventIndex]; }),
     [[records[0].ingressId, "completed", 1]]);
   var restored = priorities.applyVisibility(records[0].ingressId, false, hidden.entries, { file: file });
   assert.equal(restored.ok, true);
-  var replayed = buildOwnerSidebar({ requests: records, topics: topicList(), visibility: priorities.priorityRecord({ file: file }) });
+  var replayed = buildOwnerSidebar(Object.assign({ requests: records, topics: topicList(),
+    visibility: priorities.priorityRecord({ file: file }) }, evidence));
   assert.deepEqual(replayed.open.map(function (entry) { return entry.ingressId; }),
     [records[0].ingressId, records[1].ingressId]);
   assert.equal(replayed.hidden.length, 0);
@@ -283,7 +350,8 @@ test("owner ledger renderer exposes Thread/session links and Clear/Restore contr
   var desktop = element("div");
   assert.equal(ui.renderCoopOwnerSidebar(desktop, sidebar, { send: function (message) { messages.push(message); return true; } }), 2);
   assert.equal(byClass(desktop, "coop-owner-section").length, 2);
-  assert.equal(byClass(desktop, "coop-owner-link").length, 3);
+  assert.equal(byClass(desktop, "coop-owner-link").length, 5,
+    "each row has an explicit context action as well as its durable destinations");
   var controls = byClass(desktop, "coop-owner-visibility-button");
   controls[0].click();
   controls[1].click();
@@ -291,6 +359,42 @@ test("owner ledger renderer exposes Thread/session links and Clear/Restore contr
     { type: "coop_owner_ledger_visibility", entryId: "completed", hidden: true, expectedRevision: 7 },
     { type: "coop_owner_ledger_visibility", entryId: "dismissed", hidden: false, expectedRevision: 7 },
   ]);
+});
+
+test("owner ledger exposes explicit approver controls that fail closed on a double submit", async function () {
+  var ui = await ownerSidebarUi();
+  var clientStore = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "store.js")).href);
+  clientStore.store.set({ coopActionPending: {}, coopActionError: {}, coopActionNote: {}, coopActionDone: {} });
+  var messages = [];
+  var sidebar = {
+    revision: 7,
+    working: [],
+    attention: [{
+      entryId: "approval", title: "Approve the safe migration", status: "needs_owner",
+      reason: "Needs your decision", evidence: "Council review is complete", sessions: [],
+      action: {
+        itemId: "approval-task", projectRef: { projectId: PROJECT }, taskId: "approval-task",
+        kind: "decision", status: "needs_input", decision: "Approve the migration?",
+        evidence: "Council review is complete",
+      },
+    }],
+    landed: [], dismissed: [], hidden: [], entries: [],
+  };
+  var container = element("div");
+  ui.renderCoopOwnerSidebar(container, sidebar, { send: function (message) { messages.push(message); return true; } });
+  var buttons = descendants(container).filter(function (item) { return item.tagName === "BUTTON"; });
+  var approve = buttons.find(function (button) { return button.textContent === "Approve"; });
+  var requestChanges = buttons.find(function (button) { return button.textContent === "Request changes"; });
+  var context = buttons.find(function (button) { return button.textContent === "Open context"; });
+  assert.equal(approve.tagName, "BUTTON", "native controls support pointer, Enter, and Space activation");
+  assert.equal(requestChanges.tagName, "BUTTON");
+  assert.equal(context.tagName, "BUTTON");
+  approve.click();
+  approve.click();
+  assert.equal(messages.length, 1, "a second activation cannot submit a second decision");
+  assert.equal(messages[0].type, "coop_action_decision");
+  assert.equal(messages[0].decision, "advance");
+  assert.deepEqual(messages[0].projectRef, { projectId: PROJECT });
 });
 
 test("owner ledger renders project provenance and a stable original-request link", async function () {

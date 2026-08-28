@@ -222,6 +222,8 @@ test("the Coop session ledger reconciles bindings and live session truth idempot
   assert.equal(hidden.hidden, true);
   assert.equal(hidden.closedAt, 850);
   assert.equal(hidden.terminalOutcome.summary, "Hidden coordinator integrated its result.");
+  assert.equal(hidden.terminalOutcome.verification, "focused suite passed",
+    "the session ledger preserves concrete completion verification for Owner Work");
   assert.deepEqual(hidden.provider, {
     vendor: "codex", routeId: "codex-openai", model: "gpt-5.6-sol",
   });
