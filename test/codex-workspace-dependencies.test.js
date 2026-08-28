@@ -126,6 +126,38 @@ function createQueryServer(responsePromiseResolve) {
   };
 }
 
+function createManualQueryServer() {
+  var handler = null;
+  var calls = [];
+  var responses = [];
+  return {
+    started: true,
+    calls: calls,
+    responses: responses,
+    subscribe: function(nextHandler) {
+      handler = nextHandler;
+      return function() { handler = null; };
+    },
+    send: function(method, params) {
+      calls.push({ method: method, params: params });
+      if (method === "thread/start") return Promise.resolve({ thread: { id: "manual-thread" } });
+      return Promise.resolve({});
+    },
+    respond: function(id, result) { responses.push({ id: id, result: result }); },
+    emit: function(event) { if (handler) handler(event); },
+  };
+}
+
+function flush() {
+  return new Promise(function(resolve) { setImmediate(resolve); });
+}
+
+function deferred() {
+  var resolve;
+  var promise = new Promise(function(nextResolve) { resolve = nextResolve; });
+  return { promise: promise, resolve: resolve };
+}
+
 test("workspace dependency support exposes the exact Codex dynamic tool", async function(t) {
   var fixture = createRuntimeFixture();
   t.after(fixture.cleanup);
@@ -231,4 +263,127 @@ test("Codex resume explicitly clears unavailable workspace dependency tools", as
   var threadResume = server.calls.find(function(call) { return call.method === "thread/resume"; });
 
   assert.deepStrictEqual(threadResume.params.dynamicTools, []);
+});
+
+test("Codex keeps a dynamic tool correlated through compaction and cancels it exactly once on interruption", async function() {
+  var server = createManualQueryServer();
+  var work = deferred();
+  var invocations = 0;
+  var handle = codexAdapter.contractTestKit.createQueryHandle(server, {
+    cwd: process.cwd(),
+    model: "gpt-5.6-sol",
+    abortController: new AbortController(),
+    workspaceDependencies: {
+      enabled: true,
+      dynamicTools: [],
+      appendInstructions: function(prompt) { return prompt; },
+      handleCall: function() {
+        invocations++;
+        return work.promise;
+      },
+    },
+  });
+
+  handle.pushMessage("Load dependencies");
+  await flush();
+  server.emit({ method: "turn/started", params: { threadId: "manual-thread", turnId: "manual-turn" } });
+  server.emit({
+    id: 41,
+    method: "item/tool/call",
+    params: {
+      threadId: "manual-thread",
+      turnId: "manual-turn",
+      callId: "compaction-safe-call",
+      tool: "load_workspace_dependencies",
+      arguments: {},
+    },
+  });
+  server.emit({
+    method: "item/started",
+    params: { threadId: "manual-thread", item: { id: "compact-1", type: "contextCompaction" } },
+  });
+  server.emit({
+    id: 42,
+    method: "item/tool/call",
+    params: {
+      threadId: "manual-thread",
+      turnId: "manual-turn",
+      callId: "compaction-safe-call",
+      tool: "load_workspace_dependencies",
+      arguments: {},
+    },
+  });
+  assert.strictEqual(invocations, 1);
+
+  handle.abort();
+  assert.ok(server.calls.some(function(call) { return call.method === "turn/interrupt"; }));
+  assert.deepStrictEqual(server.responses.map(function(response) { return response.id; }), [41, 42]);
+  assert.strictEqual(server.responses[0].result.success, false);
+  assert.strictEqual(server.responses[1].result.success, false);
+
+  work.resolve({ success: true, contentItems: [{ type: "inputText", text: "late result" }] });
+  await flush();
+  assert.strictEqual(server.responses.length, 2);
+
+  server.emit({
+    id: 43,
+    method: "item/tool/call",
+    params: {
+      threadId: "manual-thread",
+      turnId: "manual-turn",
+      callId: "late-after-interrupt",
+      tool: "load_workspace_dependencies",
+      arguments: {},
+    },
+  });
+  assert.strictEqual(server.responses.length, 3);
+  assert.strictEqual(server.responses[2].result.success, false);
+
+  server.emit({
+    method: "turn/completed",
+    params: { threadId: "manual-thread", turn: { id: "manual-turn", status: "interrupted", items: [] } },
+  });
+  server.emit({
+    id: 44,
+    method: "item/tool/call",
+    params: {
+      threadId: "manual-thread",
+      turnId: "manual-turn",
+      callId: "after-terminal",
+      tool: "load_workspace_dependencies",
+      arguments: {},
+    },
+  });
+  assert.strictEqual(server.responses.length, 3);
+});
+
+test("Codex remains subscribed after a normal completed turn for the next queued message", async function() {
+  var server = createManualQueryServer();
+  var handle = codexAdapter.contractTestKit.createQueryHandle(server, {
+    cwd: process.cwd(),
+    model: "gpt-5.6-sol",
+    abortController: new AbortController(),
+  });
+
+  handle.pushMessage("First turn");
+  await flush();
+  server.emit({ method: "turn/started", params: { threadId: "manual-thread", turnId: "turn-one" } });
+  server.emit({
+    method: "turn/completed",
+    params: { threadId: "manual-thread", turn: { id: "turn-one", status: "completed", items: [] } },
+  });
+
+  handle.pushMessage("Second turn");
+  await flush();
+  var turnStarts = server.calls.filter(function(call) { return call.method === "turn/start"; });
+  assert.strictEqual(turnStarts.length, 2);
+
+  server.emit({ method: "turn/started", params: { threadId: "manual-thread", turnId: "turn-two" } });
+  server.emit({
+    method: "turn/completed",
+    params: { threadId: "manual-thread", turn: { id: "turn-two", status: "completed", items: [] } },
+  });
+  handle.endInput();
+  await flush();
+  handle.close();
 });
