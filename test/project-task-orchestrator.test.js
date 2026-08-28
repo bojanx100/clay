@@ -40,6 +40,7 @@ function testContext(existingSessions, options) {
   };
   if (options.smState) Object.assign(sm, options.smState);
   var api = attachTaskOrchestrator({
+    cwd: options.cwd,
     crossProject: options.crossProject || null,
     slug: options.slug || "clay",
     sm: sm,
@@ -111,6 +112,16 @@ function portfolioSession(ctx, portfolioTaskId) {
       left.orchestrationPolicy.portfolioExecution.bindingRevision;
   });
   return matches[0];
+}
+
+function webappWorkflowDir() {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-webapp-workflow-"));
+  fs.mkdirSync(path.join(dir, "localAIConfig"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "localAIConfig", "AGENTS.local.md"),
+    "AGENTS LOCAL AUTHORITY\nRead TRIAGE.local.md before staffing.\n");
+  fs.writeFileSync(path.join(dir, "localAIConfig", "TRIAGE.local.md"),
+    "TRIAGE LOCAL AUTHORITY\nNever mark Done without explicit owner language.\n");
+  return dir;
 }
 
 test("coordinates a queued request in a new owned worker without interrupting the parent", function () {
@@ -1258,6 +1269,134 @@ test("project-coordinator completion closes its source binding through typed del
   assert.equal(lead.starts.length, 0, "completion closure does not create an owner-facing replay");
   target.api.handleCoordinatorTurnDone(projectCoordinator);
   assert.equal(router.getExecutionBinding("portfolio-project-closure", 1).status, "completed");
+});
+
+test("Webapp completion stays implemented and verified until the owner explicitly accepts", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-webapp-owner-acceptance-"));
+  var workflowDir = webappWorkflowDir();
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, {
+    cwd: workflowDir, projectId: targetProjectId, crossProject: router,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    getSessionManager: function () { return target.sm; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    getSessionManager: function () { return lead.sm; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  var created = lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-webapp-owner-gate",
+    bindingRevision: 1,
+    idempotencyKey: "webapp-owner-gate-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+    title: "Webapp owner gate",
+    objective: "Implement and verify the Webapp fix.",
+    acceptanceCriteria: "Wait for explicit owner acceptance before Done.",
+    ownedPaths: "webapp/src/",
+  });
+  assert.equal(created.ok, true);
+  var session = portfolioSession(target, "portfolio-webapp-owner-gate");
+  var prompt = target.starts[0].prompt;
+  assert.ok(prompt.indexOf("AGENTS LOCAL AUTHORITY") <
+    prompt.indexOf("TRIAGE LOCAL AUTHORITY"));
+  assert.equal(session.orchestrationPolicy.portfolioExecution.ownerAcceptanceRequired, true);
+  assert.equal(session.orchestrationPolicy.portfolioExecution.ownerAcceptance.status, "pending");
+
+  session.history.push({
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Implementation verified.\n" +
+      "VERIFICATION: focused and full suites passed\nINTEGRATION_VERIFIED: yes\n" +
+      "ESCALATION_REQUIRED: no",
+  });
+  session.isProcessing = false;
+  target.api.handleCoordinatorTurnDone(session);
+
+  var binding = router.getExecutionBinding("portfolio-webapp-owner-gate", 1);
+  assert.equal(session.orchestrationProjectCompletion.status, "completed",
+    "technical integration evidence is retained");
+  assert.equal(session.orchestrationPolicy.portfolioExecution.status, "needs_input");
+  assert.equal(binding.status, "needs_input");
+  assert.equal(binding.ownerAcceptanceRequired, true);
+  assert.equal(binding.ownerAcceptance.status, "pending");
+
+  target.api.handleCoordinatorTurnDone(session);
+  binding = router.getExecutionBinding("portfolio-webapp-owner-gate", 1);
+  assert.equal(binding.status, "needs_input");
+  assert.equal(binding.ownerAcceptance.status, "pending",
+    "replay cannot manufacture acceptance");
+  assert.equal(target.api.resumeWaitingCoordinator(session, "Looks good."), "");
+  assert.equal(session.orchestrationPolicy.portfolioExecution.ownerAcceptance.status, "pending");
+
+  var directive = target.api.resumeWaitingCoordinator(session, "ship it");
+  assert.match(directive, /owner explicitly authorized the Done workflow/);
+  assert.equal(session.orchestrationPolicy.portfolioExecution.ownerAcceptance.status, "accepted");
+  session.history.push({
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Done workflow completed.\n" +
+      "VERIFICATION: owner-authorized workflow and suite passed\nINTEGRATION_VERIFIED: yes\n" +
+      "ESCALATION_REQUIRED: no",
+  });
+  target.api.handleCoordinatorTurnDone(session);
+  binding = router.getExecutionBinding("portfolio-webapp-owner-gate", 1);
+  assert.equal(binding.status, "completed");
+  assert.equal(binding.ownerAcceptance.status, "accepted");
+});
+
+test("Webapp portfolio staffing fails closed when a local instruction is missing", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-webapp-missing-triage-"));
+  var workflowDir = webappWorkflowDir();
+  fs.unlinkSync(path.join(workflowDir, "localAIConfig", "TRIAGE.local.md"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, {
+    cwd: workflowDir, projectId: targetProjectId, crossProject: router,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  var result = lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-webapp-missing-triage",
+    bindingRevision: 1,
+    idempotencyKey: "webapp-missing-triage-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+    title: "Missing triage",
+    objective: "This must not start.",
+    acceptanceCriteria: "No target session or provider turn exists.",
+    ownedPaths: "webapp/src/",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(target.sessions.size, 0);
+  assert.equal(target.starts.length, 0);
+  assert.equal(router.getExecutionBinding("portfolio-webapp-missing-triage", 1).status,
+    "unrouted");
 });
 
 test("project-coordinator needs-input turns stay active and resume through typed steering", function () {

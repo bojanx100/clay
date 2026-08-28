@@ -332,15 +332,22 @@ test("an active binding is execution evidence even with no linked task", functio
   assert.equal(derived.taskCount, 1);
 });
 
-test("a completed Coop execution binding maps its topic to Done", function () {
-  // The session and its linked Coop topic share the same terminal indicator:
-  // once the durable execution binding is completed, both are green/Done.
-  // Closing remains a separate owner action and is tested at the management
-  // boundary, so this derivation still does not mutate the topic lifecycle.
-  var derived = topicState.coopTopicState(TOPIC, { tasks: [], bindings: [binding("completed")] });
-  assert.equal(derived.state, "done");
-  assert.equal(derived.awaitingAcceptance, undefined);
-  assert.equal(derived.stateSource, "execution_completed");
+test("an owner-gated completed Coop binding awaits explicit owner acceptance", function () {
+  var derived = topicState.coopTopicState(TOPIC, {
+    tasks: [], bindings: [binding("completed", { ownerAcceptanceRequired: true })],
+  });
+  assert.equal(derived.state, "needs_input");
+  assert.equal(derived.awaitingAcceptance, true);
+  assert.equal(derived.stateSource, "task_awaiting_acceptance");
+
+  var accepted = topicState.coopTopicState(TOPIC, {
+    tasks: [],
+    bindings: [binding("completed", { ownerAcceptanceRequired: true,
+      ownerAcceptance: { status: "accepted", at: 10, withdrawnAt: null },
+    })],
+  });
+  assert.equal(accepted.state, "done");
+  assert.equal(accepted.stateSource, "task_accepted");
 });
 
 test("a hidden execution binding cannot keep a topic Working", function () {

@@ -54,6 +54,30 @@ test("inFlight derives open items; terminal events close them", function () {
   });
 });
 
+test("Webapp technical verification cannot manufacture owner acceptance", function () {
+  withDir(function (dir) {
+    var webapp = { id: "webapp#2200", title: "Hover loop", project: "webapp" };
+    ledger.appendEvent({ type: "staffed", item: webapp, route: ROUTE },
+      { dir: dir, now: 1 });
+    var guarded = ledger.appendEvent({
+      type: "completed", item: webapp, route: ROUTE, evidence: "suite green",
+    }, { dir: dir, now: 2 });
+    assert.equal(guarded.type, "implementation_verified");
+    assert.equal(guarded.acceptanceStatus, "pending");
+    assert.equal(ledger.inFlight({ dir: dir }).length, 1);
+
+    var accepted = ledger.appendEvent({
+      type: "completed",
+      item: webapp,
+      route: ROUTE,
+      evidence: "Done workflow verified",
+      ownerAcceptance: { status: "accepted", at: 3, withdrawnAt: null },
+    }, { dir: dir, now: 3 });
+    assert.equal(accepted.type, "completed");
+    assert.equal(ledger.inFlight({ dir: dir }).length, 0);
+  });
+});
+
 test("re-staffing after failure reopens the item", function () {
   withDir(function (dir) {
     ledger.appendEvent({ type: "staffed", item: item("a"), route: ROUTE }, { dir: dir, now: 1 });

@@ -296,9 +296,16 @@ checkout, regression test present and green, changed files strictly within
 the declared ownedPaths (`git show --stat`), canary counts at baseline
 (investigate any delta before trusting). Then:
 
-- verified green → append `{type:"completed", item, route,
-  verificationDepth, evidence: "<the concrete checks>"}` and call
-  `clay-orchestration/resolve_task` with the verification evidence.
+- verified green → inspect the exact project's local workflow instructions
+  before choosing the ledger event. When explicit owner acceptance is required
+  and no typed acceptance record exists, append `{type:"implementation_verified",
+  item, route, verificationDepth, evidence: "<the concrete checks>",
+  acceptanceStatus:"pending"}` and keep the portfolio item awaiting the owner.
+  Append `{type:"completed", item, route, verificationDepth, evidence,
+  ownerAcceptance}` only after the owner explicitly says "mark it done", "done",
+  "ship it", or the configured equivalent and that live decision is recorded.
+  Then call `clay-orchestration/resolve_task` with the technical verification
+  evidence; resolving the worker task never supplies owner acceptance.
 - gate failed → append `{type:"failed", item, route, reason}`; the next
   tick re-staffs with an escalated tier automatically (ledger
   failureCount feeds routing).
