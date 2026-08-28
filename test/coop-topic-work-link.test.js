@@ -159,8 +159,13 @@ test("the projection seam is actually supplied now", function () {
   assert.match(projection, /workState: cleanProjectionText\(computed\.workState, 32\)/);
   assert.match(projection, /workState: computed\.workState/);
 
+  // Topic client normalization was extracted from the global projection to
+  // keep that integration module within the project size boundary. The
+  // projection still imports this exact seam.
   var global = fs.readFileSync(path.join(__dirname, "..", "lib", "global-coop-projection.js"), "utf8");
-  assert.match(global, /workState: topic\.workState \|\| ""/);
+  var topicClient = fs.readFileSync(path.join(__dirname, "..", "lib", "global-coop-topic-client.js"), "utf8");
+  assert.match(global, /require\("\.\/global-coop-topic-client"\)/);
+  assert.match(topicClient, /workState: topic\.workState \|\| ""/);
 });
 
 test("the client names the explicit Thread lifecycle states", function () {

@@ -293,6 +293,26 @@ test("owner ledger renderer exposes Thread/session links and Clear/Restore contr
   ]);
 });
 
+test("owner ledger renders project provenance and a stable original-request link", async function () {
+  var ui = await ownerSidebarUi();
+  var sidebar = {
+    revision: 9,
+    open: [{ entryId: "owner-context", ingressId: "coop:owner-context:1",
+      title: "Fix Workspace context across Owner Work, Council, and Triage", status: "working",
+      reason: "Hydrating compacted ingress evidence", topicRef: { topicId: "workspace-context" },
+      sourceSessionRef: ref("compacted-owner-source"),
+      projects: [{ projectRef: { projectId: PROJECT }, title: "Clay" }], sessions: [] }],
+    hidden: [], entries: [],
+  };
+  var rendered = element("div");
+  ui.renderCoopOwnerSidebar(rendered, sidebar, { send: function () { return true; } });
+  assert.equal(byClass(rendered, "coop-owner-context")[0].textContent,
+    "Clay · Ingress coop:owner-context:1");
+  assert.equal(byClass(rendered, "coop-owner-link").some(function (button) {
+    return button.textContent === "Original request";
+  }), true);
+});
+
 test("a row without a resolvable Thread expands its original message instead of no-oping", async function () {
   var ui = await ownerSidebarUi();
   var messages = [];

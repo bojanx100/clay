@@ -120,6 +120,8 @@ test("only the canonical Coop control chain projects peer sessions and archived 
     });
   var canonicalFailed = execution(22, "canonical-failed", "Council: archived failure",
     rootRef, "council", "failed");
+  var terminalStale = execution(25, "terminal-stale", "Council: stale running record",
+    rootRef, "council", "running", { hidden: true, closedAt: 25 });
   var wrongCoordinatorRef = execution(23, "wrong-coordinator-ref",
     "Council: wrong coordinator ref", rootRef, "council", "running", {
       projectCoordinatorRef: {
@@ -144,6 +146,8 @@ test("only the canonical Coop control chain projects peer sessions and archived 
       "triage", "completed"),
     task("canonical-failed-task", "Council: archived failure", canonicalFailed,
       "council", "failed"),
+    task("terminal-stale-task", "Council: stale running record", terminalStale,
+      "council", "running"),
     task("wrong-coordinator-ref-task", "Council: wrong coordinator ref", wrongCoordinatorRef,
       "council", "running"),
     task("wrong-target-control-task", "Triage: wrong target control", wrongTargetControl,
@@ -210,7 +214,7 @@ test("only the canonical Coop control chain projects peer sessions and archived 
 
   var lead = project("system-lead", "lead", [home, canonicalRoot, forgedRoot], { isLead: true });
   var target = project(TARGET_PROJECT_ID, "clay", [canonicalRunning, canonicalCompleted,
-    canonicalFailed, wrongCoordinatorRef, wrongTargetControl, forgedRunning, forgedCompleted,
+    canonicalFailed, terminalStale, wrongCoordinatorRef, wrongTargetControl, forgedRunning, forgedCompleted,
     ownerDirect], { title: "Clay" });
   var projection = buildGlobalCoopProjection({
     projects: [lead, target],
@@ -228,7 +232,10 @@ test("only the canonical Coop control chain projects peer sessions and archived 
   }, true]]);
   assert.deepEqual(projection.controlPlaneResults.map(function (item) {
     return [item.status, item.executionRef, item.containerSessionRef];
-  }), [["failed", {
+  }), [["dismissed", {
+    projectId: TARGET_PROJECT_ID,
+    sessionStorageId: terminalStale.storageId,
+  }, rootRef], ["failed", {
     projectId: TARGET_PROJECT_ID,
     sessionStorageId: canonicalFailed.storageId,
   }, rootRef], ["completed", {
@@ -237,7 +244,10 @@ test("only the canonical Coop control chain projects peer sessions and archived 
   }, rootRef]]);
   assert.deepEqual(projection.topics[0].controlResults.map(function (item) {
     return item.executionRef.sessionStorageId;
-  }), [canonicalFailed.storageId, canonicalCompleted.storageId]);
+  }), [terminalStale.storageId, canonicalFailed.storageId, canonicalCompleted.storageId]);
+  assert.equal(projection.controlPlaneSessions.some(function (item) {
+    return item.sessionRef.sessionStorageId === terminalStale.storageId;
+  }), false, "a terminal role session never remains visible as working");
   assert.equal(JSON.stringify(projection.controlPlaneSessions).includes("owner-direct"), false);
   assert.equal(JSON.stringify(projection.controlPlaneSessions).includes("forged"), false);
   assert.equal(JSON.stringify(projection.controlPlaneResults).includes("forged"), false);

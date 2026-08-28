@@ -230,6 +230,89 @@ test("a canonical Coop plan decision projects into the owner work ledger", funct
   }), [["system-lead|owner-decision:owner-decision-123", "Accept these Council-derived defaults?", "post-council-plan"]]);
 });
 
+test("workspace work context hydrates compacted owner ingress and collapses one typed work item", function () {
+  // Regression fixture for the Owner Work screenshot: follow-up ingresses in a
+  // compacted Coop continuation used to render as repeated "Owner request #n"
+  // rows because the display projection consulted only a warmed Topic title.
+  var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var oldId = "owner-work-before-compaction";
+  var homeId = "owner-work-after-compaction";
+  var topicRef = { topicId: "workspace-context" };
+  var ingressOne = "coop:" + oldId + ":1";
+  var ingressTwo = "coop:" + homeId + ":2";
+  var ingressThree = "coop:" + homeId + ":3";
+  var predecessor = session(1, { storageId: oldId, hidden: true, history: [{
+    type: "user_message", coopIngressId: ingressOne,
+    text: "Workspace session context is still vague after the first repair.",
+  }] });
+  var home = session(2, { storageId: homeId, coopHome: true,
+    compactedFromStorageId: oldId, history: [{
+      type: "user_message", coopIngressId: ingressTwo,
+      text: "Fix Workspace context across Owner Work, Council, and Triage.",
+    }, {
+      type: "user_message", coopIngressId: ingressThree,
+      text: "The same canonical workspace work is still missing useful context.",
+    }],
+  });
+  var lead = project("system-lead", "lead", [predecessor, home], { isLead: true });
+  var clay = project(clayId, "clay", [] , { title: "Clay" });
+  var requests = [{
+    ingressId: ingressOne, ingressSequence: 1, state: "open", receivedAt: 10, updatedAt: 10,
+    requestRef: { projectId: "system-lead", sessionStorageId: oldId, eventIndex: 0 },
+    response: { state: "unanswered" }, projectRefs: [{ projectId: clayId }], links: {},
+  }, {
+    ingressId: ingressTwo, ingressSequence: 2, state: "working", receivedAt: 20, updatedAt: 20,
+    topicRef: topicRef,
+    requestRef: { projectId: "system-lead", sessionStorageId: homeId, eventIndex: 0 },
+    response: { state: "unanswered" }, projectRefs: [{ projectId: clayId }], links: {
+      tasks: [{ projectId: clayId, taskId: "workspace-context-fix" }],
+    },
+  }, {
+    ingressId: ingressThree, ingressSequence: 3, state: "working", receivedAt: 30, updatedAt: 30,
+    topicRef: topicRef,
+    requestRef: { projectId: "system-lead", sessionStorageId: homeId, eventIndex: 1 },
+    response: { state: "unanswered" }, projectRefs: [{ projectId: clayId }], links: {},
+  }, {
+    ingressId: "coop:malformed:4", ingressSequence: 4, state: "open", receivedAt: 40, updatedAt: 40,
+    requestRef: { projectId: "wrong-project", sessionStorageId: "missing", eventIndex: 0 },
+    response: { state: "unanswered" }, projectRefs: [], links: {},
+  }];
+  var index = {
+    ensureRetro: function () { return { ok: true }; },
+    project: function () { return { groups: [{ kind: "project", projectRef: { projectId: clayId }, topics: [{
+      topicRef: topicRef, title: "Fix Workspace context across Owner Work, Council, and Triage",
+      status: "open", threadState: "exploring", projectRef: { projectId: clayId },
+    }] }] }; },
+  };
+  var projection = buildGlobalCoopProjection({
+    projects: [lead, clay], coopTopicIndex: index, ownerRequests: requests,
+    portfolioBindings: [{ portfolioTaskId: "workspace-context-fix", bindingRevision: 1,
+      targetProject: { projectId: clayId }, coopTopicRef: topicRef, status: "running", updatedAt: 50,
+      coordinator: { projectId: clayId, sessionStorageId: "workspace-worker" } }],
+    ownerLedgerSessions: [{ sessionRef: { projectId: clayId, sessionStorageId: "workspace-worker" },
+      title: "Workspace context coordinator", role: "task_coordinator", lifecycleState: "running",
+      coopTopicRef: topicRef, updatedAt: 50 }],
+    canAccessProject: function () { return true; }, canAccessSession: function () { return true; },
+  });
+  var rows = projection.ownerSidebar.open;
+  var hydrated = rows.find(function (row) { return row.ingressId === ingressOne; });
+  var merged = rows.find(function (row) { return row.ingressIds.indexOf(ingressTwo) !== -1; });
+  var malformed = rows.find(function (row) { return row.ingressId === "coop:malformed:4"; });
+  assert.equal(rows.length, 3, "two lifecycle records for one TopicRef/task collapse into one row");
+  assert.equal(hydrated.title, "Workspace session context is still vague after the first repair.");
+  assert.deepEqual(hydrated.sourceSessionRef, { projectId: "system-lead", sessionStorageId: oldId },
+    "the original compacted session remains a stable destination");
+  assert.equal(merged.title, "Fix Workspace context across Owner Work, Council, and Triage");
+  assert.equal(merged.status, "working");
+  assert.deepEqual(merged.ingressIds, [ingressTwo, ingressThree]);
+  assert.equal(merged.canonicalKey, "task:" + clayId + ":workspace-context-fix");
+  assert.deepEqual(merged.projects, [{ projectRef: { projectId: clayId }, title: "Clay" }]);
+  assert.equal(merged.sessions[0].sessionRef.sessionStorageId, "workspace-worker");
+  assert.match(malformed.title, /^Owner work context unavailable/, "malformed provenance fails closed");
+  assert.equal(malformed.sourceSessionRef, null, "malformed provenance cannot become a navigable source link");
+  assert.equal(rows.some(function (row) { return /^Owner request\s*#/i.test(row.title); }), false);
+});
+
 test("Coop projects each accessible configured project into a main-lane lens with canonical nested sessions", function () {
   var home = session(1, { storageId: "coop-home", coopHome: true });
   var lead = project("system-lead", "lead", [home], { isLead: true });

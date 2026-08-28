@@ -337,6 +337,7 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   var triageResult = {
     role: "triage", title: "Triage Threads V2 routing", status: "completed",
     summary: "Main remains the safe fallback.", verification: "171 focused tests passed.",
+    projectTitle: "Clay", question: "Which stale sidebar evidence is trustworthy?",
     completedAt: 30, topicRef: { topicId: "conditional-groups" },
     executionRef: { projectId: clayId, sessionStorageId: "triage-completed" },
   };
@@ -360,9 +361,11 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
     }],
     controlPlaneSessions: [
       { role: "council", title: "Council: shape Threads V2", sessionRef: councilRef,
-        status: "running", processing: true },
+        status: "running", processing: true, projectTitle: "Clay",
+        question: "What canonical identity should the owner see?", activity: "Comparing typed ingress and task links" },
       { role: "triage", title: "Triage follow-up", sessionRef: triageRef,
-        status: "needs_input", processing: false },
+        status: "needs_input", processing: false, projectTitle: "Clay",
+        question: "Which evidence remains uncertain?" },
     ],
     controlPlaneResults: [triageResult],
   });
@@ -390,9 +393,13 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   assert.equal(desktopControlRows[1].classList.contains("processing"), false);
   assert.match(desktopControlRows[0].textContent, /Running/);
   assert.match(desktopControlRows[1].textContent, /Needs input/);
+  assert.equal(byClass(desktop, "coop-control-plane-context")[0].textContent,
+    "Clay · What canonical identity should the owner see? · Comparing typed ingress and task links");
   assert.deepEqual(byClass(desktop, "coop-control-result-summary").map(function (item) {
     return item.textContent;
   }), ["Main remains the safe fallback."]);
+  assert.equal(byClass(desktop, "coop-control-result-context")[0].textContent,
+    "Clay · Which stale sidebar evidence is trustworthy?");
   assert.equal(byClass(desktop, "coop-control-result")[0].tagName, "BUTTON");
   byClass(desktop, "coop-control-result")[0].click();
   assert.deepEqual(sent.pop(), {
@@ -421,6 +428,8 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   assert.deepEqual(byClass(mobile, "mobile-coop-control-result-summary").map(function (item) {
     return item.textContent;
   }), ["Main remains the safe fallback."]);
+  assert.equal(byClass(mobile, "mobile-coop-control-plane-context")[0].textContent,
+    "Clay · What canonical identity should the owner see? · Comparing typed ingress and task links");
   assert.equal(byClass(mobile, "mobile-coop-control-result")[0].tagName, "BUTTON");
   mobileControlRows[1].click();
   assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: triageRef });

@@ -72,6 +72,42 @@ test("opening a project lens validates the permanent main Coop destination", asy
   }]);
 });
 
+test("control rows retain role context and deduplicate retry sessions by canonical work identity", async function () {
+  var ui = await loadProjectionUi();
+  var projectId = "11111111-1111-5111-8111-111111111111";
+  ui.setGlobalCoopProjection({
+    type: "global_coop_projection", projects: [], topics: [],
+    controlPlaneSessions: [{
+      role: "council", title: "Council challenge for workspace context", status: "completed",
+      sessionRef: { projectId: projectId, sessionStorageId: "council-first" },
+      canonicalKey: "task:" + projectId + ":workspace-context", projectRef: { projectId: projectId },
+      projectTitle: "Clay", question: "Which workspace evidence should drive the owner row?",
+    }, {
+      role: "council", title: "Council challenge for workspace context", status: "running", processing: true,
+      sessionRef: { projectId: projectId, sessionStorageId: "council-retry" },
+      canonicalKey: "task:" + projectId + ":workspace-context", projectRef: { projectId: projectId },
+      projectTitle: "Clay", question: "Which workspace evidence should drive the owner row?",
+    }],
+    controlPlaneResults: [{
+      role: "triage", title: "Triage evidence review for workspace context", status: "completed",
+      summary: "The compacted ingress title was never hydrated.", projectRef: { projectId: projectId },
+      projectTitle: "Clay", question: "Is the owner request recoverable after compaction?",
+      canonicalKey: "task:" + projectId + ":workspace-triage",
+      executionRef: { projectId: projectId, sessionStorageId: "triage-result" },
+    }],
+  });
+  var model = ui.buildGlobalCoopDisplayModel("");
+  assert.equal(model.controlPlaneSessions.length, 1);
+  assert.equal(model.controlPlaneSessions[0].sessionRef.sessionStorageId, "council-retry");
+  assert.equal(model.controlPlaneSessions[0].projectTitle, "Clay");
+  assert.equal(model.controlPlaneSessions[0].question,
+    "Which workspace evidence should drive the owner row?");
+  assert.equal(model.controlPlaneResults[0].title, "Triage evidence review for workspace context");
+  assert.equal(model.controlPlaneResults[0].projectTitle, "Clay");
+  assert.equal(model.controlPlaneResults[0].question,
+    "Is the owner request recoverable after compaction?");
+});
+
 test("project lens URLs preserve the exact Coop lens for browser history", async function () {
   var ui = await loadProjectionUi();
   var ref = { projectId: "11111111-1111-5111-8111-111111111111" };
