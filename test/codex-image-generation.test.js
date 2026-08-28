@@ -141,6 +141,10 @@ test("generated image UI includes inline open and download actions", function() 
   assert.match(source, /showImageModal\(image\.url\)/);
   assert.match(source, /downloadLink\.download/);
   assert.match(source, /renderGeneratedImage/);
+  assert.match(source, /generated-image-row/);
+  assert.match(source, /renderImageGenerationProgress/);
+  assert.match(source, /progressRow\.replaceWith\(row\)/);
   assert.match(router, /case "generated_image":/);
+  assert.match(router, /renderImageGenerationProgress\(msg\)/);
   assert.match(stylesheet, /css\/generated-images\.css/);
 });
