@@ -87,8 +87,28 @@ test("file browser download enforces the file browser permission", function () {
 test("file viewer exposes a download action for the open file", function () {
   var html = fs.readFileSync(path.join(__dirname, "../lib/public/index.html"), "utf8");
   var fileBrowser = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser.js"), "utf8");
+  var contextMenu = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser-context-menu.js"), "utf8");
 
   assert.match(html, /id="file-viewer-download"[^>]*title="Download file"/);
-  assert.match(fileBrowser, /api\/file\/download\?path=/);
-  assert.match(fileBrowser, /encodeURIComponent\(currentFilePath\)/);
+  assert.match(fileBrowser, /downloadProjectFile\(currentFilePath\)/);
+  assert.match(contextMenu, /api\/file\/download\?path=/);
+  assert.match(contextMenu, /encodeURIComponent\(filePath\)/);
+});
+
+test("file rows expose a right-click download context menu", function () {
+  var fileBrowser = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser.js"), "utf8");
+  var contextMenu = fs.readFileSync(path.join(__dirname, "../lib/public/modules/filebrowser-context-menu.js"), "utf8");
+
+  assert.match(fileBrowser, /initFileBrowserContextMenu\(ctx\.fileTreeEl\)/);
+  assert.match(fileBrowser, /row\.dataset\.entryType = entry\.type/);
+  assert.match(contextMenu, /addEventListener\('contextmenu'/);
+  assert.match(contextMenu, /row\.dataset\.entryType !== 'file'/);
+  assert.match(contextMenu, /'Mention in chat'/);
+  assert.match(contextMenu, /insertTextAtCursor\(filePath \+ ' '\)/);
+  assert.match(contextMenu, /'Copy path'/);
+  assert.match(contextMenu, /copyToClipboard\(filePath\)/);
+  assert.match(contextMenu, /'Copy contents'/);
+  assert.match(contextMenu, /MAX_COPY_CONTENT_BYTES/);
+  assert.match(contextMenu, /TextDecoder\('utf-8', \{ fatal: true \}\)/);
+  assert.match(contextMenu, /'Download'/);
 });

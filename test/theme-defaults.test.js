@@ -35,6 +35,18 @@ test("Clay Studio themes are the default system-mode pair", function() {
   assert.match(source, /pinFirst\(lightIds, DEFAULT_LIGHT_THEME_ID\)/);
 });
 
+test("terminals always use the Clay Studio Dark palette", function() {
+  var source = read("lib/public/modules/theme.js");
+  var terminalCss = read("lib/public/css/filebrowser.css");
+  var tuiCss = read("lib/public/css/tui-attention.css");
+
+  assert.match(source, /getTerminalTheme\(\)[\s\S]*getTheme\(DEFAULT_DARK_THEME_ID\)/);
+  assert.match(source, /var termTheme = getTerminalTheme\(\)/);
+  assert.match(terminalCss, /#terminal-container,[\s\S]*--bg: #171715/);
+  assert.match(terminalCss, /#terminal-body[\s\S]*background: #141412/);
+  assert.match(tuiCss, /\.tui-modal[\s\S]*--sidebar-bg: #141412/);
+});
+
 test("theme selection lives in Appearance settings", function() {
   var index = read("lib/public/index.html");
   var themeSource = read("lib/public/modules/theme.js");

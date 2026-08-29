@@ -5,7 +5,9 @@
    #main-area's existing border-left so the line reads as one
    continuous edge with the rest of the chrome. */
 #tui-session-host {
+  --border-subtle: #252522;
   border-left: 1px solid var(--border-subtle);
+  color-scheme: dark;
 }
 
 /* Lazy-resume bar: shown in place of the composer when a born-TUI session is
@@ -280,6 +282,12 @@ body.tui-suspended #tui-resume-bar {
 }
 .tui-modal-backdrop.hidden { display: none; }
 .tui-modal {
+  --sidebar-bg: #141412;
+  --text: #e8e8e2;
+  --text-secondary: #d1d1ca;
+  --text-dimmer: #686861;
+  --border: #393934;
+  --overlay-rgb: 255, 255, 255;
   width: min(960px, 100%);
   height: min(640px, 100%);
   background: #000;
@@ -289,6 +297,7 @@ body.tui-suspended #tui-resume-bar {
   flex-direction: column;
   border: 1px solid var(--border);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
 }
 /* Compact variant for short content (e.g. login wizard): smaller box so the
    terminal hugs the content instead of leaving a tall empty area below. */
@@ -683,4 +692,3 @@ body.tui-suspended #tui-resume-bar {
   .wna-content { padding: 32px 20px 80px; }
   .wna-title { font-size: 26px; }
 }
-
