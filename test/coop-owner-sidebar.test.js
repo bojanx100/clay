@@ -378,11 +378,24 @@ test("an ActionQueue acceptance resolves typed worker result evidence and its ca
   assert.equal(sent[0].ok, true);
   assert.deepEqual(sent[0].detail, {
     type: "worker_result", projectRef: { projectId: PROJECT }, sessionRef: sessionRef,
-    sourceSessionRef: sessionRef, status: "needs_owner", reason: "Needs your decision",
+    sourceSessionRef: sessionRef, sourceKind: "worker", status: "needs_owner", reason: "Needs your decision",
     resolution: "Implemented the grouped sidebar.",
     verification: "node --test test/coop-owner-sidebar.test.js passed",
   });
   assert.deepEqual(calls, [sessionRef]);
+});
+
+test("an ActionQueue detail can open the visible canonical source session", function () {
+  var sessionRef = ref("coordinator-source");
+  var entry = actionDetailEntry("worker_result", { type: "worker_result", projectRef: { projectId: PROJECT },
+    sessionRef: sessionRef, sourceKind: "source", resolution: "Verified the source fallback.", verification: "Focused test passed" });
+  var sent = [];
+  handleOwnerSidebarMessage(actionDetailContext(entry, sent), {}, {
+    type: "coop_owner_ledger_detail", entryId: entry.entryId,
+  });
+  assert.equal(sent[0].ok, true);
+  assert.equal(sent[0].detail.sourceKind, "source");
+  assert.deepEqual(sent[0].detail.sessionRef, sessionRef);
 });
 
 test("an ActionQueue decision resolves the worker question instead of an unavailable owner message", function () {
