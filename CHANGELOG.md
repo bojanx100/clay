@@ -1,3 +1,10 @@
+# [3.8.0-beta.2](https://github.com/chadbyte/clay/compare/v3.8.0-beta.1...v3.8.0-beta.2) (2026-08-29)
+
+
+### Features
+
+* **ui:** unify avatar identity and session actions ([#460](https://github.com/chadbyte/clay/issues/460)) ([7b04d0c](https://github.com/chadbyte/clay/commit/7b04d0ce66032b6df4d6ec5a40c5f3bcafcfcc98))
+
 # [3.8.0-beta.1](https://github.com/chadbyte/clay/compare/v3.7.0...v3.8.0-beta.1) (2026-08-29)
 
 
