@@ -1851,25 +1851,6 @@
 
 /* --- Web Terminal --- */
 
-/* Terminal chrome intentionally stays on Clay Studio Dark. These local
-   tokens isolate it from the workspace theme without changing user settings. */
-#terminal-container,
-.terminal-tab-ctx {
-  --bg: #171715;
-  --bg-alt: #20201d;
-  --text: #e8e8e2;
-  --text-secondary: #d1d1ca;
-  --text-muted: #a0a098;
-  --text-dimmer: #686861;
-  --accent: #7776ff;
-  --accent-hover: #8786ff;
-  --border: #393934;
-  --border-subtle: #252522;
-  --overlay-rgb: 255, 255, 255;
-  --shadow-rgb: 0, 0, 0;
-  color-scheme: dark;
-}
-
 /* Terminal header with tabs */
 .terminal-header {
   display: flex;
@@ -2096,8 +2077,8 @@
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
-  background: #252525;
-  border-bottom: 1px solid #333;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -2113,9 +2094,9 @@
   min-width: 40px;
   padding: 0 10px;
   border-radius: 6px;
-  border: 1px solid #444;
-  background: #333;
-  color: #d4d4d4;
+  border: 1px solid var(--border);
+  background: var(--sidebar-active);
+  color: var(--text-secondary);
   font-family: "Roboto Mono", monospace;
   font-size: 12px;
   font-weight: 500;
@@ -2127,8 +2108,8 @@
 }
 
 .term-key:active {
-  background: #555;
-  border-color: #666;
+  background: var(--sidebar-hover);
+  border-color: var(--text-dimmer);
 }
 
 .term-key-toggle.active {

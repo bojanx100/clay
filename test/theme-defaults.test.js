@@ -42,9 +42,10 @@ test("terminals always use the Clay Studio Dark palette", function() {
 
   assert.match(source, /getTerminalTheme\(\)[\s\S]*getTheme\(DEFAULT_DARK_THEME_ID\)/);
   assert.match(source, /var termTheme = getTerminalTheme\(\)/);
-  assert.match(terminalCss, /#terminal-container,[\s\S]*--bg: #171715/);
   assert.match(terminalCss, /#terminal-body[\s\S]*background: #141412/);
-  assert.match(tuiCss, /\.tui-modal[\s\S]*--sidebar-bg: #141412/);
+  assert.match(terminalCss, /\.term-toolbar[\s\S]*background: var\(--bg-alt\)/);
+  assert.doesNotMatch(terminalCss, /#terminal-container,\s*\.terminal-tab-ctx/);
+  assert.match(tuiCss, /\.tui-modal[\s\S]*background: var\(--bg\)/);
 });
 
 test("theme selection lives in Appearance settings", function() {
