@@ -1,3 +1,11 @@
+# [3.8.0-beta.1](https://github.com/chadbyte/clay/compare/v3.7.0...v3.8.0-beta.1) (2026-08-29)
+
+
+### Features
+
+* **imagegen:** save generated images to project ([232eaac](https://github.com/chadbyte/clay/commit/232eaac8bf21acfb24b5c38acda747c055ecedff))
+* **imagegen:** save generated images to project ([#459](https://github.com/chadbyte/clay/issues/459)) ([2eed480](https://github.com/chadbyte/clay/commit/2eed480f2733367f5cc9112946289ee550eeb17b))
+
 # [3.7.0](https://github.com/chadbyte/clay/compare/v3.6.0...v3.7.0) (2026-08-29)
 
 
