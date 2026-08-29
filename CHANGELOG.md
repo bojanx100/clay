@@ -1,3 +1,10 @@
+# [3.8.0-beta.4](https://github.com/chadbyte/clay/compare/v3.8.0-beta.3...v3.8.0-beta.4) (2026-08-29)
+
+
+### Bug Fixes
+
+* **terminal:** preserve panel header on desktop resize ([bbbc644](https://github.com/chadbyte/clay/commit/bbbc644602711515d865e39d6c248b821851e082))
+
 # [3.8.0-beta.3](https://github.com/chadbyte/clay/compare/v3.8.0-beta.2...v3.8.0-beta.3) (2026-08-29)
 
 
