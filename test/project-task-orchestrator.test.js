@@ -1322,6 +1322,96 @@ test("project coordinator needs-input closes an active binding without completin
   assert.equal(binding.completionOwnerNotification, true);
 });
 
+test("two visible false-working coordinators terminalize through typed lifecycle delivery", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-two-false-working-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    getSessionManager: function () { return target.sm; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    getSessionManager: function () { return lead.sm; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+
+  function terminalize(input) {
+    assert.equal(lead.api.coordinateExternalTask({
+      coordinatorSessionId: coop.storageId,
+      portfolioTaskId: input.taskId,
+      bindingRevision: 1,
+      idempotencyKey: input.taskId + "-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: targetProjectId },
+      title: input.title,
+      objective: input.objective,
+      context: "The provider turn has already ended.",
+      acceptanceCriteria: "Publish only the truthful terminal lifecycle state.",
+      ownedPaths: "lib/project-task-orchestrator-completion.js",
+    }).ok, true);
+    var session = portfolioSession(target, input.taskId);
+    session.history.push({ type: "delta", text: input.result });
+    session.history.push({ type: "result" });
+    session.history.push({ type: "done" });
+    session.isProcessing = false;
+    target.api.handleCoordinatorTurnDone(session);
+    return session;
+  }
+
+  var r6 = terminalize({
+    taskId: "clay-coherent-role-routing-and-project-coordinator-control-20260828",
+    title: "Implement approved Governance Lifecycle revision 6",
+    objective: "Report the unavailable visual canary without fabricating success.",
+    result: "WORKER_STATUS: needs_input\nREASON: visual_canary_browser_unavailable\n" +
+      "SUMMARY: Browser inventory is unavailable; the visual canary was not run.\n" +
+      "ESCALATION_REQUIRED: yes",
+  });
+  var cacheRepair = terminalize({
+    taskId: "clay-fix-codex-model-cache-and-orphan-tool-results-20260828",
+    title: "Fix Codex cache and orphan tool-result errors",
+    objective: "Surface the canonical-Coop reconciliation blocker truthfully.",
+    result: "WORKER_STATUS: blocked\nSUMMARY: The binding requires canonical-Coop reconciliation.\n" +
+      "ESCALATION_REQUIRED: yes",
+  });
+  var sessions = router.queryCoopSessions({
+    projectRefs: [{ projectId: targetProjectId }],
+    topLevelOnly: false,
+  }).sessions;
+
+  function visibleState(session) {
+    return sessions.find(function (entry) {
+      return entry.sessionStorageId === session.storageId;
+    });
+  }
+
+  var r6Binding = router.getExecutionBinding(
+    "clay-coherent-role-routing-and-project-coordinator-control-20260828", 1);
+  var cacheBinding = router.getExecutionBinding(
+    "clay-fix-codex-model-cache-and-orphan-tool-results-20260828", 1);
+  assert.equal(r6.isProcessing, false);
+  assert.equal(cacheRepair.isProcessing, false);
+  assert.equal(r6.hidden, undefined);
+  assert.equal(cacheRepair.hidden, undefined);
+  assert.equal(r6.orchestrationPolicy.portfolioExecution.status, "needs_input");
+  assert.equal(r6Binding.status, "needs_input");
+  assert.equal(cacheRepair.orchestrationPolicy.portfolioExecution.status, "failed");
+  assert.equal(cacheBinding.status, "failed");
+  assert.equal(visibleState(r6).workState, "needs_input");
+  assert.equal(visibleState(cacheRepair).workState, "needs_input");
+  assert.notEqual(visibleState(r6).workState, "working");
+  assert.notEqual(visibleState(cacheRepair).workState, "working");
+});
+
 test("Webapp completion stays implemented and verified until the owner explicitly accepts", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-webapp-owner-acceptance-"));
   var workflowDir = webappWorkflowDir();
