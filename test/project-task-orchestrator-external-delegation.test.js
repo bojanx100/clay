@@ -121,6 +121,36 @@ test("independent admitted project work retains each exact ledger ingress despit
   assert.notEqual(alpha.coordinatorSessionId, beta.coordinatorSessionId);
 });
 
+test("an opted-in Governance Lifecycle grant must exactly authorize a project execution", function () {
+  var source = { localId: 1, storageId: "canonical-coop", history: [] };
+  var checked = null;
+  var coordinate = externalDelegation.createExternalTaskCoordinator({
+    sessionForInput: function () { return source; },
+    projectId: function () { return LEAD_PROJECT_ID; },
+    governanceLifecycle: {
+      executionAdmission: function (input) {
+        checked = input;
+        return { ok: false, code: "grant_scope_mismatch" };
+      },
+    },
+    createProjectExecution: function () { assert.fail("a refused grant must not dispatch"); },
+  });
+  var input = request("admitted-governance", "owner-admitted-governance");
+  input.implementationGrantRef = "grant-governance-1";
+  var result = coordinate(input);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "governance lifecycle grant refused: grant_scope_mismatch");
+  assert.deepEqual(checked, {
+    grantId: "grant-governance-1", portfolioTaskId: "admitted-governance", bindingRevision: 1,
+    idempotencyKey: "admitted-governance-r1", targetProject: { projectId: PROJECT_ID },
+  });
+});
+
+test("a named Governance Lifecycle grant cannot silently route to an unbound local worker", function () {
+  assert.equal(externalDelegation.hasProjectExecutionInput({ implementationGrantRef: "grant-1" }), true);
+  assert.match(externalDelegation.projectExecutionInputProblem({ implementationGrantRef: "grant-1" }), /targetProject/);
+});
+
 test("a project-bound coordinator starts independent local workers concurrently and persists their visible ownership", function () {
   var sessions = new Map();
   var saved = [];

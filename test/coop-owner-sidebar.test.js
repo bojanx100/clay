@@ -361,6 +361,17 @@ test("owner ledger renderer exposes Thread/session links and Clear/Restore contr
   ]);
 });
 
+test("owner ledger calls the triage compatibility role Evidence Review", async function () {
+  var ui = await ownerSidebarUi();
+  var sidebar = { revision: 1, open: [{ entryId: "evidence", title: "Review evidence", status: "working",
+    sessions: [{ sessionRef: ref("triage"), role: "triage", title: "Triage review" }] }], hidden: [], entries: [] };
+  var rendered = element("div");
+  ui.renderCoopOwnerSidebar(rendered, sidebar, { send: function () { return true; } });
+  assert.equal(byClass(rendered, "coop-owner-link").some(function (button) {
+    return button.textContent === "Evidence Review";
+  }), true);
+});
+
 test("owner ledger exposes explicit approver controls that fail closed on a double submit", async function () {
   var ui = await ownerSidebarUi();
   var clientStore = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "store.js")).href);
