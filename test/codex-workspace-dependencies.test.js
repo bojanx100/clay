@@ -201,12 +201,14 @@ test("Codex query registers and answers the workspace dependency dynamic tool", 
   });
   t.after(function() { handle.close(); });
 
+  await handle.setModel("gpt-5.6-terra");
   handle.pushMessage("Create a workbook");
   var response = await responsePromise;
   var threadStart = server.calls.find(function(call) { return call.method === "thread/start"; });
   var turnStart = server.calls.find(function(call) { return call.method === "turn/start"; });
 
   assert.deepStrictEqual(threadStart.params.dynamicTools, support.dynamicTools);
+  assert.strictEqual(turnStart.params.model, "gpt-5.6-terra");
   assert.match(turnStart.params.input[0].text, /call `load_workspace_dependencies`/);
   assert.strictEqual(response.id, 91);
   assert.strictEqual(response.result.success, true);

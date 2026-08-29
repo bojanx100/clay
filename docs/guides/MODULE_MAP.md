@@ -31,6 +31,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-sessions.js` | (delegates to `project-sessions-*`) | Session coordinator, shared config helpers, and session view API |
 | `project-sessions-config.js` | `get_daemon_config`, `set_pin`, `set_keep_awake`, `set_auto_continue`, `set_inherit_groups`, `set_image_retention`, `shutdown_server`, `restart_server`, `process_stats`, `set_update_channel`, `check_update`, `update_now` | Daemon config, server management, update checks, process stats |
 | `project-sessions-git-accounts.js` | `list_git_accounts`, `get_project_git_account`, `set_project_git_account` | Project GitHub account listing and pinning handlers |
+| `project-session-handoff.js` | `handoff_session_options`, `handoff_session` with `handoffMode: "new-session"` | Linked successor-session handoff, bounded context transfer, durable timeline references, and source-session read tools |
 | `project-sessions-handoff.js` | `refresh_vendors`, `handoff_session` | Provider refresh, provider-route/model matching, and cross-provider session handoff |
 | `project-sessions-history.js` | `load_more_history`, `compact_session` | Session history pagination, including active Coop topic membership lenses, and manual compaction |
 | `project-sessions-lifecycle.js` | `new_session`, `switch_session`, `sync_external_session` | Session creation, switching, external session sync, and new-session TUI startup |
@@ -246,6 +247,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-cli-import.js` | CLI/Codex/GitHub Copilot orphan adoption, import picker rows, hidden-session restore, and import materialization |
 | `sessions-deletion.js` | Session hide/delete/bulk delete, runtime cleanup, tombstoning, and active-client close handling |
 | `sessions-handoff.js` | Session handoff history inference, missing handoff context recovery, vendor/model/route replay helpers |
+| `session-handoff-context.js` | Bounded recent-intent and repository-state snapshot for linked successor sessions |
+| `session-handoff-mcp-server.js` | Session-bound `read_handoff_source` tool definition for supported target vendors |
 | `sessions-history.js` | Session history pagination, indexed reference-only topic replay and logical-offset pages, exact-event focus, replay ordering, assistant-event classification, replay completion metadata |
 | `coop-session-history.js` | Read-only ordered history views across Coop compaction continuations and source-reference to display-index mapping |
 | `sessions-io.js` | Per-session ephemeral sends, recorded history fanout, subscriber callbacks, unread/session I/O notifications |
@@ -449,6 +452,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-skills-install.js` | Skill install dialog, requireSkills, requireClayMateInterview |
 | `app-favicon.js` | Dynamic favicon, IO blink, urgent blink, send button mode, activity indicator |
 | `app-header.js` | Session rename, session info popover, progressive history loading |
+| `session-actions.js` + `agent-config-selects.js` | Header session-actions menu and configurable vendor/model/effort dialog for continuing work in a linked successor session |
 | `global-coop-projection.js` | Permanent Coop UI state, automatic topic-lens navigation, two-phase fail-closed URL selection, dense facts, exact canonical SessionRef handoffs, Council/Triage lifecycle/result normalization, and owner action-queue state without transcript copies |
 | `app-messages-coop-topics.js` | Canonical live-message filtering, exact persisted owner-decision turn reveal, and topic projection refresh after completed turns |
 | `coop-reply-anchor.js` | Renders the "Reply in &lt;topic&gt;" chip on a message sent from a topic lens, on both the live echo and history replay. Re-applies the server's fail-closed gates (version, same-topic) before trusting a persisted anchor, suppresses itself inside the topic's own lens, and only becomes clickable when the anchored event is actually on screen |
