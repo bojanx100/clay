@@ -1,3 +1,10 @@
+# [3.8.0-beta.3](https://github.com/chadbyte/clay/compare/v3.8.0-beta.2...v3.8.0-beta.3) (2026-08-29)
+
+
+### Features
+
+* **session:** add complete Driver control for visible Workers ([fb2a541](https://github.com/chadbyte/clay/commit/fb2a54160f747c9dfee49b7eb742d9b03b951d7a))
+
 # [3.8.0-beta.2](https://github.com/chadbyte/clay/compare/v3.8.0-beta.1...v3.8.0-beta.2) (2026-08-29)
 
 
