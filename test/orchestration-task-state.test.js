@@ -59,6 +59,7 @@ test("task projection exposes stable orchestration identity separately from work
     model: "gpt-test",
     providerRouteId: null,
     routingTier: null,
+    routingProfile: null,
     routingRationale: "",
     currentActivity: "",
     verification: "",

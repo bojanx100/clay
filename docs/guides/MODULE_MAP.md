@@ -31,8 +31,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-sessions.js` | (delegates to `project-sessions-*`) | Session coordinator, shared config helpers, and session view API |
 | `project-sessions-config.js` | `get_daemon_config`, `set_pin`, `set_keep_awake`, `set_auto_continue`, `set_inherit_groups`, `set_image_retention`, `shutdown_server`, `restart_server`, `process_stats`, `set_update_channel`, `check_update`, `update_now` | Daemon config, server management, update checks, process stats |
 | `project-sessions-git-accounts.js` | `list_git_accounts`, `get_project_git_account`, `set_project_git_account` | Project GitHub account listing and pinning handlers |
-| `project-session-handoff.js` | `handoff_session_options`, `handoff_session` with `handoffMode: "new-session"` | Linked successor-session handoff, bounded context transfer, durable timeline references, and source-session read tools |
-| `project-sessions-handoff.js` | `refresh_vendors`, `handoff_session` | Provider refresh, provider-route/model matching, and cross-provider session handoff |
+| ~~`project-session-handoff.js`~~ | ~~`handoff_session_options`, `handoff_session` with `handoffMode: "new-session"`~~ | **Retracted:** linked successor-session handoff was removed; Clay changes provider through the same-chat path instead |
+| `project-sessions-handoff.js` | `refresh_vendors`, `handoff_session` | Provider refresh, provider-route/model matching, and fresh-context provider switching inside the current Clay session/timeline |
 | `project-sessions-history.js` | `load_more_history`, `compact_session` | Session history pagination, including active Coop topic membership lenses, and manual compaction |
 | `project-sessions-lifecycle.js` | `new_session`, `switch_session`, `sync_external_session` | Session creation, switching, external session sync, and new-session TUI startup |
 | `project-sessions-live.js` | `push_subscribe`, `stop`, `stop_task`, `kill_process`, `input_sync`, `cursor_*`, `text_select` | Push registration, live stop/kill controls, input sync, and collaborative cursor/text selection fanout |
@@ -41,7 +41,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-sessions-records.js` | `set_session_visibility`, `set_session_bookmark`, `reorder_session_bookmarks`, `bulk_delete_sessions`, `delete_session`, `hide_session`, `rename_session` | Session record metadata, bookmarks, deletion, hiding, and title updates |
 | `project-sessions-rewind.js` | `rewind_preview`, `rewind_execute`, `fork_session` | Rewind preview/execute and session fork handlers |
 | `project-sessions-search.js` | `list_cli_sessions`, `import_cli_session`, `search_sessions`, `search_session_content` | CLI session import and session search handlers |
-| `project-sessions-settings.js` | `set_model`, `reload_skills`, `set_mcp_permission_mode_override`, `set_vendor`, `get/set_project_auto_continue_comparable`, `set_*_default_model`, `set_*_mode`, `set_*_effort`, `set_betas`, `set_thinking`, `set_codex_*` | Session, project, and server model/provider/permission defaults |
+| `project-sessions-settings.js` | `set_model`, `reload_skills`, `set_mcp_permission_mode_override`, `set_vendor`, `get/set_project_auto_continue_comparable`, `get/set_project_provider_routing_profile`, `set_*_default_model`, `set_*_mode`, `set_*_effort`, `set_betas`, `set_thinking`, `set_codex_*` | Session, project, and server model/provider/permission/routing defaults |
 | `project-sessions-tui.js` | `resume_tui_session`, `suspend_tui_session`, `tui_transcript_request` | Claude TUI title watchers, PTY helpers, transcript hydration, and TUI-specific handlers |
 | `project-sessions-user-state.js` | `set_mate_dm`, `whats_new_seen`, `set_claude_open_mode` | Per-user session-adjacent state: mate DM restore target, What's New dismissals, and Claude GUI/TUI open-mode preference |
 | `project-sessions-view.js` | (called from project/session restore) | Session view resolution and imported Codex/GitHub Copilot transcript hydration |
@@ -247,8 +247,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sessions-cli-import.js` | CLI/Codex/GitHub Copilot orphan adoption, import picker rows, hidden-session restore, and import materialization |
 | `sessions-deletion.js` | Session hide/delete/bulk delete, runtime cleanup, tombstoning, and active-client close handling |
 | `sessions-handoff.js` | Session handoff history inference, missing handoff context recovery, vendor/model/route replay helpers |
-| `session-handoff-context.js` | Bounded recent-intent and repository-state snapshot for linked successor sessions |
-| `session-handoff-mcp-server.js` | Session-bound `read_handoff_source` tool definition for supported target vendors |
+| ~~`session-handoff-context.js`~~ | **Retracted:** the linked-successor snapshot module was removed with separate-session provider handoff |
+| ~~`session-handoff-mcp-server.js`~~ | **Retracted:** the linked-successor source-reading MCP tool was removed with separate-session provider handoff |
 | `sessions-history.js` | Session history pagination, indexed reference-only topic replay and logical-offset pages, exact-event focus, replay ordering, assistant-event classification, replay completion metadata |
 | `coop-session-history.js` | Read-only ordered history views across Coop compaction continuations and source-reference to display-index mapping |
 | `sessions-io.js` | Per-session ephemeral sends, recorded history fanout, subscriber callbacks, unread/session I/O notifications |
@@ -293,6 +293,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-message-processor.js` | SDK stream event processing (message_start, content_block_*), sub-agent message routing |
 | `automation-modes.js` | Shared automation mode normalization and provider permission/approval mapping |
 | `provider-routes.js` | Provider-route configuration, exact-route verified live/last-known-good catalog gates, model-family matching, and health decoration |
+| `provider-routing-policy.js` | Normalizes the persisted `free-endurance`, `balanced`, and `best-available` routing profiles |
+| `provider-model-defaults.js` | Per-vendor server/project model defaults with compatibility reads for legacy Claude, Codex, and Copilot fields |
 | `provider-health.js` | Process-wide vendor-wide plus exact route/model health and quota registries (healthy→degraded→unhealthy), fed by SDK failure/success signals |
 | `model-catalog-cache.js` | Durable live/last-known-good vendor catalogs plus account/route/SDK/backend/model-scoped capability evidence |
 | `claude-model-probe.js` | Bounded explicit-ID probes for unadvertised Claude models; validates exact resolution and reply before route-local exposure |
@@ -307,7 +309,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `claude-defaults.js` | Claude-specific safe cold-start model seeds and mode settings; unverified frontier IDs do not belong here |
 | `model-selection.js` | Shared strongest-available model selection for new sessions and task launches, while respecting configured defaults |
 | `provider-agent-pipeline.js` | Provider-matched worker configuration: Codex roots delegate to Terra workers and Claude roots delegate to Opus workers |
-| `adaptive-worker-routing.js` | Deterministic task/phase capability floors and least-cost verified route/model selection, preserving owner pins and recording routing rationale |
+| `adaptive-worker-routing.js` | Deterministic task/phase capability floors and policy-aware verified route/model selection, preserving owner pins and recording exact provider/model/profile rationale |
 | `recovery-log.js` | Structured recovery-event logging for watchdog stalls, reconnects, and auto-resume diagnostics |
 | `text-title.js` | Shared title cleanup/clamping helpers for session and task titles |
 | `git-accounts.js` | Per-project GitHub account pinning. Lists `gh` CLI accounts and writes/clears a repo-local git credential helper (`gh auth token --user <account>`) so each project pushes/pulls as a chosen account regardless of the globally-active `gh` account. Used by daemon.js relay callbacks (`onListGitAccounts`/`onGetProjectGitAccount`/`onSetProjectGitAccount`); UI in `project-settings.js` |
@@ -379,10 +381,17 @@ YOKE is the vendor-agnostic interface layer. Each adapter implements the same co
 | `yoke/adapters/github-copilot.js` | GitHub Copilot adapter using the authenticated CLI's ACP server |
 | `yoke/adapters/github-copilot-helpers.js` | Stateless Copilot ACP event, model, permission, and session helpers |
 | `yoke/adapters/github-copilot-entitlements.js` | Account-enabled Copilot model discovery, startup cache warmup, and bounded background refresh |
+| `yoke/additional-vendors.js` | Extra-runtime installation discovery, isolation gates, lazy construction, and adapter registration for Antigravity, OpenCode, Kimi, Grok, Qwen, Junie, and Kiro |
+| `yoke/acp-agent-profiles.js` + `yoke/acp-driver-runtime.js` | Declarative ACP runtime profiles and hook dispatch for provider-specific process/session behavior |
+| `yoke/acp-process-manager.js` + `yoke/acp-query-handle.js` | Shared ACP JSON-RPC process lifecycle, permission routing, session resume, configuration, and YOKE query contract |
+| `yoke/acp-event-normalizer.js` | Standard ACP session updates normalized into adapter-neutral YOKE events |
+| `yoke/adapters/acp.js` | Shared ACP adapter used by OpenCode, Kimi, Grok, Qwen, and Junie wrappers |
+| `yoke/adapters/antigravity.js` | Antigravity streaming CLI adapter with model discovery, auth detection, usage, and session resume |
+| `yoke/adapters/kiro.js` + `yoke/adapters/kiro-*.js` | Kiro ACP adapter, server bootstrap, event normalization, and query lifecycle |
 | `yoke/codex-app-server.js` | Codex `app-server` child process manager. JSON-RPC 2.0 over stdin/stdout, request ID tracking, event routing |
 | `yoke/mcp-bridge-server.js` | Stdio MCP server spawned by Codex. Proxies tool list/call to Clay via HTTP at `/api/mcp-bridge` |
 
-**When adding a new vendor**: implement the YOKE interface, register in `yoke/index.js` createAdapter switch. Do not add vendor-specific logic outside the adapter.
+**When adding a new vendor**: use the shared ACP profile/adapter when the CLI supports ACP; otherwise implement the YOKE interface. Register the runtime through the vendor registry and adapter factory. Do not add vendor-specific logic outside the adapter/runtime-profile layer.
 
 **For Codex-specific patterns and gotchas**: see [CODEX-INTEGRATION.md](./CODEX-INTEGRATION.md).
 
@@ -452,7 +461,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `app-skills-install.js` | Skill install dialog, requireSkills, requireClayMateInterview |
 | `app-favicon.js` | Dynamic favicon, IO blink, urgent blink, send button mode, activity indicator |
 | `app-header.js` | Session rename, session info popover, progressive history loading |
-| `session-actions.js` + `agent-config-selects.js` | Header session-actions menu and configurable vendor/model/effort dialog for continuing work in a linked successor session |
+| ~~`session-actions.js` + `agent-config-selects.js`~~ | **Retracted:** the linked-successor Continue menu was removed; same-chat Switch remains the provider transition surface |
 | `global-coop-projection.js` | Permanent Coop UI state, automatic topic-lens navigation, two-phase fail-closed URL selection, dense facts, exact canonical SessionRef handoffs, Council/Triage lifecycle/result normalization, and owner action-queue state without transcript copies |
 | `app-messages-coop-topics.js` | Canonical live-message filtering, exact persisted owner-decision turn reveal, and topic projection refresh after completed turns |
 | `coop-reply-anchor.js` | Renders the "Reply in &lt;topic&gt;" chip on a message sent from a topic lens, on both the live echo and history replay. Re-applies the server's fail-closed gates (version, same-topic) before trusting a persisted anchor, suppresses itself inside the topic's own lens, and only becomes clickable when the anchored event is actually on screen |

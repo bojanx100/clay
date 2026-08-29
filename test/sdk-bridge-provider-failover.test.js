@@ -349,6 +349,35 @@ test("a Codex adapter connectivity error retries once instead of queueing a fail
   providerHealth._reset();
 });
 
+test("an additional provider quota error queues immediate same-chat failover", async function () {
+  var providerHealth = require("../lib/provider-health");
+  providerHealth._reset();
+  var session = makeStreamSession("RESOURCE_EXHAUSTED: free tier quota exceeded");
+  session.vendor = "kimi";
+  session.providerRouteId = "kimi-moonshot";
+  session.model = "auto";
+  var stream = makeTransientStreamHarness(session);
+
+  await stream.processQueryStream(session);
+
+  assert.strictEqual(session._failovers.length, 1);
+  assert.deepStrictEqual(session._failovers[0], {
+    vendor: "kimi",
+    reason: "provider-quota-exhausted",
+    isLimitFailure: true,
+    resetsAt: null,
+    providerRouteId: "kimi-moonshot",
+    model: "auto",
+  });
+  assert.ok(session._sent.some(function (item) {
+    return item.type === "info" && String(item.text || "").indexOf("quota or allowance") !== -1;
+  }));
+  assert.strictEqual(session._sent.some(function (item) {
+    return item.type === "error";
+  }), false);
+  providerHealth._reset();
+});
+
 test("a Codex adapter connectivity error becomes a real failure once the retry budget is spent", async function () {
   var providerHealth = require("../lib/provider-health");
   providerHealth._reset();

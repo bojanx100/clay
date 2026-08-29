@@ -5,7 +5,18 @@ var path = require("node:path");
 
 var yoke = require("../lib/yoke");
 
-var SUPPORTED_VENDORS = ["claude", "codex", "github-copilot"];
+var SUPPORTED_VENDORS = [
+  "claude",
+  "codex",
+  "github-copilot",
+  "antigravity",
+  "opencode",
+  "kimi",
+  "grok",
+  "qwen",
+  "junie",
+  "kiro",
+];
 
 test("YOKE registry covers every supported adapter vendor", function() {
   for (var i = 0; i < SUPPORTED_VENDORS.length; i++) {

@@ -27,9 +27,17 @@ test("mobile session activity targets the rendered processing dot", function () 
 
 test("provider color classification follows routed AI family", async function () {
   var providerUi = await import("../lib/public/modules/provider-route-ui.js");
+  var vendorUi = await import("../lib/public/modules/vendor-ui.js");
+  vendorUi.applyVendorRegistry({
+    claude: { displayName: "Claude", avatar: "/claude-code-avatar.png" },
+    codex: { displayName: "Codex", avatar: "/codex-avatar.png" },
+    kimi: { displayName: "Kimi Code", avatar: "/kimi-avatar.svg" },
+  });
 
   assert.equal(providerUi.providerShortName("claude", null, "claude-opus-4-6"), "Claude");
   assert.equal(providerUi.providerShortName("codex", null, "gpt-5.6-codex"), "Codex");
   assert.equal(providerUi.providerShortName("github-copilot", "claude-github-copilot", ""), "Claude");
   assert.equal(providerUi.providerShortName("github-copilot", "codex-github-copilot", ""), "Codex");
+  assert.equal(providerUi.providerShortName("kimi", "kimi-moonshot", "auto"), "Kimi Code");
+  assert.equal(providerUi.providerAvatar("kimi", "kimi-moonshot", "auto"), "/kimi-avatar.svg");
 });

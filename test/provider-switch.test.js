@@ -214,6 +214,38 @@ test("successful switch mutates session and records vendor_switched with trigger
   assert.ok(pushed, "divider pushed to session subscribers");
 });
 
+test("additional providers switch into fresh context without leaving the chat", function () {
+  var sm = makeSm({
+    availableVendors: ["claude", "kimi"],
+    installedVendors: ["claude", "kimi"],
+    modelsByVendor: { claude: ["claude-opus-4.8"], codex: [], kimi: ["auto"] },
+    verifiedModelsByRoute: {
+      "kimi-moonshot": {
+        models: ["auto"],
+        verified: true,
+        source: "live-initialization",
+      },
+    },
+  });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({ localId: "same-chat", cliSessionId: "claude-old" });
+  var originalHistory = session.history[0];
+  var result = switcher.executeProviderSwitch({
+    session: session,
+    targetVendor: "kimi",
+    targetRouteId: "kimi-moonshot",
+    targetModel: "auto",
+  });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(session.localId, "same-chat");
+  assert.strictEqual(session.history[0], originalHistory);
+  assert.strictEqual(session.vendor, "kimi");
+  assert.strictEqual(session.providerRouteId, "kimi-moonshot");
+  assert.strictEqual(session.model, "auto");
+  assert.strictEqual(session.cliSessionId, null);
+  assert.ok(session.handoffContext);
+});
+
 test("executor is idempotent: repeating the same switch is a no-op", function () {
   var sm = makeSm();
   var switcher = makeSwitcher(sm);

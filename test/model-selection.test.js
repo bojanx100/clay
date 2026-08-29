@@ -29,6 +29,18 @@ test("configured provider defaults override automatic best selection", function 
   assert.strictEqual(defaultModelForVendor(sm, "codex"), "gpt-5.6-terra");
 });
 
+test("additional providers use their advertised automatic or default model", function () {
+  var sm = {
+    modelsByVendor: {
+      kimi: [{ value: "auto" }],
+      qwen: [{ value: "qwen-fast" }, { value: "qwen-coder", isDefault: true }],
+    },
+  };
+
+  assert.strictEqual(defaultModelForVendor(sm, "kimi"), "auto");
+  assert.strictEqual(defaultModelForVendor(sm, "qwen"), "qwen-coder");
+});
+
 test("best falls back to Opus when Fable's shared quota pool is rejected", function () {
   var sm = {
     modelsByVendor: {
