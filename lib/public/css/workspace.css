@@ -570,6 +570,10 @@
 .workspace-coop-owner .coop-owner-section-dismissed { border-left-color: rgba(var(--overlay-rgb), .22); opacity: .8; }
 .workspace-coop-owner .coop-owner-section-hidden { border-left-color: rgba(var(--overlay-rgb), .22); opacity: .8; }
 .workspace-coop-owner .coop-owner-heading { color: var(--text-secondary); font-size: 10px; font-weight: 700; letter-spacing: .09em; margin: 0 0 8px; text-transform: uppercase; }
+.workspace-coop-owner .coop-owner-project-group { border-top: 1px solid rgba(var(--overlay-rgb), .09); margin: 10px 0 0; padding-top: 9px; }
+.workspace-coop-owner .coop-owner-project-group:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+.workspace-coop-owner .coop-owner-project-heading { color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; margin: 0 0 3px; text-transform: none; }
+.workspace-coop-owner .coop-owner-project-group-unassigned .coop-owner-project-heading { font-style: italic; }
 .workspace-coop-owner .coop-owner-row { border-bottom: 1px solid rgba(var(--overlay-rgb), .07); padding: 9px 0 10px; }
 .workspace-coop-owner .coop-owner-row:last-child { border-bottom: 0; }
 .workspace-coop-owner .coop-owner-title { background: transparent; border: 0; color: var(--text); cursor: pointer; font: inherit; font-size: 13px; font-weight: 650; min-height: 30px; padding: 0; text-align: left; }

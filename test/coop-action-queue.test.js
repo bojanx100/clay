@@ -191,6 +191,27 @@ test("finished work stays as an acceptance item, it does not silently vanish", f
   assert.match(item.decision, /accept it, or send it back/);
 });
 
+test("action items retain typed worker evidence and the canonical worker session", function () {
+  var completed = task2503({ status: "completed", resultSummary: "Merged the parent-only icon change.",
+    verification: "node --test test/icons.test.js passed" });
+  var result = byIssue(queue.buildActionQueue([
+    webappProject([coordinator(), completed], [session2503()]),
+  ], {}), "2503");
+  assert.deepEqual(result.workerDetail, {
+    type: "worker_result",
+    resolution: "Merged the parent-only icon change.",
+    verification: "node --test test/icons.test.js passed",
+    projectRef: { projectId: WEBAPP },
+    sessionRef: { projectId: WEBAPP, sessionStorageId: "sess-2503" },
+  });
+
+  var question = byIssue(queue.buildActionQueue([screenshotState()], {}), "2503");
+  assert.equal(question.workerDetail.type, "worker_question");
+  assert.equal(question.workerDetail.question, "Ship parent-only icons, or wait for child rollup?");
+  assert.deepEqual(question.workerDetail.sessionRef,
+    { projectId: WEBAPP, sessionStorageId: "sess-2503" });
+});
+
 test("accepted work leaves the queue, and only that item", function () {
   var accepted = task2503({
     status: "completed",

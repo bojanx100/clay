@@ -133,6 +133,40 @@ test("a later answer lands a non-execution request without closing implementatio
   assert.equal(sidebar.landed[0].clearable, true);
 });
 
+test("Needs attention has stable canonical-project groups and a final Unassigned group", function () {
+  var webapp = "22222222-2222-5222-8222-222222222222";
+  var records = [
+    request(1, "needs_input", { projectRefs: [] }),
+    request(2, "needs_input", { projectRefs: [{ projectId: PROJECT }] }),
+    request(3, "needs_input", { projectRefs: [{ projectId: webapp }] }),
+  ];
+  var sidebar = buildOwnerSidebar({
+    requests: records,
+    topics: topicList(),
+    projectTitles: [
+      { projectRef: { projectId: PROJECT }, title: "Clay" },
+      { projectRef: { projectId: webapp }, title: "Webapp" },
+    ],
+    actionQueue: [{
+      itemId: "webapp-action", projectRef: { projectId: webapp }, projectTitle: "Webapp",
+      taskId: "worker-1", title: "Awaiting worker decision", kind: "decision", status: "needs_input",
+      decision: "Choose a migration path", updatedAt: 41,
+      workerDetail: { type: "worker_question", question: "Choose a migration path",
+        projectRef: { projectId: webapp }, sessionRef: { projectId: webapp, sessionStorageId: "worker-1" } },
+    }],
+  });
+  assert.deepEqual(sidebar.attentionGroups.map(function (group) {
+    return [group.title, group.count, group.entries.map(function (entry) { return entry.entryId; })];
+  }), [
+    ["Clay", 1, [records[1].ingressId]],
+    ["Webapp", 2, ["webapp-action", records[2].ingressId]],
+    ["Unassigned", 1, [records[0].ingressId]],
+  ]);
+  assert.deepEqual(sidebar.attention.map(function (entry) { return entry.entryId; }),
+    ["webapp-action", records[0].ingressId, records[1].ingressId, records[2].ingressId],
+    "the existing flat projection remains stable for consumers that do not render groups");
+});
+
 test("owner ledger separates working, attention, and landed work without trusting an unverified terminal row", function () {
   var records = [
     request(1, "working"),
@@ -252,6 +286,29 @@ test("visibility transport is owner-gated, stale-safe, and never clears active w
   assert.equal(sent[2].code, "stale_priority");
 });
 
+test("owner ledger detail resolves a direct durable request without using ActionQueue evidence", function () {
+  var sent = [];
+  var ingressId = "coop:owner-ledger:direct";
+  var requestRef = { projectId: LEAD, sessionStorageId: "owner-home", eventIndex: 0 };
+  var entry = { entryId: ingressId, ingressId: ingressId, status: "planned", taskRefs: [] };
+  var ctx = {
+    slug: "lead", isCoopTopicOwner: function () { return true; },
+    getGlobalCoopProjection: function () { return { ownerSidebar: { entries: [entry] } }; },
+    coopOwnerRequests: { get: function () { return {
+      ingressId: ingressId, requestRef: requestRef, receivedAt: 10, updatedAt: 10,
+      response: { state: "unanswered" }, projectRefs: [],
+    }; } },
+    resolveGlobalSessionRef: function () { return { ok: true, session: { history: [
+      { type: "user_message", text: "Keep the durable original message.", coopIngressId: ingressId },
+    ] } }; },
+    sendTo: function (_ws, message) { sent.push(message); },
+  };
+  handleOwnerSidebarMessage(ctx, {}, { type: "coop_owner_ledger_detail", entryId: ingressId });
+  assert.equal(sent[0].ok, true);
+  assert.equal(sent[0].detail.type, "owner_message");
+  assert.equal(sent[0].detail.originalMessage, "Keep the durable original message.");
+});
+
 test("owner ledger detail resolves a drifted request index by immutable ingress identity", function () {
   var sent = [];
   var ingressId = "coop:owner-ledger:detail";
@@ -279,6 +336,7 @@ test("owner ledger detail resolves a drifted request index by immutable ingress 
   }), true);
   assert.equal(sent[0].type, "coop_owner_ledger_detail_result");
   assert.equal(sent[0].ok, true);
+  assert.equal(sent[0].detail.type, "owner_message");
   assert.equal(sent[0].detail.originalMessage, "Show me the original request");
   assert.equal(sent[0].detail.requestRef.eventIndex, 1,
     "the returned provenance is repaired instead of echoing the stale stored index");
@@ -286,6 +344,75 @@ test("owner ledger detail resolves a drifted request index by immutable ingress 
   ctx.isCoopTopicOwner = function () { return false; };
   handleOwnerSidebarMessage(ctx, {}, { type: "coop_owner_ledger_detail", entryId: ingressId });
   assert.equal(sent[1].code, "access_denied");
+});
+
+function actionDetailEntry(kind, detail) {
+  return {
+    entryId: "action:" + kind, ingressId: "", status: "needs_owner", reason: "Needs your decision",
+    action: { itemId: "action:" + kind, projectRef: { projectId: PROJECT }, taskId: "task:" + kind,
+      kind: kind === "worker_result" ? "acceptance" : "decision", workerDetail: detail },
+  };
+}
+
+function actionDetailContext(entry, sent, resolve) {
+  return {
+    slug: "lead", isCoopTopicOwner: function () { return true; },
+    getGlobalCoopProjection: function () { return { ownerSidebar: { entries: [entry] } }; },
+    resolveGlobalSessionRef: resolve || function () { return { ok: true, session: { history: [] } }; },
+    sendTo: function (_ws, message) { sent.push(message); },
+  };
+}
+
+test("an ActionQueue acceptance resolves typed worker result evidence and its canonical session", function () {
+  var sessionRef = ref("worker-result");
+  var entry = actionDetailEntry("worker_result", { type: "worker_result", projectRef: { projectId: PROJECT },
+    sessionRef: sessionRef, resolution: "Implemented the grouped sidebar.",
+    verification: "node --test test/coop-owner-sidebar.test.js passed" });
+  var sent = [];
+  var calls = [];
+  var ctx = actionDetailContext(entry, sent, function (target) {
+    calls.push(target);
+    return { ok: true, session: { history: [] } };
+  });
+  handleOwnerSidebarMessage(ctx, {}, { type: "coop_owner_ledger_detail", entryId: entry.entryId });
+  assert.equal(sent[0].ok, true);
+  assert.deepEqual(sent[0].detail, {
+    type: "worker_result", projectRef: { projectId: PROJECT }, sessionRef: sessionRef,
+    sourceSessionRef: sessionRef, status: "needs_owner", reason: "Needs your decision",
+    resolution: "Implemented the grouped sidebar.",
+    verification: "node --test test/coop-owner-sidebar.test.js passed",
+  });
+  assert.deepEqual(calls, [sessionRef]);
+});
+
+test("an ActionQueue decision resolves the worker question instead of an unavailable owner message", function () {
+  var sessionRef = ref("worker-question");
+  var entry = actionDetailEntry("worker_question", { type: "worker_question", projectRef: { projectId: PROJECT },
+    sessionRef: sessionRef, question: "Should the migration run now?", reason: "The maintenance window is open." });
+  var sent = [];
+  var ctx = actionDetailContext(entry, sent);
+  handleOwnerSidebarMessage(ctx, {}, { type: "coop_owner_ledger_detail", entryId: entry.entryId });
+  assert.equal(sent[0].ok, true);
+  assert.equal(sent[0].detail.type, "worker_question");
+  assert.equal(sent[0].detail.question, "Should the migration run now?");
+  assert.equal(sent[0].detail.reason, "The maintenance window is open.");
+  assert.deepEqual(sent[0].detail.sessionRef, sessionRef);
+  ctx.isCoopTopicOwner = function () { return false; };
+  handleOwnerSidebarMessage(ctx, {}, { type: "coop_owner_ledger_detail", entryId: entry.entryId });
+  assert.equal(sent[1].code, "access_denied");
+});
+
+test("dynamic ActionQueue details fail closed when the canonical worker session is unavailable", function () {
+  var entry = actionDetailEntry("worker_question", { type: "worker_question", projectRef: { projectId: PROJECT },
+    sessionRef: null, question: "Choose a release channel." });
+  var sent = [];
+  handleOwnerSidebarMessage(actionDetailContext(entry, sent), {}, {
+    type: "coop_owner_ledger_detail", entryId: entry.entryId,
+  });
+  assert.deepEqual(sent[0], {
+    type: "coop_owner_ledger_detail_result", entryId: entry.entryId,
+    ok: false, code: "worker_session_unavailable",
+  });
 });
 
 function element(tag) {
@@ -446,6 +573,49 @@ test("owner ledger renders project provenance and a stable original-request link
     "Clay · Ingress coop:owner-context:1");
   assert.equal(byClass(rendered, "coop-owner-link").some(function (button) {
     return button.textContent === "Original request";
+  }), true);
+});
+
+test("Needs attention renders counted project groups and dynamic rows expose worker details", async function () {
+  var ui = await ownerSidebarUi();
+  var messages = [];
+  var details = {};
+  var workerRef = ref("grouped-worker");
+  var dynamic = {
+    entryId: "dynamic-worker", ingressId: "", title: "Verify the grouped sidebar", status: "needs_owner",
+    reason: "Needs your decision", topicRef: { topicId: "dynamic-topic" }, sessions: [],
+    action: { itemId: "dynamic-worker", taskId: "dynamic-task", projectRef: { projectId: PROJECT },
+      kind: "acceptance", workerDetail: { type: "worker_result", projectRef: { projectId: PROJECT },
+        sessionRef: workerRef, resolution: "Project groups are ready.", verification: "Focused tests passed." } },
+  };
+  var sidebar = {
+    revision: 11, working: [], attention: [dynamic], landed: [], dismissed: [], hidden: [], entries: [dynamic],
+    attentionGroups: [{ projectRef: { projectId: PROJECT }, title: "Clay", count: 1, entries: [dynamic] }],
+  };
+  var first = element("div");
+  ui.renderCoopOwnerSidebar(first, sidebar, {
+    details: details,
+    send: function (message) { messages.push(message); return true; },
+    onDetailsChange: function (next) { details = next; },
+  });
+  assert.equal(byClass(first, "coop-owner-project-heading")[0].textContent, "Clay (1)");
+  var title = byClass(first, "coop-owner-title")[0];
+  assert.match(title.getAttribute("aria-label"), /show worker details/i);
+  title.click();
+  assert.deepEqual(messages, [{ type: "coop_owner_ledger_detail", entryId: "dynamic-worker" }],
+    "dynamic rows reveal their evidence even when they have a canonical Thread");
+
+  details = ui.applyCoopOwnerLedgerDetailResult(details, {
+    type: "coop_owner_ledger_detail_result", entryId: "dynamic-worker", ok: true,
+    detail: { type: "worker_result", projectRef: { projectId: PROJECT }, sessionRef: workerRef,
+      sourceSessionRef: workerRef, resolution: "Project groups are ready.", verification: "Focused tests passed." },
+  });
+  var ready = element("div");
+  ui.renderCoopOwnerSidebar(ready, sidebar, { details: details, send: function () { return true; } });
+  assert.equal(byClass(ready, "coop-owner-detail-label")[0].textContent, "Worker result");
+  assert.equal(byClass(ready, "coop-owner-detail-message")[0].textContent, "Project groups are ready.");
+  assert.equal(byClass(ready, "coop-owner-link").some(function (button) {
+    return button.textContent === "Open worker session";
   }), true);
 });
 
