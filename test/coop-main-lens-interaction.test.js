@@ -329,7 +329,7 @@ test("entering Coop with no lens in the URL selects Main", async function () {
   assert.equal(ctx.projection.activeCoopLensScope(), "main");
 });
 
-test("desktop and mobile render the same non-empty Coop control groups and navigation", async function () {
+test("desktop and mobile sidebars retain only actionable control rows while keeping terminal audit evidence", async function () {
   var ctx = await controlGroupHarness();
   var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
   var councilRef = { projectId: clayId, sessionStorageId: "council-execution" };
@@ -340,6 +340,24 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
     projectTitle: "Clay", question: "Which stale sidebar evidence is trustworthy?",
     completedAt: 30, topicRef: { topicId: "conditional-groups" },
     executionRef: { projectId: clayId, sessionStorageId: "triage-completed" },
+  };
+  var dismissedCouncilResult = {
+    role: "council", title: "Council retry superseded", status: "dismissed",
+    summary: "The older review attempt was superseded by the active Council review.",
+    completedAt: 29, topicRef: { topicId: "conditional-groups" },
+    executionRef: { projectId: clayId, sessionStorageId: "council-dismissed" },
+  };
+  var cancelledTriageResult = {
+    role: "triage", title: "Triage cancelled historical attempt", status: "cancelled",
+    summary: "The historical review was cancelled before a replacement was started.",
+    completedAt: 28, topicRef: { topicId: "conditional-groups" },
+    executionRef: { projectId: clayId, sessionStorageId: "triage-cancelled" },
+  };
+  var supersededCouncilResult = {
+    role: "council", title: "Council superseded historical attempt", status: "superseded",
+    summary: "The earlier review attempt was superseded by a newer approved revision.",
+    completedAt: 27, topicRef: { topicId: "conditional-groups" },
+    executionRef: { projectId: clayId, sessionStorageId: "council-superseded" },
   };
   ctx.projection.setGlobalCoopProjection({
     type: "global_coop_projection",
@@ -363,16 +381,28 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
       { role: "council", title: "Council: shape Threads V2", sessionRef: councilRef,
         status: "running", processing: true, projectTitle: "Clay",
         question: "What canonical identity should the owner see?", activity: "Comparing typed ingress and task links" },
+      { role: "council", title: "Council stale completed session", status: "completed",
+        sessionRef: { projectId: clayId, sessionStorageId: "council-stale-completed" } },
       { role: "triage", title: "Triage follow-up", sessionRef: triageRef,
         status: "needs_input", processing: false, projectTitle: "Clay",
         question: "Which evidence remains uncertain?" },
+      { role: "triage", title: "Triage stale idle session", status: "idle",
+        sessionRef: { projectId: clayId, sessionStorageId: "triage-stale-idle" } },
     ],
-    controlPlaneResults: [triageResult],
+    controlPlaneResults: [triageResult, dismissedCouncilResult, cancelledTriageResult,
+      supersededCouncilResult, triageResult],
   });
   var model = ctx.projection.buildGlobalCoopDisplayModel("");
+  assert.deepEqual(model.controlPlaneResults.map(function (result) { return result.status; }),
+    ["completed", "dismissed", "cancelled", "superseded", "completed"],
+    "terminal evidence remains available to the audit projection");
   var sections = ctx.model.coopTopicSections(model);
   assert.deepEqual(sections.map(function (section) { return section.label; }),
     ["Threads", "Project coordinators", "Council", "Triage"]);
+  assert.deepEqual(sections.slice(-2).map(function (section) {
+    return [section.kind, section.sessions.length, section.results.length];
+  }), [["council", 1, 0], ["triage", 1, 0]],
+  "completed, dismissed, cancelled, and duplicate historical result rows do not become sidebar work");
   var sent = [];
   var desktop = element("div");
   for (var i = 1; i < sections.length; i++) {
@@ -395,17 +425,8 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   assert.match(desktopControlRows[1].textContent, /Needs input/);
   assert.equal(byClass(desktop, "coop-control-plane-context")[0].textContent,
     "Clay · What canonical identity should the owner see? · Comparing typed ingress and task links");
-  assert.deepEqual(byClass(desktop, "coop-control-result-summary").map(function (item) {
-    return item.textContent;
-  }), ["Main remains the safe fallback."]);
-  assert.equal(byClass(desktop, "coop-control-result-context")[0].textContent,
-    "Clay · Which stale sidebar evidence is trustworthy?");
-  assert.equal(byClass(desktop, "coop-control-result")[0].tagName, "BUTTON");
-  byClass(desktop, "coop-control-result")[0].click();
-  assert.deepEqual(sent.pop(), {
-    type: "coop_topic_select", topicRef: { topicId: "conditional-groups" },
-    projectRef: null, historyScope: "topic",
-  }, "archived control evidence links to its canonical Thread");
+  assert.equal(byClass(desktop, "coop-control-result").length, 0,
+    "terminal audit history does not flood the desktop sidebar");
   desktopControlRows[0].click();
   assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: councilRef });
 
@@ -425,12 +446,10 @@ test("desktop and mobile render the same non-empty Coop control groups and navig
   assert.equal(mobileControlRows.length, 2);
   assert.equal(mobileControlRows[0].classList.contains("processing"), true);
   assert.equal(mobileControlRows[1].classList.contains("processing"), false);
-  assert.deepEqual(byClass(mobile, "mobile-coop-control-result-summary").map(function (item) {
-    return item.textContent;
-  }), ["Main remains the safe fallback."]);
+  assert.equal(byClass(mobile, "mobile-coop-control-result").length, 0,
+    "terminal audit history does not flood the mobile sidebar");
   assert.equal(byClass(mobile, "mobile-coop-control-plane-context")[0].textContent,
     "Clay · What canonical identity should the owner see? · Comparing typed ingress and task links");
-  assert.equal(byClass(mobile, "mobile-coop-control-result")[0].tagName, "BUTTON");
   mobileControlRows[1].click();
   assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: triageRef });
   assert.equal(navigated, 1);

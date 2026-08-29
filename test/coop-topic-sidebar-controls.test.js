@@ -152,8 +152,10 @@ test("all open topics render in one Threads group without legacy categories", as
     ],
     topics: [topic("cross-one", { group: "cross_project" }), topic("uncat-one", { group: "uncategorised" })],
     controlPlaneSessions: [
-      { role: "council", title: "Council", sessionRef: { projectId: "system-lead", sessionStorageId: "council" } },
-      { role: "triage", title: "Triage", sessionRef: { projectId: "system-lead", sessionStorageId: "triage" } },
+      { role: "council", title: "Council", status: "running",
+        sessionRef: { projectId: "system-lead", sessionStorageId: "council" } },
+      { role: "triage", title: "Triage", status: "needs_input",
+        sessionRef: { projectId: "system-lead", sessionStorageId: "triage" } },
     ],
   }));
   var sections = ui.model.coopTopicSections(ui.projection.buildGlobalCoopDisplayModel(""));
@@ -262,7 +264,7 @@ test("each Coop control group can appear alone and invalid control sessions stay
   assert.deepEqual(sectionShape(coordinatorOnly), ["project_coordinators:Project coordinators"]);
 
   var councilOnly = ui.model.coopTopicSections({ controlPlaneSessions: [
-    { role: "council", title: "Council", sessionRef: {
+    { role: "council", title: "Council", status: "running", sessionRef: {
       projectId: "system-lead", sessionStorageId: "council",
     } },
     { role: "triage", title: "Hidden Triage" },
@@ -285,7 +287,7 @@ test("each Coop control group can appear alone and invalid control sessions stay
   assert.equal(normalizedCouncil[0].sessions[0].status, "running");
 
   var triageOnly = ui.model.coopTopicSections({ controlPlaneSessions: [{
-    role: "triage", title: "Triage", sessionRef: {
+    role: "triage", title: "Triage", status: "needs_input", sessionRef: {
       projectId: "system-lead", sessionStorageId: "triage",
     },
   }] });
