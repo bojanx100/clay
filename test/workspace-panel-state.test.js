@@ -1,5 +1,6 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("node:fs");
 var path = require("node:path");
 var pathToFileURL = require("node:url").pathToFileURL;
 
@@ -39,6 +40,119 @@ function loaded(extra) {
     items: [{ number: 201, title: "On hover owner should see data" }],
     truncatedItems: 0,
   }, extra || {});
+}
+
+function classList() {
+  var names = {};
+  return {
+    add: function () {
+      for (var i = 0; i < arguments.length; i++) names[arguments[i]] = true;
+    },
+    remove: function () {
+      for (var i = 0; i < arguments.length; i++) delete names[arguments[i]];
+    },
+    contains: function (name) { return !!names[name]; },
+    toggle: function (name) {
+      if (names[name]) { delete names[name]; return false; }
+      names[name] = true;
+      return true;
+    },
+  };
+}
+
+function element(tag) {
+  var node = {
+    tagName: String(tag || "div").toUpperCase(),
+    children: [],
+    className: "",
+    classList: classList(),
+    style: {},
+    dataset: {},
+    attributes: {},
+    listeners: {},
+    parentNode: null,
+    parentElement: null,
+    value: "",
+    disabled: false,
+  };
+  Object.defineProperty(node, "innerHTML", {
+    get: function () { return node._innerHTML || ""; },
+    set: function (value) { node._innerHTML = String(value); node.children = []; },
+  });
+  node.appendChild = function (child) {
+    child.parentNode = node;
+    child.parentElement = node;
+    node.children.push(child);
+    return child;
+  };
+  node.removeChild = function (child) {
+    node.children = node.children.filter(function (item) { return item !== child; });
+  };
+  node.addEventListener = function (type, handler) {
+    node.listeners[type] = (node.listeners[type] || []).concat(handler);
+  };
+  node.removeEventListener = function () {};
+  node.setAttribute = function (name, value) { node.attributes[name] = String(value); };
+  node.removeAttribute = function (name) { delete node.attributes[name]; };
+  node.getAttribute = function (name) { return node.attributes[name] || null; };
+  node.querySelector = function () { return null; };
+  node.querySelectorAll = function () { return []; };
+  node.focus = function () {};
+  node.setSelectionRange = function () {};
+  return node;
+}
+
+function descendants(node) {
+  var result = [];
+  for (var i = 0; i < node.children.length; i++) {
+    result.push(node.children[i]);
+    result = result.concat(descendants(node.children[i]));
+  }
+  return result;
+}
+
+function hasClass(node, name) {
+  return descendants(node).some(function (item) {
+    return item.className.split(/\s+/).indexOf(name) !== -1;
+  });
+}
+
+function installWorkspacePanelDom() {
+  var elements = {};
+  function byId(id) {
+    if (!elements[id]) elements[id] = element("div");
+    return elements[id];
+  }
+  var storage = { getItem: function () { return null; }, setItem: function () {}, removeItem: function () {} };
+  globalThis.window = {
+    innerWidth: 1024,
+    addEventListener: function () {},
+    removeEventListener: function () {},
+    localStorage: storage,
+    sessionStorage: storage,
+  };
+  globalThis.localStorage = storage;
+  globalThis.sessionStorage = storage;
+  globalThis.navigator = { userAgent: "", platform: "", maxTouchPoints: 0 };
+  globalThis.requestAnimationFrame = function () { return 1; };
+  globalThis.lucide = { createIcons: function () {} };
+  globalThis.marked = { use: function () {}, parse: function (value) { return String(value); }, Renderer: function () {} };
+  globalThis.hljs = { highlightElement: function () {}, getLanguage: function () { return null; } };
+  globalThis.DOMPurify = { sanitize: function (value) { return value; } };
+  globalThis.mermaid = { initialize: function () {}, run: function () {} };
+  globalThis.fetch = function () { return Promise.reject(new Error("test DOM")); };
+  globalThis.document = {
+    body: element("body"),
+    head: element("head"),
+    activeElement: null,
+    getElementById: byId,
+    querySelector: function () { return null; },
+    querySelectorAll: function () { return []; },
+    createElement: element,
+    addEventListener: function () {},
+    removeEventListener: function () {},
+  };
+  return elements;
 }
 
 test("a refetch skeleton does not wipe the GitHub half already on screen", async function () {
@@ -94,4 +208,52 @@ test("merging is a no-op without a loaded state to protect", async function () {
   assert.equal(mod.mergeWorkspaceState(skeleton(), first), first);
   // A missing message is passed straight through rather than fabricated.
   assert.equal(mod.mergeWorkspaceState(loaded(), null), null);
+});
+
+test("the blank development state does not imply that package.json exists", function () {
+  var file = path.join(__dirname, "..", "lib", "public", "modules", "workspace-panel-sections.js");
+  var sections = fs.readFileSync(file, "utf8");
+  assert.match(sections, /No runnable development script is available for this project\./);
+  assert.doesNotMatch(sections, /No development script was found in package\.json\./);
+});
+
+test("a WebSocket dev-status update cannot replace an owner panel without cached workspace state", async function (t) {
+  var elements = installWorkspacePanelDom();
+  var modules = pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules"));
+  var terminal = await import(modules.href + "/terminal.js");
+  var filebrowser = await import(modules.href + "/filebrowser.js");
+  var panel = await import(modules.href + "/workspace-panel.js");
+  var sessions = await import(modules.href + "/sidebar-sessions.js");
+  var clientStore = await import(modules.href + "/store.js");
+  var projection = await import(modules.href + "/global-coop-projection.js");
+
+  var originalWarn = console.warn;
+  console.warn = function () {};
+  t.after(function () {
+    panel.closeWorkspacePanel();
+    projection.clearGlobalCoopProjection();
+    console.warn = originalWarn;
+  });
+  terminal.initTerminal({ terminalContainerEl: element("div"), terminalBodyEl: element("div"), connected: false });
+  filebrowser.initFileBrowser({ fileViewerEl: element("div"), fileTreeEl: element("div"), connected: false });
+  await new Promise(function (resolve) { setTimeout(resolve, 0); });
+  projection.setGlobalCoopProjection({
+    type: "global_coop_projection", projects: [], topics: [],
+    ownerSidebar: { defaultOpen: true, open: [], hidden: [] },
+  });
+  clientStore.store.set({ currentSlug: "lead", activeSessionId: 7, connected: false });
+  sessions.getCachedSessions().push({ id: 7, coopHome: true });
+
+  panel.openWorkspacePanel();
+  assert.equal(hasClass(elements["workspace-body"], "workspace-coop-owner"), true,
+    "the open panel starts as the owner-control surface");
+  panel.handleWorkspaceDevStatus({ type: "workspace_dev_status", running: false, script: "dev" });
+  assert.equal(hasClass(elements["workspace-body"], "workspace-coop-owner"), true,
+    "the dev-status fallback must not replace the owner-control surface");
+  assert.doesNotMatch(elements["workspace-body"].innerHTML, /ws-dev-section/);
+
+  sessions.getCachedSessions()[0].coopHome = false;
+  panel.handleWorkspaceDevStatus({ type: "workspace_dev_status", running: false, script: "dev" });
+  assert.match(elements["workspace-body"].innerHTML, /ws-dev-section/,
+    "a non-owner session still receives the dev-only fallback when state is absent");
 });
