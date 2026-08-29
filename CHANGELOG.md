@@ -1,3 +1,19 @@
+# [3.7.0](https://github.com/chadbyte/clay/compare/v3.6.0...v3.7.0) (2026-08-29)
+
+
+### Bug Fixes
+
+* **terminal:** limit dark theme to terminal canvas ([c98bc1a](https://github.com/chadbyte/clay/commit/c98bc1a015b56643faa32fc215643c1be60bc17b))
+
+
+### Features
+
+* **codex:** show image generation progress ([8b2a199](https://github.com/chadbyte/clay/commit/8b2a199961f8b4ca305abd1ce879865020723aef))
+* **codex:** support inline image generation ([71282a6](https://github.com/chadbyte/clay/commit/71282a62e65087e730bd31c98c2d23a231308f9a))
+* **filebrowser:** add file downloads ([518c7fa](https://github.com/chadbyte/clay/commit/518c7fa5fb20f3f4e9e27ccca131b2bf29128127))
+* **ui:** enhance file browser and lock terminal theme ([838b20a](https://github.com/chadbyte/clay/commit/838b20a3eb148c5a4b6739146abb13aa0b2214f9))
+* **ui:** enhance file browser and terminal theming ([#456](https://github.com/chadbyte/clay/issues/456)) ([86552c6](https://github.com/chadbyte/clay/commit/86552c67826a08903be662ff75f6b2970bab281a))
+
 # [3.7.0-beta.2](https://github.com/chadbyte/clay/compare/v3.7.0-beta.1...v3.7.0-beta.2) (2026-08-29)
 
 
