@@ -36,3 +36,23 @@ test("clearing a project vendor does not disturb other project choices", functio
   assert.strictEqual(preferences.getProjectLastVendor("user-a", "alpha"), null);
   assert.strictEqual(preferences.getProjectLastVendor("user-a", "beta"), "claude");
 });
+
+test("workspace group preferences persist only true collapsed keys and isolate users", function () {
+  var data = { users: [{ id: "user-a" }, { id: "user-b", workspaceGroupStates: { "owner:working": true } }] };
+  var preferences = attachPreferences({
+    loadUsers: function () { return data; },
+    saveUsers: function (next) { data = next; },
+  });
+
+  assert.deepEqual(preferences.getWorkspaceGroupStates("user-a"), {});
+  assert.deepEqual(preferences.getWorkspaceGroupStates("user-b"), { "owner:working": true });
+  assert.deepEqual(preferences.setWorkspaceGroupStates("user-a", {
+    "owner:attention": true,
+    "owner:working": false,
+    "": true,
+    ["x".repeat(161)]: true,
+    "owner:landed": "true",
+  }), { ok: true, groups: { "owner:attention": true } });
+  assert.deepEqual(preferences.getWorkspaceGroupStates("user-a"), { "owner:attention": true });
+  assert.deepEqual(preferences.getWorkspaceGroupStates("user-b"), { "owner:working": true });
+});

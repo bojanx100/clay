@@ -33,3 +33,16 @@ test("Workspace panel modules stay below the client module size limit", function
   assert.ok(panelLines < 500, "workspace-panel.js must stay below 500 lines");
   assert.ok(sectionLines < 500, "workspace-panel-sections.js must stay below 500 lines");
 });
+
+test("Workspace group disclosure state uses server preferences, not browser storage", function () {
+  var collapse = read("lib/public/modules/workspace-group-collapse.js");
+  var sections = read("lib/public/modules/workspace-panel-sections.js");
+  var panel = read("lib/public/modules/workspace-panel.js");
+  assert.match(collapse, /api\/user\/workspace-group-states/);
+  assert.doesNotMatch(collapse, /localStorage/);
+  assert.match(sections, /data-workspace-group-toggle/);
+  assert.match(sections, /workspace-context/);
+  assert.match(sections, /workspace-environment/);
+  assert.match(sections, /workspace-linked-work/);
+  assert.match(panel, /workspace-session-screenshots/);
+});

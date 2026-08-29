@@ -430,6 +430,13 @@ test("dynamic ActionQueue details fail closed when the canonical worker session 
 
 function element(tag) {
   var node = { tagName: String(tag).toUpperCase(), children: [], className: "", attributes: {}, listeners: {}, type: "", title: "", disabled: false };
+  Object.defineProperty(node, "textContent", {
+    get: function () {
+      if (node._textContent !== undefined) return node._textContent;
+      return node.children.map(function (child) { return child.textContent || ""; }).join("");
+    },
+    set: function (value) { node._textContent = String(value); },
+  });
   node.appendChild = function (child) { child.parentNode = node; node.children.push(child); return child; };
   node.setAttribute = function (key, value) { node.attributes[key] = String(value); };
   node.getAttribute = function (key) { return node.attributes[key] || null; };
@@ -520,6 +527,59 @@ test("owner ledger renderer exposes Thread/session links and Clear/Restore contr
     { type: "coop_owner_ledger_visibility", entryId: "completed", hidden: true, expectedRevision: 7 },
     { type: "coop_owner_ledger_visibility", entryId: "dismissed", hidden: false, expectedRevision: 7 },
   ]);
+});
+
+test("Workspace groups are counted disclosure controls with durable collapsed state", async function () {
+  var ui = await ownerSidebarUi();
+  var clientStore = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "store.js")).href);
+  var oldFetch = globalThis.fetch;
+  globalThis.fetch = function () { return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ groups: {} }); } }); };
+  try {
+    clientStore.store.set({ workspaceGroupStates: {} });
+    var entry = { entryId: "attention-entry", title: "Needs a decision", status: "needs_owner", sessions: [] };
+    var sidebar = {
+      revision: 3,
+      working: [{ entryId: "working-entry", title: "Working", status: "running", sessions: [] }],
+      attention: [entry],
+      landed: [{ entryId: "landed-entry", title: "Landed", status: "completed", sessions: [] }],
+      dismissed: [{ entryId: "dismissed-entry", title: "Superseded", status: "dismissed", sessions: [] }],
+      hidden: [{ entryId: "hidden-entry", title: "Hidden", status: "dismissed", hidden: true, sessions: [] }],
+      attentionGroups: [{ projectRef: { projectId: PROJECT }, title: "Clay", count: 1, entries: [entry] }],
+    };
+    var expanded = element("div");
+    ui.renderCoopOwnerSidebar(expanded, sidebar, { send: function () { return true; } });
+    var toggles = descendants(expanded).filter(function (node) {
+      return node.tagName === "BUTTON" && /coop-owner-(group|project)-toggle/.test(node.className);
+    });
+    assert.equal(toggles.length, 6, "all five ledger groups and the project attention group are disclosures");
+    assert.equal(toggles.every(function (node) { return node.getAttribute("aria-expanded") === "true"; }), true,
+      "new and existing groups default expanded");
+    var attentionHeading = byClass(expanded, "coop-owner-section-attention")[0].children[0];
+    assert.equal(attentionHeading.textContent, "Needs attention (1)");
+    assert.equal(byClass(attentionHeading, "coop-owner-group-indicator").length, 1,
+      "the attention status indicator remains in the header");
+
+    var attentionToggle = toggles.find(function (node) { return node.getAttribute("aria-label") === "Collapse Needs attention group"; });
+    attentionToggle.click();
+    assert.equal(clientStore.store.get("workspaceGroupStates").attention, true);
+
+    var collapsed = element("div");
+    ui.renderCoopOwnerSidebar(collapsed, sidebar, { send: function () { return true; } });
+    var collapsedAttention = byClass(collapsed, "coop-owner-section-attention")[0];
+    assert.equal(collapsedAttention.children[0].children[0].getAttribute("aria-expanded"), "false");
+    assert.equal(collapsedAttention.children[1].hidden, true, "collapsed rows are hidden");
+    assert.equal(collapsedAttention.children[0].textContent, "Needs attention (1)",
+      "the collapsed header retains its count");
+    assert.equal(byClass(collapsedAttention.children[0], "coop-owner-group-indicator").length, 1,
+      "the collapsed header retains its attention indicator");
+
+    var projectToggle = byClass(collapsed, "coop-owner-project-toggle")[0];
+    projectToggle.click();
+    assert.equal(clientStore.store.get("workspaceGroupStates")["attention-project:" + PROJECT], true);
+  } finally {
+    clientStore.store.set({ workspaceGroupStates: {} });
+    globalThis.fetch = oldFetch;
+  }
 });
 
 test("owner ledger calls the triage compatibility role Evidence Review", async function () {

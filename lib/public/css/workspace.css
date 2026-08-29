@@ -129,6 +129,31 @@
   letter-spacing: 0.075em;
   text-transform: uppercase;
 }
+.ws-section-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+}
+.ws-section-toggle:hover { color: var(--text-secondary); }
+.ws-section-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.ws-section-toggle > span { flex: 1; min-width: 0; }
+.ws-section-toggle .ws-group-status { flex: 0 0 auto; padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }
+.ws-environment-running .ws-group-status,
+.ws-environment-external .ws-group-status { border-color: rgba(45, 164, 78, 0.32); color: #43b961; }
+.ws-environment-starting .ws-group-status { border-color: rgba(212, 167, 44, 0.35); color: #d4a72c; }
+.ws-section-toggle .ws-group-chevron { margin-left: auto; transition: transform .15s ease; }
+.ws-section-toggle[aria-expanded="true"] .ws-group-chevron { transform: rotate(180deg); }
+.ws-section-content[hidden] { display: none; }
 .ws-section-heading .lucide {
   width: 14px;
   height: 14px;
@@ -570,6 +595,29 @@
 .workspace-coop-owner .coop-owner-section-dismissed { border-left-color: rgba(var(--overlay-rgb), .22); opacity: .8; }
 .workspace-coop-owner .coop-owner-section-hidden { border-left-color: rgba(var(--overlay-rgb), .22); opacity: .8; }
 .workspace-coop-owner .coop-owner-heading { color: var(--text-secondary); font-size: 10px; font-weight: 700; letter-spacing: .09em; margin: 0 0 8px; text-transform: uppercase; }
+.workspace-coop-owner .coop-owner-heading-row { margin: 0 0 8px; }
+.workspace-coop-owner .coop-owner-heading-row .coop-owner-heading { margin: 0; }
+.workspace-coop-owner .coop-owner-group-toggle,
+.workspace-coop-owner .coop-owner-project-toggle { align-items: center; background: transparent; border: 0; color: inherit; cursor: pointer; display: flex; font: inherit; gap: 6px; letter-spacing: inherit; min-height: 28px; padding: 0; text-align: left; text-transform: inherit; width: 100%; }
+.workspace-coop-owner .coop-owner-group-toggle:hover,
+.workspace-coop-owner .coop-owner-project-toggle:hover { color: var(--text); }
+.workspace-coop-owner .coop-owner-group-toggle:focus-visible,
+.workspace-coop-owner .coop-owner-project-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.workspace-coop-owner .coop-owner-group-toggle > span:first-child,
+.workspace-coop-owner .coop-owner-project-toggle > span:first-child { flex: 1; min-width: 0; }
+.workspace-coop-owner .coop-owner-group-toggle .coop-owner-chevron,
+.workspace-coop-owner .coop-owner-project-toggle .coop-owner-chevron { margin-left: auto; transition: transform .15s ease; }
+.workspace-coop-owner .coop-owner-group-toggle[aria-expanded="true"] .coop-owner-chevron,
+.workspace-coop-owner .coop-owner-project-toggle[aria-expanded="true"] .coop-owner-chevron { transform: rotate(180deg); }
+.workspace-coop-owner .coop-owner-section-content[hidden],
+.workspace-coop-owner .coop-owner-project-content[hidden] { display: none; }
+.workspace-coop-owner .coop-owner-group-indicator { color: var(--text-muted); flex: 0 0 auto; }
+.workspace-coop-owner .coop-owner-section-attention .coop-owner-group-indicator { color: #de835d; }
+.workspace-coop-owner .coop-owner-project-group .coop-owner-group-indicator { color: #de835d; }
+.workspace-coop-owner .coop-owner-section-landed .coop-owner-group-indicator { color: #6bb889; }
+.workspace-coop-owner .coop-owner-section-working .coop-owner-group-indicator { color: var(--accent); }
+.workspace-coop-owner .coop-owner-group-indicator .lucide,
+.workspace-coop-owner .coop-owner-chevron .lucide { height: 13px; width: 13px; }
 .workspace-coop-owner .coop-owner-project-group { border-top: 1px solid rgba(var(--overlay-rgb), .09); margin: 10px 0 0; padding-top: 9px; }
 .workspace-coop-owner .coop-owner-project-group:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
 .workspace-coop-owner .coop-owner-project-heading { color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; margin: 0 0 3px; text-transform: none; }
