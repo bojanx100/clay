@@ -112,6 +112,27 @@ test("failed and unrouted durable records outrank stale running session metadata
   assert.equal(sidebar.open[0].status, "failed");
 });
 
+test("a later answer lands a non-execution request without closing implementation work", function () {
+  var records = [
+    request(1, "open", { response: { state: "answered", answeredAt: 11 } }),
+    request(2, "open", { response: { state: "answered", answeredAt: 21 }, expectsExecution: true }),
+    request(3, "open", { response: { state: "answered", answeredAt: 29 } }),
+    request(4, "open", { response: { state: "answered", answeredAt: 41 } }),
+  ];
+  var sidebar = buildOwnerSidebar({
+    requests: records, topics: topicList(),
+    executionBindings: [{ portfolioTaskId: "failed-bind", bindingRevision: 1,
+      status: "failed", coopTopicRef: { topicId: "topic-4" } }],
+  });
+  assert.deepEqual(sidebar.landed.map(function (entry) { return entry.ingressId; }), [records[0].ingressId]);
+  assert.deepEqual(sidebar.attention.map(function (entry) { return [entry.ingressId, entry.status]; }), [
+    [records[1].ingressId, "planned"],
+    [records[2].ingressId, "planned"],
+    [records[3].ingressId, "failed"],
+  ]);
+  assert.equal(sidebar.landed[0].clearable, true);
+});
+
 test("owner ledger separates working, attention, and landed work without trusting an unverified terminal row", function () {
   var records = [
     request(1, "working"),
