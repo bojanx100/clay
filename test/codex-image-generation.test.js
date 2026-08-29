@@ -3,10 +3,12 @@ var assert = require("node:assert");
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
+var EventEmitter = require("events");
 
 var codex = require("../lib/yoke/adapters/codex");
 var createSDKBridge = require("../lib/sdk-bridge").createSDKBridge;
 var attachImage = require("../lib/project-image").attachImage;
+var attachHTTP = require("../lib/project-http").attachHTTP;
 var createSessionManager = require("../lib/sessions").createSessionManager;
 
 test("Codex image generation normalizes to an ImageGen tool and generated image", function() {
@@ -82,9 +84,98 @@ test("generated image data is persisted by reference and delivered by URL", func
     is_error: false,
   });
   assert.deepStrictEqual(calls[1].stored.imageRefs, [{ mediaType: "image/png", file: "generated.png" }]);
+  assert.strictEqual(calls[1].stored.prompt, "A clay workspace");
   assert.strictEqual(calls[1].stored.images, undefined);
   assert.strictEqual(calls[1].live.images[0].url, "/p/demo/images/generated.png");
+  assert.strictEqual(calls[1].live.prompt, "A clay workspace");
   assert.strictEqual(JSON.stringify(calls).indexOf("cG5n"), -1);
+});
+
+test("generated images can be copied into a safe project path", function() {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-generated-image-save-"));
+  var projectDir = path.join(root, "project");
+  var imagesDir = path.join(root, "images");
+  var fileName = "1700000000000-abcdef1234567890.png";
+  try {
+    fs.mkdirSync(projectDir);
+    fs.mkdirSync(imagesDir);
+    fs.writeFileSync(path.join(imagesDir, fileName), Buffer.from("image-data"));
+    var image = attachImage({ cwd: projectDir, slug: "demo", imagesDir: imagesDir });
+
+    var saved = image.saveGeneratedImageToProject(fileName, "assets/generated/hero.png", false, null);
+    assert.deepStrictEqual(saved, { ok: true, path: "assets/generated/hero.png" });
+    assert.deepStrictEqual(fs.readFileSync(path.join(projectDir, "assets/generated/hero.png")), Buffer.from("image-data"));
+
+    var conflict = image.saveGeneratedImageToProject(fileName, "assets/generated/hero.png", false, null);
+    assert.strictEqual(conflict.status, 409);
+    var replaced = image.saveGeneratedImageToProject(fileName, "assets/generated/hero.png", true, null);
+    assert.strictEqual(replaced.ok, true);
+
+    var traversal = image.saveGeneratedImageToProject(fileName, "../outside.png", false, null);
+    assert.strictEqual(traversal.status, 403);
+    var absolute = image.saveGeneratedImageToProject(fileName, path.join(projectDir, "absolute.png"), false, null);
+    assert.strictEqual(absolute.status, 400);
+    var wrongExtension = image.saveGeneratedImageToProject(fileName, "assets/generated/hero.jpg", false, null);
+    assert.strictEqual(wrongExtension.status, 400);
+    if (process.platform !== "win32") {
+      var outsideDir = path.join(root, "outside");
+      fs.mkdirSync(outsideDir);
+      fs.symlinkSync(outsideDir, path.join(projectDir, "linked"));
+      var linked = image.saveGeneratedImageToProject(fileName, "linked/nested/hero.png", false, null);
+      assert.strictEqual(linked.status, 403);
+      assert.strictEqual(fs.existsSync(path.join(outsideDir, "nested")), false);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("generated image save route forwards a project-relative destination", async function() {
+  var request = new EventEmitter();
+  request.method = "POST";
+  request._clayUser = { role: "admin" };
+  var received = null;
+  var responseStatus = null;
+  var finishResponse;
+  var responseDone = new Promise(function(resolve) { finishResponse = resolve; });
+  var response = {
+    writeHead: function(status) { responseStatus = status; },
+    end: function(body) { finishResponse(body); },
+  };
+  var handler = attachHTTP({
+    cwd: process.cwd(),
+    slug: "demo",
+    project: "Demo",
+    sm: { sessions: new Map() },
+    imagesDir: "/tmp",
+    osUsers: null,
+    safePath: function() { return null; },
+    safeAbsPath: function() { return null; },
+    getOsUserInfoForReq: function() { return null; },
+    saveGeneratedImageToProject: function(fileName, targetPath, overwrite) {
+      received = { fileName: fileName, targetPath: targetPath, overwrite: overwrite };
+      return { ok: true, path: targetPath };
+    },
+    _browserTabList: {},
+  }).handleHTTP;
+
+  var handled = handler(request, response, "/api/generated-image/save");
+  request.emit("data", JSON.stringify({
+    fileName: "1700000000000-abcdef1234567890.png",
+    path: "assets/generated/hero.png",
+    overwrite: false,
+  }));
+  request.emit("end");
+  var responseBody = JSON.parse(await responseDone);
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(responseStatus, 200);
+  assert.deepStrictEqual(received, {
+    fileName: "1700000000000-abcdef1234567890.png",
+    targetPath: "assets/generated/hero.png",
+    overwrite: false,
+  });
+  assert.deepStrictEqual(responseBody, { ok: true, path: "assets/generated/hero.png" });
 });
 
 test("generated image history references hydrate for replay", function() {
@@ -134,12 +225,18 @@ test("session history stores image references while clients receive hydrated URL
   }
 });
 
-test("generated image UI includes inline open and download actions", function() {
+test("generated image UI includes open, download, project save, and prompt details", function() {
   var source = fs.readFileSync(path.join(__dirname, "../lib/public/modules/generated-images.js"), "utf8");
   var router = fs.readFileSync(path.join(__dirname, "../lib/public/modules/app-messages.js"), "utf8");
   var stylesheet = fs.readFileSync(path.join(__dirname, "../lib/public/style.css"), "utf8");
+  var server = fs.readFileSync(path.join(__dirname, "../lib/project-http.js"), "utf8");
   assert.match(source, /showImageModal\(image\.url\)/);
   assert.match(source, /downloadLink\.download/);
+  assert.match(source, /showGeneratedImageDetails/);
+  assert.match(source, /Copy prompt/);
+  assert.match(source, /Save to project/);
+  assert.match(source, /api\/generated-image\/save/);
+  assert.match(source, /Replace file/);
   assert.match(source, /renderGeneratedImage/);
   assert.match(source, /generated-image-row/);
   assert.match(source, /renderImageGenerationProgress/);
@@ -147,4 +244,5 @@ test("generated image UI includes inline open and download actions", function() 
   assert.match(router, /case "generated_image":/);
   assert.match(router, /renderImageGenerationProgress\(msg\)/);
   assert.match(stylesheet, /css\/generated-images\.css/);
+  assert.match(server, /urlPath === "\/api\/generated-image\/save"/);
 });
