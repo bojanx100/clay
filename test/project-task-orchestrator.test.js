@@ -1271,6 +1271,57 @@ test("project-coordinator completion closes its source binding through typed del
   assert.equal(router.getExecutionBinding("portfolio-project-closure", 1).status, "completed");
 });
 
+test("project coordinator needs-input closes an active binding without completing an unavailable visual canary", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-needs-input-"));
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  assert.equal(lead.api.coordinateExternalTask({
+    coordinatorSessionId: coop.storageId,
+    portfolioTaskId: "portfolio-r6-visual-canary",
+    bindingRevision: 1,
+    idempotencyKey: "portfolio-r6-visual-canary-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+    title: "R6 visual canary attention",
+    objective: "Report an unavailable visual canary without claiming success.",
+    context: "The browser inventory is unavailable.",
+    acceptanceCriteria: "Escalate the unavailable canary safely.",
+    ownedPaths: "read-only: browser inventory",
+  }).ok, true);
+  var projectCoordinator = portfolioSession(target, "portfolio-r6-visual-canary");
+  projectCoordinator.history.push({
+    type: "delta",
+    text: "WORKER_STATUS: needs_input\nREASON: visual_canary_browser_unavailable\n" +
+      "SUMMARY: Browser inventory is unavailable; the visual canary was not run.\n" +
+      "ESCALATION_REQUIRED: yes",
+  });
+  projectCoordinator.isProcessing = false;
+
+  target.api.handleCoordinatorTurnDone(projectCoordinator);
+
+  var binding = router.getExecutionBinding("portfolio-r6-visual-canary", 1);
+  assert.equal(projectCoordinator.orchestrationPolicy.portfolioExecution.status, "needs_input");
+  assert.equal(binding.status, "needs_input");
+  assert.equal(binding.status === "completed", false);
+  assert.equal(binding.completionOwnerNotification, true);
+});
+
 test("Webapp completion stays implemented and verified until the owner explicitly accepts", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-webapp-owner-acceptance-"));
   var workflowDir = webappWorkflowDir();

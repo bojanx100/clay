@@ -11,6 +11,8 @@ var attachCompletionGate =
   require("../lib/project-task-orchestrator-completion").attachCompletionGate;
 var finishControlledExecution =
   require("../lib/coop-control-execution-completion").finishControlledExecution;
+var createCodexQueryHandle =
+  require("../lib/yoke/adapters/codex").contractTestKit.createQueryHandle;
 
 var PROJECT_A = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var COOP_SESSION = "871a194b-8879-40f7-a1fe-656e48e722af";
@@ -167,6 +169,32 @@ function controlledSession(runtime) {
   });
 }
 
+function flushTurns() {
+  return new Promise(function (resolve) { setImmediate(resolve); });
+}
+
+function fakeCodexAppServer() {
+  var handlers = [];
+  return {
+    started: true,
+    handlers: handlers,
+    emit: function (event) {
+      handlers.slice().forEach(function (handler) { handler(event); });
+    },
+    send: function (method, params) {
+      if (method === "thread/resume") return Promise.resolve({ thread: { id: params.threadId } });
+      return Promise.resolve({});
+    },
+    subscribe: function (handler) {
+      handlers.push(handler);
+      return function () {
+        var index = handlers.indexOf(handler);
+        if (index !== -1) handlers.splice(index, 1);
+      };
+    },
+  };
+}
+
 availableTest("the real target starts only after durable bind and barrier, then completes under the same fence", function () {
   var h = harness();
   try {
@@ -197,6 +225,67 @@ availableTest("the real target starts only after durable bind and barrier, then 
     assert.equal(timeline.indexOf("delivery") > timeline.indexOf("provider"), true);
     control.close();
   } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("a controlled provider turn leaves no 16-stream resume fanout", async function () {
+  var h = harness();
+  var control = null;
+  try {
+    var timeline = [];
+    control = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var runtime = target(control, timeline);
+    var created = runtime.attached.handleEnvelope(envelope(101));
+    var session = runtime.sessions.get(created.localSessionId);
+    var server = fakeCodexAppServer();
+
+    for (var i = 0; i < 16; i++) {
+      var stale = createCodexQueryHandle(server, {
+        cwd: process.cwd(), model: "gpt-5.6-terra", resumeSessionId: "r6-thread",
+      });
+      stale.pushMessage("legal typed steer " + i);
+      if (session.singleTurn) stale.endInput();
+      await flushTurns();
+      server.emit({ method: "turn/started", params: {
+        threadId: "r6-thread", turn: { id: "stale-turn-" + i },
+      } });
+      server.emit({ method: "turn/completed", params: {
+        threadId: "r6-thread", turn: { id: "stale-turn-" + i, status: "completed" },
+      } });
+      await flushTurns();
+    }
+
+    assert.equal(server.handlers.length, 0,
+      "each completed controlled turn must unsubscribe before the next typed command");
+
+    var results = 0;
+    var done = 0;
+    var current = createCodexQueryHandle(server, {
+      cwd: process.cwd(), model: "gpt-5.6-terra", resumeSessionId: "r6-thread",
+    });
+    (async function () {
+      for await (var event of current) {
+        if (event.yokeType === "result") results++;
+      }
+      done++;
+    })();
+    current.pushMessage("one legal typed steer");
+    if (session.singleTurn) current.endInput();
+    await flushTurns();
+    server.emit({ method: "turn/started", params: {
+      threadId: "r6-thread", turn: { id: "current-turn" },
+    } });
+    server.emit({ method: "turn/completed", params: {
+      threadId: "r6-thread", turn: { id: "current-turn", status: "completed" },
+    } });
+    await flushTurns();
+
+    assert.equal(results, 1);
+    assert.equal(done, 1);
+    assert.equal(server.handlers.length, 0);
+  } finally {
+    if (control) control.close();
     h.cleanup();
   }
 });
