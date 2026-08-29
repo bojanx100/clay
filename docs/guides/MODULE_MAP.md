@@ -32,7 +32,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-sessions-config.js` | `get_daemon_config`, `set_pin`, `set_keep_awake`, `set_auto_continue`, `set_inherit_groups`, `set_image_retention`, `shutdown_server`, `restart_server`, `process_stats`, `set_update_channel`, `check_update`, `update_now` | Daemon config, server management, update checks, process stats |
 | `project-sessions-git-accounts.js` | `list_git_accounts`, `get_project_git_account`, `set_project_git_account` | Project GitHub account listing and pinning handlers |
 | ~~`project-session-handoff.js`~~ | ~~`handoff_session_options`, `handoff_session` with `handoffMode: "new-session"`~~ | **Retracted:** linked successor-session handoff was removed; Clay changes provider through the same-chat path instead |
-| `project-sessions-handoff.js` | `refresh_vendors`, `handoff_session` | Provider refresh, provider-route/model matching, and fresh-context provider switching inside the current Clay session/timeline |
+| `project-sessions-handoff.js` | `get_provider_status`, `refresh_provider`, `refresh_vendors`, `handoff_session` | Provider setup/readiness snapshots, runtime refresh, provider-route/model matching, and fresh-context provider switching inside the current Clay session/timeline |
 | `project-sessions-history.js` | `load_more_history`, `compact_session` | Session history pagination, including active Coop topic membership lenses, and manual compaction |
 | `project-sessions-lifecycle.js` | `new_session`, `switch_session`, `sync_external_session` | Session creation, switching, external session sync, and new-session TUI startup |
 | `project-sessions-live.js` | `push_subscribe`, `stop`, `stop_task`, `kill_process`, `input_sync`, `cursor_*`, `text_select` | Push registration, live stop/kill controls, input sync, and collaborative cursor/text selection fanout |
@@ -102,10 +102,10 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `app-messages-loop.js` | Client WebSocket Ralph Loop, loop registry, schedule run, and Ralph crafting routing |
 | `app-messages-mentions.js` | Client WebSocket @mention and user-mention routing, mate activity indicators, and mention rendering |
 | `app-messages-rate-limit.js` | Client WebSocket rate-limit, scheduled auto-continue, prompt suggestion, and fast-mode routing |
-| `app-messages-settings.js` | Client WebSocket server update, project settings, daemon config, Lead mode, What's New, auto-launch, and task setup routing |
+| `app-messages-settings.js` | Client WebSocket server update, project settings, AI provider readiness/routing, daemon config, Lead mode, What's New, auto-launch, and task setup routing |
 | `app-messages-sessions.js` | Client WebSocket session list, global Coop projection/reference resolution, presence, search, queued message, session switch, and session close routing |
 | `app-messages-stream.js` | Client WebSocket live message, context preview, status, thinking, result, completion, refusal, auth, and process state routing |
-| `app-messages-terminals.js` | Client WebSocket terminal list/create/output/resize/exit/close routing, including TUI view and login modal forwarding |
+| `app-messages-terminals.js` | Client WebSocket terminal list/create/output/resize/exit/close routing, including TUI view and generic provider install/login modal forwarding |
 | `app-messages-tools.js` | Client WebSocket tool lifecycle, tool permission, slash-command result, and sub-agent routing |
 | `app-messages-workspace.js` | Client WebSocket workspace panel, context source, email account, extension command, and MCP UI routing |
 | `project-debate.js` | (called from project.js) `debate_start`, `debate_stop`, `debate_comment`, `debate_conclude_response`, `debate_confirm_brief`, `debate_hand_raise`, `debate_user_floor_response` | Multi-agent debate engine |
@@ -276,6 +276,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-processes.js` | SDK bridge Linux-user project prep, conflicting Claude process detection, and process verification helpers |
 | `sdk-bridge-query-start.js` | SDK bridge query-start coordinator and provider-start fence boundary |
 | `sdk-bridge-vendor-readiness.js` | Shared adapter creation, initialization, model/capability discovery, refresh, and in-flight readiness deduplication |
+| `provider-hub-status.js` | Pure, bounded AI-provider onboarding projection: CLI presence, authentication evidence, runtime/model verification, supported platform, and route readiness |
+| `public/modules/server-settings-providers.js` | AI Providers settings UI, routing profiles, and supervised install/login/verification actions driven by `provider_status` rather than a hard-coded vendor list |
 | `sdk-bridge-query-vendor.js` + `sdk-bridge-query-options.js` | Vendor readiness/auth resolution and provider-specific query option assembly |
 | `sdk-bridge-query-launch.js` | Fenced provider construction, durable start acknowledgement, and initial message dispatch |
 | `sdk-bridge-query-start-failure.js` | Shared fail-closed cleanup when provider construction or initial message dispatch fails |

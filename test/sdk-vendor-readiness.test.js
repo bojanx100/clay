@@ -38,9 +38,31 @@ test("vendor readiness deduplicates initialization and owns refresh discovery", 
   assert.strictEqual(initCalls, 1);
   assert.deepStrictEqual(sm.modelsByVendor.codex, [{ value: "gpt-first" }]);
   assert.deepStrictEqual(sm.capabilitiesByVendor.codex, { linuxUser: "owner-a" });
+  assert.strictEqual(sm.providerVerificationByVendor.codex.status, "ready");
+  assert.strictEqual(sm.providerVerificationByVendor.codex.modelCount, 1);
 
   await readiness.refresh("codex", "owner-a");
   assert.strictEqual(refreshCalls, 1);
   assert.strictEqual(initCalls, 2);
   assert.deepStrictEqual(sm.modelsByVendor.codex, [{ value: "gpt-refreshed" }]);
+  assert.strictEqual(sm.providerVerificationByVendor.codex.status, "ready");
+});
+
+test("vendor readiness records a failed runtime handshake without claiming readiness", async function () {
+  var sm = { installedVendors: ["qwen"] };
+  var readiness = attachVendorReadiness({
+    adapters: {
+      qwen: {
+        init: async function () { throw new Error("Authentication required; please log in"); },
+      },
+    },
+    sm: sm,
+    cwd: "/tmp/readiness-error",
+    slug: "readiness-error",
+  });
+
+  await assert.rejects(readiness.ensure("qwen"), /Authentication required/);
+  assert.strictEqual(sm.providerVerificationByVendor.qwen.status, "error");
+  assert.match(sm.providerVerificationByVendor.qwen.error, /please log in/);
+  assert.strictEqual(sm.providerVerificationByVendor.qwen.modelCount, 0);
 });

@@ -1375,7 +1375,7 @@
         <select id="settings-nav-dropdown" class="settings-nav-dropdown">
           <optgroup label="General">
             <option value="overview" selected>Status</option>
-            <option value="vendors">Vendors</option>
+            <option value="vendors">AI Providers</option>
             <option value="coop">Coop</option>
           </optgroup>
           <optgroup label="Config">
@@ -1399,7 +1399,7 @@
         <div class="server-settings-nav-items">
           <div class="settings-nav-category">General</div>
           <button class="settings-nav-item active" data-section="overview"><span>Status</span></button>
-          <button class="settings-nav-item" data-section="vendors"><span>Vendors</span></button>
+          <button class="settings-nav-item" data-section="vendors"><span>AI Providers</span></button>
           <button class="settings-nav-item" data-section="coop"><span>Coop</span></button>
           <div class="settings-nav-separator"></div>
           <div class="settings-nav-category">Config</div>
@@ -1493,12 +1493,24 @@
           </div>
         </div>
         <div class="server-settings-section" data-section="vendors">
-          <h2>Vendors</h2>
-          <p class="ps-section-desc">Configure the local command-line tools Clay uses to run each AI provider. Credentials stay in the vendor CLI, not in Clay.</p>
-          <div class="settings-section-actions">
-            <button class="settings-btn-sm" id="settings-vendors-refresh">Refresh vendors</button>
+          <div class="provider-hub-header">
+            <div>
+              <h2>AI Providers</h2>
+              <p class="ps-section-desc">Install, connect, and verify the command-line agents Clay can route work through. Credentials remain with each provider CLI.</p>
+            </div>
+            <button class="settings-btn-sm provider-refresh-all" id="settings-providers-refresh"><i data-lucide="refresh-cw"></i> Verify all</button>
           </div>
-          <div id="settings-vendor-list" class="settings-vendor-list"></div>
+          <div id="settings-provider-summary" class="provider-summary" aria-live="polite"></div>
+          <section class="provider-routing-panel" aria-labelledby="provider-routing-title">
+            <div class="provider-routing-copy">
+              <span class="provider-eyebrow">Automatic switching</span>
+              <h3 id="provider-routing-title">Choose what Clay optimizes for</h3>
+              <p>Only routes that pass Clay's runtime and model checks enter automatic selection.</p>
+            </div>
+            <div id="settings-provider-routing" class="provider-profile-list"></div>
+          </section>
+          <div class="provider-truth-note"><i data-lucide="info"></i><span>“Ready” means Clay completed the provider handshake and discovered a usable model catalog. Prices, free quotas, and plan limits remain the provider's responsibility and are confirmed during real work.</span></div>
+          <div id="settings-provider-list" class="provider-grid"></div>
         </div>
         <div class="server-settings-section" data-section="coop">
           <h2>Coop</h2>

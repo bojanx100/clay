@@ -24,6 +24,12 @@ test("YOKE registry covers every supported adapter vendor", function() {
     assert.ok(info);
     assert.strictEqual(typeof info.displayName, "string");
     assert.strictEqual(typeof info.loginCommand, "string");
+    assert.strictEqual(typeof info.loginHint, "string");
+    assert.ok(info.loginHint.length > 0);
+    assert.strictEqual(typeof info.installCommands, "object");
+    assert.match(info.docsUrl, /^https:\/\//);
+    assert.strictEqual(typeof info.description, "string");
+    assert.ok(info.description.length > 0);
     assert.strictEqual(typeof info.avatar, "string");
     assert.ok(fs.existsSync(path.join(__dirname, "..", "lib", "public", info.avatar.slice(1))));
     assert.match(info.homepage, /^https:\/\//);
