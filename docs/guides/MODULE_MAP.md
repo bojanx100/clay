@@ -278,6 +278,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-vendor-readiness.js` | Shared adapter creation, initialization, model/capability discovery, refresh, and in-flight readiness deduplication |
 | `provider-hub-status.js` | Pure, bounded AI-provider onboarding projection: CLI presence, authentication evidence, runtime/model verification, supported platform, and route readiness |
 | `public/modules/server-settings-providers.js` | AI Providers settings UI, routing profiles, and supervised install/login/verification actions driven by `provider_status` rather than a hard-coded vendor list |
+| `public/modules/markdown-link-policy.js` | Shared safe-link policy for markdown surfaces: external URLs open in a new tab, scheme-less hosts become absolute URLs, and local file references route to Clay's file viewer |
 | `sdk-bridge-query-vendor.js` + `sdk-bridge-query-options.js` | Vendor readiness/auth resolution and provider-specific query option assembly |
 | `sdk-bridge-query-launch.js` | Fenced provider construction, durable start acknowledgement, and initial message dispatch |
 | `sdk-bridge-query-start-failure.js` | Shared fail-closed cleanup when provider construction or initial message dispatch fails |
