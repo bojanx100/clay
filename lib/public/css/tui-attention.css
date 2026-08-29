@@ -282,7 +282,7 @@ body.tui-suspended #tui-resume-bar {
 .tui-modal {
   width: min(960px, 100%);
   height: min(640px, 100%);
-  background: #000;
+  background: var(--bg);
   border-radius: 12px;
   overflow: hidden;
   display: flex;
@@ -683,4 +683,3 @@ body.tui-suspended #tui-resume-bar {
   .wna-content { padding: 32px 20px 80px; }
   .wna-title { font-size: 26px; }
 }
-
