@@ -28,6 +28,7 @@ var bridgeRecovery = require("../lib/sdk-bridge-recovery");
 var cliSessions = require("../lib/cli-sessions");
 var streamWatchdog = require("../lib/sdk-bridge-stream-watchdog");
 var { CodexAppServer } = require("../lib/yoke/codex-app-server");
+var codexAdapter = require("../lib/yoke/adapters/codex");
 
 // --- Reported restart/error regressions -----------------------------------
 
@@ -120,6 +121,118 @@ test("Codex ignores only the known remote-control status notification", function
   } finally {
     console.log = originalLog;
   }
+});
+
+test("workspace discovery keeps expected non-repository Git failures off stderr", function(t) {
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-workspace-non-repo-"));
+  t.after(function() { fs.rmSync(projectDir, { recursive: true, force: true }); });
+  var modulePath = path.join(__dirname, "..", "lib", "project-workspace-git.js");
+  var result = childProcess.spawnSync(process.execPath, [
+    "-e",
+    "var workspaceGit = require(process.argv[1]); workspaceGit.getBranch(process.argv[2]);",
+    modulePath,
+    projectDir,
+  ], { encoding: "utf8" });
+
+  assert.strictEqual(result.status, 0);
+  assert.strictEqual(result.stderr, "",
+    "an expected non-repository probe must not leak Git's fatal message");
+});
+
+test("Codex failed MCP status produces an error tool result without an error object", function() {
+  var state = codexAdapter.contractTestKit.createEventState("gpt-5.6-sol");
+  var events = codexAdapter.contractTestKit.normalizeEvent({
+    method: "item/completed",
+    params: {
+      item: {
+        id: "browser-click-failed",
+        type: "mcpToolCall",
+        tool: "browser_click",
+        status: "failed",
+        error: null,
+        result: { content: [{ type: "text", text: "Element is no longer attached" }] },
+      },
+    },
+  }, state);
+  var result = events.filter(function(event) { return event.yokeType === "tool_result"; })[0];
+
+  assert.ok(result, "the terminal MCP item must emit a tool result");
+  assert.strictEqual(result.isError, true);
+});
+
+test("Codex abort keeps its event subscription until the interrupted turn terminates", async function() {
+  var handler = null;
+  var unsubscribeCount = 0;
+  var turnStartedResolve;
+  var turnStarted = new Promise(function(resolve) { turnStartedResolve = resolve; });
+  var finishedCount = 0;
+  var server = {
+    started: true,
+    subscribe: function(nextHandler) {
+      handler = nextHandler;
+      return function() {
+        unsubscribeCount++;
+        handler = null;
+      };
+    },
+    send: function(method, params) {
+      if (method === "thread/start") return Promise.resolve({ thread: { id: "interrupt-thread" } });
+      if (method === "turn/start") {
+        turnStartedResolve(params);
+        return Promise.resolve({});
+      }
+      if (method === "turn/interrupt") return Promise.resolve({});
+      return Promise.resolve({});
+    },
+  };
+  var handle = codexAdapter.contractTestKit.createQueryHandle(server, {
+    cwd: process.cwd(),
+    model: "gpt-5.6-sol",
+    abortController: new AbortController(),
+    onFinished: function() { finishedCount++; },
+  });
+  handle.pushMessage("keep the interrupted tool result durable");
+  await turnStarted;
+  var iterator = handle[Symbol.asyncIterator]();
+  var sessionEvent = await iterator.next();
+  assert.strictEqual(sessionEvent.value.yokeType, "session_id");
+  var iteratorEnd = iterator.next();
+
+  var drain = handle.abort();
+  assert.ok(drain && typeof drain.then === "function", "abort must expose its drain promise");
+  assert.strictEqual((await iteratorEnd).done, true,
+    "the visible query iterator must still end immediately on abort");
+  assert.strictEqual(unsubscribeCount, 0,
+    "late hook and terminal events still need a subscriber after the iterator ends");
+  handler({ method: "hook/started", params: { threadId: "interrupt-thread" } });
+  assert.strictEqual(unsubscribeCount, 0);
+  handler({
+    method: "turn/completed",
+    params: {
+      threadId: "interrupt-thread",
+      turn: { id: "interrupt-turn", status: "interrupted", items: [] },
+    },
+  });
+  await drain;
+
+  assert.strictEqual(unsubscribeCount, 1);
+  assert.strictEqual(finishedCount, 1);
+});
+
+test("Codex shutdown drain waits for every active abort to settle", async function() {
+  var release;
+  var settled = false;
+  var pending = codexAdapter._test.abortQueriesAndWait([{
+    abort: function() {
+      return new Promise(function(resolve) { release = resolve; });
+    },
+  }], Date.now() + 1000).then(function() { settled = true; });
+
+  await Promise.resolve();
+  assert.strictEqual(settled, false, "shutdown must not stop the app-server ahead of abort persistence");
+  release();
+  await pending;
+  assert.strictEqual(settled, true);
 });
 
 // --- Watchdog budget -------------------------------------------------------
