@@ -62,6 +62,55 @@ test("worktree status retains its configured canonical parent project ID", funct
   assert.equal(status.getStatus().parentProjectId, parentProjectId);
 });
 
+test("temporary worktree runtimes use their parent's durable ProjectRef", function () {
+  var parentProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var runtimeId = projectIdentity.projectIdForRuntime({
+    projectId: "1f813f68-79d7-53cc-9fc1-eb19c7485a37",
+  }, "/private/tmp/clay-fix", "clay--fix", {
+    parentProjectId: parentProjectId,
+  });
+
+  assert.equal(runtimeId, parentProjectId);
+});
+
+test("one ProjectRef resolves sessions from parent and temporary worktree runtimes", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var parentSession = { storageId: "parent-session" };
+  var worktreeSession = { storageId: "worktree-session" };
+  var parent = {
+    slug: "clay",
+    getStatus: function () { return { isWorktree: false }; },
+    getSessionManager: function () {
+      return { resolveSessionRef: function (ref) {
+        return ref.sessionStorageId === parentSession.storageId ? parentSession : null;
+      } };
+    },
+  };
+  var worktree = {
+    slug: "clay--temporary",
+    getStatus: function () { return { isWorktree: true, parentSlug: "clay" }; },
+    getSessionManager: function () {
+      return { resolveSessionRef: function (ref) {
+        return ref.sessionStorageId === worktreeSession.storageId ? worktreeSession : null;
+      } };
+    },
+  };
+  var resolver = projectIdentity.createReferenceResolver({
+    getProjectById: function (id) { return id === projectId ? parent : null; },
+    getProjectsById: function (id) { return id === projectId ? [worktree, parent] : []; },
+  });
+
+  assert.strictEqual(resolver.resolveProjectRef({ projectId: projectId }).project, parent);
+  assert.strictEqual(resolver.resolveSessionRef({
+    projectId: projectId, sessionStorageId: parentSession.storageId,
+  }).session, parentSession);
+  var resolved = resolver.resolveSessionRef({
+    projectId: projectId, sessionStorageId: worktreeSession.storageId,
+  });
+  assert.strictEqual(resolved.project, worktree);
+  assert.strictEqual(resolved.session, worktreeSession);
+});
+
 test("ProjectRef and SessionRef resolve within their owning project manager", function () {
   var tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-ref-"));
   var firstDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-ref-first-"));

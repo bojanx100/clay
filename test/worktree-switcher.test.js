@@ -44,6 +44,16 @@ test("family aggregation includes worktree activity and badges", async function(
   assert.strictEqual(family.worktrees[1].worktreeAccessible, false);
 });
 
+test("project rail never promotes a temporary worktree into its own tile", async function() {
+  var helpers = await loadHelpers();
+  var grouped = helpers.groupRailProjects(projects);
+  assert.deepStrictEqual(grouped.parents.map(function (project) { return project.slug; }), ["clay"]);
+  assert.deepStrictEqual(grouped.worktreesByParent.clay.map(function (project) {
+    return project.slug;
+  }), ["clay--alpha", "clay--beta"]);
+  assert.equal(Object.hasOwn(grouped.worktreesByParent, "missing"), true);
+});
+
 test("switcher labels a worktree as parent and branch", async function() {
   var helpers = await loadHelpers();
   assert.strictEqual(helpers.switcherProjectName(projects, projects[1]), "Clay \u2387 feat/alpha");

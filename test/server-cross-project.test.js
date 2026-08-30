@@ -112,6 +112,43 @@ test("session queries preserve the last authoritative topic links across lifecyc
   }).sessionPresent, false);
 });
 
+test("session ledger keeps temporary worktree sessions under the parent ProjectRef", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-worktree-ledger-"));
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var worktreeSession = {
+    storageId: "temporary-worktree-session",
+    title: "Temporary worktree session",
+    createdAt: 10,
+    lastActivity: 20,
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    getProjectContext: function () { return null; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    getSessionManager: function () { return { sessions: new Map() }; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    getSessionManager: function () { return { sessions: new Map([[1, worktreeSession]]) }; },
+  });
+
+  var result = router.queryCoopSessions({
+    projectRefs: [{ projectId: projectId }],
+    topicLinks: [{
+      topicRef: { topicId: "temporary-worktree-topic" },
+      sessionRef: { projectId: projectId, sessionStorageId: worktreeSession.storageId },
+    }],
+  });
+
+  assert.equal(result.sessions.length, 1);
+  assert.deepStrictEqual(result.sessions[0].sessionRef, {
+    projectId: projectId,
+    sessionStorageId: worktreeSession.storageId,
+  });
+});
+
 test("unknown project slug dead-letters instead of throwing", function () {
   var before = readDeadLetters().length;
   var router = createCrossProjectRouter({

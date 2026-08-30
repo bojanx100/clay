@@ -375,6 +375,45 @@ test("Coop projects each accessible configured project into a main-lane lens wit
     channel.channel.sessionRef.sessionStorageId);
 });
 
+test("temporary worktree sessions project through their canonical parent ProjectRef", function () {
+  var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var home = session(1, { storageId: "coop-home", coopHome: true });
+  var lead = project("system-lead", "lead", [home], { isLead: true });
+  var coordinator = session(2, {
+    coordinationRole: "project_coordinator",
+    coopControlledBy: { coopSessionStorageId: home.storageId, since: 1 },
+    orchestrationTasks: [{
+      taskId: "temporary-worktree-task",
+      title: "Canonical worktree task",
+      status: "running",
+      updatedAt: 20,
+    }],
+  });
+  var parent = project(clayId, "clay", [], { title: "Clay" });
+  var worktree = project(clayId, "clay--temporary", [coordinator], {
+    isWorktree: true,
+    parentSlug: "clay",
+    parentProjectId: clayId,
+  });
+
+  var controlManager = null;
+  var projection = buildGlobalCoopProjection({
+    projects: [lead, parent, worktree],
+    ensureControlPlane: function (input) {
+      controlManager = input.projects[0].manager;
+    },
+  });
+
+  assert.equal(projection.projects.length, 1);
+  assert.deepEqual(projection.projects[0].projectRef, { projectId: clayId });
+  assert.equal(projection.projects[0].summary.activeWork[0].title, "Canonical worktree task");
+  assert.equal(typeof controlManager.createSessionRaw, "function",
+    "canonical control-plane maintenance keeps the parent manager write surface");
+  assert.equal(controlManager.createSessionRaw({ storageId: "parent-only" }).storageId, "parent-only");
+  assert.equal(parent.sm.sessions.has(100), true,
+    "the aggregate manager writes to the canonical parent, not the temporary runtime");
+});
+
 test("canonical project coordinator activity is summarized from the bound project session", function () {
   var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
   var coop = session(1, { storageId: "canonical-coop", coopHome: true });
