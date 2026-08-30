@@ -59,3 +59,24 @@ packages. Re-running with the validated shared dependency cache reached a
 pre-existing, concurrently contended `coop-control-sdk-fence` stall after two
 minutes without a pass/fail result; only this recovery run's process group was
 stopped. The focused recovery-specific and adjacent suites passed.
+
+## Correction at 2026-08-30T15:46Z: fence-test baseline
+
+**Retracted as incomplete:** the generic contention explanation above did not
+identify the clean-tip fence failure. The isolated fence harness creates a
+Codex adapter with an empty `modelsByVendor.codex` catalog, while the
+pre-existing provider-readiness contract rejects initialized providers without
+a usable model catalog. That contract was introduced in `96c67d606f` before
+R6; neither the fence test nor its direct query-start, query-vendor,
+query-launch, query-options, readiness, or fence dependencies changed in the
+R6 range `9903e84dd6^..3617c9624d`.
+
+The pre-R6 parent `dd89d92f7d` reproduces the same catalog error and the same
+line-169 assertion failure. The pending promise comes from the fifth test:
+the early catalog failure prevents `_workerExitPromise` from reaching the code
+which clears it. In a disposable baseline checkout only, supplying the
+harness with the valid fake model `gpt-5.6-sol` made all 12 fence tests pass in
+3.1 seconds; the checkout was restored clean and removed. This is an
+out-of-scope, pre-existing isolated-fixture defect, not a regression in the
+R6 commits. It remains explicitly outstanding for its owning provider/control
+subsystem; no R6 code was changed for it.
