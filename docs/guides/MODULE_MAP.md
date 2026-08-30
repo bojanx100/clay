@@ -230,7 +230,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-automation-audit.js` | Append-only JSONL audit of every automation decision, per project slug, in `~/.clay/automation-audit/<slug>.jsonl`. Also the surface Coop reads proposals from (`decision: "propose"`) |
 | `project-issue-launch-state.js` | Issue/task launch state persistence used to avoid duplicate launches and track workflow state |
 | `project-pr-review-state.js` | PR-review task state persistence for review/CI/QA follow-up passes |
-| `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full or wedged |
+| `project-session-compaction.js` | Clay-side compacted continuation for provider sessions that are full, wedged, or rejected because their native history is unusable |
 | `coop-self-cleanup-runtime.js` + `coop-self-cleanup-retry.js` | Project-scoped, Lead-mode-gated Coop projection cleanup, safe completed-turn compaction retry, and durable audit replay |
 | `coop-restart-supersession.js` | Fail-closed audited transition from one exact `restart_recovery` failure to a hidden superseded projection only after every owner-approved successor binding and completion record verifies |
 | `project-workspace.js` | `workspace_get`, `workspace_dev_*` | Session workspace context assembly: repo links, worktree binding, PR/preview metadata, dev server lifecycle, and live workspace context patches |
@@ -293,7 +293,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-skill-discovery.js` | Skill directory scanning, shell segment splitting, SDK/filesystem skill merging |
 | `safe-bash-commands.js` | **Single source of truth** for auto-approved bash commands. Consumed by sdk-bridge.js (`isSafeBashSegment`) and claude-hook-installer.js (`buildClayBashAllowPatterns`) - do not duplicate command lists elsewhere |
 | `sdk-message-queue.js` | Async iterable message queue for streaming input to SDK |
-| `sdk-message-processor.js` | SDK stream event processing (message_start, content_block_*), sub-agent message routing |
+| `sdk-message-processor.js` | SDK stream event processing (message_start, content_block_*), sub-agent message routing, and terminal in-band provider-error recovery |
 | `automation-modes.js` | Shared automation mode normalization and provider permission/approval mapping |
 | `provider-routes.js` | Provider-route configuration, exact-route verified live/last-known-good catalog gates, model-family matching, and health decoration |
 | `provider-routing-policy.js` | Normalizes the persisted `free-endurance`, `balanced`, and `best-available` routing profiles |
@@ -374,7 +374,7 @@ YOKE is the vendor-agnostic interface layer. Each adapter implements the same co
 | `yoke/index.js` | Adapter factory, wraps createQuery with project instructions |
 | `yoke/interface.js` | YOKE interface contract definition |
 | `yoke/vendor-registry.js` | Init-free vendor names, avatars, homepages, binaries, session modes, isolation support, usage links, and rate-limit capabilities |
-| `yoke/adapters/claude.js` | Claude adapter using `@anthropic-ai/claude-agent-sdk`. In-process + worker (OS user isolation) paths |
+| `yoke/adapters/claude.js` + `yoke/adapters/claude-image-input.js` | Claude adapter using `@anthropic-ai/claude-agent-sdk`, plus verified safe direct-image construction. In-process + worker (OS user isolation) paths |
 | `yoke/adapters/claude-events.js` | Claude SDK event flattening into adapter-neutral YOKE event objects |
 | `yoke/adapters/codex.js` | Codex adapter using `codex app-server` JSON-RPC protocol. Handles approval events, skill injection, MCP bridge config |
 | `yoke/adapters/codex-events.js` | Codex app-server event flattening into adapter-neutral YOKE event objects |

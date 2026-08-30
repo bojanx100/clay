@@ -190,6 +190,36 @@ test("ordinary message preparation preserves echo/title/image/paste and terminal
   assert.ok(text.indexOf("email context") < text.indexOf("term output"));
 });
 
+test("message preparation persists the original image and keeps its normalized provider copy", async function () {
+  var saved = [];
+  var session = { localId: 16, history: [], vendor: "claude" };
+  var h = makeContext({
+    session: session,
+    saveImageFile: function (mediaType, data) {
+      saved.push({ mediaType: mediaType, data: data });
+      return "original.png";
+    },
+  });
+  h.context.handleUserMessage({}, {
+    type: "message",
+    text: "Inspect this screenshot",
+    images: [{
+      mediaType: "image/png",
+      data: "original-image",
+      providerMediaType: "image/png",
+      providerData: "normalized-image",
+    }],
+  });
+  await waitForAsyncDispatch();
+
+  assert.deepEqual(saved, [{ mediaType: "image/png", data: "original-image" }]);
+  assert.equal(h.sdkCalls.length, 1);
+  assert.equal(h.sdkCalls[0].images[0].data, "original-image");
+  assert.equal(h.sdkCalls[0].images[0].providerData, "normalized-image");
+  assert.equal(h.sdkCalls[0].images[0].savedPath, path.join(h.cwd, "images", "original.png"));
+  assert.deepEqual(session.history[0].imageRefs, [{ mediaType: "image/png", file: "original.png" }]);
+});
+
 test("a browser context source cannot strand an accepted message", async function () {
   var h = makeContext({
     sources: ["tab:7"],

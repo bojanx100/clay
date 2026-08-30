@@ -18,6 +18,7 @@ var childProcess = require("child_process");
 var {
   midstreamTimeoutFor,
   isWatchdogProgressEvent,
+  isConversationImageError,
   isContextOverflowError,
   watchdogTimeoutFor,
   clearInteractiveToolWaits,
@@ -306,6 +307,15 @@ test("isContextOverflowError ignores unrelated errors and empty input", function
   assert.strictEqual(isContextOverflowError(""), false);
   assert.strictEqual(isContextOverflowError(null), false);
   assert.strictEqual(isContextOverflowError(undefined), false);
+});
+
+test("isConversationImageError recognizes Claude's native many-image rejection", function () {
+  assert.strictEqual(isConversationImageError(
+    "API Error: an image in the conversation could not be processed and was removed. " +
+    "Re-read the file with a different approach if you still need it."), true);
+  assert.strictEqual(isConversationImageError(
+    "At least one of the image dimensions exceed max allowed size for many-image requests: 2000 pixels"), true);
+  assert.strictEqual(isConversationImageError("API Error: authentication required"), false);
 });
 
 // A content-free "system" catch-all flood must NOT keep the watchdog alive —

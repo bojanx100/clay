@@ -173,6 +173,82 @@ test("Codex empty zero-usage turn triggers compact-and-continue once", function 
   }));
 });
 
+test("Claude's zero-cost image-history rejection starts one fresh compacted continuation", function () {
+  var recorded = [];
+  var compactCalls = 0;
+  var sm = {
+    modelsByVendor: { claude: ["claude-opus-4.8"] },
+    availableModels: ["claude-opus-4.8"],
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+    sendToSession: function () {},
+    sendAndRecord: function (session, obj) {
+      recorded.push(obj);
+      session.history.push(obj);
+    },
+  };
+  var processor = processorModule.attachMessageProcessor({
+    sm: sm,
+    send: function () {},
+    slug: "test",
+    isMate: false,
+    mateDisplayName: "",
+    pushModule: null,
+    getNotificationsModule: function () { return null; },
+    getSDK: function () { return null; },
+    adapter: { vendor: "claude" },
+    cwd: process.cwd(),
+    onProcessingChanged: function () {},
+    onTurnDone: function () {},
+    onAutoTitle: function () {},
+    opts: {
+      compactAndContinue: function (session, options) {
+        compactCalls++;
+        assert.strictEqual(session.localId, 1);
+        assert.deepEqual(options, { reason: "claude_image_history" });
+        return { localId: 2 };
+      },
+    },
+    discoverSkillDirs: function () { return []; },
+    mergeSkills: function () { return []; },
+  });
+  var session = {
+    localId: 1,
+    vendor: "claude",
+    history: [{ type: "user_message", text: "Continue the work", _ts: 1 }],
+    blocks: {},
+    sentToolResults: {},
+    pendingPermissions: {},
+    pendingElicitations: {},
+    pendingAskUser: {},
+    activeTaskToolIds: {},
+    taskIdMap: {},
+    isProcessing: true,
+    responsePreview: "",
+    streamedText: false,
+  };
+  var imageError = "API Error: an image in the conversation could not be processed and " +
+    "was removed. Re-read the file with a different approach if you still need it.";
+
+  processor.processSDKMessage(session, { yokeType: "turn_start" });
+  processor.processSDKMessage(session, {
+    yokeType: "message",
+    messageRole: "assistant",
+    content: [{ type: "text", text: imageError }],
+  });
+  processor.processSDKMessage(session, {
+    yokeType: "result",
+    cost: 0,
+    usage: { input_tokens: 0, output_tokens: 0 },
+    sessionId: "poisoned-claude-thread",
+  });
+
+  assert.strictEqual(compactCalls, 1);
+  assert.strictEqual(recorded[recorded.length - 1].type, "done");
+  assert.strictEqual(recorded[recorded.length - 1].code, 0);
+  assert.ok(!recorded.some(function (item) { return item.type === "result"; }));
+});
+
 test("compaction transfers the permanent Coop-home role to its continuation", function () {
   var sessions = new Map();
   var source = {
