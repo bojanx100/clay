@@ -80,3 +80,23 @@ harness with the valid fake model `gpt-5.6-sol` made all 12 fence tests pass in
 out-of-scope, pre-existing isolated-fixture defect, not a regression in the
 R6 commits. It remains explicitly outstanding for its owning provider/control
 subsystem; no R6 code was changed for it.
+
+## Independent same-environment baseline at 2026-08-30T15:48Z
+
+The clean original worktree
+`/private/tmp/clay-fix-r6-compaction-source-stream-fanout` at
+`9903e84dd6`, run with the exact shared dependency setting
+`NODE_PATH=/Users/bojansubotic/Desktop/clay/node_modules`, independently
+reproduced the clean-tip result: `Provider initialized without a usable model
+catalog`, the line-169 `assert:provider_start`-before-`create` failure, then
+the pending-Promise hang. Terminating only that owned test run reported 3
+passed, 1 failed, and 1 cancelled. This exactly matches the clean
+`3617c9624d` result and, together with the parent baseline above, establishes
+that the full-suite failure is pre-existing/environmental rather than caused
+by the R6 recovery commits. It is not an R6 scope-expansion candidate.
+
+The sole remaining acceptance gap is a safe live deployment followed by the
+owner-visible rail, canonical-session, and Work Ledger canaries. Browser
+inventory remains empty, and the shared daemon is running an older dirty
+checkout with foreign changes at `9903e84dd6`; it must not be restarted from
+that checkout as part of this recovery.
