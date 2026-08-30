@@ -858,6 +858,66 @@ availableTest("process-wide startup batches target registration before one recov
   }
 });
 
+availableTest("startup recovery finds a canonical session after its worktree registers the same ProjectRef", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-control-runtime-worktree-registry-"));
+  var dbPath = path.join(dir, "coop-control.sqlite");
+  controlRuntime.closeExecutionControl();
+  try {
+    var control = controlRuntime.getExecutionControl({ enabled: true, dbPath: dbPath });
+    var handoff = controlRuntime.getHandoffControl({ enabled: true, dbPath: dbPath });
+    var predecessor = started(control);
+    var prepared = handoff.prepare({ class: "A", reason: "provider_unhealthy",
+      predecessor: predecessor, from: OLD, continuity: packet(null, predecessor) });
+    var metadata = { status: "running", control: {
+      executionId: predecessor.executionId, incarnationId: predecessor.incarnationId,
+      epoch: predecessor.epoch, role: predecessor.role, authorityId: predecessor.authorityId,
+    } };
+    var session = { localId: 1, storageId: OLD.sessionStorageId, history: [],
+      orchestrationPolicy: { portfolioExecution: metadata } };
+    var canonicalManager = { sessions: new Map([[session.localId, session]]),
+      saveSessionFile: function () {} };
+    var worktreeManager = { sessions: new Map(), saveSessionFile: function () {} };
+    var canonicalStarts = 0;
+    var worktreeStarts = 0;
+    function executionMetadata(item) {
+      return item && item.orchestrationPolicy && item.orchestrationPolicy.portfolioExecution;
+    }
+    function handlers(sm, onStart) {
+      return runtimeTarget.createTargetRecoveryHandlers({ control: control,
+        executionMetadata: executionMetadata, projectId: function () { return PROJECT; }, sm: sm,
+        startQuery: function (target) {
+          onStart();
+          target._coopExecutionFence.assert("provider_start");
+          target._coopExecutionFence.markProviderStarted();
+          return { ok: true };
+        } });
+    }
+    controlRuntime.registerRecoveryTarget({ projectRef: { projectId: PROJECT },
+      recoveryHandlers: handlers(canonicalManager, function () { canonicalStarts += 1; }),
+      sessionManager: canonicalManager });
+    var scheduled = controlRuntime.scheduleStartupRecovery({ enabled: true, dbPath: dbPath });
+    // Daemon boot registers parent-owned worktrees synchronously after their
+    // canonical project and before the scheduled recovery pass gets the event loop.
+    controlRuntime.registerRecoveryTarget({ projectRef: { projectId: PROJECT },
+      recoveryHandlers: handlers(worktreeManager, function () { worktreeStarts += 1; }),
+      sessionManager: worktreeManager });
+    return scheduled.then(function (result) {
+      assert.equal(result.abortedHandoffs, 1);
+      assert.equal(handoff.inspect(prepared.handoffId).state, "aborted");
+      assert.equal(controlRuntime.getStartupRecovery().isReady(), true);
+      assert.equal(canonicalStarts, 1);
+      assert.equal(worktreeStarts, 0);
+    }).finally(function () {
+      controlRuntime.closeExecutionControl();
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+  } catch (error) {
+    controlRuntime.closeExecutionControl();
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+});
+
 availableTest("target wiring installs real recovery handlers before controlled intake opens", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-control-target-recovery-"));
   var dbPath = path.join(dir, "coop-control.sqlite");
