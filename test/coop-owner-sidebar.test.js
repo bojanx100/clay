@@ -593,6 +593,16 @@ test("owner ledger calls the triage compatibility role Evidence Review", async f
   }), true);
 });
 
+test("owner ledger confines provenance controls to the narrow-screen grid", function () {
+  var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "workspace.css"), "utf8");
+  var mobile = css.indexOf("@media (max-width: 480px) {");
+  var links = css.indexOf(".workspace-coop-owner .coop-owner-links", mobile);
+  assert.ok(mobile >= 0, "owner ledger has a narrow-screen layout rule");
+  assert.ok(links > mobile, "provenance controls are constrained inside the narrow-screen rule");
+  assert.match(css.slice(links), /\.workspace-coop-owner \.coop-owner-links \{\s*display: grid;\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);\s*max-width: calc\(100vw - 48px\);\s*width: calc\(100vw - 48px\);\s*\}/);
+  assert.match(css.slice(links), /\.workspace-coop-owner \.coop-owner-link \{\s*min-width: 0;\s*overflow-wrap: anywhere;\s*text-align: left;\s*white-space: normal;\s*\}/);
+});
+
 test("owner ledger exposes explicit approver controls that fail closed on a double submit", async function () {
   var ui = await ownerSidebarUi();
   var clientStore = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "store.js")).href);

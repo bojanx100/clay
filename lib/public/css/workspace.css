@@ -690,3 +690,22 @@
   .workspace-coop-owner .coop-owner-visibility-button { padding: 5px 10px; }
   .workspace-coop-owner .coop-owner-decision-button { padding: 5px 10px; }
 }
+
+@media (max-width: 480px) {
+  .workspace-coop-owner .coop-owner-links {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: calc(100vw - 48px);
+    width: calc(100vw - 48px);
+  }
+  .workspace-coop-owner .coop-owner-link {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: left;
+    white-space: normal;
+  }
+  .workspace-coop-owner .coop-owner-link + .coop-owner-link::before {
+    content: none;
+    margin-right: 0;
+  }
+}
