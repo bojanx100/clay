@@ -100,3 +100,13 @@ owner-visible rail, canonical-session, and Work Ledger canaries. Browser
 inventory remains empty, and the shared daemon is running an older dirty
 checkout with foreign changes at `9903e84dd6`; it must not be restarted from
 that checkout as part of this recovery.
+
+## Strict pre-R6-parent confirmation at 2026-08-30T15:49Z
+
+The main verification thread ran the exact single-test command from
+`/private/tmp/clay-fence-pre-r6-baseline` at
+`dd89d92f7d0b` (`9903e84dd6^`) with the same shared `NODE_PATH`. It exited
+normally in 64 ms with 0 passed and 1 failed, reporting the same unusable
+model-catalog error and the same line-169 assertion failure. This is the
+strict pre-R6-parent proof: the failure predates the entire R6 identity range,
+is unrelated baseline behavior, and must not be fixed under this recovery.
