@@ -207,6 +207,31 @@ test("configured execution roots are discarded while their canonical project rem
   }
 });
 
+test("configured /private/tmp canary root is discarded while its canonical project remains", function () {
+  var parentPath = fs.mkdtempSync(path.join(os.tmpdir(), "clay-r6-private-parent-"));
+  var parentName = path.basename(parentPath);
+  var isolatedPath = fs.mkdtempSync(path.join("/private/tmp", parentName + "-r6-isolated."));
+  try {
+    var reconciliation = daemonProjects.reconcileConfiguredProjects([{
+      path: parentPath,
+      slug: "clay",
+      projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+    }, {
+      path: isolatedPath,
+      slug: "clay-r6-isolated-fixture",
+      projectId: "3dac89c5-58c5-5998-bd32-369df1aa54c6",
+    }]);
+
+    assert.deepEqual(reconciliation.projects.map(function (project) { return project.slug; }), ["clay"]);
+    assert.deepEqual(reconciliation.discarded.map(function (item) {
+      return [item.project.slug, item.kind, item.parent.slug];
+    }), [["clay-r6-isolated-fixture", "temporary_execution", "clay"]]);
+  } finally {
+    fs.rmSync(parentPath, { recursive: true, force: true });
+    fs.rmSync(isolatedPath, { recursive: true, force: true });
+  }
+});
+
 test("daemon startup discards a stale worktree config row in favor of its canonical parent", async function () {
   var parentProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
   var staleProjectId = "e9afddc4-9943-5b8c-971c-2b267ed3b361";
