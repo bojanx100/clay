@@ -2,12 +2,18 @@ var test = require("node:test");
 var assert = require("node:assert/strict");
 var childProcess = require("node:child_process");
 var fs = require("node:fs");
+var ipc = require("../lib/ipc");
 var os = require("node:os");
 var path = require("node:path");
 var daemonProjects = require("../lib/daemon-projects");
 
 function git(args) {
   return childProcess.execFileSync("git", args, { encoding: "utf8" });
+}
+
+function canonicalPath(value) {
+  var resolved = path.resolve(value);
+  try { return fs.realpathSync(resolved); } catch (e) { return resolved; }
 }
 
 function createWorktreeFixture() {
@@ -26,6 +32,53 @@ function removeWorktreeFixture(fixture) {
   try { git(["-C", fixture.parentPath, "worktree", "remove", "--force", fixture.worktreePath]); } catch (e) {}
   fs.rmSync(fixture.parentPath, { recursive: true, force: true });
   fs.rmSync(fixture.worktreePath, { recursive: true, force: true });
+}
+
+function waitForDaemonStatus(socketPath, child) {
+  var deadline = Date.now() + 10000;
+  return new Promise(function (resolve, reject) {
+    function probe() {
+      ipc.sendIPCCommand(socketPath, { cmd: "get_status" }, 250).then(function (status) {
+        if (status && status.ok) {
+          resolve(status);
+          return;
+        }
+        if (child.exitCode !== null) {
+          reject(new Error("fixture daemon exited before listening"));
+          return;
+        }
+        if (Date.now() >= deadline) {
+          reject(new Error("fixture daemon did not listen within 10 seconds"));
+          return;
+        }
+        setTimeout(probe, 50);
+      });
+    }
+    probe();
+  });
+}
+
+function stopDaemon(child, socketPath) {
+  if (child.exitCode !== null) return Promise.resolve();
+  return new Promise(function (resolve) {
+    var settled = false;
+    var timer = setTimeout(function () {
+      if (child.exitCode === null) child.kill("SIGTERM");
+    }, 3000);
+    child.once("exit", function () {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    });
+    ipc.sendIPCCommand(socketPath, { cmd: "shutdown" }, 1000).then(function () {
+      if (child.exitCode !== null && !settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+  });
 }
 
 test("existing configured parent claims a temporary worktree before project ingress", function () {
@@ -91,6 +144,59 @@ test("worktree ingress registers only the parent-owned ephemeral runtime", funct
       parentProjectId: parentProjectId,
     });
   } finally {
+    removeWorktreeFixture(fixture);
+  }
+});
+
+test("daemon startup discards a stale worktree config row in favor of its canonical parent", async function () {
+  var parentProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var staleProjectId = "e9afddc4-9943-5b8c-971c-2b267ed3b361";
+  var fixture = createWorktreeFixture();
+  var home = fs.mkdtempSync(path.join(os.tmpdir(), "clay-worktree-runtime-"));
+  var configPath = path.join(home, "daemon-dev.json");
+  var socketPath = path.join(home, "daemon-dev.sock");
+  var child = null;
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      port: 0,
+      host: "127.0.0.1",
+      tls: false,
+      projects: [{
+        path: fixture.parentPath,
+        slug: "clay",
+        projectId: parentProjectId,
+      }, {
+        path: fixture.worktreePath,
+        slug: "clay-fix-r6-compaction-source-stream-fanout",
+        projectId: staleProjectId,
+      }],
+    }));
+    child = childProcess.spawn(process.execPath, [path.join(__dirname, "../lib/daemon.js")], {
+      cwd: path.join(__dirname, ".."),
+      env: Object.assign({}, process.env, {
+        CLAY_HOME: home,
+        CLAY_CONFIG: configPath,
+        CLAY_DEV: "1",
+      }),
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+
+    var status = await waitForDaemonStatus(socketPath, child);
+    var projects = status.projects.filter(function (project) {
+      var projectPath = canonicalPath(project.path);
+      return projectPath === canonicalPath(fixture.parentPath) ||
+        projectPath === canonicalPath(fixture.worktreePath);
+    });
+    var worktrees = projects.filter(function (project) { return project.isWorktree; });
+    assert.equal(projects.filter(function (project) {
+      return project.slug === "clay-fix-r6-compaction-source-stream-fanout";
+    }).length, 0, "a stale config row must never reach the runtime project registry");
+    assert.equal(worktrees.length, 1);
+    assert.equal(worktrees[0].projectId, parentProjectId);
+    assert.equal(worktrees[0].parentProjectId, parentProjectId);
+  } finally {
+    if (child) await stopDaemon(child, socketPath);
+    fs.rmSync(home, { recursive: true, force: true });
     removeWorktreeFixture(fixture);
   }
 });
