@@ -110,3 +110,33 @@ normally in 64 ms with 0 passed and 1 failed, reporting the same unusable
 model-catalog error and the same line-169 assertion failure. This is the
 strict pre-R6-parent proof: the failure predates the entire R6 identity range,
 is unrelated baseline behavior, and must not be fixed under this recovery.
+
+## Correction at 2026-08-30T21:37Z: mobile picker execution roots
+
+**Retracted as incomplete:** the prior recovery described only linked Git
+worktrees. Mobile screenshot evidence showed that the persisted daemon config
+also contained a non-Git isolated-canary directory and the independent
+`clay-chrome` browser-helper repository as ordinary top-level projects. The
+client correctly suppresses only rows explicitly marked `isWorktree`, so those
+durable rows reached the mobile Projects picker unchanged.
+
+The recovery now reconciles configured paths before startup registration. A
+row is removed only when an existing configured parent proves one exact
+relationship: it is a linked Git worktree, a temporary isolated/canary/worker
+root beneath the system temporary directory with the parent's path prefix, or
+the canonical parent's sibling `-chrome` browser helper. Unrelated projects,
+including ones under the temporary directory, remain registered. The real
+daemon fixture proves that the canonical family and an unrelated configured
+project reach the project list, while stale rows are removed from the refreshed
+config so later discovery cannot resurrect them.
+
+With the reconciliation decision temporarily disabled, the focused fixture
+reports 2 passed and 2 failed: all three stale rows remain in config, and the
+isolated/browser-helper rows appear in the runtime picker. Restoring the
+implementation reports 4 passed and 0 failed. The fixture sets `HOME`,
+`CLAY_HOME`, and `CLAY_CONFIG` to one disposable root and clears sudo-home
+overrides, so it cannot modify the live `.clayrc` or Claude settings files.
+
+The active production daemon is still the older dirty checkout and has not
+received this correction. A safe clean deployment and a connected browser are
+still required for the outstanding owner-visible canaries.
