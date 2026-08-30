@@ -6,7 +6,9 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
 
-var priorWatcherToStop = require("../lib/dev-watcher-takeover").priorWatcherToStop;
+var devWatcherTakeover = require("../lib/dev-watcher-takeover");
+var priorWatcherToStop = devWatcherTakeover.priorWatcherToStop;
+var waitForDaemonReady = devWatcherTakeover.waitForDaemonReady;
 
 var alive = function () { return true; };
 var dead = function () { return false; };
@@ -62,4 +64,44 @@ test("the dev watcher records its own pid so a later takeover can find it", func
   var source = require("fs").readFileSync(
     require("path").join(__dirname, "..", "bin", "cli.js"), "utf8");
   assert.match(source, /config\.devWatcherPid = process\.pid/);
+});
+
+test("daemon readiness keeps polling beyond the old ten-attempt startup window", async function () {
+  var checks = 0;
+  var slowNotices = 0;
+  var ready = await waitForDaemonReady(function () {
+    checks++;
+    return Promise.resolve(checks === 13);
+  }, {
+    intervalMs: 0,
+    slowAfterAttempts: 10,
+    sleep: function () { return Promise.resolve(); },
+    onSlow: function () { slowNotices++; },
+  });
+
+  assert.equal(ready, true);
+  assert.equal(checks, 13, "readiness must not stop after ten misses");
+  assert.equal(slowNotices, 1, "a slow startup should report progress once");
+});
+
+test("a prompt daemon does not print the slow-start notice", async function () {
+  var slowNotices = 0;
+  var ready = await waitForDaemonReady(function () {
+    return Promise.resolve(true);
+  }, {
+    intervalMs: 0,
+    slowAfterAttempts: 10,
+    sleep: function () { return Promise.resolve(); },
+    onSlow: function () { slowNotices++; },
+  });
+
+  assert.equal(ready, true);
+  assert.equal(slowNotices, 0);
+});
+
+test("the dev CLI uses persistent readiness waiting before showing its menu", function () {
+  var source = require("fs").readFileSync(
+    require("path").join(__dirname, "..", "bin", "cli.js"), "utf8");
+  assert.match(source, /devWatcherTakeover\.waitForDaemonReady/);
+  assert.doesNotMatch(source, /for \(var da = 0; da < 10; da\+\+\)/);
 });

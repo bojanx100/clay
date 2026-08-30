@@ -1987,15 +1987,14 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
   config.devWatcherPid = process.pid;
   saveConfig(config);
 
-  var daemonReady = false;
-  for (var da = 0; da < 10; da++) {
-    await new Promise(function (resolve) { setTimeout(resolve, 500); });
-    daemonReady = await isDaemonAliveAsync(config);
-    if (daemonReady) break;
-  }
-  if (daemonReady) {
-    showServerStarted(config, ip);
-  }
+  await devWatcherTakeover.waitForDaemonReady(function () {
+    return isDaemonAliveAsync(config);
+  }, {
+    onSlow: function () {
+      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Startup is still restoring projects; waiting for Clay to be ready...");
+    },
+  });
+  showServerStarted(config, ip);
 
   // Watch lib/ for server-side file changes (only with --watch)
   var watcher = null;
