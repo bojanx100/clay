@@ -470,7 +470,7 @@ async function ownerSidebarUi() {
   return import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "coop-owner-sidebar.js")).href + "?v=" + Date.now());
 }
 
-test("Coop mounts a default-open owner ledger instead of generic workspace context", async function () {
+test("Coop mounts the default-open owner ledger shell instead of generic workspace context", async function () {
   await ownerSidebarUi();
   var root = pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules"));
   var coop = await import(root.href + "/global-coop-projection.js");
@@ -489,7 +489,9 @@ test("Coop mounts a default-open owner ledger instead of generic workspace conte
   var container = element("div");
   assert.equal(owner.renderWorkspaceCoopOwner(container, { send: function () { return true; } }), true);
   assert.equal(byClass(container, "workspace-coop-owner-title")[0].textContent, "Owner work ledger");
-  assert.equal(byClass(container, "coop-owner-section-open").length, 1);
+  assert.equal(byClass(container, "workspace-coop-owner-loading").length, 1,
+    "the shell waits for saved disclosure state instead of showing rows that may disappear");
+  assert.equal(byClass(container, "coop-owner-section-open").length, 0);
   coop.setGlobalCoopProjection({ type: "global_coop_projection", projects: [], topics: [{
     topicRef: { topicId: "topic-1" }, title: "Owner ask 1",
   }], ownerSidebar: {
@@ -503,6 +505,75 @@ test("Coop mounts a default-open owner ledger instead of generic workspace conte
   assert.match(workspace, /shouldDefaultOpenCoopOwnerLedger/);
   assert.equal(owner.hasCoopOwnerContext([{ id: 42, coopHome: false }]), false);
   coop.clearGlobalCoopProjection();
+});
+
+test("owner ledger waits for saved disclosure state before showing rows", async function () {
+  await ownerSidebarUi();
+  var root = pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules"));
+  var coop = await import(root.href + "/global-coop-projection.js");
+  var owner = await import(root.href + "/workspace-coop-owner.js?v=" + Date.now());
+  var groups = await import(root.href + "/workspace-group-collapse.js");
+  var clientStore = await import(root.href + "/store.js");
+  var oldFetch = globalThis.fetch;
+  var releasePreferences;
+  globalThis.fetch = function (url, options) {
+    if (options && options.method === "PUT") return Promise.resolve({ ok: true, json: function () { return Promise.resolve({}); } });
+    return new Promise(function (resolve) { releasePreferences = resolve; });
+  };
+  try {
+    clientStore.store.set({ currentSlug: "lead", activeSessionId: 42, workspaceGroupStates: {} });
+    coop.setGlobalCoopProjection({ type: "global_coop_projection", projects: [], topics: [], ownerSidebar: {
+      defaultOpen: true, revision: 1, working: [],
+      attention: [{ entryId: "attention", title: "Needs a decision", status: "needs_owner", sessions: [] }],
+      landed: [], dismissed: [], hidden: [], entries: [],
+      attentionGroups: [{ projectRef: { projectId: PROJECT }, title: "Clay", count: 1,
+        entries: [{ entryId: "attention", title: "Needs a decision", status: "needs_owner", sessions: [] }] }],
+    } });
+    groups.initWorkspaceGroupPreferences();
+
+    var loading = element("div");
+    owner.renderWorkspaceCoopOwner(loading, { send: function () { return true; } });
+    assert.equal(byClass(loading, "coop-owner-section").length, 0,
+      "rows do not briefly appear before their saved disclosure state arrives");
+    assert.equal(byClass(loading, "workspace-coop-owner-loading").length, 1);
+
+    releasePreferences({ ok: true, json: function () { return Promise.resolve({ groups: { attention: true } }); } });
+    await new Promise(function (resolve) { setTimeout(resolve, 0); });
+
+    var refreshed = element("div");
+    owner.renderWorkspaceCoopOwner(refreshed, { send: function () { return true; } });
+    var attention = byClass(refreshed, "coop-owner-section-attention")[0];
+    assert.equal(attention.children[1].hidden, true, "saved collapsed rows remain hidden after refresh");
+
+    groups.toggleWorkspaceGroup("attention");
+    var expanded = element("div");
+    owner.renderWorkspaceCoopOwner(expanded, { send: function () { return true; } });
+    assert.equal(byClass(expanded, "coop-owner-section-attention")[0].children[1].hidden, false,
+      "an explicit expand remains visible through a ledger rerender");
+
+    groups.toggleWorkspaceGroup("attention");
+    var navigatedBack = element("div");
+    owner.renderWorkspaceCoopOwner(navigatedBack, { send: function () { return true; } });
+    assert.equal(byClass(navigatedBack, "coop-owner-section-attention")[0].children[1].hidden, true,
+      "a navigation-style remount keeps the saved collapsed state");
+
+    coop.setGlobalCoopProjection({ type: "global_coop_projection", projects: [], topics: [], ownerSidebar: {
+      defaultOpen: true, revision: 2, working: [],
+      attention: [{ entryId: "attention", title: "Needs a decision", status: "needs_owner", sessions: [] }],
+      landed: [], dismissed: [], hidden: [], entries: [],
+      attentionGroups: [{ projectRef: { projectId: PROJECT }, title: "Clay", count: 1,
+        entries: [{ entryId: "attention", title: "Needs a decision", status: "needs_owner", sessions: [] }] }],
+    } });
+    var reconnected = element("div");
+    owner.renderWorkspaceCoopOwner(reconnected, { send: function () { return true; } });
+    assert.equal(byClass(reconnected, "coop-owner-section-attention")[0].children[1].hidden, true,
+      "a reconnect-style projection replacement does not reopen a collapsed group");
+    await new Promise(function (resolve) { setTimeout(resolve, 300); });
+  } finally {
+    clientStore.store.set({ workspaceGroupStates: {} });
+    coop.clearGlobalCoopProjection();
+    globalThis.fetch = oldFetch;
+  }
 });
 
 test("owner ledger renderer exposes Thread/session links and Clear/Restore controls", async function () {
