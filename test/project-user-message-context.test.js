@@ -1,5 +1,6 @@
 var os = require("node:os");
 var path = require("node:path");
+var fs = require("node:fs");
 var test = require("node:test");
 var assert = require("node:assert/strict");
 
@@ -8,7 +9,7 @@ var contextModule = require("../lib/project-user-message-context");
 
 function makeContext(options) {
   options = options || {};
-  var cwd = fsTempDir();
+  var cwd = options.cwd || fsTempDir();
   var session = options.session || { localId: 11, history: [], vendor: "codex" };
   var sent = [];
   var sdkCalls = [];
@@ -46,10 +47,11 @@ function makeContext(options) {
     sendToSession: function (id, message) { sent.push(message); },
     sendToSessionOthers: function () {},
     hydrateImageRefs: function (item) { return item; },
-    saveImageFile: function () { imageNumber++; return imageNumber === 1 ? "upload.png" : "shot.png"; },
-    imagesDir: path.join(cwd, "images"),
+    saveImageFile: options.saveImageFile || function () { imageNumber++; return imageNumber === 1 ? "upload.png" : "shot.png"; },
+    imagesDir: options.imagesDir || path.join(cwd, "images"),
     getLinuxUserForSession: function () { return null; },
     onProcessingChanged: function () {},
+    loadImagesForSdk: options.loadImagesForSdk || function () { return []; },
     loadContextSources: function () { return options.sources || []; },
     getSessionForMessage: function () { return session; },
     recoverHandoffContextForSend: function () {},
@@ -233,13 +235,76 @@ test("handoff preparation wraps and consumes context, while provider API-error r
   var retrySession = {
     localId: 13, vendor: "codex",
     history: [
-      { type: "user_message", text: "original" },
+      { type: "user_message", text: "original", imageRefs: [{ mediaType: "image/png", file: "upload.png" }] },
       { type: "error", text: "API Error: provider unavailable" },
     ],
   };
-  var retry = makeContext({ session: retrySession });
+  var retry = makeContext({
+    session: retrySession,
+    loadImagesForSdk: function(refs) {
+      assert.deepEqual(refs, [{ mediaType: "image/png", file: "upload.png" }]);
+      return [{ mediaType: "image/png", data: "retry-image", savedPath: "/tmp/upload.png" }];
+    },
+  });
   retry.context.handleUserMessage({}, { type: "message", text: "continue" });
   await waitForAsyncDispatch();
   assert.match(retry.sdkCalls[0].text, /Retry the previous provider\/API failure/);
   assert.doesNotMatch(retry.sdkCalls[0].text, /^continue$/);
+  assert.deepEqual(retry.sdkCalls[0].images, [{ mediaType: "image/png", data: "retry-image", savedPath: "/tmp/upload.png" }]);
+  assert.deepEqual(retrySession.history.at(-1).imageRefs, [{ mediaType: "image/png", file: "upload.png" }]);
+  assert.equal(retrySession.history.at(-1).apiErrorImageRetry, true);
+});
+
+test("a corrupt Codex upload stays attached and produces a precise warning", async function (t) {
+  var cwd = fsTempDir();
+  var imagesDir = path.join(cwd, "images");
+  var corruptPath = path.join(imagesDir, "corrupt.png");
+  fs.mkdirSync(imagesDir, { recursive: true });
+  fs.writeFileSync(corruptPath, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]));
+  t.after(function() { fs.rmSync(cwd, { recursive: true, force: true }); });
+  var h = makeContext({
+    cwd: cwd,
+    imagesDir: imagesDir,
+    saveImageFile: function () { return "corrupt.png"; },
+  });
+
+  h.context.handleUserMessage({}, {
+    type: "message",
+    text: "Inspect this",
+    images: [{ mediaType: "image/png", data: "corrupt" }],
+  });
+  await waitForAsyncDispatch();
+
+  assert.deepEqual(h.session.history[0].imageRefs, [{ mediaType: "image/png", file: "corrupt.png" }]);
+  assert.equal(h.session.history[0].imageDeliveryWarnings.length, 1);
+  assert.match(h.sent.find(function(message) { return message.type === "info"; }).text, /invalid PNG data/);
+  assert.deepEqual(h.sdkCalls[0].images, [{
+    mediaType: "image/png",
+    data: "corrupt",
+    savedPath: corruptPath,
+  }]);
+});
+
+test("an API-error retry keeps an unavailable image reference with a deterministic fallback", async function () {
+  var retrySession = {
+    localId: 15,
+    vendor: "codex",
+    history: [
+      { type: "user_message", text: "original", imageRefs: [{ mediaType: "image/png", file: "missing.png" }] },
+      { type: "error", text: "API Error: image rejected" },
+    ],
+  };
+  var retry = makeContext({
+    session: retrySession,
+    loadImagesForSdk: function() { return []; },
+  });
+
+  retry.context.handleUserMessage({}, { type: "message", text: "continue" });
+  await waitForAsyncDispatch();
+
+  assert.equal(retry.sdkCalls[0].images, undefined);
+  assert.match(retry.sdkCalls[0].text, /could not reload its original file for this API-error retry/);
+  assert.deepEqual(retrySession.history.at(-1).imageRefs, [{ mediaType: "image/png", file: "missing.png" }]);
+  assert.equal(retrySession.history.at(-1).apiErrorImageRetryFallback, true);
+  assert.match(retry.sent.find(function(message) { return message.type === "info"; }).text, /The image was not removed/);
 });

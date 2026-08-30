@@ -1,11 +1,15 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("node:fs");
+var os = require("node:os");
+var path = require("node:path");
 var attachSessionQueuedMessages = require("../lib/sessions-queued-messages").attachSessionQueuedMessages;
 var hasStaleProcessingState = require("../lib/sessions-queued-messages").hasStaleProcessingState;
 var attachUserMessage = require("../lib/project-user-message").attachUserMessage;
 var attachProjectUserMessageQueue = require("../lib/project-user-message-queue").attachProjectUserMessageQueue;
 var shouldQueueMessage = require("../lib/project-user-message").shouldQueueMessage;
 var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
+var config = require("../lib/config");
 
 function queuedHistoryItem(queueId, text, options) {
   options = options || {};
@@ -89,6 +93,39 @@ test("queue state serialization restores pending messages after a restart", func
   assert.deepEqual(clientQueue.map(function (item) {
     return item.queueId;
   }), ["q-first"]);
+});
+
+test("queue restart restores a persisted image with its local path", function (t) {
+  var configDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-queued-image-replay-"));
+  var previousConfigDir = config.CONFIG_DIR;
+  var encodedCwd = "queued-image-replay";
+  var imagePath = path.join(configDir, "images", encodedCwd, "owner.png");
+  fs.mkdirSync(path.dirname(imagePath), { recursive: true });
+  fs.writeFileSync(imagePath, Buffer.from("replayed-image"));
+  config.CONFIG_DIR = configDir;
+  t.after(function() {
+    config.CONFIG_DIR = previousConfigDir;
+    fs.rmSync(configDir, { recursive: true, force: true });
+  });
+  var api = attachSessionQueuedMessages({ encodedCwd: encodedCwd });
+  var session = {
+    history: [{
+      type: "user_message",
+      queueId: "q-image",
+      text: "Inspect the attachment",
+      queuedPending: true,
+      imageCount: 1,
+      imageRefs: [{ mediaType: "image/png", file: "owner.png" }],
+    }],
+  };
+
+  api.queuedUserMessagesForClient(session);
+
+  assert.deepEqual(session.pendingUserMessageQueue[0].images, [{
+    mediaType: "image/png",
+    data: Buffer.from("replayed-image").toString("base64"),
+    savedPath: imagePath,
+  }]);
 });
 
 test("an idle session with a pending backlog keeps new messages queued", function () {

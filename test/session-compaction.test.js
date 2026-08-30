@@ -34,6 +34,68 @@ test("compact continuation prompt moves latest user message into current block",
   assert.ok(prompt.indexOf("if you create or push a new commit in this continuation, report that new commit") !== -1);
 });
 
+test("compaction replays the latest persisted image and retains its reference", function () {
+  var source = {
+    localId: 1,
+    storageId: "old-session",
+    title: "Image review",
+    vendor: "codex",
+    history: [
+      { type: "user_message", text: "Review the prior work", _ts: 1 },
+      { type: "tool_start", id: "tool-1", name: "ViewImage", _ts: 2 },
+      { type: "tool_result", id: "tool-1", content: "The prior image was readable.", _ts: 3 },
+      {
+        type: "user_message",
+        text: "Inspect this attached image",
+        imageRefs: [{ mediaType: "image/png", file: "owner.png" }],
+        _ts: 4,
+      },
+    ],
+  };
+  var sessions = new Map([[source.localId, source]]);
+  var started = null;
+  var loadedRefs = null;
+  var sm = {
+    sessions: sessions,
+    createSessionRaw: function(opts) {
+      var session = Object.assign({ localId: 2, history: [], pendingPermissions: {} }, opts);
+      sessions.set(session.localId, session);
+      return session;
+    },
+    sendAndRecord: function(session, event) { session.history.push(event); },
+    saveSessionFile: function () {},
+    switchSession: function () {},
+    broadcastSessionList: function () {},
+  };
+  var api = compaction.attachSessionCompaction({
+    cwd: "/tmp/project",
+    imagesDir: "/tmp/project-images",
+    sm: sm,
+    sdk: {
+      startQuery: function(session, prompt, images, access) {
+        started = { session: session, prompt: prompt, images: images, access: access };
+      },
+    },
+    sendToSession: function () {},
+    ensureProjectAccessForSession: function () { return "owner-1"; },
+    loadImagesForSdk: function(refs) {
+      loadedRefs = refs;
+      return [{ mediaType: "image/png", data: "image-data", savedPath: "/tmp/project-images/owner.png" }];
+    },
+  });
+
+  var continuation = api.compactAndContinue(source, { reason: "manual" });
+  var retriedMessage = continuation.history.find(function(entry) { return entry.compactedRetry === true; });
+
+  assert.deepEqual(loadedRefs, [{ mediaType: "image/png", file: "owner.png" }]);
+  assert.deepEqual(started.images, [{ mediaType: "image/png", data: "image-data", savedPath: "/tmp/project-images/owner.png" }]);
+  assert.strictEqual(started.access, "owner-1");
+  assert.deepEqual(retriedMessage.imageRefs, [{ mediaType: "image/png", file: "owner.png" }]);
+  assert.strictEqual(retriedMessage.imageCount, 1);
+  assert.ok(started.prompt.indexOf("Review the prior work") < started.prompt.indexOf("Tool result: ViewImage"));
+  assert.match(started.prompt, /<clay_image_attachments>\n- image\/png: \/tmp\/project-images\/owner\.png\n<\/clay_image_attachments>/);
+});
+
 test("Codex empty zero-usage turn triggers compact-and-continue once", function () {
   var recorded = [];
   var compactCalls = 0;
