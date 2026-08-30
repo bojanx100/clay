@@ -573,6 +573,48 @@ test("restart repairs a persisted project-coordinator needs-input declaration", 
   assert.ok(h.saves() > 0);
 });
 
+test("restart defers a controlled blocked result until its runtime fence is restored", function () {
+  var finishCalls = 0;
+  var h = gateHarness([], {
+    finishControlledExecution: function () {
+      finishCalls++;
+      var cause = new Error("A Coop-controlled execution has no matching runtime capability.");
+      cause.code = "COOP_CONTROL_FENCE_MISSING";
+      throw cause;
+    },
+  });
+  h.session.coopControlledBy = { coopSessionStorageId: "coop-home", since: 1 };
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-restart-blocked",
+      bindingRevision: 1,
+      idempotencyKey: "restart-blocked-r1",
+      mode: "project_coordinator",
+      status: "running",
+      control: {
+        executionId: "exec:restart-blocked",
+        incarnationId: "inc:restart-blocked",
+        epoch: 22,
+        role: "coordinator",
+        authorityId: "auth:restart-blocked",
+      },
+    },
+  };
+  h.session.history = [{ type: "user_message", text: "Resume the controlled execution." }, {
+    type: "delta",
+    text: "WORKER_STATUS: blocked\nESCALATION_REQUIRED: yes\n" +
+      "SUMMARY: Canonical control recovery is still required.",
+  }, { type: "result" }, { type: "done", code: 0 }];
+
+  assert.doesNotThrow(function () { h.gate.restore(h.session); });
+
+  assert.equal(finishCalls, 0,
+    "startup must not finish a controlled execution before recovery restores its fence");
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "running");
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.reason, undefined,
+    "the deferred terminal transition must not persist its blocked reason");
+});
+
 test("new or retried work revokes project completion before another attempt", function () {
   var session = {
     orchestrationGraphId: "project-revoke",
