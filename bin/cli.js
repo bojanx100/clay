@@ -2832,24 +2832,24 @@ var currentVersion = require("../package.json").version;
   // Dev mode — foreground daemon with file watching
   if (_isDev) {
     var devConfig = loadConfig();
-    var devAlive = devConfig ? await isDaemonAliveAsync(devConfig) : false;
-    // Stop the previous watcher FIRST. It respawns its daemon on any unexpected
-    // exit, so shutting the daemon down while the watcher lives just resurrects
-    // it -- and then both daemons race for the port, each SIGTERMing the other on
-    // bind, restarting every ~40s indefinitely.
-    var priorWatcher = devWatcherTakeover.priorWatcherToStop(devConfig, process.pid);
-    if (priorWatcher) {
-      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Stopping existing dev watcher (PID " +
-        priorWatcher + ")...");
-      try { process.kill(priorWatcher, "SIGTERM"); } catch (e) {}
-      for (var wk = 0; wk < 20; wk++) {
-        await new Promise(function (resolve) { setTimeout(resolve, 100); });
-        try { process.kill(priorWatcher, 0); } catch (e) { break; }
-      }
-    }
+    var takeover = await devWatcherTakeover.takeOverExistingDev(devConfig, {
+      currentPid: process.pid,
+      isDaemonAlive: function () {
+        return devConfig ? isDaemonAliveAsync(devConfig) : Promise.resolve(false);
+      },
+      shutdownDaemon: function () {
+        console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Shutting down existing daemon...");
+        return sendIPCCommand(socketPath(), { cmd: "shutdown" });
+      },
+      onStopWatcher: function (priorWatcher) {
+        // Stop the previous watcher FIRST. It respawns its daemon on any
+        // unexpected exit, so shutting down only the daemon resurrects it.
+        console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Stopping existing dev watcher (PID " +
+          priorWatcher + ")...");
+      },
+    });
+    var devAlive = takeover.wasDaemonAlive;
     if (devAlive) {
-      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Shutting down existing daemon...");
-      await sendIPCCommand(socketPath(), { cmd: "shutdown" });
       clearStaleConfig();
       await new Promise(function (resolve) { setTimeout(resolve, 500); });
     }

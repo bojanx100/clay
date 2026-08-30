@@ -9,6 +9,7 @@ var assert = require("node:assert/strict");
 var devWatcherTakeover = require("../lib/dev-watcher-takeover");
 var priorWatcherToStop = devWatcherTakeover.priorWatcherToStop;
 var waitForDaemonReady = devWatcherTakeover.waitForDaemonReady;
+var takeOverExistingDev = devWatcherTakeover.takeOverExistingDev;
 
 var alive = function () { return true; };
 var dead = function () { return false; };
@@ -104,4 +105,58 @@ test("the dev CLI uses persistent readiness waiting before showing its menu", fu
     require("path").join(__dirname, "..", "bin", "cli.js"), "utf8");
   assert.match(source, /devWatcherTakeover\.waitForDaemonReady/);
   assert.doesNotMatch(source, /for \(var da = 0; da < 10; da\+\+\)/);
+});
+
+test("takeover rechecks the daemon after the prior watcher shuts it down", async function () {
+  var watcherAlive = true;
+  var daemonAlive = true;
+  var shutdownCalls = 0;
+
+  await takeOverExistingDev({ devWatcherPid: 4242 }, {
+    currentPid: 99,
+    isWatcherAlive: function () { return watcherAlive; },
+    stopWatcher: function () {
+      watcherAlive = false;
+      daemonAlive = false;
+    },
+    sleep: function () { return Promise.resolve(); },
+    isDaemonAlive: function () { return Promise.resolve(daemonAlive); },
+    shutdownDaemon: function () {
+      shutdownCalls++;
+      return Promise.reject(new Error("socket disappeared with the old daemon"));
+    },
+  });
+
+  assert.equal(shutdownCalls, 0,
+    "a daemon already stopped by its watcher must not receive a stale IPC shutdown");
+});
+
+test("takeover accepts an IPC race only after confirming the daemon stopped", async function () {
+  var daemonAlive = true;
+  var checks = 0;
+
+  await takeOverExistingDev({}, {
+    currentPid: 99,
+    isDaemonAlive: function () {
+      checks++;
+      return Promise.resolve(daemonAlive);
+    },
+    shutdownDaemon: function () {
+      daemonAlive = false;
+      return Promise.reject(new Error("connect ENOENT"));
+    },
+  });
+
+  assert.equal(checks, 2,
+    "a rejected shutdown is harmless only when a fresh liveness check proves the daemon exited");
+});
+
+test("takeover preserves a real IPC failure while the daemon is still alive", async function () {
+  await assert.rejects(function () {
+    return takeOverExistingDev({}, {
+      currentPid: 99,
+      isDaemonAlive: function () { return Promise.resolve(true); },
+      shutdownDaemon: function () { return Promise.reject(new Error("permission denied")); },
+    });
+  }, /permission denied/);
 });
