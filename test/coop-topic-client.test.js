@@ -92,6 +92,26 @@ test("canonical event drill-through uses the server ProjectRef/session/event ind
   }), false);
 });
 
+test("canonical event drill-through accepts an exact middle event omitted from bounded previews", async function () {
+  var ui = await loadProjectionUi();
+  var projectRef = { projectId: "project-middle-event" };
+  var selected = topic("topic-middle-event", {
+    projectRef: projectRef,
+    canonicalEvents: [{ eventRef: { eventId: "first-preview" } }, { eventRef: { eventId: "last-preview" } }],
+  });
+  ui.setGlobalCoopProjection({ type: "global_coop_projection", coop: { localId: 7 }, projects: [], topics: [selected] });
+  var exact = { projectId: "system-lead", sessionStorageId: "canonical-topic-home", eventIndex: 27 };
+  var sent = [];
+  assert.equal(ui.requestCanonicalEvent(exact, selected.topicRef, projectRef, function (message) {
+    sent.push(message);
+    return true;
+  }), true);
+  assert.deepEqual(sent, [{
+    type: "resolve_canonical_event", eventRef: exact,
+    topicRef: selected.topicRef, projectRef: projectRef,
+  }]);
+});
+
 test("topic selection keeps the canonical Coop session and sends exact refs", async function () {
   var ui = await loadProjectionUi();
   var storeModule = await import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "store.js")).href);

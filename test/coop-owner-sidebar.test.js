@@ -133,6 +133,35 @@ test("a later answer lands a non-execution request without closing implementatio
   assert.equal(sidebar.landed[0].clearable, true);
 });
 
+test("merged owner context keeps the substantive request ahead of a terse approval", function () {
+  var original = request(1, "open", { topicRef: { topicId: "topic-shared" } });
+  var approval = request(2, "open", { topicRef: { topicId: "topic-shared" } });
+  var canonicalSession = { projectId: LEAD, sessionStorageId: "canonical-coop" };
+  var sidebar = buildOwnerSidebar({
+    requests: [original, approval],
+    topics: [{ topicRef: { topicId: "topic-shared" }, title: "" }],
+    requestContexts: {
+      [original.ingressId]: {
+        title: "Implement the owner ledger jump",
+        sourceSessionRef: canonicalSession,
+        requestRef: Object.assign({}, canonicalSession, { eventIndex: 41 }),
+      },
+      [approval.ingressId]: {
+        title: "Yes",
+        sourceSessionRef: canonicalSession,
+        requestRef: Object.assign({}, canonicalSession, { eventIndex: 42 }),
+      },
+    },
+  });
+  assert.equal(sidebar.entries.length, 1);
+  assert.equal(sidebar.entries[0].title, "Implement the owner ledger jump");
+  assert.deepEqual(sidebar.entries[0].requestRef,
+    Object.assign({}, canonicalSession, { eventIndex: 41 }),
+    "the merged row points at the original substantive owner event");
+  assert.deepEqual(sidebar.entries[0].canonicalEventRef,
+    Object.assign({}, canonicalSession, { eventIndex: 41 }));
+});
+
 test("Needs attention has stable canonical-project groups and a final Unassigned group", function () {
   var webapp = "22222222-2222-5222-8222-222222222222";
   var records = [
@@ -529,6 +558,40 @@ test("owner ledger renderer exposes Thread/session links and Clear/Restore contr
     { type: "coop_owner_ledger_visibility", entryId: "completed", hidden: true, expectedRevision: 7 },
     { type: "coop_owner_ledger_visibility", entryId: "dismissed", hidden: false, expectedRevision: 7 },
   ]);
+});
+
+test("opening a linked owner row requests the exact canonical event", async function () {
+  var ui = await ownerSidebarUi();
+  var root = pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules"));
+  var coop = await import(root.href + "/global-coop-projection.js");
+  var eventRef = { projectId: LEAD, sessionStorageId: "canonical-coop", eventIndex: 27 };
+  var topicRef = { topicId: "topic-exact-owner-event" };
+  var projectRef = { projectId: PROJECT };
+  coop.setGlobalCoopProjection({
+    type: "global_coop_projection", projects: [], topics: [{
+      topicRef: topicRef, projectRef: projectRef, title: "Exact owner request",
+      canonicalEvents: [{ eventRef: { projectId: LEAD, sessionStorageId: "canonical-coop", eventIndex: 1 } },
+        { eventRef: { projectId: LEAD, sessionStorageId: "canonical-coop", eventIndex: 99 } }],
+    }],
+  });
+  var messages = [];
+  var navigated = 0;
+  var rendered = element("div");
+  ui.renderCoopOwnerSidebar(rendered, {
+    revision: 12,
+    open: [{ entryId: "exact-owner-event", title: "Exact owner request", status: "working",
+      topicRef: topicRef, canonicalEventRef: eventRef, requestRef: eventRef, sessions: [] }],
+    hidden: [], entries: [],
+  }, {
+    send: function (message) { messages.push(message); return true; },
+    onNavigate: function () { navigated++; },
+  });
+  byClass(rendered, "coop-owner-title")[0].click();
+  assert.deepEqual(messages, [{
+    type: "resolve_canonical_event", eventRef: eventRef, topicRef: topicRef, projectRef: projectRef,
+  }]);
+  assert.equal(navigated, 1);
+  coop.clearGlobalCoopProjection();
 });
 
 test("Workspace groups are counted disclosure controls with durable collapsed state", async function () {

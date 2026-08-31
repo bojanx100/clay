@@ -2260,6 +2260,7 @@ function answeredHarness(t, opts) {
       ownerAnswer("do 1 and 2 what you think is best")],
     orchestrationTasks: options.tasks === undefined ? [defaultTask] : options.tasks };
   var delivered = [];
+  var closed = [];
   var topicIndex = createTopicIndex({ file: path.join(dir, "topics.json") });
   var built = executionRouter([], delivered, [], { dir: dir, coopSession: coopSession });
   var coordinate = createExternalTaskCoordinator({
@@ -2268,9 +2269,14 @@ function answeredHarness(t, opts) {
     readLeadEvents: function () { return []; },
     ensureOwnerThread: function (i) { return topicIndex.ensureOwnerThread(i); },
     createProjectExecution: built.router.createProjectExecution,
+    closeTask: function (parentSession, taskId, reason) {
+      closed.push({ parentSession: parentSession, taskId: taskId, reason: reason });
+      return true;
+    },
   });
   return {
     delivered: delivered,
+    closed: closed,
     topics: function () { return Object.keys(topicIndex.load().topics); },
     dispatch: function (over) {
       return coordinate(Object.assign({
@@ -2297,6 +2303,10 @@ test("an answered owner question authorizes the exact work it named", function (
   assert.equal(h.topics().length, 1, "one Thread minted against the answering turn");
   assert.equal(h.delivered[0].payload.coopIngressId, "coop:canonical-coop:700",
     "the dispatch cites the owner's answering turn, not a synthetic key");
+  assert.deepEqual(h.closed.map(function (item) {
+    return [item.taskId, item.reason];
+  }), [["task-sidebar-1", "Owner approval accepted and execution dispatched"]],
+  "successful staged dispatch closes its now-satisfied approval placeholder");
 });
 
 test("an answered question authorizes NOTHING it did not name", function (t) {
