@@ -11,7 +11,7 @@ function loadClientModule() {
     "#" + Math.random());
 }
 
-test("client attention policy requires a visible focused page and recent interaction", async function () {
+test("desktop attention policy requires a visible focused page and recent interaction", async function () {
   var client = await loadClientModule();
   var now = 1000000;
   assert.deepEqual(client.buildAttentionSignalPayload(now, true, true, now - 1000, true, -120), {
@@ -26,6 +26,33 @@ test("client attention policy requires a visible focused page and recent interac
   assert.equal(client.buildAttentionSignalPayload(now, true, false, now - 1000, true, -120).engaged, false);
   assert.equal(client.buildAttentionSignalPayload(now, true, true, now - 299000, false, -120).engaged, true);
   assert.equal(client.buildAttentionSignalPayload(now, true, true, now - 301000, false, -120).engaged, false);
+});
+
+test("a foreground phone remains engaged without desktop focus or repeated interaction", async function () {
+  var client = await loadClientModule();
+  var now = 10000000;
+  assert.equal(client.isMobileAttentionClient({
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+    platform: "iPhone",
+    maxTouchPoints: 5,
+  }), true);
+  assert.equal(client.isMobileAttentionClient({
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    platform: "MacIntel",
+    maxTouchPoints: 0,
+  }), false);
+  assert.deepEqual(client.buildAttentionSignalPayload(
+    now, true, false, now - 30 * 60000, false, -120, true), {
+    type: "human_attention_signal",
+    visible: true,
+    focused: false,
+    engaged: true,
+    interaction: false,
+    mobileForeground: true,
+    timezoneOffsetMinutes: -120,
+  });
+  assert.equal(client.buildAttentionSignalPayload(
+    now, false, false, now - 1000, false, -120, true).engaged, false);
 });
 
 test("client duration labels stay compact for the title-bar budget chip", async function () {

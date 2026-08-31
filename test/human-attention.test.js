@@ -27,6 +27,21 @@ function activeInput(projectSlug, interaction, offset) {
   };
 }
 
+function mobileForegroundInput(projectSlug, interaction, visible) {
+  var isVisible = visible !== false;
+  return {
+    userId: "owner",
+    projectSlug: projectSlug,
+    sessionId: "phone-session",
+    visible: isVisible,
+    focused: false,
+    engaged: isVisible,
+    interaction: interaction,
+    mobileForeground: isVisible,
+    timezoneOffsetMinutes: -120,
+  };
+}
+
 test("phone and laptop leases are unioned once and attributed to the latest active project", function () {
   var base = Date.UTC(2026, 7, 31, 8, 0, 0);
   var clock = createClock(base);
@@ -88,6 +103,30 @@ test("reading and thinking time ends at the bounded five-minute grace", function
   clock.set(base + 360000);
   assert.equal(service.summary("owner", -120, "alpha").todayMs, 300000);
   assert.equal(service.summary("owner", -120, "alpha").tracking, false);
+});
+
+test("foreground phone evidence counts continuously until the phone backgrounds", function () {
+  var base = Date.UTC(2026, 7, 31, 8, 0, 0);
+  var clock = createClock(base);
+  var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
+  var phone = {};
+
+  service.signal(phone, mobileForegroundInput("alpha", true));
+  for (var elapsed = 20000; elapsed <= 20 * 60000; elapsed += 20000) {
+    clock.set(base + elapsed);
+    service.signal(phone, mobileForegroundInput("alpha", false));
+  }
+  var foreground = service.summary("owner", -120, "alpha");
+  assert.equal(foreground.todayMs, 20 * 60000);
+  assert.equal(foreground.tracking, true);
+
+  clock.advance(10000);
+  service.signal(phone, mobileForegroundInput("alpha", false, false));
+  clock.advance(120000);
+  var backgrounded = service.summary("owner", -120, "alpha");
+  assert.equal(backgrounded.todayMs, 20 * 60000 + 10000,
+    "background phone time must stop at the last foreground signal");
+  assert.equal(backgrounded.tracking, false);
 });
 
 test("a workday reports partial coverage until the first complete 5am boundary", function () {
