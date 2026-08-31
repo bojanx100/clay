@@ -29,3 +29,35 @@ proves the initial icon fallback and parent-worktree identity. With the response
 guard reverted, the Workspace test file reports 6 passing and 2 failing tests;
 with the icon fallback removed, the icon test reports 0 passing and 1 failing.
 After restoration, focused, adjacent, and full project tests passed.
+
+## Revision 2 correction
+
+The approved revision-2 scope was not covered by the revision-1 fix. The
+Workspace header rendered its Refresh control and registered its click handler
+unconditionally. In owner Workspace the handler only re-rendered the cached
+owner ledger; it did not request authoritative state, so it was misleading.
+Also, owner-ledger rerenders replace the group status and collapse/expand icon
+nodes after the generic Workspace path has returned, but did not call the
+Lucide hydrator.
+
+The owner-specific renderer now synchronizes the header button to hidden and
+disabled, with a handler guard as a defence in depth. Generic Workspace keeps
+the enabled button and its existing `workspace_get` request behavior. The
+owner renderer calls `refreshIcons()` after every ledger mount, covering
+projection updates, empty-to-nonempty groups, and collapsed/expanded groups.
+
+The focused regression in `test/workspace-panel-state.test.js` covers owner
+Refresh removal, generic Refresh preservation, icon hydration after an
+empty-to-nonempty update, collapse and expand rerenders, and an authoritative
+post-reconnect projection. With only the revision-2 production code reverted,
+that file reported 8 passing and 1 failing test; after restoration it reported
+9 passing and 0 failing. The focused and adjacent Workspace/owner/worktree
+suite reported 37 passing and 0 failing, including the revision-1
+request-correlation and initial-project-icon tests.
+
+The full `npm test` runner was started but did not complete: it reported two
+missing runtime packages in the isolated worktree, then remained stalled for
+more than nine minutes in the unrelated `coop-control-sdk-fence` test. A
+separate concurrent clean-worktree full run was stalled in that same test.
+No control-fence or dependency changes were made because they are outside the
+owner-approved Workspace revision-2 scope.

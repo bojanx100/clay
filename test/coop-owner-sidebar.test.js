@@ -466,6 +466,8 @@ async function ownerSidebarUi() {
   globalThis.window = globalThis.window || { addEventListener: function () {}, location: { pathname: "/p/lead/", search: "" } };
   globalThis.location = globalThis.location || { pathname: "/p/lead/", search: "" };
   globalThis.history = globalThis.history || { pushState: function () {}, replaceState: function () {} };
+  globalThis.requestAnimationFrame = globalThis.requestAnimationFrame || function (callback) { callback(); return null; };
+  globalThis.lucide = globalThis.lucide || { createIcons: function () {} };
   globalThis.document = { createElement: element };
   return import(pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules", "coop-owner-sidebar.js")).href + "?v=" + Date.now());
 }

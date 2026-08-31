@@ -134,7 +134,7 @@ function installWorkspacePanelDom() {
   globalThis.localStorage = storage;
   globalThis.sessionStorage = storage;
   globalThis.navigator = { userAgent: "", platform: "", maxTouchPoints: 0 };
-  globalThis.requestAnimationFrame = function () { return 1; };
+  globalThis.requestAnimationFrame = function (callback) { callback(); return null; };
   globalThis.lucide = { createIcons: function () {} };
   globalThis.marked = { use: function () {}, parse: function (value) { return String(value); }, Renderer: function () {} };
   globalThis.hljs = { highlightElement: function () {}, getLanguage: function () { return null; } };
@@ -306,4 +306,97 @@ test("a late Workspace response cannot replace the latest manual refresh", async
   }));
   assert.match(elements["workspace-body"].innerHTML, /<code>newer<\/code>/);
   assert.doesNotMatch(elements["workspace-body"].innerHTML, /<code>older<\/code>/);
+});
+
+test("owner Workspace hides its stale Refresh control while generic refresh and ledger icons survive rerenders", async function (t) {
+  var elements = installWorkspacePanelDom();
+  var iconCalls = 0;
+  var previousLucide = globalThis.lucide;
+  globalThis.lucide = { createIcons: function () { iconCalls++; } };
+  var modules = pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules"));
+  var panel = await import(modules.href + "/workspace-panel.js?owner-refresh-regression=" + Date.now());
+  var terminal = await import(modules.href + "/terminal.js");
+  var filebrowser = await import(modules.href + "/filebrowser.js");
+  var sessions = await import(modules.href + "/sidebar-sessions.js");
+  var clientStore = await import(modules.href + "/store.js");
+  var wsRef = await import(modules.href + "/ws-ref.js");
+  var projection = await import(modules.href + "/global-coop-projection.js");
+  var sent = [];
+  var ownerSidebar = {
+    defaultOpen: false, revision: 1, working: [], attention: [], landed: [], dismissed: [], hidden: [], entries: [],
+  };
+
+  t.after(function () {
+    panel.closeWorkspacePanel();
+    projection.clearGlobalCoopProjection();
+    sessions.getCachedSessions().length = 0;
+    wsRef.setWs(null);
+    clientStore.store.set({ workspaceGroupStates: {} });
+    globalThis.lucide = previousLucide;
+  });
+  terminal.initTerminal({ terminalContainerEl: element("div"), terminalBodyEl: element("div"), connected: false });
+  filebrowser.initFileBrowser({ fileViewerEl: element("div"), fileTreeEl: element("div"), connected: false });
+  sessions.getCachedSessions().length = 0;
+  projection.clearGlobalCoopProjection();
+  clientStore.store.set({ currentSlug: "lead", activeSessionId: 91, connected: true, workspaceGroupStates: {} });
+  projection.setGlobalCoopProjection({ type: "global_coop_projection", projects: [], topics: [], ownerSidebar: ownerSidebar });
+  sessions.getCachedSessions().push({ id: 91, coopHome: true });
+  wsRef.setWs({ readyState: 1, send: function (payload) { sent.push(JSON.parse(payload)); } });
+  panel.initWorkspacePanel();
+  panel.openWorkspacePanel();
+
+  var refresh = elements["workspace-refresh-btn"];
+  assert.equal(refresh.hidden, true, "owner Workspace does not expose its stale generic Refresh control");
+  assert.equal(refresh.disabled, true, "a stale owner Refresh activation is blocked even if the header is manipulated");
+  refresh.listeners.click[0]();
+  assert.equal(sent.filter(function (message) { return message.type === "workspace_get"; }).length, 0,
+    "the owner Refresh control cannot request generic workspace state");
+
+  sessions.getCachedSessions()[0].coopHome = false;
+  panel.handleWorkspaceDevStatus({ type: "workspace_dev_status", running: false, script: "dev" });
+  assert.notEqual(refresh.hidden, true, "generic Workspace still exposes Refresh");
+  assert.equal(refresh.disabled, false, "generic Workspace Refresh remains enabled");
+  var requestsBeforeRefresh = sent.filter(function (message) { return message.type === "workspace_get"; }).length;
+  refresh.listeners.click[0]();
+  assert.equal(sent.filter(function (message) { return message.type === "workspace_get"; }).length, requestsBeforeRefresh + 1,
+    "generic Workspace Refresh still fetches authoritative workspace state");
+
+  sessions.getCachedSessions()[0].coopHome = true;
+  panel.handleWorkspaceDevStatus({ type: "workspace_dev_status", running: false, script: "dev" });
+  iconCalls = 0;
+  ownerSidebar = {
+    defaultOpen: false, revision: 2,
+    working: [{ entryId: "active", title: "Hydrate grouped icons", status: "working", sessions: [] }],
+    attention: [], landed: [], dismissed: [], hidden: [], entries: [],
+  };
+  projection.getGlobalCoopProjection().ownerSidebar = ownerSidebar;
+  clientStore.store.set({ coopProjectionVersion: (clientStore.store.get("coopProjectionVersion") || 0) + 1 });
+  var iconNames = descendants(elements["workspace-body"]).filter(function (node) {
+    return node.tagName === "I";
+  }).map(function (node) { return node.getAttribute("data-lucide"); });
+  assert.ok(iconCalls > 0, "an empty-to-nonempty owner ledger rehydrates its new icons");
+  assert.equal(iconNames.indexOf("activity") !== -1, true, "the status icon is present for hydration");
+  assert.equal(iconNames.indexOf("chevron-down") !== -1, true, "the collapse/expand icon is present for hydration");
+
+  var collapse = descendants(elements["workspace-body"]).find(function (node) {
+    return node.getAttribute && node.getAttribute("aria-label") === "Collapse Working now group";
+  });
+  var iconsBeforeCollapse = iconCalls;
+  collapse.listeners.click[0]({ preventDefault: function () {}, stopPropagation: function () {} });
+  assert.ok(iconCalls > iconsBeforeCollapse, "collapsing an owner-ledger group rehydrates replacement icons");
+  var expand = descendants(elements["workspace-body"]).find(function (node) {
+    return node.getAttribute && node.getAttribute("aria-label") === "Expand Working now group";
+  });
+  var iconsBeforeExpand = iconCalls;
+  expand.listeners.click[0]({ preventDefault: function () {}, stopPropagation: function () {} });
+  assert.ok(iconCalls > iconsBeforeExpand, "expanding an owner-ledger group rehydrates replacement icons");
+
+  var iconsBeforeReconnect = iconCalls;
+  clientStore.store.set({ connected: false });
+  clientStore.store.set({ connected: true });
+  ownerSidebar.revision = 3;
+  ownerSidebar.working[0].title = "Hydrated after reconnect";
+  projection.getGlobalCoopProjection().ownerSidebar = ownerSidebar;
+  clientStore.store.set({ coopProjectionVersion: (clientStore.store.get("coopProjectionVersion") || 0) + 1 });
+  assert.ok(iconCalls > iconsBeforeReconnect, "the authoritative owner projection received after reconnect rehydrates its icons");
 });
