@@ -90,6 +90,24 @@ test("reading and thinking time ends at the bounded three-minute grace", functio
   assert.equal(service.summary("owner", -120, "alpha").tracking, false);
 });
 
+test("a workday reports partial coverage until the first complete 5am boundary", function () {
+  var base = Date.UTC(2026, 7, 31, 16, 1, 0);
+  var clock = createClock(base);
+  var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
+
+  var first = service.summary("owner", -120, "alpha");
+  assert.equal(first.recordingStartedAt, base);
+  assert.equal(first.recordingStartExact, true);
+  assert.equal(first.recordingStartedWorkday, "2026-08-31");
+  assert.equal(first.partialToday, true,
+    "a tracker started after 5am must not present its first day as complete");
+
+  clock.set(Date.UTC(2026, 8, 1, 3, 0, 0));
+  var nextDay = service.summary("owner", -120, "alpha");
+  assert.equal(nextDay.days[0].key, "2026-09-01");
+  assert.equal(nextDay.partialToday, false);
+});
+
 test("a Zagreb interval crossing 5am is split between the correct workdays", function () {
   var base = Date.UTC(2026, 7, 31, 2, 59, 0);
   var clock = createClock(base);
@@ -135,6 +153,37 @@ test("daily cap and measured totals survive a ledger reload", function () {
     assert.equal(result.todayMs, 25000, "the signal lease excludes an unproven gap longer than 25 seconds");
     assert.equal(result.capMinutes, 360);
     assert.equal(result.remainingMs, 360 * 60000 - 25000);
+    assert.equal(result.recordingStartedAt, base);
+    assert.equal(result.recordingStartExact, true);
+    assert.equal(result.partialToday, true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a legacy aggregate is marked partial without inventing an exact start time", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-human-attention-legacy-"));
+  var filePath = path.join(dir, "attention.json");
+  var at = Date.UTC(2026, 7, 31, 18, 30, 0);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify({
+      version: 1,
+      users: {
+        owner: {
+          capMinutes: 480,
+          totalMs: 480000,
+          projects: { clay: 480000 },
+          days: { "2026-08-31": { totalMs: 480000, projects: { clay: 480000 } } },
+        },
+      },
+    }), "utf8");
+    var service = humanAttention.createHumanAttention({ filePath: filePath, now: function () { return at; } });
+    var result = service.summary("owner", -120, "clay");
+    assert.equal(result.todayMs, 480000);
+    assert.equal(result.recordingStartedAt, null);
+    assert.equal(result.recordingStartExact, false);
+    assert.equal(result.recordingStartedWorkday, "2026-08-31");
+    assert.equal(result.partialToday, true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

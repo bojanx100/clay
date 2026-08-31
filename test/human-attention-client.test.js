@@ -34,6 +34,22 @@ test("client duration labels stay compact for the title-bar budget chip", async 
   assert.equal(client.formatDuration(95 * 60000), "1h 35m");
 });
 
+test("coverage label does not present a partial first day as a full 5am workday", async function () {
+  var client = await loadClientModule();
+  assert.equal(client.trackingCoverageLabel({
+    partialToday: true,
+    recordingStartExact: true,
+    recordingStartedAt: 1788192092231,
+  }, function () { return "18:01"; }),
+  "Partial day · tracking since 18:01 · all Clay devices");
+  assert.equal(client.trackingCoverageLabel({
+    partialToday: true,
+    recordingStartExact: false,
+  }), "Partial day · earlier time unavailable · all Clay devices");
+  assert.equal(client.trackingCoverageLabel({ partialToday: false }),
+    "5am–5am · all Clay devices");
+});
+
 test("attention popover dismisses immediately for touch and remains keyboard accessible", async function () {
   var client = await loadClientModule();
   var prevented = 0;
