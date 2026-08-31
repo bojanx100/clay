@@ -1,5 +1,7 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("node:fs");
+var path = require("node:path");
 var decision = require("../lib/coop-action-decision");
 var queue = require("../lib/coop-action-queue");
 
@@ -79,6 +81,16 @@ function req(taskId, verb, extra) {
     projectRef: { projectId: WEBAPP }, taskId: taskId, decision: verb,
   }, extra || {});
 }
+
+test("the public Lead context exposes its resident task orchestrator to owner decisions", function () {
+  var source = fs.readFileSync(path.join(__dirname, "..", "lib", "project.js"), "utf8");
+  var start = source.indexOf("  return {\n    cwd: cwd,\n    slug: slug,\n    crossProject: opts.crossProject,");
+  var end = source.indexOf("\n  };\n}\nmodule.exports", start);
+  assert.notEqual(start, -1, "createProjectContext must retain its public context return");
+  assert.notEqual(end, -1, "the public context return must end before module exports");
+  assert.match(source.slice(start, end),
+    /getTaskOrchestrator: function \(\) \{ return _taskOrchestrator; \}/);
+});
 
 // --- isolation: the whole point ---------------------------------------------
 

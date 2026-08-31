@@ -15,6 +15,7 @@ function testContext(existingSessions, options) {
   var events = [];
   var starts = [];
   var pushes = [];
+  var coopActionQueueRefreshes = 0;
   var sm = {
     sessions: sessions,
     defaultVendor: "claude",
@@ -56,6 +57,7 @@ function testContext(existingSessions, options) {
       events.push({ id: id, event: event });
     },
     onProcessingChanged: function () {},
+    onCoopActionQueueChanged: function () { coopActionQueueRefreshes++; },
     ensureProjectAccessForSession: function () {},
     resolveGlobalSessionRef: options.resolveGlobalSessionRef,
     usersModule: options.usersModule,
@@ -71,6 +73,7 @@ function testContext(existingSessions, options) {
     events: events,
     starts: starts,
     pushes: pushes,
+    getCoopActionQueueRefreshes: function () { return coopActionQueueRefreshes; },
     api: api,
   };
 }
@@ -602,6 +605,16 @@ test("the typed handoff fields and global resolver are wired into the project or
   assert.ok(adopt.inputSchema.ownerHandoffIngressId);
   assert.match(projectFeatures,
     /resolveGlobalSessionRef:\s*opts\.resolveGlobalSessionRef\s*\|\|\s*null/);
+});
+
+test("Lead staging uses the server's authoritative owner-action queue refresh", function () {
+  var projectFeatures = fs.readFileSync(
+    path.join(__dirname, "../lib/project-features.js"), "utf8");
+  var server = fs.readFileSync(path.join(__dirname, "../lib/server.js"), "utf8");
+
+  assert.match(projectFeatures,
+    /onCoopActionQueueChanged:\s*opts\.onCoopActionQueueChanged\s*\|\|\s*null/);
+  assert.match(server, /onCoopActionQueueChanged:\s*refreshCoopActionQueues/);
 });
 
 test("an exact owner ingress aliases a running cross-project session and returns its result", function () {
@@ -2735,6 +2748,8 @@ test("an explicit Coop plan decision survives ordinary chat and supersedes only 
     return entry.event.type === "coop_owner_decision_staged" &&
       entry.event.coopTopicRef.topicId === "coherent-plan";
   }), true, "the selected Topic lens gets an explicit persisted-decision visibility signal");
+  assert.equal(ctx.getCoopActionQueueRefreshes(), 1,
+    "staging must refresh the authoritative owner-action queue without a reconnect");
 
   assert.equal(ctx.api.resumeWaitingCoordinator(parent, "Please continue normally."), "",
     "ordinary prose must not answer a typed owner decision");
