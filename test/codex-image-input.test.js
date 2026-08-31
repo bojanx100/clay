@@ -70,6 +70,44 @@ test("Codex forwards a persisted PNG as localImage before the owner text", async
   ]);
 });
 
+test("Codex forwards a valid JPEG with a Samsung metadata trailer", async function(t) {
+  var directory = fs.mkdtempSync(path.join(os.tmpdir(), "clay-codex-image-input-"));
+  var imagePath = path.join(directory, "samsung-screenshot.jpg");
+  var jpeg = fs.readFileSync(path.join(__dirname, "../lib/public/mates/sage.jpg"));
+  var samsungTrailer = Buffer.alloc(319);
+  samsungTrailer.write("SEFH", 0, "ascii");
+  samsungTrailer.write("SEFT", samsungTrailer.length - 4, "ascii");
+  fs.writeFileSync(imagePath, Buffer.concat([jpeg, samsungTrailer]));
+  t.after(function() { fs.rmSync(directory, { recursive: true, force: true }); });
+
+  var input = await sendImageMessage("Inspect the attached screenshot", [{
+    mediaType: "image/jpeg",
+    savedPath: imagePath,
+  }]);
+
+  assert.deepEqual(input, [
+    { type: "localImage", path: imagePath },
+    { type: "text", text: "Inspect the attached screenshot" },
+  ]);
+});
+
+test("Codex rejects JPEG boundary markers without image data", async function(t) {
+  var directory = fs.mkdtempSync(path.join(os.tmpdir(), "clay-codex-image-input-"));
+  var imagePath = path.join(directory, "fake.jpg");
+  fs.writeFileSync(imagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  t.after(function() { fs.rmSync(directory, { recursive: true, force: true }); });
+
+  var input = await sendImageMessage("Inspect the attached image", [{
+    mediaType: "image/jpeg",
+    savedPath: imagePath,
+  }]);
+
+  assert.deepEqual(input, [{
+    type: "text",
+    text: "Inspect the attached image\n\n[Clay preserved image attachment 1 but did not send it to Codex: invalid JPEG data. The original file remains at " + imagePath + ".]",
+  }]);
+});
+
 test("Codex preserves a corrupt attachment with a precise text fallback", async function(t) {
   var directory = fs.mkdtempSync(path.join(os.tmpdir(), "clay-codex-image-input-"));
   var imagePath = path.join(directory, "corrupt.png");
