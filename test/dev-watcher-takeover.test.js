@@ -1,8 +1,5 @@
-// Proves a starting `--dev` watcher stops the previous watcher, not just its
-// daemon. Shutting down only the daemon left the old watcher alive to respawn it,
-// after which two daemons raced for the port and SIGTERMed each other on bind --
-// a restart every ~40s that looks like a crash loop but is two live instances
-// fighting. Reproducible by running `clay --dev` twice.
+// Proves a duplicate `--dev` invocation reuses a healthy watcher/daemon pair,
+// while real takeover paths still prevent two live instances from fighting.
 var test = require("node:test");
 var assert = require("node:assert/strict");
 
@@ -65,6 +62,34 @@ test("the dev watcher records its own pid so a later takeover can find it", func
   var source = require("fs").readFileSync(
     require("path").join(__dirname, "..", "bin", "cli.js"), "utf8");
   assert.match(source, /config\.devWatcherPid = process\.pid/);
+});
+
+test("a duplicate dev launch reuses a healthy watcher without shutting Clay down", async function () {
+  var stopCalls = 0;
+  var shutdownCalls = 0;
+  var result = await takeOverExistingDev({ devWatcherPid: 4242 }, {
+    currentPid: 99,
+    reuseHealthyExisting: true,
+    isWatcherAlive: function () { return true; },
+    stopWatcher: function () { stopCalls++; },
+    isDaemonAlive: function () { return Promise.resolve(true); },
+    shutdownDaemon: function () {
+      shutdownCalls++;
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(stopCalls, 0, "the live watcher must keep owning the daemon");
+  assert.equal(shutdownCalls, 0, "the live daemon must not receive a shutdown request");
+  assert.equal(result.reusedExisting, true);
+  assert.equal(result.priorWatcherPid, 4242);
+});
+
+test("the dev CLI opts into healthy-instance reuse", function () {
+  var source = require("fs").readFileSync(
+    require("path").join(__dirname, "..", "bin", "cli.js"), "utf8");
+  assert.match(source, /reuseHealthyExisting: true/);
+  assert.match(source, /Run with --dev --restart to restart the daemon/);
 });
 
 test("daemon readiness keeps polling beyond the old ten-attempt startup window", async function () {

@@ -2834,6 +2834,7 @@ var currentVersion = require("../package.json").version;
     var devConfig = loadConfig();
     var takeover = await devWatcherTakeover.takeOverExistingDev(devConfig, {
       currentPid: process.pid,
+      reuseHealthyExisting: true,
       isDaemonAlive: function () {
         return devConfig ? isDaemonAliveAsync(devConfig) : Promise.resolve(false);
       },
@@ -2848,6 +2849,12 @@ var currentVersion = require("../package.json").version;
           priorWatcher + ")...");
       },
     });
+    if (takeover.reusedExisting) {
+      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Clay is already running (watcher PID " +
+        takeover.priorWatcherPid + ", daemon PID " + devConfig.pid + ").");
+      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Reusing it. Run with --dev --restart to restart the daemon.");
+      return;
+    }
     var devAlive = takeover.wasDaemonAlive;
     if (devAlive) {
       clearStaleConfig();
