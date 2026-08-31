@@ -74,19 +74,19 @@ test("hidden clients stop immediately and autonomous runtime never creates human
   assert.equal(service.summary("owner", -120, "alpha").todayMs, 10000);
 });
 
-test("reading and thinking time ends at the bounded three-minute grace", function () {
+test("reading and thinking time ends at the bounded five-minute grace", function () {
   var base = Date.UTC(2026, 7, 31, 8, 0, 0);
   var clock = createClock(base);
   var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
   var client = {};
 
   service.signal(client, activeInput("alpha", true));
-  for (var elapsed = 20000; elapsed <= 160000; elapsed += 20000) {
+  for (var elapsed = 20000; elapsed <= 280000; elapsed += 20000) {
     clock.set(base + elapsed);
     service.signal(client, activeInput("alpha", false));
   }
-  clock.set(base + 240000);
-  assert.equal(service.summary("owner", -120, "alpha").todayMs, 180000);
+  clock.set(base + 360000);
+  assert.equal(service.summary("owner", -120, "alpha").todayMs, 300000);
   assert.equal(service.summary("owner", -120, "alpha").tracking, false);
 });
 

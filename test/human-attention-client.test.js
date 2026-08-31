@@ -24,7 +24,8 @@ test("client attention policy requires a visible focused page and recent interac
   });
   assert.equal(client.buildAttentionSignalPayload(now, false, true, now - 1000, true, -120).engaged, false);
   assert.equal(client.buildAttentionSignalPayload(now, true, false, now - 1000, true, -120).engaged, false);
-  assert.equal(client.buildAttentionSignalPayload(now, true, true, now - 181000, false, -120).engaged, false);
+  assert.equal(client.buildAttentionSignalPayload(now, true, true, now - 299000, false, -120).engaged, true);
+  assert.equal(client.buildAttentionSignalPayload(now, true, true, now - 301000, false, -120).engaged, false);
 });
 
 test("client duration labels stay compact for the title-bar budget chip", async function () {
