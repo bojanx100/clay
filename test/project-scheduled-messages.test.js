@@ -194,6 +194,30 @@ test("a scheduled continuation reuses an idle resident query instead of deferrin
   assert.equal(session.history[2].autoAction, true);
 });
 
+test("a recovered provider turn cancels its queued restart fallback", function () {
+  var ctx = harness();
+  var session = {
+    localId: 49,
+    history: [],
+    interruptedByRestart: true,
+    restartAutoContinueQueued: true,
+    isProcessing: false,
+  };
+
+  ctx.messages.scheduleMessage(session, "continue", Date.now(),
+    "Resume the interrupted turn.", "↻ Resuming after restart", { autoAction: true });
+  session.isProcessing = true;
+
+  assert.equal(ctx.messages.sendScheduledMessageNow(session), false);
+  assert.deepEqual(session.history.map(function (item) { return item.type; }),
+    ["scheduled_message_queued", "scheduled_message_cancelled"]);
+  assert.equal(session.scheduledMessage, null);
+  assert.equal(session.interruptedByRestart, false);
+  assert.equal(session.restartAutoContinueQueued, false);
+  assert.equal(ctx.started.length, 0);
+  assert.equal(ctx.pushed.length, 0);
+});
+
 test("a scheduled Coop send retains its captured scope without Main stale refs", function () {
   var ctx = harness();
   var session = { localId: 45, history: [], isProcessing: false, coopHome: true };
