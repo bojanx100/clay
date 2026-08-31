@@ -49,6 +49,7 @@ function harness(seed) {
   return {
     sm: sm,
     sessionsDir: sessionsDir,
+    projectDir: projectDir,
     cleanup: function () {
       if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
       else delete process.env.CLAY_HOME;
@@ -268,6 +269,60 @@ test("startup does not hold every transcript at once", function () {
     assert.equal(lazy, 25, "every loaded session is lazily backed");
     assert.equal(resident, 0, "and none retained its transcript after boot");
   } finally {
+    h.cleanup();
+  }
+});
+
+test("viewing a loaded session releases its transcript and persists recency without rewriting it", async function () {
+  var storageId = "aaaaaaaa-0000-4000-8000-000000000008";
+  var h = harness(function (dir) {
+    writeSessionFile(dir, storageId, {
+      lastViewedAt: 10,
+      sessionVisibility: "shared",
+      orchestrationProjectCompletion: {
+        status: "pending",
+        completionRevision: 0,
+        graphDigest: "",
+        summary: "",
+        verification: "",
+        integrationVerification: "",
+        escalationRequired: "",
+        portfolioTaskId: "",
+        bindingRevision: null,
+        completedAt: null,
+        revokedAt: null,
+        revocationReason: "",
+      },
+    }, settledHistory());
+  });
+  try {
+    var session = sessionByStorageId(h.sm, storageId);
+    var file = path.join(h.sessionsDir, storageId + ".jsonl");
+    var before = fs.readFileSync(file, "utf8");
+
+    h.sm.switchSession(session.localId);
+    assert.equal(historyStore.isResident(session), false,
+      "replay releases the transcript before returning");
+    await new Promise(function (resolve) { setImmediate(resolve); });
+
+    assert.equal(historyStore.isResident(session), false,
+      "replay does not pin the transcript in daemon memory");
+    assert.equal(fs.readFileSync(file, "utf8"), before,
+      "persisting view recency does not rewrite the transcript");
+    var viewState = JSON.parse(fs.readFileSync(path.join(h.sessionsDir, ".last-viewed.json"), "utf8"));
+    assert.equal(viewState.sessions[storageId], session.lastViewedAt,
+      "the recency timestamp remains durable outside the transcript");
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = sessionByStorageId(restored, storageId);
+    assert.equal(restoredSession.lastViewedAt, session.lastViewedAt,
+      "restart ordering reads the durable view state");
+  } finally {
+    await new Promise(function (resolve) { setTimeout(resolve, 20); });
     h.cleanup();
   }
 });
