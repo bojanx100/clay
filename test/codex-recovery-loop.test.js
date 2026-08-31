@@ -28,6 +28,7 @@ var instructions = require("../lib/yoke/instructions");
 var bridgeRecovery = require("../lib/sdk-bridge-recovery");
 var cliSessions = require("../lib/cli-sessions");
 var streamWatchdog = require("../lib/sdk-bridge-stream-watchdog");
+var attachBridgeQueryStart = require("../lib/sdk-bridge-query-start").attachBridgeQueryStart;
 var { CodexAppServer } = require("../lib/yoke/codex-app-server");
 var codexAdapter = require("../lib/yoke/adapters/codex");
 
@@ -79,6 +80,83 @@ test("provider tool lifecycle is projected for restart draining", function () {
   assert.strictEqual(session._activeProviderToolCount, 1, "duplicate lifecycle events count once");
   streamWatchdog.observeTool(state, { yokeType: "tool_result", toolId: "call-1" });
   assert.strictEqual(session._activeProviderToolCount, 0);
+});
+
+test("warm provider turns rearm the resident stream watchdog and timing", function () {
+  var pushed = [];
+  var bridge = attachBridgeQueryStart({
+    adapters: {},
+    sm: { modelsByVendor: {} },
+    vendorReadiness: { ensure: function () { return Promise.resolve({ adapter: null }); } },
+  });
+  var session = {
+    localId: 44,
+    isProcessing: true,
+    _watchdogTurnSeq: 3,
+    _queryStartTs: 1,
+    _firstActivityLogged: true,
+    _firstTextLogged: true,
+    queryInstance: {
+      pushMessage: function (text) { pushed.push(text); },
+    },
+  };
+
+  assert.strictEqual(bridge.pushMessage(session, "next warm turn", null), true);
+  assert.deepStrictEqual(pushed, ["next warm turn"]);
+  assert.strictEqual(session._watchdogTurnSeq, 4);
+  assert.ok(session._queryStartTs > 1);
+  assert.strictEqual(session._turnPerfId, "44:4");
+  assert.strictEqual(session._firstActivityLogged, false);
+  assert.strictEqual(session._firstTextLogged, false);
+});
+
+test("resident stream watchdog survives idle turns and tracks the next turn", function () {
+  var currentTime = 1000;
+  var session = { localId: 45, isProcessing: false };
+  var state = streamWatchdog.createState(session, null);
+  state.now = function () { return currentTime; };
+  state.lastTickAt = currentTime;
+  state.watchdogTimer = setInterval(function () {}, 10000);
+  if (state.watchdogTimer.unref) state.watchdogTimer.unref();
+  try {
+    assert.strictEqual(streamWatchdog.watchdogTick({ adapter: { vendor: "codex" } }, state), "idle");
+
+    currentTime = 2000;
+    session.isProcessing = true;
+    streamWatchdog.beginTurn(session, currentTime);
+    assert.strictEqual(streamWatchdog.watchdogTick({ adapter: { vendor: "codex" } }, state), "active");
+    assert.strictEqual(state.turnSeq, session._watchdogTurnSeq);
+    assert.strictEqual(state.turnStartedAt, currentTime);
+    assert.strictEqual(state.sawAnyEvent, false);
+  } finally {
+    clearInterval(state.watchdogTimer);
+  }
+});
+
+test("watchdog excludes sleep and long event-loop gaps from provider silence", function () {
+  var currentTime = 1000;
+  var aborted = 0;
+  var session = {
+    localId: 46,
+    isProcessing: true,
+    abortController: {
+      abort: function () { aborted++; },
+      signal: { aborted: false },
+    },
+  };
+  streamWatchdog.beginTurn(session, currentTime);
+  var state = streamWatchdog.createState(session, null);
+  state.now = function () { return currentTime; };
+  state.lastTickAt = currentTime;
+
+  currentTime += 120000;
+  assert.strictEqual(streamWatchdog.watchdogTick({ adapter: { vendor: "codex" } }, state), "clock_gap");
+  assert.strictEqual(aborted, 0);
+  assert.strictEqual(state.turnStartedAt, 121000);
+
+  currentTime += 100;
+  assert.strictEqual(streamWatchdog.watchdogTick({ adapter: { vendor: "codex" } }, state), "active");
+  assert.strictEqual(aborted, 0);
 });
 
 test("restart drain waits until active provider tools finish", async function () {

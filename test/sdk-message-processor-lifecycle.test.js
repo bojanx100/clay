@@ -97,3 +97,37 @@ test("terminal reconciliation preserves a follow-on dispatched by the done callb
   assert.strictEqual(session.isProcessing, true);
   assert.strictEqual(session.history[session.history.length - 1].type, "user_message");
 });
+
+test("turn telemetry separates model activity from visible text", function () {
+  var session = makeSession();
+  session._turnPerfId = "17:4";
+  session._firstActivityLogged = false;
+  session._firstTextLogged = false;
+  var processor = makeProcessor();
+  var lines = [];
+  var originalLog = console.log;
+  console.log = function () {
+    lines.push(Array.prototype.join.call(arguments, " "));
+  };
+  try {
+    processor.processSDKMessage(session, { yokeType: "turn_start" });
+    processor.processSDKMessage(session, { yokeType: "thinking_start", blockId: "think-1" });
+    processor.processSDKMessage(session, {
+      yokeType: "thinking_delta", blockId: "think-1", text: "reasoning",
+    });
+    processor.processSDKMessage(session, { yokeType: "text_start", blockId: "text-1" });
+    processor.processSDKMessage(session, {
+      yokeType: "text_delta", blockId: "text-1", text: "answer",
+    });
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.equal(lines.filter(function (line) {
+    return line.indexOf("turn=17:4 first_model_activity") !== -1 &&
+      line.indexOf("type=thinking_delta") !== -1;
+  }).length, 1);
+  assert.equal(lines.filter(function (line) {
+    return line.indexOf("turn=17:4 first_visible_text") !== -1;
+  }).length, 1);
+});
