@@ -1297,6 +1297,68 @@ test("an explicit owner turn admits read-only Council and Triage review workers 
   } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
 });
 
+// Regression for the ProjectRef admission defect recorded after the narrower
+// planning-review repair. `isReadOnlyPlanningReview` only looked for review
+// words in title/objective; it ignored the explicit Triage control role and the
+// read-only terminal-reconciliation evidence brief. Both therefore fell into
+// implementationAdmission and were rejected as
+// owner_implementation_decision_required before any substantive work started.
+test("explicit non-mutating Triage and terminal-reconciliation dispatches bypass only the implementation-decision gate", function () {
+  var delivered = [];
+  var approved = executionRouter([ownerApprovedConversationalEntry()], delivered, [],
+    { history: ownerTurnHistory() });
+  try {
+    var roleRouting = reviewDispatch(approved.router, {
+      portfolioTaskId: "clay-coherent-role-routing-and-project-coordinator-control-20260828",
+      bindingRevision: 3,
+      idempotencyKey: "clay-coherent-role-routing-and-project-coordinator-control-20260828-r3-read-only",
+      controlRole: "triage",
+      title: "Role-routing revision 3 admission evidence",
+      objective: "Inspect role-routing admission evidence and report it. Do not mutate state.",
+      ownedPaths: "read-only: lib/ test/",
+    });
+    var staleR6 = reviewDispatch(approved.router, {
+      portfolioTaskId: "clay-stale-r6-control-reconciliation-20260831",
+      bindingRevision: 2,
+      idempotencyKey: "clay-stale-r6-control-reconciliation-20260831-r2-read-only",
+      title: "Stale R6 revision 2 terminal reconciliation evidence",
+      objective: "Inspect the terminal reconciliation fence and report it. Do not mutate state.",
+      ownedPaths: "read-only: lib/ test/",
+    });
+    var mutating = reviewDispatch(approved.router, {
+      portfolioTaskId: "clay-triage-mutation-must-stay-gated",
+      bindingRevision: 1,
+      idempotencyKey: "clay-triage-mutation-must-stay-gated-r1",
+      controlRole: "triage",
+      title: "Triage admission evidence",
+      objective: "Implement the role-routing fix after the triage.",
+      ownedPaths: "read-only: lib/ test/",
+    });
+    var mixedBoundary = reviewDispatch(approved.router, {
+      portfolioTaskId: "clay-triage-mixed-boundary-must-stay-gated",
+      bindingRevision: 1,
+      idempotencyKey: "clay-triage-mixed-boundary-must-stay-gated-r1",
+      controlRole: "triage",
+      title: "Triage admission evidence",
+      objective: "Inspect role-routing admission evidence and report it. Do not mutate state.",
+      ownedPaths: "read-only: lib/; lib/write.js",
+    });
+
+    assert.equal(roleRouting.ok, true, JSON.stringify(roleRouting));
+    assert.equal(staleR6.ok, true, JSON.stringify(staleR6));
+    assert.deepEqual(mutating, {
+      ok: false, reason: "owner_implementation_decision_required",
+    });
+    assert.deepEqual(mixedBoundary, {
+      ok: false, reason: "owner_implementation_decision_required",
+    });
+    assert.equal(delivered.length, 2,
+      "the two regression probes must admit without starting the mutating request");
+    assert.equal(delivered[0].payload.reviewOnly, true);
+    assert.equal(delivered[1].payload.reviewOnly, true);
+  } finally { fs.rmSync(approved.dir, { recursive: true, force: true }); }
+});
+
 test("owner authorization without a decision still blocks anything that is not provably read-only review work", function () {
   var delivered = [];
   var approved = executionRouter([ownerApprovedConversationalEntry()], delivered, [],
