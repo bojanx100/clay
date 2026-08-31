@@ -223,6 +223,7 @@ test("Codex resume explicitly clears unavailable workspace dependency tools", as
     cwd: process.cwd(),
     model: "gpt-5.6-sol",
     resumeSessionId: "resumed-thread",
+    systemPrompt: "Project instructions that already exist on the thread",
     workspaceDependencies: support,
     abortController: new AbortController(),
   });
@@ -231,6 +232,9 @@ test("Codex resume explicitly clears unavailable workspace dependency tools", as
   await responsePromise;
   handle.close();
   var threadResume = server.calls.find(function(call) { return call.method === "thread/resume"; });
+  var turnStart = server.calls.find(function(call) { return call.method === "turn/start"; });
 
   assert.deepStrictEqual(threadResume.params.dynamicTools, []);
+  assert.strictEqual(turnStart.params.input[0].text, "Continue",
+    "resuming an existing provider thread must not duplicate its instruction block");
 });
