@@ -33,3 +33,33 @@ test("client duration labels stay compact for the title-bar budget chip", async 
   assert.equal(client.formatDuration(60 * 60000), "1h");
   assert.equal(client.formatDuration(95 * 60000), "1h 35m");
 });
+
+test("attention popover dismisses immediately for touch and remains keyboard accessible", async function () {
+  var client = await loadClientModule();
+  var prevented = 0;
+  var stopped = 0;
+  var dismissed = 0;
+  var pointerEvent = {
+    type: "pointerdown",
+    preventDefault: function () { prevented++; },
+    stopPropagation: function () { stopped++; },
+  };
+
+  assert.equal(client.handleAttentionDismissEvent(pointerEvent, function () { dismissed++; }), true);
+  assert.equal(prevented, 1);
+  assert.equal(stopped, 1);
+  assert.equal(dismissed, 1);
+
+  assert.equal(client.handleAttentionDismissEvent({
+    type: "keydown",
+    key: "Escape",
+    stopPropagation: function () { stopped++; },
+  }, function () { dismissed++; }), true);
+  assert.equal(stopped, 2);
+  assert.equal(dismissed, 2);
+
+  assert.equal(client.handleAttentionDismissEvent({ type: "keydown", key: "Enter" }, function () {
+    dismissed++;
+  }), false);
+  assert.equal(dismissed, 2);
+});
