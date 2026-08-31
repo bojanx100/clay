@@ -1,9 +1,13 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("node:fs");
+var os = require("node:os");
+var path = require("node:path");
 var attachBridgeQueryStart = require("../lib/sdk-bridge-query-start").attachBridgeQueryStart;
 var attachBridgeStream = require("../lib/sdk-bridge-stream").attachBridgeStream;
 var fenceModule = require("../lib/coop-control-fence");
 var watchdogModule = require("../lib/sdk-bridge-stream-watchdog");
+var testRunner = require("../scripts/run-tests");
 
 var REFS = Object.freeze({
   executionId: "exec:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -107,6 +111,12 @@ function queryHarness(fence, calls, options) {
     slug: "target",
     isMate: false,
     sm: sm,
+    vendorReadiness: {
+      ensure: async function () {
+        if (typeof adapter.init === "function") await adapter.init();
+        return { adapter: adapter };
+      },
+    },
     send: function () {},
     sendToSession: function () {},
     sendAndRecord: function () { calls.push("record"); },
@@ -146,6 +156,21 @@ function deferred() {
   var resolve;
   var promise = new Promise(function (done) { resolve = done; });
   return { promise: promise, resolve: resolve };
+}
+
+function nestedTestEnvironment(source, testHome) {
+  var environment = testRunner.isolatedTestEnvironment(source, testHome);
+  delete environment.NODE_TEST_CONTEXT;
+  return environment;
+}
+
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error && error.code !== "ESRCH";
+  }
 }
 
 function installSuccessor(session, calls) {
@@ -244,7 +269,9 @@ test("a stale provider start cannot reset its successor after worker exit", asyn
   var harness = queryHarness(fence, calls);
 
   var pending = harness.bridge.startQuery(session, "start", null, null);
-  while (session._workerExitPromise) await new Promise(function (resolve) { setImmediate(resolve); });
+  await new Promise(function (resolve) { setImmediate(resolve); });
+  assert.equal(session._workerExitPromise, null,
+    "provider preparation must claim the previous worker exit wait");
   installSuccessor(session, calls);
   release.resolve();
   var result = await pending;
@@ -427,4 +454,44 @@ test("historical control metadata is pass-through when the Slice 2 flag is off",
     if (oldExecutions === undefined) delete process.env.CLAY_COOP_CONTROL_EXECUTIONS;
     else process.env.CLAY_COOP_CONTROL_EXECUTIONS = oldExecutions;
   }
+});
+
+test("the repository runner kills a spinning test process at its file deadline", async function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-test-deadline-"));
+  var summaryDir = path.join(dir, "summaries");
+  var fixture = path.join(dir, "spin.test.js");
+  var pidPath = path.join(dir, "spin.pid");
+  var workerPid = null;
+  fs.mkdirSync(summaryDir);
+  fs.writeFileSync(fixture, [
+    "var test = require('node:test');",
+    "var fs = require('node:fs');",
+    "test('spin', async function () {",
+    "  fs.writeFileSync(" + JSON.stringify(pidPath) + ", String(process.pid));",
+    "  while (true) await new Promise(function (resolve) { setImmediate(resolve); });",
+    "});",
+  ].join("\n"));
+
+  try {
+    var startedAt = Date.now();
+    var result = await testRunner.runFile(fixture, nestedTestEnvironment,
+      summaryDir, 0, { timeoutMs: 250 });
+    assert.equal(result.timedOut, true, result.output || JSON.stringify(result));
+    assert.equal(result.signal, "SIGKILL");
+    assert.equal(result.summary, null);
+    assert.equal(testRunner.describeMissing(result), "timed out after 250ms");
+    assert.ok(Date.now() - startedAt < 5000, "the runner must bound a spinning child");
+    workerPid = Number(fs.readFileSync(pidPath, "utf8"));
+    assert.equal(processExists(workerPid), false,
+      "the deadline must kill the test worker, not only its immediate parent");
+  } finally {
+    if (workerPid && processExists(workerPid)) process.kill(workerPid, "SIGKILL");
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repository test files have a bounded configurable deadline", function () {
+  assert.equal(testRunner.testFileTimeoutMs({}), 300000);
+  assert.equal(testRunner.testFileTimeoutMs({ CLAY_TEST_FILE_TIMEOUT_MS: "750" }), 750);
+  assert.equal(testRunner.testFileTimeoutMs({ CLAY_TEST_FILE_TIMEOUT_MS: "bad" }), 300000);
 });

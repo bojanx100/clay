@@ -7,6 +7,7 @@ var spawn = require("child_process").spawn;
 var { COOP_CONTROL_ENVIRONMENT } = require("../lib/config");
 
 var REPO_ROOT = path.join(__dirname, "..");
+var DEFAULT_TEST_FILE_TIMEOUT_MS = 300000;
 
 function sanitizedTestEnvironment(source) {
   var environment = Object.assign({}, source || {});
@@ -76,6 +77,12 @@ function testConcurrency() {
   return Math.max(1, cores);
 }
 
+function testFileTimeoutMs(source) {
+  var requested = Number(source && source.CLAY_TEST_FILE_TIMEOUT_MS);
+  if (Number.isFinite(requested) && requested >= 100) return Math.floor(requested);
+  return DEFAULT_TEST_FILE_TIMEOUT_MS;
+}
+
 function testArgs(summaryPath) {
   return [
     "--test",
@@ -133,13 +140,26 @@ function releaseAllTempPaths() {
 
 var activeChildren = {};
 
+function terminateChildTree(child, signal) {
+  if (!child || !child.pid) return;
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch (e) {
+      if (e && e.code === "ESRCH") return;
+    }
+  }
+  try { child.kill(signal); } catch (e) { /* already gone */ }
+}
+
 function installInterruptCleanup() {
   var signals = ["SIGINT", "SIGTERM", "SIGHUP"];
   for (var i = 0; i < signals.length; i++) {
     process.on(signals[i], function (signal) {
       var pids = Object.keys(activeChildren);
       for (var j = 0; j < pids.length; j++) {
-        try { activeChildren[pids[j]].kill("SIGTERM"); } catch (e) { /* already gone */ }
+        terminateChildTree(activeChildren[pids[j]], "SIGTERM");
       }
       releaseAllTempPaths();
       // Re-raise so the caller sees a signal death, not a plain exit code. The
@@ -150,7 +170,7 @@ function installInterruptCleanup() {
   }
 }
 
-function runFile(file, environmentFor, summaryDir, index) {
+function runFile(file, environmentFor, summaryDir, index, options) {
   return new Promise(function (resolve) {
     // The TAP summary lives outside CLAY_HOME on purpose: suites that clear
     // their own home would otherwise delete the file the runner counts from and
@@ -160,10 +180,16 @@ function runFile(file, environmentFor, summaryDir, index) {
     var chunks = [];
     var settled = false;
     var child;
+    var timeoutTimer = null;
+    var timeoutSource = options && options.timeoutMs !== undefined ?
+      { CLAY_TEST_FILE_TIMEOUT_MS: options.timeoutMs } : process.env;
+    var timeoutMs = testFileTimeoutMs(timeoutSource);
+    var timedOut = false;
 
     function finish(status, signal, error) {
       if (settled) return;
       settled = true;
+      if (timeoutTimer) clearTimeout(timeoutTimer);
       var summary = parseTapSummary(summaryPath);
       // Remove the summary as soon as it is read. Both passes share one summary
       // directory and number files from zero, so a leftover report from the
@@ -177,6 +203,8 @@ function runFile(file, environmentFor, summaryDir, index) {
         status: status,
         signal: signal || null,
         error: error || null,
+        timedOut: timedOut,
+        timeoutMs: timeoutMs,
         summary: summary,
         output: Buffer.concat(chunks).toString("utf8"),
       });
@@ -188,6 +216,7 @@ function runFile(file, environmentFor, summaryDir, index) {
       testHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-test-file-"));
       trackTempPath(testHome);
       child = spawn(process.execPath, testArgs(summaryPath).concat([file]), {
+        detached: process.platform !== "win32",
         env: environmentFor(process.env, testHome),
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -196,6 +225,11 @@ function runFile(file, environmentFor, summaryDir, index) {
       return;
     }
     if (child.pid) activeChildren[child.pid] = child;
+    timeoutTimer = setTimeout(function () {
+      timedOut = true;
+      terminateChildTree(child, "SIGKILL");
+    }, timeoutMs);
+    if (timeoutTimer.unref) timeoutTimer.unref();
 
     child.stdout.on("data", function (chunk) { chunks.push(chunk); });
     child.stderr.on("data", function (chunk) { chunks.push(chunk); });
@@ -292,6 +326,7 @@ function accountForResults(files, results) {
 
 function describeMissing(result) {
   if (!result) return "never completed";
+  if (result.timedOut) return "timed out after " + result.timeoutMs + "ms";
   if (result.error) return "spawn error: " + result.error.message;
   if (result.signal) return "killed by " + result.signal;
   return "exited " + result.status + " without a test summary";
@@ -371,6 +406,9 @@ module.exports = {
   isControlledSuite: isControlledSuite,
   defaultTestFiles: defaultTestFiles,
   testConcurrency: testConcurrency,
+  testFileTimeoutMs: testFileTimeoutMs,
+  runFile: runFile,
   parseTapSummary: parseTapSummary,
   accountForResults: accountForResults,
+  describeMissing: describeMissing,
 };

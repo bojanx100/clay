@@ -369,6 +369,52 @@ test("Codex streams readable reasoning deltas without repeating completed text",
   }).map(function (event) { return event.text; }).join(""), "First\n\nSecond");
 });
 
+test("Codex command output coalescing keeps retained state bounded", function () {
+  var state = {
+    blockCounter: 0,
+    toolBlocks: { "command-1": "block-1" },
+    thinkingBlocks: {},
+    thinkingLengths: {},
+    commandInputs: {},
+    commandOutputs: {},
+  };
+  var delta = "x".repeat(2048);
+  var outputEvents = [];
+
+  for (var i = 0; i < 200; i++) {
+    outputEvents = outputEvents.concat(routing.flattenEvent({
+      method: "item/commandExecution/outputDelta",
+      params: { itemId: "command-1", delta: delta },
+    }, state));
+  }
+
+  var buffer = state.commandOutputs["command-1"];
+  assert.strictEqual(outputEvents.length, 200);
+  assert.strictEqual(outputEvents[0].text, delta);
+  assert.strictEqual(buffer.pendingLength, 0);
+  assert.strictEqual(buffer.pendingChunks.length, 0);
+  assert.ok(buffer.fallbackLength < delta.length * 200,
+    "the completion fallback must not retain the full streamed output");
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(buffer, "text"), false);
+
+  var completed = routing.flattenEvent({
+    method: "item/completed",
+    params: {
+      item: {
+        id: "command-1",
+        type: "commandExecution",
+        command: "large-output",
+        status: "completed",
+      },
+    },
+  }, state);
+  var result = completed.filter(function (event) {
+    return event.yokeType === "tool_result";
+  })[0];
+  assert.match(result.content, /output truncated by Clay after 262144 characters/);
+  assert.strictEqual(state.commandOutputs["command-1"], undefined);
+});
+
 test("Tool results render every image, preserve text, and expand their group", function () {
   function FakeClassList() {
     this.values = [];
