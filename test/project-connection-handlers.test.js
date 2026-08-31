@@ -118,6 +118,7 @@ function makeContext(session, sent, events, diagnostics) {
     stopAllDirWatches: function () { events.push("stop_dir_watches"); },
     getProjectOwnerId: function () { return "owner"; },
     getTitle: function () { return "Title"; },
+    getIcon: function () { return "🧱"; },
     getProject: function () { return "Project"; },
     _email: { getEmailDefaults: function () { return []; } },
     warmup: function () { events.push("warmup"); },
@@ -197,6 +198,8 @@ test("restored connection preserves initial ordering, history, permissions, deba
       mateId: "mate-1",
     });
     assert.equal(sent.find(function (message) { return message.type === "info"; }).runtimeAssetId, "runtime-test");
+    assert.equal(sent.find(function (message) { return message.type === "info"; }).icon, "🧱",
+      "the initial connection snapshot carries current project icon metadata");
     assert.equal(sent.find(function (message) { return message.type === "session_switched"; }).queuedUserMessages[0], "queued");
     assert.ok(events.indexOf("history") !== -1);
     assert.ok(events.indexOf("auto_resume") !== -1);

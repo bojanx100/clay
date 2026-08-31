@@ -210,6 +210,17 @@ test("merging is a no-op without a loaded state to protect", async function () {
   assert.equal(mod.mergeWorkspaceState(loaded(), null), null);
 });
 
+test("a late enrichment cannot overwrite a newer manual refresh", async function () {
+  var mod = await loadState();
+  // A GitHub lookup is asynchronous. A manual refresh may begin after request
+  // 18's skeleton but finish before request 18's old enrichment returns.
+  assert.equal(mod.acceptsWorkspaceResponse(19, loaded({ requestId: 19 })), true);
+  assert.equal(mod.acceptsWorkspaceResponse(19, loaded({ requestId: 18 })), false);
+  // A rolling upgrade must keep a browser usable against a server that has not
+  // started echoing request ids yet.
+  assert.equal(mod.acceptsWorkspaceResponse(19, loaded()), true);
+});
+
 test("the blank development state does not imply that package.json exists", function () {
   var file = path.join(__dirname, "..", "lib", "public", "modules", "workspace-panel-sections.js");
   var sections = fs.readFileSync(file, "utf8");
@@ -256,4 +267,43 @@ test("a WebSocket dev-status update cannot replace an owner panel without cached
   panel.handleWorkspaceDevStatus({ type: "workspace_dev_status", running: false, script: "dev" });
   assert.match(elements["workspace-body"].innerHTML, /ws-dev-section/,
     "a non-owner session still receives the dev-only fallback when state is absent");
+});
+
+test("a late Workspace response cannot replace the latest manual refresh", async function (t) {
+  var elements = installWorkspacePanelDom();
+  var modules = pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules"));
+  var panel = await import(modules.href + "/workspace-panel.js");
+  var sessions = await import(modules.href + "/sidebar-sessions.js");
+  var clientStore = await import(modules.href + "/store.js");
+  var wsRef = await import(modules.href + "/ws-ref.js");
+  var sent = [];
+
+  t.after(function () {
+    panel.closeWorkspacePanel();
+    wsRef.setWs(null);
+    sessions.getCachedSessions().length = 0;
+  });
+  sessions.getCachedSessions().length = 0;
+  clientStore.store.set({ currentSlug: "lead", activeSessionId: 88, connected: true });
+  wsRef.setWs({
+    readyState: 1,
+    send: function (payload) { sent.push(JSON.parse(payload)); },
+  });
+  panel.initWorkspacePanel();
+  panel.openWorkspacePanel();
+  elements["workspace-refresh-btn"].listeners.click[0]();
+
+  var requests = sent.filter(function (message) { return message.type === "workspace_get"; });
+  assert.equal(requests.length, 2);
+  assert.ok(requests[1].requestId > requests[0].requestId,
+    "the manual refresh is a newer request");
+
+  panel.handleWorkspaceState(loaded({
+    sessionId: 88, requestId: requests[1].requestId, branch: "newer", board: null, pr: null, items: [],
+  }));
+  panel.handleWorkspaceState(loaded({
+    sessionId: 88, requestId: requests[0].requestId, branch: "older", board: null, pr: null, items: [],
+  }));
+  assert.match(elements["workspace-body"].innerHTML, /<code>newer<\/code>/);
+  assert.doesNotMatch(elements["workspace-body"].innerHTML, /<code>older<\/code>/);
 });
