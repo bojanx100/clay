@@ -1,0 +1,141 @@
+var test = require("node:test");
+var assert = require("node:assert/strict");
+var fs = require("node:fs");
+var os = require("node:os");
+var path = require("node:path");
+var humanAttention = require("../lib/human-attention");
+
+function createClock(value) {
+  var current = value;
+  return {
+    now: function () { return current; },
+    set: function (next) { current = next; },
+    advance: function (duration) { current += duration; },
+  };
+}
+
+function activeInput(projectSlug, interaction, offset) {
+  return {
+    userId: "owner",
+    projectSlug: projectSlug,
+    sessionId: "session-1",
+    visible: true,
+    focused: true,
+    engaged: true,
+    interaction: interaction,
+    timezoneOffsetMinutes: offset === undefined ? -120 : offset,
+  };
+}
+
+test("phone and laptop leases are unioned once and attributed to the latest active project", function () {
+  var base = Date.UTC(2026, 7, 31, 8, 0, 0);
+  var clock = createClock(base);
+  var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
+  var laptop = {};
+  var phone = {};
+
+  service.signal(laptop, activeInput("alpha", true));
+  clock.advance(10000);
+  service.signal(phone, activeInput("beta", true));
+  clock.advance(10000);
+  service.signal(laptop, activeInput("alpha", false));
+  clock.advance(10000);
+  service.signal(phone, activeInput("beta", false));
+
+  var result = service.summary("owner", -120, "beta");
+  assert.equal(result.todayMs, 30000, "overlapping devices must never double the elapsed wall time");
+  assert.deepEqual(result.days[0].projects, [
+    { projectSlug: "beta", durationMs: 20000 },
+    { projectSlug: "alpha", durationMs: 10000 },
+  ]);
+  assert.equal(result.projectTodayMs, 20000);
+});
+
+test("hidden clients stop immediately and autonomous runtime never creates human time", function () {
+  var base = Date.UTC(2026, 7, 31, 8, 0, 0);
+  var clock = createClock(base);
+  var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
+  var client = {};
+
+  assert.equal(service.summary("owner", -120, "alpha").todayMs, 0,
+    "server or agent activity without a client signal is not human work");
+  service.signal(client, activeInput("alpha", true));
+  clock.advance(10000);
+  service.signal(client, {
+    userId: "owner",
+    projectSlug: "alpha",
+    visible: false,
+    focused: false,
+    engaged: false,
+    interaction: false,
+    timezoneOffsetMinutes: -120,
+  });
+  clock.advance(120000);
+  assert.equal(service.summary("owner", -120, "alpha").todayMs, 10000);
+});
+
+test("reading and thinking time ends at the bounded three-minute grace", function () {
+  var base = Date.UTC(2026, 7, 31, 8, 0, 0);
+  var clock = createClock(base);
+  var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
+  var client = {};
+
+  service.signal(client, activeInput("alpha", true));
+  for (var elapsed = 20000; elapsed <= 160000; elapsed += 20000) {
+    clock.set(base + elapsed);
+    service.signal(client, activeInput("alpha", false));
+  }
+  clock.set(base + 240000);
+  assert.equal(service.summary("owner", -120, "alpha").todayMs, 180000);
+  assert.equal(service.summary("owner", -120, "alpha").tracking, false);
+});
+
+test("a Zagreb interval crossing 5am is split between the correct workdays", function () {
+  var base = Date.UTC(2026, 7, 31, 2, 59, 0);
+  var clock = createClock(base);
+  var service = humanAttention.createHumanAttention({
+    filePath: null,
+    now: clock.now,
+    signalLeaseMs: 5 * 60 * 1000,
+    thinkingGraceMs: 5 * 60 * 1000,
+  });
+  var client = {};
+
+  service.signal(client, activeInput("alpha", true, -120));
+  clock.advance(2 * 60 * 1000);
+  var result = service.signal(client, activeInput("alpha", false, -120));
+
+  assert.equal(humanAttention.workdayKey(base, -120, 5), "2026-08-30");
+  assert.equal(humanAttention.workdayKey(base + 2 * 60 * 1000, -120, 5), "2026-08-31");
+  assert.equal(result.days[0].key, "2026-08-31");
+  assert.equal(result.days[0].totalMs, 60000);
+  assert.equal(result.days[1].key, "2026-08-30");
+  assert.equal(result.days[1].totalMs, 60000);
+});
+
+test("daily cap and measured totals survive a ledger reload", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-human-attention-"));
+  var filePath = path.join(dir, "attention.json");
+  var base = Date.UTC(2026, 7, 31, 8, 0, 0);
+  var clock = createClock(base);
+  try {
+    var service = humanAttention.createHumanAttention({ filePath: filePath, now: clock.now, saveDelayMs: 0 });
+    var client = {};
+    service.signal(client, activeInput("alpha", true));
+    clock.advance(60000);
+    service.signal(client, {
+      userId: "owner", projectSlug: "alpha", visible: false, focused: false,
+      engaged: false, interaction: false, timezoneOffsetMinutes: -120,
+    });
+    assert.deepEqual(service.setCapMinutes("owner", 360), { ok: true, capMinutes: 360 });
+    service.destroy();
+
+    var restored = humanAttention.createHumanAttention({ filePath: filePath, now: clock.now, saveDelayMs: 0 });
+    var result = restored.summary("owner", -120, "alpha");
+    assert.equal(result.todayMs, 25000, "the signal lease excludes an unproven gap longer than 25 seconds");
+    assert.equal(result.capMinutes, 360);
+    assert.equal(result.remainingMs, 360 * 60000 - 25000);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

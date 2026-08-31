@@ -115,6 +115,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-memory.js` | `memory_list`, `memory_search`, `memory_delete` | Session digest memory |
 | `project-mcp.js` | `mcp_servers_available`, `mcp_tool_result`, `mcp_tool_error`, `mcp_toggle_server` | Remote MCP server bridge via Chrome Extension |
 | `project-message-router.js` | Main project WebSocket message router: delegates ping, server-level messages, mentions, debate, MCP, memory, sessions, filesystem, workspace, and user-message routes |
+| `project-human-attention.js` | `human_attention_signal`, `human_attention_query`, `human_attention_cap_set` | Project-scoped WebSocket adapter for the daemon-wide human-attention ledger |
 
 ### Infrastructure Modules
 
@@ -122,6 +123,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 |--------|---------|
 | `project-browser-extension.js` | Browser extension auth token, daemon-shared tab/connection state, command dispatch, and tab context request helpers |
 | `server-live-ui-registry.js` | Server-instance Live UI pairing identities, proof, reconnect credentials, deduplication, isolation, and revocation |
+| `human-attention.js` | Daemon-wide, per-user union of focused interaction leases across phone/laptop clients, persisted 5am workdays, project totals, and daily caps |
+| `lib/public/modules/human-attention.js` | Focus/visibility/interaction leases, live title-bar budget chip, cap editor, project totals, and 10-workday presentation |
 | `server-lead.js` | Permanent Coop pseudo-project registration, designated-owner resolution, managed no-local-execution directive, and immutable legacy Lead reference/supersession helpers |
 | `lead-mode.js` | Server-authoritative Coop Lead mode: one-time owner-preference migration, designated Clay-owner mutation authority, durable audit trail, and cross-project state fanout; it gates autonomous powers, not Coop persistence |
 | `server-cross-project.js` | Daemon cross-project router: non-authoritative legacy text notifications, typed durable delivery by stable ProjectRef/SessionRef, controlled legacy-to-project execution migration, and project-registration reconciliation of audited restart supersessions |

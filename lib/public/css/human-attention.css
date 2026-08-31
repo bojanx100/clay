@@ -1,0 +1,124 @@
+.human-attention-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.human-attention-chip {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 3px 8px !important;
+  border-radius: 9px !important;
+  color: var(--text-secondary) !important;
+  background: color-mix(in srgb, var(--accent) 9%, transparent) !important;
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.human-attention-chip svg { width: 13px !important; height: 13px !important; }
+.human-attention-chip.warning { color: var(--warning) !important; background: color-mix(in srgb, var(--warning) 13%, transparent) !important; }
+.human-attention-chip.reached { color: var(--error) !important; background: color-mix(in srgb, var(--error) 13%, transparent) !important; }
+
+.human-attention-popover {
+  position: absolute;
+  z-index: 10030;
+  top: calc(100% + 9px);
+  right: 0;
+  width: min(350px, calc(100vw - 20px));
+  max-height: min(680px, calc(100vh - 78px));
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
+}
+
+.human-attention-heading,
+.human-attention-summary,
+.human-attention-row,
+.human-attention-cap,
+.human-attention-cap > div {
+  display: flex;
+  align-items: center;
+}
+
+.human-attention-heading { justify-content: space-between; margin-bottom: 14px; }
+.human-attention-heading > div { display: flex; flex-direction: column; gap: 3px; }
+.human-attention-heading strong { font-size: 14px; }
+.human-attention-heading span { color: var(--text-muted); font-size: 10px; }
+.human-attention-heading button { padding: 4px !important; }
+
+.human-attention-summary { gap: 8px; }
+.human-attention-summary > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px;
+  border-radius: 10px;
+  background: var(--bg-alt);
+}
+.human-attention-summary span { color: var(--text-muted); font-size: 10px; }
+.human-attention-summary strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+
+.human-attention-progress {
+  height: 5px;
+  margin: 11px 0 8px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--border-subtle);
+}
+.human-attention-progress span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.human-attention-chip.warning + .human-attention-popover .human-attention-progress span { background: var(--warning); }
+.human-attention-chip.reached + .human-attention-popover .human-attention-progress span { background: var(--error); }
+
+.human-attention-row {
+  justify-content: space-between;
+  min-height: 27px;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.human-attention-row strong { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.human-attention-day { min-height: 24px; }
+.human-attention-section-title { margin: 15px 0 4px; color: var(--text-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.human-attention-empty { padding: 8px 0; color: var(--text-muted); font-size: 11px; }
+
+.human-attention-cap { justify-content: space-between; gap: 12px; margin-top: 16px; font-size: 11px; }
+.human-attention-cap > div { gap: 5px; }
+.human-attention-cap input {
+  width: 58px;
+  box-sizing: border-box;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: var(--text);
+  font: inherit;
+}
+.human-attention-cap button {
+  padding: 6px 9px !important;
+  background: var(--accent) !important;
+  color: white !important;
+  font-size: 10px;
+  font-weight: 700;
+}
+.human-attention-popover p { margin: 14px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.45; }
+
+@media (max-width: 520px) {
+  .human-attention-chip { padding: 3px 6px !important; }
+  .human-attention-chip span { max-width: 58px; overflow: hidden; }
+  .human-attention-popover { position: fixed; top: calc(var(--safe-top) + 44px); right: 10px; }
+}
+
+@media (max-width: 380px) {
+  .human-attention-chip svg { display: none; }
+  .human-attention-chip span { max-width: 40px; }
+}

@@ -130,6 +130,7 @@ function makeContext(session, sent, events, diagnostics) {
       isAuthority: function (user, multiUser, ownerId) { return !multiUser || !!(user && user.id === ownerId); },
     },
     diagLog: function (line) { if (diagnostics) diagnostics.push(line); },
+    humanAttention: { disconnect: function () { events.push("attention_disconnect"); } },
   };
 }
 
@@ -225,6 +226,7 @@ test("restored connection preserves initial ordering, history, permissions, deba
     assert.ok(events.indexOf("detach") !== -1);
     assert.ok(events.indexOf("stop_file_watch") !== -1);
     assert.ok(events.indexOf("stop_dir_watches") !== -1);
+    assert.ok(events.indexOf("attention_disconnect") !== -1);
     assert.equal(ctx.clients.size, 0);
   } finally {
     restore();
