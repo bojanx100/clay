@@ -326,3 +326,61 @@ test("viewing a loaded session releases its transcript and persists recency with
     h.cleanup();
   }
 });
+
+test("unchanged hidden sessions hydrate from the startup cache without reparsing transcripts", function () {
+  var storageId = "aaaaaaaa-0000-4000-8000-000000000009";
+  var h = harness(function (dir) {
+    writeSessionFile(dir, storageId, {
+      hidden: true,
+      closedAt: 20,
+      lastActivity: 14,
+      sessionVisibility: "shared",
+    }, settledHistory());
+  });
+  var file = path.join(h.sessionsDir, storageId + ".jsonl");
+  var originalRead = fs.readFileSync;
+  try {
+    assert.ok(fs.existsSync(path.join(h.sessionsDir, ".startup-cache.json")),
+      "the first parse records compact derived state");
+    clearSessionModuleCache();
+    var transcriptReads = 0;
+    fs.readFileSync = function (target) {
+      if (String(target) === file) {
+        transcriptReads++;
+        throw new Error("hidden transcript should not be parsed");
+      }
+      return originalRead.apply(fs, arguments);
+    };
+
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var session = sessionByStorageId(restored, storageId);
+    assert.ok(session, "cached metadata restores the archived session");
+    assert.deepEqual(session._historicalProviderIds.sort(),
+      ["provider-thread-a", "provider-thread-b"],
+      "provider identity derived by the first parse remains available");
+    assert.equal(transcriptReads, 0, "the unchanged transcript was not read");
+    assert.equal(historyStore.isResident(session), false);
+
+    fs.readFileSync = originalRead;
+    fs.appendFileSync(file, JSON.stringify({ type: "info", text: "changed", _ts: 15 }) + "\n");
+    clearSessionModuleCache();
+    transcriptReads = 0;
+    fs.readFileSync = function (target) {
+      if (String(target) === file) transcriptReads++;
+      return originalRead.apply(fs, arguments);
+    };
+    var changed = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    assert.ok(sessionByStorageId(changed, storageId));
+    assert.equal(transcriptReads, 1,
+      "a changed fingerprint falls back to the authoritative transcript parser");
+  } finally {
+    fs.readFileSync = originalRead;
+    h.cleanup();
+  }
+});
