@@ -94,10 +94,13 @@
 
 .human-attention-close {
   display: inline-flex !important;
+  flex: 0 0 46px;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  min-width: 46px;
+  height: 46px;
+  min-height: 46px;
   padding: 0 !important;
   border: 0 !important;
   border-radius: 8px !important;
