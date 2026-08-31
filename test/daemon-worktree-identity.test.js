@@ -245,6 +245,24 @@ test("daemon startup discards a stale worktree config row in favor of its canoni
   var socketPath = path.join(home, "daemon-dev.sock");
   var child = null;
   try {
+    fs.writeFileSync(path.join(home, ".clayrc"), JSON.stringify({
+      recentProjects: [{
+        path: fixture.parentPath,
+        slug: "clay",
+      }, {
+        path: fixture.worktreePath,
+        slug: "clay-fix-r6-compaction-source-stream-fanout",
+      }, {
+        path: isolatedPath,
+        slug: "clay-r6-isolated-fixture",
+      }, {
+        path: browserHelperPath,
+        slug: "clay-chrome",
+      }, {
+        path: unrelatedProjectPath,
+        slug: "unrelated-project",
+      }],
+    }));
     fs.writeFileSync(configPath, JSON.stringify({
       port: 0,
       host: "127.0.0.1",
@@ -308,6 +326,10 @@ test("daemon startup discards a stale worktree config row in favor of its canoni
     assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")).projects.map(function (project) {
       return project.slug;
     }), ["clay", "unrelated-project"], "stale execution roots must not survive a discovery refresh");
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, ".clayrc"), "utf8")).recentProjects.map(function (project) {
+      return project.path;
+    }), [fixture.parentPath, unrelatedProjectPath],
+    "stale execution roots must not remain as inactive recent projects for a later CLI restore");
   } finally {
     if (child) await stopDaemon(child, socketPath);
     fs.rmSync(home, { recursive: true, force: true });
