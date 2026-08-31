@@ -70,6 +70,30 @@ function waitForDaemonStatus(socketPath, child) {
   });
 }
 
+function waitForProject(socketPath, child, predicate) {
+  var deadline = Date.now() + 10000;
+  return new Promise(function (resolve, reject) {
+    function probe() {
+      ipc.sendIPCCommand(socketPath, { cmd: "get_status" }, 250).then(function (status) {
+        if (status && status.ok && status.projects.some(predicate)) {
+          resolve(status);
+          return;
+        }
+        if (child.exitCode !== null) {
+          reject(new Error("fixture daemon exited before registering the project"));
+          return;
+        }
+        if (Date.now() >= deadline) {
+          reject(new Error("fixture daemon did not register the project within 10 seconds"));
+          return;
+        }
+        setTimeout(probe, 50);
+      });
+    }
+    probe();
+  });
+}
+
 function stopDaemon(child, socketPath) {
   if (child.exitCode !== null) return Promise.resolve();
   return new Promise(function (resolve) {
@@ -303,7 +327,10 @@ test("daemon startup discards a stale worktree config row in favor of its canoni
       stdio: ["ignore", "ignore", "ignore"],
     });
 
-    var status = await waitForDaemonStatus(socketPath, child);
+    await waitForDaemonStatus(socketPath, child);
+    var status = await waitForProject(socketPath, child, function (project) {
+      return project.isWorktree && canonicalPath(project.path) === canonicalPath(fixture.worktreePath);
+    });
     var registeredProjects = status.projects;
     var projects = registeredProjects.filter(function (project) {
       var projectPath = canonicalPath(project.path);
