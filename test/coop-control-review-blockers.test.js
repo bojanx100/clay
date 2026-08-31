@@ -1055,8 +1055,10 @@ availableTest("v4 migration preserves created Class B successor receipt evidence
     var sqlite = require("node:sqlite");
     var db = new sqlite.DatabaseSync(h.dbPath);
     db.exec("PRAGMA foreign_keys = OFF");
+    db.exec("DROP TABLE coop_control_stale_r6_reconciliation_receipts");
     db.exec("DROP TABLE coop_control_successor_receipts");
     db.exec("DROP TABLE coop_control_delivery_payloads");
+    db.prepare("DELETE FROM coop_control_migrations WHERE version = 6").run();
     db.prepare("DELETE FROM coop_control_migrations WHERE version = 5").run();
     db.exec("PRAGMA user_version = 4");
     db.close();
