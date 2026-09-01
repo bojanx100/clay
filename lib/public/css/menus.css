@@ -549,6 +549,74 @@
 #config-chip:hover { color: var(--text-secondary); background: rgba(var(--overlay-rgb),0.06); }
 #config-chip.active { color: var(--text-secondary); background: rgba(var(--overlay-rgb),0.06); }
 
+/* Project/Coop standing authorization lives next to the model selector: it is
+   a status control, not a permission-mode shortcut. */
+#auto-approval-wrap { position: relative; }
+#auto-approval-wrap.hidden { display: none; }
+#auto-approval-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#auto-approval-chip .lucide { width: 14px; height: 14px; }
+#auto-approval-chip:hover, #auto-approval-chip[aria-expanded="true"] {
+  color: var(--text-secondary);
+  background: rgba(var(--overlay-rgb), 0.06);
+}
+#auto-approval-chip.is-enabled {
+  color: var(--accent, #4fa879);
+  border-color: color-mix(in srgb, var(--accent, #4fa879) 35%, transparent);
+}
+#auto-approval-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 201;
+  width: min(360px, calc(100vw - 24px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+  box-shadow: 0 4px 16px rgba(var(--shadow-rgb), 0.4);
+}
+#auto-approval-popover.hidden { display: none; }
+.auto-approval-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.auto-approval-summary { margin-top: 4px; color: var(--text-secondary); font-size: 12px; line-height: 1.35; }
+.auto-approval-section { padding-top: 12px; }
+.auto-approval-section.hidden { display: none; }
+.auto-approval-toggle, .auto-approval-inherit, .auto-approval-disable {
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.auto-approval-toggle { width: 100%; padding: 6px 9px; text-align: left; }
+.auto-approval-toggle[aria-checked="true"] { border-color: var(--accent, #4fa879); color: var(--accent, #4fa879); }
+.auto-approval-toggle:disabled, .auto-approval-inherit:disabled, .auto-approval-disable:disabled { opacity: .55; cursor: not-allowed; }
+.auto-approval-disable { padding: 5px 7px; color: var(--danger, #d65a5a); }
+.auto-approval-inherit { display: block; width: 100%; margin-top: 6px; padding: 6px 9px; }
+.auto-approval-inherit.hidden { display: none; }
+.auto-approval-overrides { display: grid; gap: 6px; }
+.auto-approval-override { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: 12px; }
+.auto-approval-override button { padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 11px; cursor: pointer; }
+.auto-approval-safety { margin: 12px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+#auto-approval-chip:focus-visible, .auto-approval-toggle:focus-visible, .auto-approval-inherit:focus-visible, .auto-approval-disable:focus-visible, .auto-approval-override button:focus-visible { outline: 2px solid var(--accent, #4fa879); outline-offset: 2px; }
+
 #config-popover {
   position: absolute;
   bottom: calc(100% + 4px);

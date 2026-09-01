@@ -5,6 +5,7 @@ var os = require("os");
 var path = require("path");
 
 var { attachAutoLaunch } = require("../lib/project-auto-launch");
+var autoApproval = require("../lib/coop-auto-approval-policy");
 
 // These suites encode LEGACY behavior, which the cutover preserves exactly
 // while Lead mode is off (CTO-ORCHESTRATOR-ROADMAP 1.1, additive-only). Lead
@@ -57,6 +58,65 @@ function makePrReviewSession() {
   session.taskLauncher.itemNumber = 1644;
   return session;
 }
+
+test("auto-approval control is owner-only, ProjectRef-bound, and canonical-Coop scoped", function () {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-auto-approval-ui-"));
+  var projectId = "51e67388-cea0-52b7-8e01-cde68cae713c";
+  var otherProjectId = "11111111-2222-4333-8444-555555555555";
+  var responses = [];
+  var store = autoApproval.createPolicyStore({ file: path.join(cwd, "auto-approval.json"),
+    now: function () { return 1000; } });
+  var users = {
+    isMultiUser: function () { return true; },
+    getAllUsers: function () { return [{ id: "owner-1" }]; },
+  };
+  var project = attachAutoLaunch({
+    cwd: cwd,
+    slug: "webapp",
+    sm: { sessions: new Map(), getProjectId: function () { return projectId; } },
+    getLeadMode: LEAD_OFF,
+    autoApprovalPolicy: store,
+    usersModule: users,
+    getSessionForWs: function () { return { coopHome: false }; },
+    sendTo: function (ws, message) { responses.push(message); },
+  });
+  var member = { _clayUser: { id: "member-1" } };
+  var owner = { _clayUser: { id: "owner-1" } };
+  try {
+    assert.equal(project.handleMessage(member, { type: "set_auto_approval_project", enabled: true }), true);
+    assert.equal(responses.pop().error, "forbidden");
+    assert.equal(project.handleMessage(owner, {
+      type: "set_auto_approval_project", projectRef: { projectId: otherProjectId }, enabled: true,
+    }), true);
+    assert.equal(responses.pop().error, "project_ref_mismatch");
+    assert.equal(project.handleMessage(owner, { type: "set_auto_approval_project", enabled: true }), true);
+    var enabled = responses.pop();
+    assert.equal(enabled.state.effective.enabled, true);
+    assert.equal(enabled.state.projectOverride.projectRef.projectId, projectId);
+    assert.equal(project.handleMessage(owner, { type: "set_auto_approval_global", enabled: true }), true);
+    assert.equal(responses.pop().error, "canonical_coop_required");
+
+    var coop = attachAutoLaunch({
+      cwd: cwd,
+      slug: "lead",
+      sm: { sessions: new Map(), getProjectId: function () { return "system-lead"; } },
+      getLeadMode: LEAD_OFF,
+      autoApprovalPolicy: store,
+      usersModule: users,
+      getSessionForWs: function () { return { coopHome: true }; },
+      listAutoApprovalProjects: function () { return [{ projectRef: { projectId: projectId }, label: "Webapp" }]; },
+      sendTo: function (ws, message) { responses.push(message); },
+    });
+    assert.equal(coop.handleMessage(owner, { type: "set_auto_approval_global", enabled: true }), true);
+    var global = responses.pop();
+    assert.equal(global.scope, "coop");
+    assert.equal(global.state.defaultControl.enabled, true);
+    assert.equal(global.state.projects[0].hasOverride, true,
+      "Coop lists per-project overrides alongside its all-project control");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
 
 test("'mark as done' does not complete the workflow until the marker is emitted", function () {
   var h = makeTaskLauncher();

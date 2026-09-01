@@ -1933,6 +1933,7 @@ pre.mermaid-error {
 /* DM mode: simplify input bar (no voice, no model config, no context, no slash menu) */
 #main-column.dm-mode #stt-btn,
 #main-column.dm-mode #config-chip-wrap,
+#main-column.dm-mode #auto-approval-wrap,
 #main-column.dm-mode #context-mini,
 #main-column.dm-mode #context-sources-btn-wrap,
 #main-column.dm-mode #slash-menu {

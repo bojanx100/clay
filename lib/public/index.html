@@ -581,6 +581,35 @@
                   </div>
                 </div>
               </div>
+              <div id="auto-approval-wrap" class="hidden">
+                <button id="auto-approval-chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="Auto-approval for eligible project work">
+                  <i data-lucide="shield-check"></i>
+                  <span id="auto-approval-chip-label">Approval: Off</span>
+                </button>
+                <div id="auto-approval-popover" class="hidden" role="dialog" aria-labelledby="auto-approval-title">
+                  <div class="auto-approval-header">
+                    <div>
+                      <div id="auto-approval-title" class="config-popover-title">AUTO-APPROVAL</div>
+                      <div id="auto-approval-summary" class="auto-approval-summary">Loading current authorization…</div>
+                    </div>
+                    <button id="auto-approval-disable" class="auto-approval-disable" type="button">Disable now</button>
+                  </div>
+                  <div id="auto-approval-global-section" class="auto-approval-section hidden">
+                    <div class="config-section-label">ALL PROJECTS</div>
+                    <button id="auto-approval-global-toggle" class="auto-approval-toggle" type="button" role="switch" aria-checked="false"></button>
+                  </div>
+                  <div id="auto-approval-project-section" class="auto-approval-section">
+                    <div id="auto-approval-project-label" class="config-section-label">THIS PROJECT</div>
+                    <button id="auto-approval-project-toggle" class="auto-approval-toggle" type="button" role="switch" aria-checked="false"></button>
+                    <button id="auto-approval-inherit" class="auto-approval-inherit hidden" type="button">Use all-projects setting</button>
+                  </div>
+                  <div id="auto-approval-overrides-section" class="auto-approval-section hidden">
+                    <div class="config-section-label">PROJECT OVERRIDES</div>
+                    <div id="auto-approval-overrides" class="auto-approval-overrides"></div>
+                  </div>
+                  <p class="auto-approval-safety">Only current low-risk work is eligible. Destructive, spending, permission, secret, and approval-system changes still require an owner approval.</p>
+                </div>
+              </div>
               <button id="task-btn" class="composer-task-btn" type="button" aria-label="Send as task" title="Send as task (Option/Alt+Enter)">
                 <i data-lucide="git-branch"></i><span>Task</span>
               </button>

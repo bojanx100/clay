@@ -9,6 +9,7 @@ var authorization = require("../lib/project-automation-execution-authorization")
 var candidatesModule = require("../lib/project-automation-candidates");
 var identity = require("../lib/project-automation-identity");
 var scopedAutonomy = require("../lib/coop-scoped-autonomy-policy");
+var autoApproval = require("../lib/coop-auto-approval-policy");
 var policyModule = require("../lib/project-automation-policy");
 var qualification = require("../lib/project-automation-qualification");
 
@@ -275,6 +276,49 @@ test("the scoped low-risk receipt is revalidated against its durable owner grant
     assert.equal(validator.validate({ authorization: gated, request: request(updated) }).reason,
       "scoped_policy_securitySensitive_gated",
       "security-sensitive work stays owner-gated even with the durable grant");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("project auto-approval carries owner-control provenance and fails closed after revocation", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-auto-approval-auth-"));
+  try {
+    var candidates = candidatesModule.createCandidateStore({ cwd: dir });
+    var source = candidate({
+      admission: "owner_approval",
+      itemClass: "feature",
+      safety: scopedAutonomy.assessCandidateSafety({ title: "Correct a small empty state alignment" }),
+    });
+    candidates.upsert(source);
+    var record = candidates.get({ projectId: PROJECT }, source.candidateKey);
+    var scope = request(record);
+    var store = autoApproval.createPolicyStore({ file: path.join(dir, "auto-approval.json"),
+      now: function () { return 1000; } });
+    assert.equal(store.setProjectOverride({ projectRef: { projectId: PROJECT }, enabled: true,
+      actorId: "owner-1", at: 1000 }).ok, true);
+    var reservation = store.reserveCandidate(record);
+    assert.equal(reservation.ok, true);
+    var typed = authorization.createAuthorization(record, scope, {
+      kind: authorization.AUTO_APPROVAL_KIND,
+      autoApprovalGrant: reservation.grant,
+    });
+    assert.equal(typed.autoApprovalGrant.provenance.actorId, "owner-1");
+    var currentPolicy = policy();
+    currentPolicy.autonomy.feature = "owner_approval";
+    var validator = authorization.createAuthorizationValidator({
+      candidates: candidates,
+      getLeadMode: function () { return true; },
+      loadPolicy: function () { return { ok: true, policy: currentPolicy }; },
+      autoApprovalPolicy: store,
+      now: function () { return 1000; },
+    });
+    assert.equal(validator.validate({ authorization: typed, request: scope }).ok, true,
+      "the typed receipt reaches normal dispatch without an extra approve command");
+    assert.equal(store.setProjectOverride({ projectRef: { projectId: PROJECT }, enabled: false,
+      actorId: "owner-1", at: 1001 }).ok, true);
+    assert.equal(validator.validate({ authorization: typed, request: scope }).reason,
+      "auto_approval_revoked_or_stale", "dispatch rechecks the live control after immediate revocation");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

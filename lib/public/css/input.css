@@ -1874,7 +1874,8 @@ body.tui-composer-active #schedule-btn,
 body.tui-composer-active #ask-mate-btn,
 body.tui-composer-active #vendor-toggle-wrap,
 body.tui-composer-active #active-vendor-indicator,
-body.tui-composer-active #config-chip-wrap {
+body.tui-composer-active #config-chip-wrap,
+body.tui-composer-active #auto-approval-wrap {
   display: none !important;
 }
 

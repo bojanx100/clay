@@ -17,6 +17,7 @@ var { createCandidateAdmission, idempotencyKeyFor, portfolioTaskIdFor, selectBin
 var { createCandidateStore } = require("../lib/project-automation-candidates");
 var automationAudit = require("../lib/project-automation-audit");
 var scopedAutonomy = require("../lib/coop-scoped-autonomy-policy");
+var autoApproval = require("../lib/coop-auto-approval-policy");
 var approvalStaging = require("../lib/coop-approval-question-staging");
 var policyModule = require("../lib/project-automation-policy");
 var qualification = require("../lib/project-automation-qualification");
@@ -196,6 +197,7 @@ function harness(options) {
     // Late-bound so a test can swap the reader after construction.
     getBinding: function (a, b) { return cross.getBinding(a, b); },
     scopedAutonomyPolicy: opts.scopedAutonomyPolicy || null,
+    autoApprovalPolicy: opts.autoApprovalPolicy || null,
   }));
   return { dir: dir, store: store, cross: cross, admission: admission };
 }
@@ -379,6 +381,54 @@ test("a revalidated low-risk owner-gated candidate staffs through the scoped pol
       "coop:canonical-coop:549");
     assert.match(h.cross.calls[0].context, /bounded authority receipt/i);
     assert.equal(h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517").status, "admitted");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a project auto-approval reservation staffs eligible work through the normal typed binding", function () {
+  var dir = tempDir();
+  var control = autoApproval.createPolicyStore({ file: path.join(dir, "auto-approval.json"),
+    now: function () { return 1000; } });
+  assert.equal(control.setProjectOverride({ projectRef: { projectId: WEBAPP }, enabled: true,
+    actorId: "owner-1", at: 1000 }).ok, true);
+  var h = harness({ dir: dir, autoApprovalPolicy: control });
+  try {
+    h.store.upsert(candidate({
+      admission: "owner_approval",
+      itemClass: "feature",
+      safety: scopedAutonomy.assessCandidateSafety({ title: "Correct a small empty state alignment" }),
+    }));
+    var result = h.admission.admitPending();
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.admitted, 1);
+    assert.equal(h.cross.calls.length, 1);
+    assert.equal(h.cross.calls[0].automationAuthorization.kind, "coop_project_auto_approval");
+    assert.deepEqual(h.cross.calls[0].automationAuthorization.projectRef, { projectId: WEBAPP });
+    assert.equal(h.cross.calls[0].automationAuthorization.autoApprovalGrant.provenance.actorId, "owner-1");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an explicit project disable supersedes a previous scoped standing grant immediately", function () {
+  var dir = tempDir();
+  var scopedPolicy = activeScopedPolicy(path.join(dir, "scoped-policy.json"));
+  var control = autoApproval.createPolicyStore({ file: path.join(dir, "auto-approval.json"),
+    now: function () { return 1000; } });
+  assert.equal(control.setProjectOverride({ projectRef: { projectId: WEBAPP }, enabled: false,
+    actorId: "owner-1", at: 1000 }).ok, true);
+  var h = harness({ dir: dir, scopedAutonomyPolicy: scopedPolicy, autoApprovalPolicy: control });
+  try {
+    h.store.upsert(candidate({
+      admission: "owner_approval",
+      itemClass: "feature",
+      safety: scopedAutonomy.assessCandidateSafety({ title: "Correct a small empty state alignment" }),
+    }));
+    var result = h.admission.admitPending();
+    assert.equal(result.admitted, 0);
+    assert.equal(result.deferred, 1, "the owner must approve after the kill switch is used");
+    assert.equal(h.cross.calls.length, 0, "no older scoped receipt can bypass the project control");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
