@@ -66,7 +66,7 @@ test("phone and laptop leases are unioned once and attributed to the latest acti
   assert.equal(result.projectTodayMs, 20000);
 });
 
-test("hidden clients stop immediately and autonomous runtime never creates human time", function () {
+test("a hidden desktop keeps only the remaining five-minute interaction grace", function () {
   var base = Date.UTC(2026, 7, 31, 8, 0, 0);
   var clock = createClock(base);
   var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
@@ -75,6 +75,8 @@ test("hidden clients stop immediately and autonomous runtime never creates human
   assert.equal(service.summary("owner", -120, "alpha").todayMs, 0,
     "server or agent activity without a client signal is not human work");
   service.signal(client, activeInput("alpha", true));
+  clock.advance(20000);
+  service.signal(client, activeInput("alpha", false));
   clock.advance(10000);
   service.signal(client, {
     userId: "owner",
@@ -86,7 +88,50 @@ test("hidden clients stop immediately and autonomous runtime never creates human
     timezoneOffsetMinutes: -120,
   });
   clock.advance(120000);
-  assert.equal(service.summary("owner", -120, "alpha").todayMs, 10000);
+  var hidden = service.summary("owner", -120, "alpha");
+  assert.equal(hidden.todayMs, 150000,
+    "a brief hidden interval should remain part of the desktop work session");
+  assert.equal(hidden.tracking, true);
+
+  clock.advance(151000);
+  var expired = service.summary("owner", -120, "alpha");
+  assert.equal(expired.todayMs, 300000,
+    "desktop background time must stop five minutes after the last interaction");
+  assert.equal(expired.tracking, false);
+});
+
+test("a disconnected desktop keeps the same bounded continuity grace", function () {
+  var base = Date.UTC(2026, 7, 31, 8, 0, 0);
+  var clock = createClock(base);
+  var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
+  var client = {};
+
+  service.signal(client, activeInput("alpha", true));
+  clock.advance(20000);
+  service.signal(client, activeInput("alpha", false));
+  clock.advance(10000);
+  service.disconnect(client);
+  clock.advance(120000);
+
+  var disconnected = service.summary("owner", -120, "alpha");
+  assert.equal(disconnected.todayMs, 150000);
+  assert.equal(disconnected.tracking, true);
+
+  var returnedClient = {};
+  service.signal(returnedClient, activeInput("alpha", true));
+  for (var returnedAt = 170000; returnedAt <= 430000; returnedAt += 20000) {
+    clock.set(base + returnedAt);
+    service.signal(returnedClient, activeInput("alpha", false));
+  }
+  var returned = service.summary("owner", -120, "alpha");
+  assert.equal(returned.todayMs, 430000,
+    "returning within five minutes should preserve one continuous session");
+
+  clock.set(base + 451000);
+  var expired = service.summary("owner", -120, "alpha");
+  assert.equal(expired.todayMs, 450000,
+    "the renewed session must still stop five minutes after its latest interaction");
+  assert.equal(expired.tracking, false);
 });
 
 test("reading and thinking time ends at the bounded five-minute grace", function () {
