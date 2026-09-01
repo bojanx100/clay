@@ -42,12 +42,14 @@ function harness(seed) {
   var sessionsDir = path.join(tmpHome, "sessions", utils.encodeCwd(projectDir));
   if (seed) seed(sessionsDir);
 
+  var sent = [];
   var sm = require("../lib/sessions").createSessionManager({
     cwd: projectDir,
-    send: function () {},
+    send: function (message) { sent.push(message); },
   });
   return {
     sm: sm,
+    sent: sent,
     sessionsDir: sessionsDir,
     projectDir: projectDir,
     cleanup: function () {
@@ -422,6 +424,89 @@ test("unchanged visible settled sessions hydrate from the startup cache", functi
     assert.equal(historyStore.isResident(session), false);
   } finally {
     fs.readFileSync = originalRead;
+    h.cleanup();
+  }
+});
+
+test("switching a large regular session reads only its recent history window", async function () {
+  var storageId = "aaaaaaaa-0000-4000-8000-000000000011";
+  var eventCount = 6000;
+  var h = harness(function (dir) {
+    var history = [];
+    for (var i = 0; i < eventCount - 1; i++) {
+      history.push({ type: "delta", text: "event-" + i + "-" + "x".repeat(120), _ts: i + 10 });
+    }
+    history.push({ type: "done", code: 0, _ts: eventCount + 10 });
+    writeSessionFile(dir, storageId, {
+      lastActivity: eventCount + 10,
+      lastViewedAt: 10,
+      sessionVisibility: "shared",
+      orchestrationProjectCompletion: {
+        status: "pending",
+        completionRevision: 0,
+        graphDigest: "",
+        summary: "",
+        verification: "",
+        integrationVerification: "",
+        escalationRequired: "",
+        portfolioTaskId: "",
+        bindingRevision: null,
+        completedAt: null,
+        revokedAt: null,
+        revocationReason: "",
+      },
+    }, history);
+  });
+  var file = path.join(h.sessionsDir, storageId + ".jsonl");
+  var fileSize = fs.statSync(file).size;
+  var originalReadFile = fs.readFileSync;
+  var originalOpen = fs.openSync;
+  var originalRead = fs.readSync;
+  var transcriptFd = null;
+  var rangeBytes = 0;
+  var fullTranscriptReads = 0;
+  try {
+    fs.readFileSync = function (target) {
+      if (String(target) === file) {
+        fullTranscriptReads++;
+        throw new Error("full transcript read during switch");
+      }
+      return originalReadFile.apply(fs, arguments);
+    };
+    fs.openSync = function (target) {
+      var fd = originalOpen.apply(fs, arguments);
+      if (String(target) === file) transcriptFd = fd;
+      return fd;
+    };
+    fs.readSync = function (fd) {
+      var count = originalRead.apply(fs, arguments);
+      if (fd === transcriptFd) rangeBytes += count;
+      return count;
+    };
+
+    var session = sessionByStorageId(h.sm, storageId);
+    assert.deepEqual(session._readPersistedHistoryRange(eventCount - 2, eventCount)
+      .map(function (item) { return item.type; }), ["delta", "done"]);
+    h.sm.switchSession(session.localId);
+    await new Promise(function (resolve) { setImmediate(resolve); });
+    assert.equal(historyStore.isResident(session), false,
+      "bounded replay does not populate the full lazy history cache");
+    assert.equal(fullTranscriptReads, 0,
+      "switch and its view-recency save never invoke the whole-file parser");
+    assert.ok(rangeBytes > 0 && rangeBytes < fileSize / 2,
+      "recent replay reads a bounded tail instead of the full JSONL");
+    var meta = h.sent.filter(function (item) { return item.type === "history_meta"; }).pop();
+    assert.deepEqual(meta, { type: "history_meta", total: eventCount, from: eventCount - 300 });
+    assert.equal(h.sent.some(function (item) { return item.text === "event-0-" + "x".repeat(120); }),
+      false, "the initial replay excludes events outside the recent page");
+    var replayedTypes = h.sent.map(function (item) { return item.type; });
+    assert.equal(replayedTypes.indexOf("done") !== -1, true,
+      "the bounded replay still includes the canonical terminal event: " +
+      JSON.stringify(replayedTypes.slice(-12)));
+  } finally {
+    fs.readFileSync = originalReadFile;
+    fs.openSync = originalOpen;
+    fs.readSync = originalRead;
     h.cleanup();
   }
 });
