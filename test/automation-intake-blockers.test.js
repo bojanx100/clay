@@ -12,6 +12,8 @@ var { attachAutoLaunch } = require("../lib/project-auto-launch");
 var { createAutomationGate } = require("../lib/project-automation-gate");
 var automationAudit = require("../lib/project-automation-audit");
 var leadBacklog = require("../lib/lead-backlog");
+var policyModule = require("../lib/project-automation-policy");
+var qualification = require("../lib/project-automation-qualification");
 
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 var URBAN_STAY = "51e67388-cea0-52b7-8e01-cde68cae713c";
@@ -21,14 +23,52 @@ function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "clay-blockers-"));
 }
 
+function recipeFor(id, repo) {
+  return {
+    id: id,
+    source: { provider: "github", kind: "issue", repo: repo, includeProjectItems: true },
+    filter: {},
+  };
+}
+
+function policyFor(ref) {
+  var recipes = [
+    recipeFor("assigned-to-me", "trialview/v2"),
+    recipeFor("all-issues", "bojanx100/urban-stay-web"),
+  ];
+  var policy = {
+    projectRef: ref,
+    derived: false,
+    autonomy: { bug: "autonomous", feature: "owner_approval", ambiguous: "owner_approval",
+      pr_review: "propose", default: "propose" },
+    externalActions: { comment: "approval", done_workflow: "approval", merge: "approval", close: "approval" },
+    boardExclusions: [],
+    qualification: {
+      version: 1,
+      normalIssueIntake: {
+        issueStates: ["open"], boardStatuses: ["Backlog", "Ready for development"],
+        requireAllBoardItems: true, assignment: "owner",
+        classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+      },
+    },
+    providerRules: { vendors: {} },
+    recipes: recipes.map(function (recipe) {
+      return { id: recipe.id, kind: "issue", repo: recipe.source.repo, type: "",
+        digest: policyModule.recipeDigest(recipe) };
+    }),
+    sources: [],
+  };
+  policy.digest = policyModule.policyDigest(policy);
+  return policy;
+}
+
 function candidate(overrides) {
-  return Object.assign({
+  var value = Object.assign({
     candidateKey: "launch:trialview/v2#2517",
     itemKey: "trialview/v2#2517",
     itemClass: "feature",
     admission: "owner_approval",
     projectRef: { projectId: WEBAPP },
-    policyDigest: "digest-1",
     recipeId: "assigned-to-me",
     eligibilityPass: TEST_PASS,
     eligibility: {
@@ -36,8 +76,30 @@ function candidate(overrides) {
       recipeAllowsUnassigned: false,
       reason: "assigned_to_owner",
     },
-    intent: { recipeId: "assigned-to-me", number: 2517 },
+    intent: { recipeId: "assigned-to-me", number: 2517, autoKind: "issue" },
   }, overrides || {});
+  var policy = policyFor(value.projectRef);
+  var repo = String(value.itemKey).split("#")[0];
+  var recipe = recipeFor(value.recipeId, repo);
+  if (!overrides || !Object.prototype.hasOwnProperty.call(overrides, "policyDigest")) {
+    value.policyDigest = policy.digest;
+  }
+  if (!Object.prototype.hasOwnProperty.call(value, "qualificationReceipt")) {
+    var receipt = qualification.receiptFor({
+      policy: policy,
+      projectRef: value.projectRef,
+      recipe: { id: recipe.id, digest: policyModule.recipeDigest(recipe), kind: "issue" },
+      item: { number: value.intent.number, state: "OPEN",
+        projectItems: [{ id: "PVT_item_" + value.intent.number, status: { name: "Backlog" } }] },
+      itemKey: value.itemKey,
+      itemClass: value.itemClass,
+      assignedToOwner: value.eligibility.assignedToOwner,
+      recipeAllowsUnassigned: value.eligibility.recipeAllowsUnassigned,
+      now: 1000,
+    });
+    if (receipt.ok) value.qualificationReceipt = receipt.receipt;
+  }
+  return value;
 }
 
 function withTestPass(admission) {
@@ -93,6 +155,8 @@ function admissionFor(dir, router) {
       candidates: store,
       crossProject: router,
       getLeadMode: function () { return true; },
+      now: function () { return 1000; },
+      loadPolicy: function (projectRef) { return { ok: true, policy: policyFor(projectRef) }; },
       resolveCoopSource: function () { return router.coopSessionRef(); },
       audit: automationAudit.createAutomationAudit({
         file: path.join(dir, "audit.jsonl"), slug: "webapp" }),
@@ -178,7 +242,7 @@ test("a policy change to auto releases awaiting_owner instead of stranding it", 
       "awaiting_owner");
 
     // The project's policy now auto-admits this class, so waiting is stale.
-    h.store.upsert(candidate({ admission: "auto", itemClass: "bug", policyDigest: "digest-2" }));
+    h.store.upsert(candidate({ admission: "auto", itemClass: "bug" }));
     var record = h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517");
     assert.strictEqual(record.status, "pending",
       "the reason for waiting is gone, so the item must be admissible again");
@@ -231,7 +295,7 @@ test("a post-hoc approval of already-admitted work fails closed", function () {
   var router = fakeRouter();
   try {
     var h = admissionFor(dir, router);
-    h.store.upsert(candidate({ admission: "auto" }));
+    h.store.upsert(candidate({ admission: "auto", itemClass: "bug" }));
     h.admission.admitPending();
     var again = h.store.decideOwner({ projectId: WEBAPP }, "launch:trialview/v2#2517",
       { approved: true, by: "user-owner" });
@@ -255,7 +319,7 @@ test("an admitted Urban Stay candidate binds only Urban Stay's canonical Project
       projectRef: { projectId: URBAN_STAY },
       admission: "auto",
       itemClass: "bug",
-      policyDigest: "urban-stay-any-policy",
+      recipeId: "all-issues",
       intent: { recipeId: "all-issues", number: 41, title: "Auto-launch regression" },
     }));
     assert.strictEqual(h.admission.admitPending().admitted, 1);
@@ -275,13 +339,17 @@ test("a rate-limited vendor does not suppress discovery under Lead mode ON", asy
     fs.mkdirSync(tasks, { recursive: true });
     var recipe = {
       id: "assigned-to-me",
-      source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+      source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
       launch: { defaultLimit: 5 }, session: {}, completion: {},
       filter: { type: "bug" },
     };
     fs.writeFileSync(path.join(tasks, "assigned-to-me.json"), JSON.stringify(recipe));
     fs.writeFileSync(path.join(tasks, "config.json"), JSON.stringify({
       autoLaunch: { enabled: true, recipes: ["assigned-to-me"], vendorWeights: { claude: 60, codex: 40 } },
+      automation: {
+        autonomy: { bug: "autonomous", feature: "owner_approval", ambiguous: "owner_approval" },
+        qualification: policyFor({ projectId: WEBAPP }).qualification,
+      },
     }));
 
     var candidates = [];
@@ -320,7 +388,8 @@ test("a rate-limited vendor does not suppress discovery under Lead mode ON", asy
         };
       },
       fetchItems: function () {
-        return [{ number: 2517, title: "b", url: "u", labels: [{ name: "bug" }],
+        return [{ number: 2517, title: "b", url: "u", state: "OPEN", labels: [{ name: "bug" }],
+          projectItems: [{ id: "PVT_item_2517", status: { name: "Backlog" } }],
           assignees: [{ login: "bojantv" }], assignedToOwner: true }];
       },
     });

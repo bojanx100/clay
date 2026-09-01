@@ -665,6 +665,22 @@ var { createCandidateStore } = require("../lib/project-automation-candidates");
 var CUTOVER_PROJECT = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
 var URBAN_STAY_PROJECT = "51e67388-cea0-52b7-8e01-cde68cae713c";
 
+function typedIssueAutomation() {
+  return {
+    autonomy: { bug: "autonomous", feature: "owner_approval", ambiguous: "owner_approval" },
+    qualification: {
+      version: 1,
+      normalIssueIntake: {
+        issueStates: ["open"],
+        boardStatuses: ["Backlog", "Ready for development"],
+        requireAllBoardItems: true,
+        assignment: "owner",
+        classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+      },
+    },
+  };
+}
+
 // Builds a real auto-launch wired to a real gate over throwaway state.
 function makeCutoverHarness(recipeFilter) {
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-cutover-"));
@@ -672,7 +688,7 @@ function makeCutoverHarness(recipeFilter) {
   fs.mkdirSync(tasksDir, { recursive: true });
   var recipe = {
     id: "issues",
-    source: { provider: "github", kind: "issue", repo: "o/r" },
+    source: { provider: "github", kind: "issue", repo: "o/r", includeProjectItems: true },
     launch: { defaultLimit: 5 },
     session: {},
     completion: {},
@@ -681,6 +697,7 @@ function makeCutoverHarness(recipeFilter) {
   fs.writeFileSync(path.join(tasksDir, "issues.json"), JSON.stringify(recipe));
   fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
     autoLaunch: { enabled: true, recipes: ["issues"], cron: "*/5 * * * *" },
+    automation: typedIssueAutomation(),
   }));
   var started = [];
   var candidates = [];
@@ -714,7 +731,8 @@ function makeCutoverHarness(recipeFilter) {
       automationGate: gate,
       fetchItems: function () {
         return [{ number: 11, title: "boom", url: "https://github.com/o/r/issues/11",
-          labels: [{ name: "bug" }], assignees: [{ login: "owner" }], assignedToOwner: true }];
+          state: "OPEN", labels: [{ name: "bug" }], assignees: [{ login: "owner" }],
+          projectItems: [{ id: "PVT_item_11", status: { name: "Backlog" } }], assignedToOwner: true }];
       },
     });
   }
@@ -829,7 +847,7 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
   fs.mkdirSync(tasksDir, { recursive: true });
   var recipe = {
     id: "assigned-to-me",
-    source: settings.source || { provider: "github", kind: "issue", repo: "trialview/v2" },
+    source: settings.source || { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
     launch: { defaultLimit: 10 },
     session: {},
     completion: {},
@@ -841,6 +859,7 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
       enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *",
       maxConcurrent: settings.maxConcurrent || 5,
     },
+    automation: typedIssueAutomation(),
   }));
   var started = [];
   var launcher = {
@@ -916,7 +935,8 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
 function unlabeledIssue() {
   return {
     number: 2565, title: "PDF.js instead of Acusoft",
-    url: "https://github.com/trialview/v2/issues/2565", labels: [],
+    url: "https://github.com/trialview/v2/issues/2565", state: "OPEN", labels: [],
+    projectItems: [{ id: "PVT_item_2565", status: { name: "Backlog" } }],
     assignees: [{ login: "bojantv" }], assignedToOwner: true,
   };
 }
@@ -926,7 +946,8 @@ function unlabeledIssue() {
 function unassignedIssue() {
   return {
     number: 2539, title: "Download function on Bundle K is not working",
-    url: "https://github.com/trialview/v2/issues/2539", labels: [],
+    url: "https://github.com/trialview/v2/issues/2539", state: "OPEN", labels: [],
+    projectItems: [{ id: "PVT_item_2539", status: { name: "Backlog" } }],
     assignees: [], assignedToOwner: false,
   };
 }
@@ -989,11 +1010,10 @@ test("unassigned board work never launches and never reaches a binding", async f
   }
 });
 
-// Urban Stay deliberately configured `assigned: "any"`: this is not a GitHub
-// assignee and does not make the issue assigned to the owner. It lets the
-// project's own recipe surface the work, then its unscoped policy keeps the
-// work owner-gated until Coop records an explicit admission.
-test("an assigned:any recipe reaches its canonical binding after owner admission", async function () {
+// `assigned: "any"` is not assignment evidence. The typed normal-intake
+// policy binds implementation eligibility to owner assignment, so this recipe
+// may discover the item but cannot create an owner-approval bypass.
+test("an assigned:any recipe cannot bypass typed owner assignment", async function () {
   var item = unassignedIssue();
   item.number = 198;
   item.title = "Urban Stay auto-launch regression";
@@ -1010,19 +1030,9 @@ test("an assigned:any recipe reaches its canonical binding after owner admission
   try {
     await h.autoLaunch.launchScheduled("assigned-to-me");
     var key = "launch:bojanx100/urban-stay-web#198";
-    assert.strictEqual(store.get({ projectId: URBAN_STAY_PROJECT }, key).status,
-      "awaiting_owner", "unscoped Urban-style work must not silently auto-admit");
+    assert.strictEqual(store.get({ projectId: URBAN_STAY_PROJECT }, key), null,
+      "unassigned work creates no receipt-backed candidate");
     assert.strictEqual(h.executions.length, 0);
-
-    var stage = store.get({ projectId: URBAN_STAY_PROJECT }, key).approvalStage;
-    var approved = store.decideOwner({ projectId: URBAN_STAY_PROJECT }, key,
-      { approved: true, by: "bojan", portfolioTaskId: stage.portfolioTaskId,
-        bindingRevision: stage.bindingRevision });
-    assert.strictEqual(approved.ok, true);
-
-    await h.autoLaunch.launchScheduled("assigned-to-me");
-    assert.strictEqual(h.executions.length, 1);
-    assert.strictEqual(h.executions[0].targetProject.projectId, URBAN_STAY_PROJECT);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
@@ -1119,7 +1129,8 @@ var overridesModule = require("../lib/project-automation-overrides");
 function assignedIssue(number) {
   return {
     number: number, title: "Board item " + number,
-    url: "https://github.com/trialview/v2/issues/" + number, labels: [],
+    url: "https://github.com/trialview/v2/issues/" + number, state: "OPEN", labels: [],
+    projectItems: [{ id: "PVT_item_" + number, status: { name: "Backlog" } }],
     assignees: [{ login: "bojantv" }], assignedToOwner: true,
   };
 }
@@ -1419,13 +1430,14 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     fs.mkdirSync(tasksDir, { recursive: true });
     var recipe = {
       id: "assigned-to-me",
-      source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+      source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
       launch: { defaultLimit: 10 }, session: {}, completion: {},
       filter: { type: "bug", assigned: "me" },
     };
     fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
     fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
       autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
+      automation: typedIssueAutomation(),
     }));
 
     var bindingFile = path.join(cwd, "bindings.json");
@@ -1534,13 +1546,14 @@ test("end to end: a delivery that starts no coordinator strands no binding", asy
     fs.mkdirSync(tasksDir, { recursive: true });
     var recipe = {
       id: "assigned-to-me",
-      source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+      source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
       launch: { defaultLimit: 10 }, session: {}, completion: {},
       filter: { type: "bug", assigned: "me" },
     };
     fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
     fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
       autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
+      automation: typedIssueAutomation(),
     }));
     var bindingFile = path.join(cwd, "bindings.json");
     var leadContext = {
@@ -1630,13 +1643,14 @@ test("end to end: a broken route makes at most maxConcurrent attempts per scan",
     fs.mkdirSync(tasksDir, { recursive: true });
     var recipe = {
       id: "assigned-to-me",
-      source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+      source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
       launch: { defaultLimit: 10 }, session: {}, completion: {},
       filter: { type: "bug", assigned: "me" },
     };
     fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
     fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
       autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
+      automation: typedIssueAutomation(),
     }));
     var bindingFile = path.join(cwd, "bindings.json");
     var leadContext = {

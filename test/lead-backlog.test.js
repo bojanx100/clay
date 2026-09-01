@@ -62,6 +62,16 @@ function policyFor(ref, configs) {
     autonomy: { bug: "propose", feature: "propose", ambiguous: "propose", pr_review: "propose", default: "propose" },
     externalActions: { comment: "approval", done_workflow: "approval", merge: "approval", close: "approval" },
     boardExclusions: exclusions,
+    qualification: {
+      version: 1,
+      normalIssueIntake: {
+        issueStates: ["open"],
+        boardStatuses: ["Backlog", "Ready for development"],
+        requireAllBoardItems: true,
+        assignment: "owner",
+        classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+      },
+    },
     providerRules: { vendors: {} },
     recipes: recipes,
     sources: [],
@@ -81,7 +91,7 @@ function candidateEligibility(itemKey, assignedToOwner, recipeAllowsUnassigned) 
 
 var WEBAPP_ASSIGNED = {
   id: "assigned-to-me",
-  source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv" },
+  source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv", includeProjectItems: true },
   filter: { state: "open", assigned: "me", type: "bug", skipProjectStatuses: ["In progress", "Done"] },
 };
 // The misplaced Clay copy: same repo, no pinned account, no board exclusions.
@@ -493,7 +503,7 @@ test("collectGithubIssues normalizes successful output", function (t, done) {
 });
 
 test("issue #2507 cannot be projected as clay#2507", function (t, done) {
-  var issue2507 = [{ number: 2507, title: "Editor crash on paste", body: "", labels: [], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Backlog" } }], state: "OPEN", updatedAt: "2026-08-05T10:00:00Z", url: "https://x/2507" }];
+  var issue2507 = [{ number: 2507, title: "Editor crash on paste", body: "", labels: [], assignees: [{ login: "bojantv" }], projectItems: [{ id: "PVT_item_2507", status: { name: "Backlog" } }], state: "OPEN", updatedAt: "2026-08-05T10:00:00Z", url: "https://x/2507" }];
   var fakeExec = function (cmd, args, cb) {
     if (args[0] === "api") return cb(null, JSON.stringify({ login: "bojantv" }));
     cb(null, JSON.stringify(issue2507));
@@ -630,11 +640,11 @@ test("Lead excludes policy-board and completed candidates before deterministic s
   var fakeExec = function (cmd, args, cb) {
     if (args[0] === "api") return cb(null, JSON.stringify({ login: "bojantv" }));
     cb(null, JSON.stringify([
-      { number: 1259, title: "Urgent but ready for production", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Ready for production" } }] },
-      { number: 1260, title: "Dev complete", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Dev Complete" } }] },
-      { number: 1261, title: "Done", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Done" } }] },
-      { number: 1262, title: "Already completed", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Backlog" } }] },
-      { number: 1263, title: "Next eligible candidate", state: "OPEN", labels: [{ name: "P2" }], assignees: [{ login: "bojantv" }], projectItems: [{ status: { name: "Backlog" } }] },
+      { number: 1259, title: "Urgent but ready for production", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ id: "PVT_item_1259", status: { name: "Ready for production" } }] },
+      { number: 1260, title: "Dev complete", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ id: "PVT_item_1260", status: { name: "Dev Complete" } }] },
+      { number: 1261, title: "Done", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ id: "PVT_item_1261", status: { name: "Done" } }] },
+      { number: 1262, title: "Already completed", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ id: "PVT_item_1262", status: { name: "Backlog" } }] },
+      { number: 1263, title: "Next eligible candidate", state: "OPEN", labels: [{ name: "P2" }], assignees: [{ login: "bojantv" }], projectItems: [{ id: "PVT_item_1263", status: { name: "Backlog" } }] },
     ]));
   };
   backlog.collectGithubIssues(fakeExec, resolved.sources[0], "webapp", function (err, items, metadata) {
@@ -699,7 +709,7 @@ test("live Webapp #2517 completed binding excludes the issue before scoring", fu
       state: "OPEN",
       labels: [{ name: "P0" }],
       assignees: [{ login: "bojantv" }],
-      projectItems: [{ status: { name: "Backlog" } }],
+      projectItems: [{ id: "PVT_item_2517", status: { name: "Backlog" } }],
     }]));
   };
   backlog.collectGithubIssues(fakeExec, resolved.sources[0], "webapp", function (err, items, metadata) {

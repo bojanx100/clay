@@ -18,6 +18,8 @@ var { createCandidateStore } = require("../lib/project-automation-candidates");
 var automationAudit = require("../lib/project-automation-audit");
 var scopedAutonomy = require("../lib/coop-scoped-autonomy-policy");
 var approvalStaging = require("../lib/coop-approval-question-staging");
+var policyModule = require("../lib/project-automation-policy");
+var qualification = require("../lib/project-automation-qualification");
 
 var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 var OTHER = "11111111-2222-4333-8444-555555555555";
@@ -27,14 +29,66 @@ function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "clay-admit-"));
 }
 
+function testRecipe() {
+  return {
+    id: "assigned-to-me",
+    source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
+    filter: { state: "open", assigned: "me", type: "bug" },
+  };
+}
+
+function testPolicy(ref) {
+  var recipe = testRecipe();
+  var policy = {
+    projectRef: ref || { projectId: WEBAPP },
+    derived: false,
+    autonomy: { bug: "autonomous", feature: "owner_approval", ambiguous: "owner_approval",
+      pr_review: "propose", default: "propose" },
+    externalActions: { comment: "approval", done_workflow: "approval", merge: "approval", close: "approval" },
+    boardExclusions: [],
+    qualification: {
+      version: 1,
+      normalIssueIntake: {
+        issueStates: ["open"], boardStatuses: ["Backlog", "Ready for development"],
+        requireAllBoardItems: true, assignment: "owner",
+        classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+      },
+    },
+    providerRules: { vendors: {} },
+    recipes: [{ id: recipe.id, kind: "issue", repo: "trialview/v2", type: "bug",
+      digest: policyModule.recipeDigest(recipe) }],
+    sources: [],
+  };
+  policy.digest = policyModule.policyDigest(policy);
+  return policy;
+}
+
+function receiptForCandidate(value) {
+  var policy = testPolicy(value.projectRef);
+  var recipe = testRecipe();
+  var created = qualification.receiptFor({
+    policy: policy,
+    projectRef: value.projectRef,
+    recipe: { id: recipe.id, digest: policyModule.recipeDigest(recipe), kind: "issue" },
+    item: { number: value.intent && value.intent.number, state: "OPEN",
+      projectItems: [{ id: "PVT_item_2517", status: { name: "Backlog" } }] },
+    itemKey: value.itemKey,
+    itemClass: value.itemClass,
+    assignedToOwner: value.eligibility && value.eligibility.assignedToOwner,
+    recipeAllowsUnassigned: value.eligibility && value.eligibility.recipeAllowsUnassigned,
+    now: 1000,
+  });
+  return created.ok ? created.receipt : null;
+}
+
 function candidate(overrides) {
-  return Object.assign({
+  var value = Object.assign({
     candidateKey: "launch:trialview/v2#2517",
     itemKey: "trialview/v2#2517",
     itemClass: "bug",
     admission: "auto",
     projectRef: { projectId: WEBAPP },
-    policyDigest: "digest-1",
+    policyDigest: testPolicy().digest,
     recipeId: "assigned-to-me",
     eligibilityPass: TEST_PASS,
     eligibility: {
@@ -44,6 +98,14 @@ function candidate(overrides) {
     },
     intent: { recipeId: "assigned-to-me", number: 2517, url: "u", title: "t", autoKind: "issue" },
   }, overrides || {});
+  if (!overrides || !Object.prototype.hasOwnProperty.call(overrides, "policyDigest")) {
+    value.policyDigest = testPolicy(value.projectRef).digest;
+  }
+  if (!Object.prototype.hasOwnProperty.call(value, "qualificationReceipt")) {
+    var receipt = receiptForCandidate(value);
+    if (receipt) value.qualificationReceipt = receipt;
+  }
+  return value;
 }
 
 function withTestPass(admission) {
@@ -121,6 +183,10 @@ function harness(options) {
     candidates: opts.candidates || store,
     crossProject: opts.crossProject === null ? null : cross,
     getLeadMode: function () { return opts.leadMode !== false; },
+    now: opts.now || function () { return 1000; },
+    loadPolicy: opts.loadPolicy || function (projectRef) {
+      return { ok: true, policy: testPolicy(projectRef) };
+    },
     resolveCoopSource: opts.getCoopSource || function () {
       return { projectId: "system-lead", sessionStorageId: "coop-home-1" };
     },
@@ -186,6 +252,12 @@ test("#2517: a pending auto candidate becomes one typed binding and is marked ad
     assert.strictEqual(call.automationAuthorization.schema,
       "clay.project_automation_execution_authorization");
     assert.strictEqual(call.automationAuthorization.kind, "project_policy_autonomous");
+    assert.strictEqual(call.automationAuthorization.qualifiedLaunchReport.verdict,
+      "qualified_and_launched", "Coop receives the durable qualification launch report");
+    assert.strictEqual(call.automationAuthorization.qualifiedLaunchReport.receiptDigest,
+      call.automationAuthorization.qualificationReceipt.digest);
+    assert.deepStrictEqual(call.automationAuthorization.qualifiedLaunchReport.reasons,
+      call.automationAuthorization.qualificationReceipt.coordinator.reasons);
     assert.deepStrictEqual(call.coopTopicRef, {
       topicId: call.automationAuthorization.threadRef.threadId,
     }, "autonomous work receives its deterministic canonical Thread identity");
@@ -208,6 +280,86 @@ test("#2517: a pending auto candidate becomes one typed binding and is marked ad
   }
 });
 
+test("a missing qualification receipt cannot create an implementation binding", function () {
+  var h = harness();
+  try {
+    var unqualified = candidate();
+    delete unqualified.qualificationReceipt;
+    assert.equal(h.store.upsert(unqualified).ok, true);
+    var result = h.admission.admitPending();
+    assert.equal(result.admitted, 0);
+    assert.equal(result.failed, 1);
+    assert.equal(h.cross.calls.length, 0, "binding is impossible without a current receipt");
+    var stored = h.store.get({ projectId: WEBAPP }, unqualified.candidateKey);
+    assert.equal(stored.status, "pending");
+    assert.equal(stored.attention.reason, "qualification_receipt_malformed");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("an owner approval cannot bypass a missing qualification receipt", function () {
+  var h = harness();
+  try {
+    var ownerCandidate = candidate({ admission: "owner_approval", itemClass: "feature" });
+    h.store.upsert(ownerCandidate);
+    var requested = h.admission.admitPending().ownerDecisions[0];
+    assert.equal(h.store.decideOwner({ projectId: WEBAPP }, ownerCandidate.candidateKey, {
+      approved: true,
+      by: "owner-1",
+      portfolioTaskId: requested.portfolioTaskId,
+      bindingRevision: requested.bindingRevision,
+    }).ok, true);
+    var receiptlessRefresh = candidate({ admission: "owner_approval", itemClass: "feature" });
+    delete receiptlessRefresh.qualificationReceipt;
+    assert.equal(h.store.upsert(receiptlessRefresh).ok, true);
+
+    var result = h.admission.admitPending();
+    assert.equal(result.admitted, 0);
+    assert.equal(result.failed, 1);
+    assert.equal(h.cross.calls.length, 0, "owner approval alone never authorizes implementation");
+    assert.equal(h.store.get({ projectId: WEBAPP }, ownerCandidate.candidateKey).status,
+      "owner_approved");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("legacy #2522 and #2725 records keep their no-receipt lifecycle on fresh scans", function () {
+  var h = harness();
+  try {
+    var cases = [
+      { number: 2522, status: "admitted" },
+      { number: 2725, status: "awaiting_owner" },
+    ];
+    for (var i = 0; i < cases.length; i++) {
+      var legacy = candidate({
+        candidateKey: "launch:trialview/v2#" + cases[i].number,
+        itemKey: "trialview/v2#" + cases[i].number,
+        intent: { recipeId: "assigned-to-me", number: cases[i].number, autoKind: "issue" },
+      });
+      delete legacy.qualificationReceipt;
+      assert.equal(h.store.upsert(legacy).ok, true);
+      var file = path.join(h.dir, ".clay", "tasks", "automation-candidates.json");
+      var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
+      persisted.candidates[i].status = cases[i].status;
+      fs.writeFileSync(file, JSON.stringify(persisted));
+
+      var refreshed = h.store.upsert(candidate({
+        candidateKey: legacy.candidateKey,
+        itemKey: legacy.itemKey,
+        intent: legacy.intent,
+      }));
+      assert.equal(refreshed.ok, true);
+      assert.equal(refreshed.legacyNoReceipt, true);
+      assert.equal(refreshed.candidate.status, cases[i].status);
+      assert.equal(refreshed.candidate.qualificationReceipt, null);
+    }
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
 test("a revalidated low-risk owner-gated candidate staffs through the scoped policy receipt", function () {
   var dir = tempDir();
   var scopedPolicy = activeScopedPolicy(path.join(dir, "scoped-policy.json"));
@@ -215,6 +367,7 @@ test("a revalidated low-risk owner-gated candidate staffs through the scoped pol
   try {
     h.store.upsert(candidate({
       admission: "owner_approval",
+      itemClass: "feature",
       safety: scopedAutonomy.assessCandidateSafety({ title: "Correct a small empty state alignment" }),
     }));
     var result = h.admission.admitPending();
@@ -551,7 +704,9 @@ test("#2517: every admission outcome is audited", function () {
   try {
     h.store.upsert(candidate());
     h.store.upsert(candidate({
-      candidateKey: "launch:x#1", itemKey: "x#1", admission: "owner_approval",
+      candidateKey: "launch:trialview/v2#2520", itemKey: "trialview/v2#2520",
+      itemClass: "feature", admission: "owner_approval",
+      intent: { recipeId: "assigned-to-me", number: 2520, url: "u", title: "t", autoKind: "issue" },
     }));
     h.admission.admitPending();
     var entries = automationAudit.createAutomationAudit({
@@ -676,6 +831,8 @@ test("#2517: an unverifiable existing binding fails closed", function () {
       crossProject: readerless,
       getLeadMode: function () { return true; },
       resolveCoopSource: function () { return readerless.coopSessionRef(); },
+      now: function () { return 1000; },
+      loadPolicy: function (projectRef) { return { ok: true, policy: testPolicy(projectRef) }; },
     }));
     h.store.upsert(candidate());
     assert.strictEqual(h.admission.admitPending().attention[0].reason, "binding_unverifiable");
@@ -847,7 +1004,7 @@ test("an admitted candidate reopens only from its exact terminal binding snapsho
     exact.status = "failed";
     exact.statusReason = "verified_terminal_failure";
     var terminalSnapshot = h.cross.getExecutionBindings();
-    var reopened = h.store.upsert(candidate({ policyDigest: "digest-terminal" }), {
+    var reopened = h.store.upsert(candidate(), {
       bindingSnapshot: terminalSnapshot,
     });
     assert.equal(reopened.candidate.status, "pending");
@@ -858,7 +1015,7 @@ test("an admitted candidate reopens only from its exact terminal binding snapsho
     assert.equal(reopened.candidate.terminalReconciliation.status, "failed");
     assert.equal(reopened.candidate.terminalReconciliation.bindingRevision, 1);
 
-    var again = h.store.upsert(candidate({ policyDigest: "digest-terminal" }), {
+    var again = h.store.upsert(candidate(), {
       bindingSnapshot: terminalSnapshot,
     });
     assert.equal(again.candidate.status, "pending");
@@ -1149,6 +1306,8 @@ test("#2517: admission verifies replays against the real router surface", functi
       crossProject: router,
       getLeadMode: function () { return true; },
       resolveCoopSource: function () { return router.coopSessionRef(); },
+      now: function () { return 1000; },
+      loadPolicy: function (projectRef) { return { ok: true, policy: testPolicy(projectRef) }; },
     }));
     store.upsert(candidate());
 
@@ -1183,6 +1342,8 @@ test("#2517: a router with no binding reader makes replays unverifiable, not ass
       crossProject: readerless,
       getLeadMode: function () { return true; },
       resolveCoopSource: function () { return readerless.coopSessionRef(); },
+      now: function () { return 1000; },
+      loadPolicy: function (projectRef) { return { ok: true, policy: testPolicy(projectRef) }; },
     }));
     h.store.upsert(candidate());
     assert.strictEqual(admission.admitPending().attention[0].reason, "binding_unverifiable");

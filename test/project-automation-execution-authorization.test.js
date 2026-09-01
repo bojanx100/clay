@@ -9,43 +9,80 @@ var authorization = require("../lib/project-automation-execution-authorization")
 var candidatesModule = require("../lib/project-automation-candidates");
 var identity = require("../lib/project-automation-identity");
 var scopedAutonomy = require("../lib/coop-scoped-autonomy-policy");
+var policyModule = require("../lib/project-automation-policy");
+var qualification = require("../lib/project-automation-qualification");
 
 var PROJECT = "51e67388-cea0-52b7-8e01-cde68cae713c";
 var OTHER = "11111111-2222-4333-8444-555555555555";
 var PASS = "current-pass";
 
-function policy(digest) {
+function recipe() {
   return {
+    id: "all-issues",
+    source: { provider: "github", kind: "issue", repo: "bojanx100/urban-stay-web", includeProjectItems: true },
+    filter: { state: "open", assigned: "me", type: "bug" },
+  };
+}
+
+function policy() {
+  var source = recipe();
+  var value = {
     projectRef: { projectId: PROJECT },
-    digest: digest,
     derived: false,
     autonomy: {
-      bug: "propose", feature: "propose", ambiguous: "autonomous",
+      bug: "autonomous", feature: "owner_approval", ambiguous: "owner_approval",
       pr_review: "propose", default: "propose",
     },
     externalActions: {
       comment: "approval", done_workflow: "approval", merge: "approval", close: "approval",
     },
+    boardExclusions: [],
+    qualification: {
+      version: 1,
+      normalIssueIntake: {
+        issueStates: ["open"], boardStatuses: ["Backlog", "Ready for development"],
+        requireAllBoardItems: true, assignment: "owner",
+        classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+      },
+    },
+    providerRules: { vendors: {} },
+    recipes: [{ id: source.id, kind: "issue", repo: "bojanx100/urban-stay-web", type: "bug",
+      digest: policyModule.recipeDigest(source) }],
+    sources: [],
   };
+  value.digest = policyModule.policyDigest(value);
+  return value;
 }
 
-function candidate() {
-  return {
+function candidate(overrides) {
+  var value = Object.assign({
     candidateKey: "launch:bojanx100/urban-stay-web#198",
     itemKey: "bojanx100/urban-stay-web#198",
-    itemClass: "ambiguous",
+    itemClass: "bug",
     admission: "auto",
     projectRef: { projectId: PROJECT },
-    policyDigest: "policy-current",
+    policyDigest: policy().digest,
     recipeId: "all-issues",
     eligibilityPass: PASS,
     eligibility: {
-      assignedToOwner: false,
-      recipeAllowsUnassigned: true,
-      reason: "recipe_allows_unassigned",
+      assignedToOwner: true,
+      recipeAllowsUnassigned: false,
+      reason: "assigned_to_owner",
     },
-    intent: { recipeId: "all-issues", number: 198, title: "Stuck until refresh" },
-  };
+    intent: { recipeId: "all-issues", number: 198, title: "Stuck until refresh", autoKind: "issue" },
+  }, overrides || {});
+  var source = recipe();
+  var receipt = qualification.receiptFor({
+    policy: policy(), projectRef: value.projectRef,
+    recipe: { id: source.id, digest: policyModule.recipeDigest(source), kind: "issue" },
+    item: { number: 198, state: "OPEN", projectItems: [{ id: "PVT_item_198", status: { name: "Backlog" } }] },
+    itemKey: value.itemKey, itemClass: value.itemClass,
+    assignedToOwner: value.eligibility.assignedToOwner,
+    recipeAllowsUnassigned: value.eligibility.recipeAllowsUnassigned,
+    now: 1000,
+  });
+  value.qualificationReceipt = receipt.ok ? receipt.receipt : null;
+  return value;
 }
 
 function request(record) {
@@ -64,7 +101,7 @@ function harness() {
   var store = candidatesModule.createCandidateStore({ cwd: dir });
   store.upsert(candidate());
   var record = store.get({ projectId: PROJECT }, candidate().candidateKey);
-  var currentPolicy = policy(record.policyDigest);
+  var currentPolicy = policy();
   var scope = request(record);
   var typed = authorization.createAuthorization(record, scope);
   var validator = authorization.createAuthorizationValidator({
@@ -148,14 +185,14 @@ test("stale, malformed, foreign, owner-gated, and non-autonomous evidence fails 
     }).reason, "owner_approval_required");
 
     h.store.upsert(candidate());
-    h.policy.autonomy.ambiguous = "propose";
+    h.policy.autonomy.bug = "propose";
     assert.equal(h.validator.validate({
       authorization: authorization.createAuthorization(
         h.store.get({ projectId: PROJECT }, candidate().candidateKey), h.request),
       request: h.request,
     }).reason, "automation_policy_not_autonomous");
 
-    h.policy.autonomy.ambiguous = "autonomous";
+    h.policy.autonomy.bug = "autonomous";
     var file = path.join(h.dir, ".clay", "tasks", "automation-candidates.json");
     var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
     persisted.candidates[0].digest = "tampered-current-candidate";
@@ -173,8 +210,9 @@ test("the scoped low-risk receipt is revalidated against its durable owner grant
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-scoped-auth-"));
   try {
     var candidates = candidatesModule.createCandidateStore({ cwd: dir });
-    var source = Object.assign({}, candidate(), {
+    var source = candidate({
       admission: "owner_approval",
+      itemClass: "feature",
       safety: scopedAutonomy.assessCandidateSafety({ title: "Correct a small empty state alignment" }),
     });
     candidates.upsert(source);
@@ -206,16 +244,19 @@ test("the scoped low-risk receipt is revalidated against its durable owner grant
       kind: authorization.SCOPED_KIND,
       scopedPolicyGrant: activated.grant,
     });
-    var currentPolicy = policy(record.policyDigest);
-    currentPolicy.autonomy.ambiguous = "owner_approval";
+    var currentPolicy = policy();
+    currentPolicy.autonomy.feature = "owner_approval";
     var validator = authorization.createAuthorizationValidator({
       candidates: candidates,
       getLeadMode: function () { return true; },
       loadPolicy: function () { return { ok: true, policy: currentPolicy }; },
       scopedAutonomyPolicy: scopedPolicy,
+      now: function () { return 1000; },
     });
-    assert.equal(validator.validate({ authorization: typed, request: scope }).ok, true,
-      "the exact owner-backed receipt reaches execution without a second prompt");
+    var scopedValidation = validator.validate({ authorization: typed, request: scope });
+    assert.equal(scopedValidation.ok, true,
+      "the exact owner-backed receipt reaches execution without a second prompt: " +
+      scopedValidation.reason);
 
     var forged = JSON.parse(JSON.stringify(typed));
     forged.scopedPolicyGrant.owner.ingressId = "coop:canonical-coop:other";
@@ -240,7 +281,7 @@ test("the scoped low-risk receipt is revalidated against its durable owner grant
 });
 
 test("typed launch admission does not weaken configured external approval gates", function () {
-  var current = policy("policy-current");
+  var current = policy();
   var kinds = ["comment", "done_workflow", "merge", "close"];
   for (var i = 0; i < kinds.length; i++) {
     var verdict = authority.decideAutomation({

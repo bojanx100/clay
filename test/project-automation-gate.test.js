@@ -19,7 +19,7 @@ var PROJECT_B = "11111111-2222-4333-8444-555555555555";
 
 var BUG_RECIPE = {
   id: "assigned-to-me",
-  source: { provider: "github", repo: "trialview/v2", kind: "issue" },
+  source: { provider: "github", repo: "trialview/v2", kind: "issue", includeProjectItems: true },
   filter: { type: "bug", skipProjectStatuses: ["Done"] },
 };
 var PR_RECIPE = {
@@ -28,7 +28,20 @@ var PR_RECIPE = {
   filter: {},
 };
 
-function workspace(recipes) {
+function qualificationPolicy() {
+  return {
+    version: 1,
+    normalIssueIntake: {
+      issueStates: ["open"],
+      boardStatuses: ["Backlog", "Ready for development"],
+      requireAllBoardItems: true,
+      assignment: "owner",
+      classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+    },
+  };
+}
+
+function workspace(recipes, automation) {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-gate-"));
   var tasks = path.join(dir, ".clay", "tasks");
   fs.mkdirSync(tasks, { recursive: true });
@@ -36,6 +49,12 @@ function workspace(recipes) {
   for (var i = 0; i < list.length; i++) {
     fs.writeFileSync(path.join(tasks, list[i].id + ".json"), JSON.stringify(list[i]));
   }
+  fs.writeFileSync(path.join(tasks, "config.json"), JSON.stringify({
+    automation: automation || {
+      autonomy: { bug: "autonomous", feature: "owner_approval", ambiguous: "owner_approval" },
+      qualification: qualificationPolicy(),
+    },
+  }));
   return dir;
 }
 
@@ -81,25 +100,37 @@ function makeGate(options) {
 // work automatic pickup may consider at all. `assignedToOwner` is the proof
 // project-task-sources stamps on each item; the unassigned case is covered
 // deliberately by the ownership tests rather than leaking into every fixture.
+function itemNumber(key) {
+  return Number(String(key).slice(String(key).lastIndexOf("#") + 1));
+}
+function issueRequest(key, labels, overrides) {
+  var number = itemNumber(key);
+  return Object.assign({
+    itemKey: key,
+    item: { number: number, state: "OPEN", labels: labels,
+      projectItems: [{ id: "PVT_item_" + number, status: { name: "Backlog" } }] },
+    recipe: BUG_RECIPE,
+    recipeKind: "issue",
+    intent: { recipeId: BUG_RECIPE.id, number: number },
+    assignedToOwner: true,
+  }, overrides || {});
+}
 function bug(key) {
-  return { itemKey: key, item: { labels: [{ name: "bug" }] }, recipeKind: "issue",
-    assignedToOwner: true };
+  return issueRequest(key, [{ name: "bug" }]);
 }
 function feature(key) {
-  return { itemKey: key, item: { labels: [{ name: "feature" }] }, recipeKind: "issue",
-    assignedToOwner: true };
+  return issueRequest(key, [{ name: "feature" }]);
 }
 function unlabeled(key) {
-  return { itemKey: key, item: { labels: [] }, recipeKind: "issue",
-    assignedToOwner: true };
+  return issueRequest(key, []);
 }
 function unassigned(key) {
-  return { itemKey: key, item: { labels: [{ name: "bug" }] }, recipeKind: "issue",
-    recipeType: "bug", assignedToOwner: false };
+  return issueRequest(key, [{ name: "bug" }], { recipeType: "bug", assignedToOwner: false });
 }
 function anyScopedUnassigned(key) {
-  return { itemKey: key, item: { labels: [{ name: "bug" }] }, recipeKind: "issue",
-    recipeType: "bug", assignedToOwner: false, recipeAllowsUnassigned: true };
+  return issueRequest(key, [{ name: "bug" }], {
+    recipeType: "bug", assignedToOwner: false, recipeAllowsUnassigned: true,
+  });
 }
 function evidence() {
   return { status: "completed", summary: "fixed", verification: "suite green", escalationRequired: "no" };
@@ -119,13 +150,12 @@ test("a project's own bug autonomy yields a candidate, never a launch", function
   assert.strictEqual(h.candidates[0].projectRef.projectId, PROJECT_A);
 });
 
-test("a project any-recipe can propose unassigned work without changing default ownership", function () {
+test("the typed owner-assignment policy rejects unassigned work", function () {
   var h = makeGate();
-  var out = h.gate.evaluateLaunch(anyScopedUnassigned("urban-stay#198"));
-  assert.strictEqual(out.decision, "propose");
-  assert.strictEqual(out.reason, "proposed_to_coop");
-  assert.strictEqual(h.candidates[0].admission, "auto");
-  assert.strictEqual(h.candidates[0].projectRef.projectId, PROJECT_A);
+  var out = h.gate.evaluateLaunch(anyScopedUnassigned("urban/stay#198"));
+  assert.strictEqual(out.decision, "deny");
+  assert.strictEqual(out.reason, "qualification_assignment_required");
+  assert.strictEqual(h.candidates.length, 0);
 });
 
 test("no launch decision can ever be execute under lead mode on", function () {
@@ -172,10 +202,15 @@ test("discovery is always allowed", function () {
 
 test("two projects with different policies produce different candidates", function () {
   var autonomous = makeGate({ cwd: workspace([BUG_RECIPE]), projectId: PROJECT_A });
-  var restrictive = makeGate({ cwd: workspace([]), projectId: PROJECT_B, slug: "clay" });
-  autonomous.gate.evaluateLaunch(bug("a#1"));
-  restrictive.gate.evaluateLaunch(bug("b#1"));
+  var restrictive = makeGate({ cwd: workspace([BUG_RECIPE], {
+    autonomy: { bug: "owner_approval", feature: "owner_approval", ambiguous: "owner_approval" },
+    qualification: qualificationPolicy(),
+  }), projectId: PROJECT_B, slug: "clay" });
+  var autonomousOut = autonomous.gate.evaluateLaunch(bug("trialview/v2#1"));
+  var restrictiveOut = restrictive.gate.evaluateLaunch(feature("trialview/v2#2"));
 
+  assert.strictEqual(autonomous.candidates.length, 1, autonomousOut.reason);
+  assert.strictEqual(restrictive.candidates.length, 1, restrictiveOut.reason);
   assert.strictEqual(autonomous.candidates[0].admission, "auto");
   assert.strictEqual(restrictive.candidates[0].admission, "owner_approval");
   assert.strictEqual(autonomous.candidates[0].projectRef.projectId, PROJECT_A);
@@ -324,7 +359,7 @@ test("a candidate delivery failure is a typed denial, not a proposal", function 
     audit: automationAudit.createAutomationAudit({
       file: path.join(dir, "audit.jsonl"), slug: "boom" }),
   });
-  var out = gate.evaluateLaunch(bug("x#9"));
+  var out = gate.evaluateLaunch(bug("trialview/v2#9"));
   // A proposal nobody received is not a proposal. Reporting proposed_to_coop
   // here claimed the work had been handed over when no durable record existed.
   assert.strictEqual(out.decision, "deny");
@@ -342,7 +377,7 @@ test("a sink that reports failure is a typed denial too", function () {
     audit: automationAudit.createAutomationAudit({
       file: path.join(dir, "audit.jsonl"), slug: "sink" }),
   });
-  var out = gate.evaluateLaunch(bug("x#10"));
+  var out = gate.evaluateLaunch(bug("trialview/v2#10"));
   assert.strictEqual(out.decision, "deny");
   assert.strictEqual(out.reason, "persistence_failed");
 });
@@ -355,7 +390,7 @@ test("no candidate sink at all is a denial rather than a silent success", functi
     audit: automationAudit.createAutomationAudit({
       file: path.join(dir, "audit.jsonl"), slug: "nosink" }),
   });
-  assert.strictEqual(gate.evaluateLaunch(bug("x#11")).reason, "candidate_sink_unavailable");
+  assert.strictEqual(gate.evaluateLaunch(bug("trialview/v2#11")).reason, "candidate_sink_unavailable");
 });
 
 // --- External authorization must be PROVEN, not shaped ------------------------

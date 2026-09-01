@@ -113,6 +113,52 @@ test("explicit automation block wins and marks the policy as not derived", funct
   assert.match(result.policy.digest, /^[0-9a-f]{64}$/);
 });
 
+test("typed issue qualification is policy-bound and malformed profiles fail closed", function () {
+  var qualification = {
+    version: 1,
+    normalIssueIntake: {
+      issueStates: ["open"],
+      boardStatuses: ["Backlog", "Ready for development"],
+      requireAllBoardItems: true,
+      assignment: "owner",
+      classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+    },
+  };
+  var cwd = makeProject({
+    "config.json": { automation: { qualification: qualification } },
+    "assigned-to-me.json": BUG_RECIPE,
+  });
+  var current = load(cwd);
+  assert.strictEqual(current.ok, true);
+  assert.deepStrictEqual(current.policy.qualification, {
+    version: 1,
+    normalIssueIntake: {
+      issueStates: ["open"],
+      boardStatuses: ["backlog", "ready for development"],
+      requireAllBoardItems: true,
+      assignment: "owner",
+      classification: { autonomous: ["bug"], ownerApproval: ["ambiguous", "feature"] },
+    },
+  });
+
+  var changed = JSON.parse(JSON.stringify(qualification));
+  changed.normalIssueIntake.boardStatuses = ["Backlog"];
+  var changedCwd = makeProject({
+    "config.json": { automation: { qualification: changed } },
+    "assigned-to-me.json": BUG_RECIPE,
+  });
+  assert.notStrictEqual(load(changedCwd).policy.digest, current.policy.digest,
+    "the receipt policy digest changes when a machine-enforced intake rule changes");
+
+  var malformed = JSON.parse(JSON.stringify(qualification));
+  malformed.normalIssueIntake.classification.ownerApproval = ["feature"];
+  var malformedCwd = makeProject({
+    "config.json": { automation: { qualification: malformed } },
+  });
+  assert.deepStrictEqual(load(malformedCwd),
+    { ok: false, reason: "policy_malformed", projectRef: REF_A });
+});
+
 test("a partial explicit block falls back to the restrictive baseline, not to derivation", function () {
   var cwd = makeProject({
     "config.json": { automation: { autonomy: { feature: "deny" } } },

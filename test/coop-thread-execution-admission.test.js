@@ -9,6 +9,8 @@ var queueAuthorization = require("../lib/coop-queue-authorization");
 var automationAuthorization = require("../lib/project-automation-execution-authorization");
 var automationCandidates = require("../lib/project-automation-candidates");
 var automationIdentity = require("../lib/project-automation-identity");
+var automationPolicy = require("../lib/project-automation-policy");
+var qualification = require("../lib/project-automation-qualification");
 var createTopicIndex = require("../lib/coop-topic-index").createTopicIndex;
 var createExternalTaskCoordinator =
   require("../lib/project-task-orchestrator-external-delegation").createExternalTaskCoordinator;
@@ -23,6 +25,55 @@ var PROJECT = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var WEBAPP_PROJECT = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 var TOPIC = { topicId: "auto-a7daa4cc660639337d144d93" };
 var INGRESS = "coop:canonical-coop:7";
+
+function issueRecipe(id, repo) {
+  return {
+    id: id,
+    source: { provider: "github", kind: "issue", repo: repo, includeProjectItems: true },
+    filter: { state: "open", assigned: "me", type: "bug" },
+  };
+}
+
+function issuePolicy(projectId, recipe) {
+  var policy = {
+    projectRef: { projectId: projectId },
+    derived: false,
+    autonomy: { bug: "autonomous", feature: "owner_approval", ambiguous: "owner_approval",
+      pr_review: "propose", default: "propose" },
+    externalActions: { comment: "approval", done_workflow: "approval", merge: "approval", close: "approval" },
+    boardExclusions: [],
+    qualification: {
+      version: 1,
+      normalIssueIntake: {
+        issueStates: ["open"], boardStatuses: ["Backlog", "Ready for development"],
+        requireAllBoardItems: true, assignment: "owner",
+        classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+      },
+    },
+    providerRules: { vendors: {} },
+    recipes: [{ id: recipe.id, kind: "issue", repo: recipe.source.repo, type: "bug",
+      digest: automationPolicy.recipeDigest(recipe) }],
+    sources: [],
+  };
+  policy.digest = automationPolicy.policyDigest(policy);
+  return policy;
+}
+
+function receiptForCandidate(candidate, policy, recipe) {
+  var receipt = qualification.receiptFor({
+    policy: policy,
+    projectRef: candidate.projectRef,
+    recipe: { id: recipe.id, digest: automationPolicy.recipeDigest(recipe), kind: "issue" },
+    item: { number: candidate.intent.number, state: "OPEN",
+      projectItems: [{ id: "PVT_item_" + candidate.intent.number, status: { name: "Backlog" } }] },
+    itemKey: candidate.itemKey,
+    itemClass: candidate.itemClass,
+    assignedToOwner: candidate.eligibility.assignedToOwner,
+    recipeAllowsUnassigned: candidate.eligibility.recipeAllowsUnassigned,
+    now: 1000,
+  });
+  return receipt.ok ? receipt.receipt : null;
+}
 
 test("ordinary discussion and project mentions do not admit typed execution", function () {
   assert.equal(lifecycle.explicitImplementationDecision("What is happening with the Clay sidebar?"), null);
@@ -279,25 +330,32 @@ test("typed project execution fails closed until the current owner ingress has a
 });
 
 function autonomousCandidate() {
+  var recipe = issueRecipe("all-issues", "bojanx100/urban-stay-web");
+  var policy = issuePolicy(PROJECT, recipe);
   var candidate = {
     candidateKey: "launch:bojanx100/urban-stay-web#198",
     itemKey: "bojanx100/urban-stay-web#198",
-    itemClass: "ambiguous",
+    itemClass: "bug",
     admission: "auto",
     status: "pending",
     projectRef: { projectId: PROJECT },
-    policyDigest: "policy-current",
+    policyDigest: policy.digest,
     recipeId: "all-issues",
     eligibilityPass: "scan-current",
     eligibility: {
-      assignedToOwner: false,
-      recipeAllowsUnassigned: true,
-      reason: "recipe_allows_unassigned",
+      assignedToOwner: true,
+      recipeAllowsUnassigned: false,
+      reason: "assigned_to_owner",
     },
     intent: { recipeId: "all-issues", number: 198, title: "Stuck until refresh" },
   };
+  candidate.qualificationReceipt = receiptForCandidate(candidate, policy, recipe);
   candidate.digest = automationCandidates.contentDigest(candidate);
   return candidate;
+}
+
+function autonomousPolicy() {
+  return issuePolicy(PROJECT, issueRecipe("all-issues", "bojanx100/urban-stay-web"));
 }
 
 function autonomousDispatch(router, overrides) {
@@ -333,17 +391,7 @@ test("current autonomous evidence creates one deterministic visible Thread and b
     },
     getLeadMode: function () { return true; },
     loadPolicy: function () {
-      return { ok: true, policy: {
-        projectRef: { projectId: PROJECT },
-        digest: "policy-current",
-        autonomy: {
-          bug: "propose", feature: "propose", ambiguous: "autonomous",
-          pr_review: "propose", default: "propose",
-        },
-        externalActions: {
-          comment: "approval", done_workflow: "approval", merge: "approval", close: "approval",
-        },
-      } };
+      return { ok: true, policy: autonomousPolicy() };
     },
     now: function () { return 1000; },
   });
@@ -429,6 +477,8 @@ test("#2522: a new Webapp automation Thread claims the incumbent before control-
   var bindingStore = portfolioBindings.createPortfolioExecutionBindings({ file: bindingFile });
   var topicIndex = createTopicIndex({ file: topicFile, now: function () { return 1000; } });
   var portfolioTaskId = "auto:6bab7b2dfa0ca349934de11f:trialview-v2-2522";
+  var recipe = issueRecipe("assigned-to-me", "trialview/v2");
+  var currentPolicy = issuePolicy(webapp, recipe);
   var candidate = {
     candidateKey: "launch:trialview/v2#2522",
     itemKey: "trialview/v2#2522",
@@ -436,7 +486,7 @@ test("#2522: a new Webapp automation Thread claims the incumbent before control-
     admission: "auto",
     status: "pending",
     projectRef: { projectId: webapp },
-    policyDigest: "policy-current-2522",
+    policyDigest: currentPolicy.digest,
     recipeId: "assigned-to-me",
     eligibilityPass: "scan-current-2522",
     eligibility: {
@@ -447,6 +497,7 @@ test("#2522: a new Webapp automation Thread claims the incumbent before control-
     intent: { recipeId: "assigned-to-me", number: 2522,
       title: "Replace the Excel zoom slider" },
   };
+  candidate.qualificationReceipt = receiptForCandidate(candidate, currentPolicy, recipe);
   candidate.digest = automationCandidates.contentDigest(candidate);
   var historicalRequest = {
     source: { projectId: "system-lead", sessionStorageId: coopStorageId },
@@ -464,18 +515,7 @@ test("#2522: a new Webapp automation Thread claims the incumbent before control-
     },
     getLeadMode: function () { return true; },
     loadPolicy: function () {
-      return { ok: true, policy: {
-        projectRef: { projectId: webapp },
-        digest: candidate.policyDigest,
-        autonomy: {
-          bug: "autonomous", feature: "propose", ambiguous: "propose",
-          pr_review: "propose", default: "propose",
-        },
-        externalActions: {
-          comment: "approval", done_workflow: "approval",
-          merge: "approval", close: "approval",
-        },
-      } };
+      return { ok: true, policy: currentPolicy };
     },
     now: function () { return 1000; },
   });
@@ -587,18 +627,7 @@ test("autonomous coordinator instructions block approval-gated external actions 
     },
     getLeadMode: function () { return true; },
     loadPolicy: function () {
-      return { ok: true, policy: {
-        projectRef: { projectId: PROJECT },
-        digest: "policy-current",
-        autonomy: {
-          bug: "propose", feature: "propose", ambiguous: "autonomous",
-          pr_review: "propose", default: "propose",
-        },
-        externalActions: {
-          comment: "approval", done_workflow: "approval",
-          merge: "approval", close: "approval",
-        },
-      } };
+      return { ok: true, policy: autonomousPolicy() };
     },
     now: function () { return 1000; },
   });

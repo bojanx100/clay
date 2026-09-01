@@ -39,7 +39,8 @@ function issue2517() {
     labels: [{ name: "bug" }],
     assignees: [{ login: "bojantv" }],
     assignedToOwner: true,
-    projectItems: [{ status: { name: "Backlog" } }],
+    state: "OPEN",
+    projectItems: [{ id: "PVT_item_2517", status: { name: "Backlog" } }],
   };
 }
 
@@ -51,7 +52,7 @@ function webappWorkspace(extraRecipe) {
   fs.mkdirSync(tasks, { recursive: true });
   fs.writeFileSync(path.join(tasks, "assigned-to-me.json"), JSON.stringify(Object.assign({
     id: "assigned-to-me",
-    source: { provider: "github", kind: "issue", repo: "trialview/v2" },
+    source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
     launch: { defaultLimit: 5 },
     session: {},
     completion: {},
@@ -59,6 +60,19 @@ function webappWorkspace(extraRecipe) {
   }, extraRecipe || {})));
   fs.writeFileSync(path.join(tasks, "config.json"), JSON.stringify({
     autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *" },
+    automation: {
+      autonomy: { bug: "autonomous", feature: "owner_approval", ambiguous: "owner_approval" },
+      qualification: {
+        version: 1,
+        normalIssueIntake: {
+          issueStates: ["open"],
+          boardStatuses: ["Backlog", "Ready for development"],
+          requireAllBoardItems: true,
+          assignment: "owner",
+          classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+        },
+      },
+    },
   }));
   return dir;
 }
