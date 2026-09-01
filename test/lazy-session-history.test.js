@@ -384,3 +384,44 @@ test("unchanged hidden sessions hydrate from the startup cache without reparsing
     h.cleanup();
   }
 });
+
+test("unchanged visible settled sessions hydrate from the startup cache", function () {
+  var storageId = "aaaaaaaa-0000-4000-8000-000000000010";
+  var h = harness(function (dir) {
+    writeSessionFile(dir, storageId, {
+      lastActivity: 14,
+      sessionVisibility: "shared",
+    }, settledHistory());
+  });
+  var file = path.join(h.sessionsDir, storageId + ".jsonl");
+  var originalRead = fs.readFileSync;
+  try {
+    assert.ok(fs.existsSync(path.join(h.sessionsDir, ".startup-cache.json")),
+      "the first parse records compact derived state for a settled visible session");
+    clearSessionModuleCache();
+    var transcriptReads = 0;
+    fs.readFileSync = function (target) {
+      if (String(target) === file) {
+        transcriptReads++;
+        throw new Error("settled visible transcript should not be parsed");
+      }
+      return originalRead.apply(fs, arguments);
+    };
+
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var session = sessionByStorageId(restored, storageId);
+    assert.ok(session, "cached metadata restores the visible session");
+    assert.equal(session.hidden, undefined);
+    assert.deepEqual(session._historicalProviderIds.sort(),
+      ["provider-thread-a", "provider-thread-b"]);
+    assert.equal(transcriptReads, 0,
+      "the unchanged visible transcript was not read during startup");
+    assert.equal(historyStore.isResident(session), false);
+  } finally {
+    fs.readFileSync = originalRead;
+    h.cleanup();
+  }
+});
