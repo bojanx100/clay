@@ -596,6 +596,71 @@ test("a Claude rollout is still importable when a large pasted attachment stradd
   }
 });
 
+test("Codex rollout descriptors are parsed once across project managers while cwd indexes stay isolated", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-shared-codex-catalog-"));
+  var projectA = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-a-"));
+  var projectB = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-b-"));
+  var threadId = "019f0000-0000-7000-8000-000000000001";
+  var rolloutDir = path.join(tmpHome, ".codex", "sessions", "2026", "09", "01");
+  var rolloutPath = path.join(rolloutDir,
+    "rollout-2026-09-01T10-00-00-" + threadId + ".jsonl");
+  var oldHome = process.env.HOME;
+  var realOpenSync = fs.openSync;
+  fs.mkdirSync(rolloutDir, { recursive: true });
+  fs.writeFileSync(rolloutPath, [
+    JSON.stringify({
+      type: "session_meta",
+      payload: { id: threadId, cwd: projectA, timestamp: "2026-09-01T10:00:00.000Z" },
+    }),
+    JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: "Shared catalog proof" },
+    }),
+  ].join("\n") + "\n");
+  process.env.HOME = tmpHome;
+
+  var rolloutOpens = 0;
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions-cli-descriptors")];
+    fs.openSync = function (filePath) {
+      if (path.resolve(filePath) === path.resolve(rolloutPath)) rolloutOpens++;
+      return realOpenSync.apply(fs, arguments);
+    };
+    var descriptors = require("../lib/sessions-cli-descriptors");
+    var options = { isValidCliSessionId: function () { return true; } };
+    var first = descriptors.attachSessionCliDescriptors(
+      Object.assign({ cwd: projectA }, options));
+    first.ensureCodexThreadIndex();
+    assert.strictEqual(first.codexThreadIndexed(threadId), true);
+    assert.ok(rolloutOpens > 0, "the first manager builds the shared disk catalog");
+    var opensAfterFirst = rolloutOpens;
+
+    var second = descriptors.attachSessionCliDescriptors(
+      Object.assign({ cwd: projectA }, options));
+    second.ensureCodexThreadIndex();
+    assert.strictEqual(second.codexThreadIndexed(threadId), true);
+    assert.strictEqual(rolloutOpens, opensAfterFirst,
+      "a second manager reuses descriptors instead of reparsing the rollout");
+
+    var otherProject = descriptors.attachSessionCliDescriptors(
+      Object.assign({ cwd: projectB }, options));
+    otherProject.ensureCodexThreadIndex();
+    assert.strictEqual(otherProject.codexThreadIndexed(threadId), false,
+      "the process-wide catalog does not leak threads across cwd indexes");
+    assert.strictEqual(rolloutOpens, opensAfterFirst);
+  } finally {
+    fs.openSync = realOpenSync;
+    if (typeof oldHome === "string") process.env.HOME = oldHome;
+    else delete process.env.HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions-cli-descriptors")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectA, { recursive: true, force: true });
+    fs.rmSync(projectB, { recursive: true, force: true });
+  }
+});
+
 test("a genuinely empty 'hi'-only Claude rollout stays excluded after the descriptor read fix", function () {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-hi-only-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
