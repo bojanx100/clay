@@ -105,7 +105,7 @@ test("reading and thinking time ends at the bounded five-minute grace", function
   assert.equal(service.summary("owner", -120, "alpha").tracking, false);
 });
 
-test("foreground phone evidence counts continuously until the phone backgrounds", function () {
+test("foreground phone evidence keeps a bounded five-minute background grace", function () {
   var base = Date.UTC(2026, 7, 31, 8, 0, 0);
   var clock = createClock(base);
   var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
@@ -124,9 +124,35 @@ test("foreground phone evidence counts continuously until the phone backgrounds"
   service.signal(phone, mobileForegroundInput("alpha", false, false));
   clock.advance(120000);
   var backgrounded = service.summary("owner", -120, "alpha");
-  assert.equal(backgrounded.todayMs, 20 * 60000 + 10000,
-    "background phone time must stop at the last foreground signal");
-  assert.equal(backgrounded.tracking, false);
+  assert.equal(backgrounded.todayMs, 22 * 60000 + 10000,
+    "a short phone background interruption should remain human work");
+  assert.equal(backgrounded.tracking, true);
+
+  clock.advance(181000);
+  var expired = service.summary("owner", -120, "alpha");
+  assert.equal(expired.todayMs, 25 * 60000 + 10000,
+    "unattended phone time must stop after the five-minute grace");
+  assert.equal(expired.tracking, false);
+});
+
+test("a foreground phone disconnect keeps only the five-minute continuity grace", function () {
+  var base = Date.UTC(2026, 7, 31, 8, 0, 0);
+  var clock = createClock(base);
+  var service = humanAttention.createHumanAttention({ filePath: null, now: clock.now });
+  var phone = {};
+
+  service.signal(phone, mobileForegroundInput("alpha", true));
+  for (var elapsed = 20000; elapsed <= 60000; elapsed += 20000) {
+    clock.set(base + elapsed);
+    service.signal(phone, mobileForegroundInput("alpha", false));
+  }
+  service.disconnect(phone);
+  clock.advance(10 * 60000);
+
+  var result = service.summary("owner", -120, "alpha");
+  assert.equal(result.todayMs, 6 * 60000,
+    "a disconnected phone must not create more than five minutes of human time");
+  assert.equal(result.tracking, false);
 });
 
 test("a workday reports partial coverage until the first complete 5am boundary", function () {
