@@ -428,6 +428,102 @@ test("unchanged visible settled sessions hydrate from the startup cache", functi
   }
 });
 
+test("a completed turn supersedes stale restart-interruption metadata before caching", function () {
+  var storageId = "aaaaaaaa-0000-4000-8000-000000000013";
+  var interruptionText = "Session was interrupted by a Clay restart. Clay will continue it when you reopen this session.";
+  var h = harness(function (dir) {
+    writeSessionFile(dir, storageId, {
+      interruptedByRestart: true,
+      lastActivity: 24,
+      sessionVisibility: "shared",
+    }, [
+      { type: "user_message", text: "first turn", _ts: 10 },
+      { type: "info", text: interruptionText, _ts: 11 },
+      { type: "done", code: 1, _ts: 12 },
+      { type: "user_message", text: "later successful turn", _ts: 20 },
+      { type: "delta", text: "completed", _ts: 21 },
+      { type: "done", code: 0, _ts: 22 },
+    ]);
+  });
+  var file = path.join(h.sessionsDir, storageId + ".jsonl");
+  var originalRead = fs.readFileSync;
+  try {
+    var loaded = sessionByStorageId(h.sm, storageId);
+    assert.equal(loaded.interruptedByRestart, undefined,
+      "later transcript evidence supersedes the stale derived metadata bit");
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8").split("\n")[0]).interruptedByRestart, true,
+      "startup does not rewrite canonical live session data to repair derived state");
+
+    clearSessionModuleCache();
+    var transcriptReads = 0;
+    fs.readFileSync = function (target) {
+      if (String(target) === file) {
+        transcriptReads++;
+        throw new Error("completed interrupted transcript should use its cache");
+      }
+      return originalRead.apply(fs, arguments);
+    };
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = sessionByStorageId(restored, storageId);
+    assert.ok(restoredSession);
+    assert.equal(restoredSession.interruptedByRestart, undefined);
+    assert.equal(transcriptReads, 0);
+  } finally {
+    fs.readFileSync = originalRead;
+    h.cleanup();
+  }
+});
+
+test("a terminal restart interruption preserves its state through the startup cache", function () {
+  var storageId = "aaaaaaaa-0000-4000-8000-000000000014";
+  var interruptionText = "Session was interrupted by a Clay restart. Clay will continue it when you reopen this session.";
+  var h = harness(function (dir) {
+    writeSessionFile(dir, storageId, {
+      interruptedByRestart: true,
+      lastActivity: 14,
+      sessionVisibility: "shared",
+    }, [
+      { type: "user_message", text: "unfinished turn", _ts: 10 },
+      { type: "info", text: interruptionText, _ts: 11 },
+      { type: "done", code: 1, _ts: 12 },
+    ]);
+  });
+  var file = path.join(h.sessionsDir, storageId + ".jsonl");
+  var originalRead = fs.readFileSync;
+  try {
+    var loaded = sessionByStorageId(h.sm, storageId);
+    assert.equal(loaded.interruptedByRestart, true);
+    assert.equal(loaded.restartResumeEligible, undefined,
+      "a durable terminal interruption is not queued for another automatic resume");
+
+    clearSessionModuleCache();
+    var transcriptReads = 0;
+    fs.readFileSync = function (target) {
+      if (String(target) === file) {
+        transcriptReads++;
+        throw new Error("terminal interrupted transcript should use its cache");
+      }
+      return originalRead.apply(fs, arguments);
+    };
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = sessionByStorageId(restored, storageId);
+    assert.ok(restoredSession);
+    assert.equal(restoredSession.interruptedByRestart, true,
+      "cached derived state preserves the terminal interruption");
+    assert.equal(restoredSession.restartResumeEligible, undefined);
+    assert.equal(transcriptReads, 0);
+  } finally {
+    fs.readFileSync = originalRead;
+    h.cleanup();
+  }
+});
+
 test("switching a large regular session reads only its recent history window", async function () {
   var storageId = "aaaaaaaa-0000-4000-8000-000000000011";
   var eventCount = 6000;
