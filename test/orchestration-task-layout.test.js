@@ -5,6 +5,7 @@ var path = require("node:path");
 var pathToFileURL = require("node:url").pathToFileURL;
 var approvalStaging = require("../lib/coop-approval-question-staging");
 var itemApproval = require("../lib/coop-item-approval");
+var coopConversationControl = require("../lib/coop-conversation-control");
 var orchestrationTasksForClient =
   require("../lib/orchestration-task-state").orchestrationTasksForClient;
 
@@ -219,7 +220,16 @@ test("serialized staged approval clicks one exact Main-scope owner decision", as
     approve.click();
     approve.click();
 
-    assert.equal(sent.length, 1, "a double click submits exactly one owner message");
+    // A projection can re-render the still-pending placeholder before the
+    // coordinator has consumed the approval. That must remain the same
+    // single-flight action, not create a fresh DOM-local approval button.
+    var rerenderHost = element("div");
+    preview.renderOrchestrationTaskPreview(rerenderHost, [task], { phase: "waiting_user" });
+    var rerenderApprove = byClass(rerenderHost, "orchestration-task-approve")[0];
+    rerenderApprove.click();
+
+    assert.equal(sent.length, 1,
+      "double clicks and a re-rendered second control submit exactly one owner message");
     assert.deepEqual(sent[0], {
       type: "message",
       text: "Approve " + taskId + " revision 2 implementation for ProjectRef " + projectId,
@@ -228,9 +238,53 @@ test("serialized staged approval clicks one exact Main-scope owner decision", as
       sessionId: 77,
       coopComposerScope: "main",
     });
-    assert.match(sent[0].clientMessageId, /^cm-/);
+    assert.equal(sent[0].clientMessageId,
+      "coop-approval:" + approvalSet.setId + ":" + task.clientRef,
+      "the exact staged task/revision keeps one stable ingress identity across retries");
+    var ingressSession = { coopHome: true, storageId: "approval-replay", history: [] };
+    var acceptedIngress = coopConversationControl.reserveIngress(ingressSession, sent[0]);
+    ingressSession.history.push({
+      type: "user_message",
+      coopIngressKey: "input:" + sent[0].clientMessageId,
+      coopIngressId: acceptedIngress.ingressId,
+      coopIngressSequence: acceptedIngress.sequence,
+    });
+    delete ingressSession.coopConversationIngress;
+    var replayedIngress = coopConversationControl.reserveIngress(ingressSession,
+      Object.assign({}, sent[0]));
+    assert.equal(replayedIngress.duplicate, true,
+      "the server recognizes the real approval request as one durable ingress after restart");
+    assert.equal(replayedIngress.ingressId, acceptedIngress.ingressId);
+    var revisionScope = Object.assign({}, scope, { bindingRevision: 3 });
+    var revisionApprovalSet = {
+      setId: approvalStaging.setIdFor([revisionScope]),
+      stagedAt: 100,
+      scopes: [revisionScope],
+    };
+    var revisionTask = JSON.parse(JSON.stringify(orchestrationTasksForClient({
+      orchestrationTasks: [Object.assign({
+        taskId: "task-staged-popup-fix-r3",
+        status: "waiting_user",
+        createdAt: 100,
+        updatedAt: 100,
+      }, approvalStaging.stagedTaskInput(
+        revisionScope,
+        revisionApprovalSet,
+        approvalStaging.questionFor([revisionScope]),
+        "owner_implementation_decision_required"
+      ))],
+    })[0]));
+    var revisionHost = element("div");
+    preview.renderOrchestrationTaskPreview(revisionHost, [revisionTask], { phase: "waiting_user" });
+    byClass(revisionHost, "orchestration-task-approve")[0].click();
+    assert.equal(sent.length, 2,
+      "a distinct binding revision remains independently approvable");
+    assert.notEqual(sent[1].clientMessageId, sent[0].clientMessageId,
+      "each exact staged task/revision has its own durable ingress identity");
     assert.equal(approve.disabled, true);
     assert.equal(approve.textContent, "Approval sent");
+    assert.equal(rerenderApprove.disabled, true,
+      "the re-rendered control stays disabled while the same approval is in flight");
     assert.equal(byClass(host, "orchestration-task-approve").length, 1,
       "a successful socket write keeps the staged control until server confirmation");
     var discovered = itemApproval.approvalEventForTask([{
@@ -257,7 +311,7 @@ test("serialized staged approval clicks one exact Main-scope owner decision", as
     assert.equal(retry.disabled, false, "a failed send remains retryable");
     assert.match(byClass(retryHost, "orchestration-task-approval-error")[0].textContent,
       /not connected/i);
-    assert.equal(sent.length, 1, "a disconnected click sends no decision");
+    assert.equal(sent.length, 2, "a disconnected click sends no decision");
 
     wsModule.setWs({
       readyState: 1,
@@ -265,8 +319,8 @@ test("serialized staged approval clicks one exact Main-scope owner decision", as
     });
     retry.click();
     retry.click();
-    assert.equal(sent.length, 2, "the same control retries once after transport recovery");
-    assert.equal(sent[1].text,
+    assert.equal(sent.length, 3, "the same control retries once after transport recovery");
+    assert.equal(sent[2].text,
       "Approve " + taskId + " revision 2 implementation for ProjectRef " + projectId);
     assert.equal(retry.disabled, true);
     assert.equal(byClass(retryHost, "orchestration-task-approval-error")[0].textContent, "");
