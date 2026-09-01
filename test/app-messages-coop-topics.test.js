@@ -96,7 +96,8 @@ test("live Main removes only the exact Lead disclosure while All and owner quote
     type: "delta",
     text: disclosure + "\n\nThe requested blocker remains visible.",
   });
-  assert.equal(main.type, "delta_replace");
+  assert.equal(main.type, "delta",
+    "a filtered first chunk stays append-only instead of forcing a Markdown re-render");
   assert.equal(main.text.indexOf(disclosure), -1);
   assert.match(main.text, /requested blocker remains visible/);
 
