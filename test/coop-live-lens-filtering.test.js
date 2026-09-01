@@ -149,27 +149,59 @@ test("live disclosure projection agrees with replay and repairs split assistant 
 
   var projector = lens.createMainAuthorityDisclosureProjector();
   var first = projector.project({ type: "delta", text: "Useful status.\n\n" + disclosure.slice(0, 43) });
-  assert.equal(first.type, "delta_replace", "an exact disclosure prefix never briefly enters Main");
+  assert.equal(first.type, "delta", "an exact disclosure prefix never briefly enters Main");
   assert.equal(first.text.indexOf(disclosure.slice(0, 43)), -1,
     "the pending exact prefix is withheld instead of repaired after it renders");
   var completed = projector.project({
     type: "delta",
     text: disclosure.slice(43) + "\n\nThe owner-facing blocker remains visible.",
   });
-  assert.equal(completed.type, "delta_replace");
-  assert.equal(completed.text.indexOf(disclosure), -1);
-  assert.match(completed.text, /Useful status/);
-  assert.match(completed.text, /owner-facing blocker remains visible/);
+  assert.equal(completed.type, "delta",
+    "finishing the disclosure appends only newly visible text");
+  var visible = first.text + completed.text;
+  assert.equal(visible.indexOf(disclosure), -1);
+  assert.match(visible, /Useful status/);
+  assert.match(visible, /owner-facing blocker remains visible/);
 
   var serverProjector = server.createMainAuthorityDisclosureProjector();
   var serverFirst = serverProjector.project({ type: "delta", text: "Useful status.\n\n" + disclosure.slice(0, 43) });
-  assert.equal(serverFirst.type, "delta_replace", "replay holds the same pending exact prefix");
+  assert.equal(serverFirst.type, "delta", "replay holds the same pending exact prefix");
   assert.equal(serverFirst.text.indexOf(disclosure.slice(0, 43)), -1);
 
   projector.project({ type: "done" });
   var ownerQuote = { type: "user_message", text: disclosure, from: "owner-1", clientMessageId: "quote-1" };
   assert.equal(projector.project(ownerQuote), ownerQuote,
     "the exact sentence in a genuine owner message is not suppression evidence");
+});
+
+test("disclosure filtering keeps long live replies linear after the repair point", async function () {
+  var lens = await loadRelevance();
+  var disclosure = lens.LEAD_AUTHORITY_DISCLOSURES[0];
+  var projector = lens.createMainAuthorityDisclosureProjector();
+  var chunks = ["Status before disclosure.\n\n" + disclosure.slice(0, 31),
+    disclosure.slice(31) + "\n\n"];
+  for (var i = 0; i < 1024; i++) chunks.push("owner-visible progress " + i + "\n");
+
+  var visible = "";
+  var emittedCharacters = 0;
+  var replacements = 0;
+  for (var ci = 0; ci < chunks.length; ci++) {
+    var projected = projector.project({ type: "delta", text: chunks[ci] });
+    emittedCharacters += projected.text.length;
+    if (projected.type === "delta_replace") {
+      replacements++;
+      visible = projected.text;
+    } else {
+      visible += projected.text;
+    }
+  }
+
+  assert.equal(replacements, 0,
+    "a disclosure removal followed by monotonic text must not re-render growing Markdown");
+  assert.equal(visible.indexOf(disclosure), -1);
+  assert.match(visible, /owner-visible progress 1023/);
+  assert.equal(emittedCharacters, visible.length,
+    "transported text stays linear in the rendered reply instead of summing every prefix");
 });
 
 // --- wiring: classified at dispatch, marked at the one appender -------------
