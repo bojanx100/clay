@@ -661,6 +661,62 @@ test("Codex rollout descriptors are parsed once across project managers while cw
   }
 });
 
+test("Codex descriptors do not JSON.parse oversized first-user records", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bounded-codex-descriptor-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var threadId = "019f0000-0000-7000-8000-000000000002";
+  var rolloutDir = path.join(tmpHome, ".codex", "sessions", "2026", "09", "01");
+  var rolloutPath = path.join(rolloutDir,
+    "rollout-2026-09-01T10-00-00-" + threadId + ".jsonl");
+  var oldHome = process.env.HOME;
+  var realJsonParse = JSON.parse;
+  fs.mkdirSync(rolloutDir, { recursive: true });
+  fs.writeFileSync(rolloutPath, [
+    JSON.stringify({
+      type: "session_meta",
+      payload: { id: threadId, cwd: projectDir, timestamp: "2026-09-01T10:00:00.000Z" },
+    }),
+    JSON.stringify({
+      type: "event_msg",
+      payload: {
+        type: "user_message",
+        message: "Bounded descriptor proof\n" + "x".repeat(2 * 1024 * 1024),
+      },
+    }),
+  ].join("\n") + "\n");
+  process.env.HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions-cli-descriptors")];
+    JSON.parse = function (value) {
+      if (typeof value === "string" && value.length > 64 * 1024) {
+        throw new Error("oversized descriptor record was parsed");
+      }
+      return realJsonParse.apply(JSON, arguments);
+    };
+    var descriptors = require("../lib/sessions-cli-descriptors");
+    var api = descriptors.attachSessionCliDescriptors({
+      cwd: projectDir,
+      isValidCliSessionId: function () { return true; },
+    });
+    api.ensureCodexThreadIndex();
+    assert.strictEqual(api.codexThreadIndexed(threadId), true);
+    var desc = api.readCodexSessionDescriptor(rolloutPath);
+    assert.ok(desc);
+    assert.ok(desc.preview.indexOf("Bounded descriptor proof\n") === 0);
+    assert.ok(desc.preview.length <= 800);
+  } finally {
+    JSON.parse = realJsonParse;
+    if (typeof oldHome === "string") process.env.HOME = oldHome;
+    else delete process.env.HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions-cli-descriptors")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
 test("a genuinely empty 'hi'-only Claude rollout stays excluded after the descriptor read fix", function () {
   var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-hi-only-"));
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
