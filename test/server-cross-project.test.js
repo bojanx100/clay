@@ -112,6 +112,49 @@ test("session queries preserve the last authoritative topic links across lifecyc
   }).sessionPresent, false);
 });
 
+test("projection topic evidence reuses one reconciled ledger snapshot", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-ledger-snapshot-"));
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var managerReads = 0;
+  var session = {
+    storageId: "topic-snapshot-session",
+    title: "Topic snapshot session",
+    createdAt: 10,
+    lastActivity: 20,
+    isProcessing: true,
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    getProjectContext: function () { return null; },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    getSessionManager: function () {
+      managerReads++;
+      return { sessions: new Map([[1, session]]) };
+    },
+  });
+  var topicLinks = [{
+    topicRef: { topicId: "topic-snapshot" },
+    sessionRef: { projectId: projectId, sessionStorageId: session.storageId },
+  }];
+
+  var reconciled = router.reconcileSessionLedger({ topicLinks: topicLinks });
+  assert.equal(reconciled.ok, true);
+  managerReads = 0;
+  for (var i = 0; i < 100; i++) {
+    var evidence = router.currentTopicSessionEvidence({ topicId: "topic-snapshot" });
+    assert.equal(evidence.length, 1);
+    assert.equal(evidence[0].sessionStorageId, session.storageId);
+  }
+  assert.equal(managerReads, 0,
+    "per-topic projection reads must not enumerate project SessionManagers again");
+
+  router.topicSessionEvidence({ topicId: "topic-snapshot" }, null, { topicLinks: topicLinks });
+  assert.ok(managerReads > 0,
+    "the ordinary query API still reconciles when no snapshot contract exists");
+});
+
 test("session ledger keeps temporary worktree sessions under the parent ProjectRef", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-worktree-ledger-"));
   var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";

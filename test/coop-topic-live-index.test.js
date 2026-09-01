@@ -156,3 +156,17 @@ test("project processing changes invalidate the connected Coop projection", func
   assert.notEqual(end, -1);
   assert.match(source.slice(start, end), /refreshGlobalCoopViewers\(\)/);
 });
+
+test("a global projection reconciles once and reuses that ledger snapshot for every topic", function () {
+  var source = fs.readFileSync(path.join(__dirname, "..", "lib", "server.js"), "utf8");
+  var start = source.indexOf("function globalCoopProjectionFor(ws)");
+  var end = source.indexOf("function refreshCanonicalCoopTopics", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  var projection = source.slice(start, end);
+  assert.match(projection, /var topicLinks = currentCoopTopicLinks\(\)/);
+  assert.match(projection, /reconcileSessionLedger\(\{ topicLinks: topicLinks \}\)/);
+  assert.match(projection, /ledgerTopicBindings\(topicRef, metadata, ws, ledgerSnapshot\)/);
+  assert.equal((projection.match(/reconcileSessionLedger\(/g) || []).length, 1,
+    "the per-topic state callback must not contain a second reconciliation path");
+});
