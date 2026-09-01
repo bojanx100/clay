@@ -5,8 +5,10 @@ var test = require("node:test");
 var assert = require("node:assert");
 
 var backlog = require("../lib/lead-backlog");
+var githubBacklog = require("../lib/lead-backlog-github");
 var automationCandidates = require("../lib/project-automation-candidates");
 var policyModule = require("../lib/project-automation-policy");
+var boardEvidence = require("../lib/lead-backlog-github-evidence");
 
 var NOW = 1785700000000;
 
@@ -94,6 +96,41 @@ var WEBAPP_ASSIGNED = {
   source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv", includeProjectItems: true },
   filter: { state: "open", assigned: "me", type: "bug", skipProjectStatuses: ["In progress", "Done"] },
 };
+
+function graphQlPage(items, pageInfo) {
+  var nodes = (items || []).map(function (item) {
+    return {
+      id: item.id,
+      project: { id: item.projectId || "PVT_project_webapp" },
+      fieldValueByName: {
+        name: item.status,
+        optionId: item.optionId || "PVTSSO_" + item.id,
+        field: { id: "PVTSSF_status", name: "Status" },
+      },
+    };
+  });
+  return JSON.stringify({ data: { repository: { issue: { projectItems: {
+    nodes: nodes,
+    pageInfo: Object.assign({ hasNextPage: false, endCursor: null }, pageInfo || {}),
+  } } } } });
+}
+
+function graphQlNumber(args) {
+  for (var i = 0; i < args.length; i++) {
+    if (String(args[i]).indexOf("number=") === 0) return Number(String(args[i]).slice(7));
+  }
+  return 0;
+}
+
+test("authoritative board query uses real GraphQL line breaks", function () {
+  var args = boardEvidence.graphQlArgs("trialview/v2", 2800, "");
+  var query = "";
+  for (var i = 0; i < args.length; i++) {
+    if (String(args[i]).indexOf("query=") === 0) query = String(args[i]).slice(6);
+  }
+  assert.ok(query.indexOf("\n") !== -1, "query preserves GraphQL line breaks");
+  assert.strictEqual(query.indexOf("\\n"), -1, "query never sends literal slash-n tokens");
+});
 // The misplaced Clay copy: same repo, no pinned account, no board exclusions.
 var CLAY_STALE_COPY = {
   id: "assigned-to-me",
@@ -113,6 +150,25 @@ function clayEntry(configs) {
     project: "clay", projectRef: CLAY_REF,
     originRepo: "https://bojanx100@github.com/bojanx100/clay.git", configs: configs,
     automationPolicy: policyFor(CLAY_REF, configs), candidateEligibility: candidateEligibility,
+  };
+}
+
+function qualifiedWebappSource() {
+  var resolved = backlog.resolveGithubSources([webappEntry([WEBAPP_ASSIGNED])]);
+  assert.deepStrictEqual(resolved.conflicts, []);
+  return resolved.sources[0];
+}
+
+function qualifiedIssue(number) {
+  return {
+    number: number,
+    title: "Qualified issue " + number,
+    state: "OPEN",
+    labels: [{ name: "bug" }],
+    assignees: [{ login: "bojantv" }],
+    // This is the incomplete shape returned by `gh issue list --json
+    // projectItems`: a status value but no stable ProjectV2 item node ID.
+    projectItems: [{ status: { name: "Backlog" } }],
   };
 }
 
@@ -505,7 +561,10 @@ test("collectGithubIssues normalizes successful output", function (t, done) {
 test("issue #2507 cannot be projected as clay#2507", function (t, done) {
   var issue2507 = [{ number: 2507, title: "Editor crash on paste", body: "", labels: [], assignees: [{ login: "bojantv" }], projectItems: [{ id: "PVT_item_2507", status: { name: "Backlog" } }], state: "OPEN", updatedAt: "2026-08-05T10:00:00Z", url: "https://x/2507" }];
   var fakeExec = function (cmd, args, cb) {
-    if (args[0] === "api") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "user") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "graphql") {
+      return cb(null, graphQlPage([{ id: "PVT_item_2507", status: "Backlog" }]));
+    }
     cb(null, JSON.stringify(issue2507));
   };
   var owned = backlog.resolveGithubSources([webappEntry([WEBAPP_ASSIGNED])]).sources[0];
@@ -610,6 +669,152 @@ test("missing, stale, mismatched, or unresolvable policy evidence fails closed",
     "candidate_eligibility_missing");
 });
 
+test("an incomplete gh issue-list projectItems payload cannot mint a qualification receipt", function (t, done) {
+  var source = qualifiedWebappSource();
+  var raw = qualifiedIssue(2871);
+  var graphCalls = 0;
+  var fakeExec = function (cmd, args, cb) {
+    if (args[0] === "api" && args[1] === "user") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "graphql") {
+      graphCalls++;
+      return cb(new Error("temporary GitHub read failure"), "");
+    }
+    cb(null, JSON.stringify([raw]));
+  };
+  backlog.collectGithubIssues(fakeExec, source, "webapp", function (err, items, metadata) {
+    assert.strictEqual(err, null);
+    assert.strictEqual(graphCalls, 1, "qualification must attempt the authoritative API");
+    assert.deepStrictEqual(items, []);
+    assert.deepStrictEqual(metadata.exclusions, [{
+      number: 2871,
+      reason: "qualification_board_evidence_unavailable",
+    }]);
+    done();
+  });
+});
+
+test("authoritative GraphQL board evidence pages and binds every exact item ID and Status", function (t, done) {
+  var source = qualifiedWebappSource();
+  var raw = qualifiedIssue(2872);
+  var graphCalls = [];
+  var fakeExec = function (cmd, args, cb) {
+    if (args[0] === "api" && args[1] === "user") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "graphql") {
+      graphCalls.push(args.slice());
+      if (graphCalls.length === 1) {
+        return cb(null, graphQlPage([{ id: "PVT_item_backlog_2872", status: "Backlog" }], {
+          hasNextPage: true, endCursor: "cursor-2872",
+        }));
+      }
+      return cb(null, graphQlPage([{ id: "PVT_item_ready_2872", status: "Ready for development" }]));
+    }
+    cb(null, JSON.stringify([raw]));
+  };
+  backlog.collectGithubIssues(fakeExec, source, "webapp", function (err, items) {
+    assert.strictEqual(err, null);
+    assert.strictEqual(graphCalls.length, 2, "the next GraphQL page is fetched exactly once");
+    assert.match(graphCalls[0].join(" "), /projectItems\(first: 100/);
+    assert.match(graphCalls[0].join(" "), /fieldValueByName\(name: "Status"\)/);
+    assert.match(graphCalls[0].join(" "), /\bid\b/);
+    assert.ok(graphCalls[1].indexOf("after=cursor-2872") !== -1, "cursor is explicit and bounded");
+    assert.strictEqual(items.length, 1);
+    assert.deepStrictEqual(items[0].automationQualification.item.boardItems, [
+      { id: "PVT_item_backlog_2872", status: "backlog" },
+      { id: "PVT_item_ready_2872", status: "ready for development" },
+    ]);
+    done();
+  });
+});
+
+test("authoritative status-policy mismatch is reported separately from missing board evidence", function (t, done) {
+  var source = qualifiedWebappSource();
+  var raw = qualifiedIssue(2873);
+  var fakeExec = function (cmd, args, cb) {
+    if (args[0] === "api" && args[1] === "user") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "graphql") {
+      return cb(null, graphQlPage([{ id: "PVT_item_2873", status: "Ready for production" }]));
+    }
+    cb(null, JSON.stringify([raw]));
+  };
+  backlog.collectGithubIssues(fakeExec, source, "webapp", function (err, items, metadata) {
+    assert.strictEqual(err, null);
+    assert.deepStrictEqual(items, []);
+    assert.deepStrictEqual(metadata.exclusions, [{
+      number: 2873,
+      reason: "qualification_board_status_ineligible",
+    }]);
+    done();
+  });
+});
+
+test("board evidence rejects partial, ambiguous, multi-board, and unbounded GraphQL pages", function () {
+  var partial;
+  boardEvidence.collectBoardItemEvidence(function (cmd, args, cb) {
+    cb(null, JSON.stringify({ data: { repository: { issue: { projectItems: {
+      nodes: [], pageInfo: { hasNextPage: true, endCursor: null },
+    } } } } }));
+  }, "trialview/v2", 2874, function (result) { partial = result; });
+  assert.deepStrictEqual(partial, { ok: false, reason: "qualification_board_evidence_partial" });
+
+  var ambiguous;
+  boardEvidence.collectBoardItemEvidence(function (cmd, args, cb) {
+    cb(null, graphQlPage([
+      { id: "PVT_item_duplicate", status: "Backlog" },
+      { id: "PVT_item_duplicate", status: "Ready for development" },
+    ]));
+  }, "trialview/v2", 2875, function (result) { ambiguous = result; });
+  assert.deepStrictEqual(ambiguous, { ok: false, reason: "qualification_board_evidence_ambiguous" });
+
+  var multiBoard;
+  boardEvidence.collectBoardItemEvidence(function (cmd, args, cb) {
+    cb(null, graphQlPage([
+      { id: "PVT_item_board_one", projectId: "PVT_project_one", status: "Backlog" },
+      { id: "PVT_item_board_two", projectId: "PVT_project_two", status: "Backlog" },
+    ]));
+  }, "trialview/v2", 2876, function (result) { multiBoard = result; });
+  assert.deepStrictEqual(multiBoard, { ok: false, reason: "qualification_board_evidence_multi_board" });
+
+  var calls = 0;
+  var paged;
+  boardEvidence.collectBoardItemEvidence(function (cmd, args, cb) {
+    calls++;
+    cb(null, graphQlPage([{ id: "PVT_item_page_" + calls, status: "Backlog" }], {
+      hasNextPage: true, endCursor: "cursor-" + calls,
+    }));
+  }, "trialview/v2", 2877, function (result) { paged = result; });
+  assert.strictEqual(calls, boardEvidence.MAX_PROJECT_ITEM_PAGES);
+  assert.deepStrictEqual(paged, {
+    ok: false,
+    reason: "qualification_board_evidence_pagination_exhausted",
+  });
+});
+
+test("collector caps GraphQL evidence reads and excludes unsampled candidates", function (t, done) {
+  var source = qualifiedWebappSource();
+  var raw = [];
+  for (var i = 0; i <= githubBacklog.MAX_QUALIFICATION_EVIDENCE_ISSUES; i++) raw.push(qualifiedIssue(2900 + i));
+  var graphCalls = 0;
+  var fakeExec = function (cmd, args, cb) {
+    if (args[0] === "api" && args[1] === "user") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "graphql") {
+      graphCalls++;
+      var number = graphQlNumber(args);
+      return cb(null, graphQlPage([{ id: "PVT_item_" + number, status: "Backlog" }]));
+    }
+    cb(null, JSON.stringify(raw));
+  };
+  backlog.collectGithubIssues(fakeExec, source, "webapp", function (err, items, metadata) {
+    assert.strictEqual(err, null);
+    assert.strictEqual(graphCalls, githubBacklog.MAX_QUALIFICATION_EVIDENCE_ISSUES);
+    assert.strictEqual(items.length, githubBacklog.MAX_QUALIFICATION_EVIDENCE_ISSUES);
+    assert.deepStrictEqual(metadata.exclusions, [{
+      number: 2900 + githubBacklog.MAX_QUALIFICATION_EVIDENCE_ISSUES,
+      reason: "qualification_board_evidence_rate_limited",
+    }]);
+    done();
+  });
+});
+
 test("Lead excludes policy-board and completed candidates before deterministic scoring", function (t, done) {
   var recipe = Object.assign({}, WEBAPP_ASSIGNED, {
     filter: Object.assign({}, WEBAPP_ASSIGNED.filter, {
@@ -638,7 +843,18 @@ test("Lead excludes policy-board and completed candidates before deterministic s
   assert.deepStrictEqual(resolved.conflicts, []);
 
   var fakeExec = function (cmd, args, cb) {
-    if (args[0] === "api") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "user") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "graphql") {
+      var statuses = {
+        1259: "Ready for production",
+        1260: "Dev Complete",
+        1261: "Done",
+        1262: "Backlog",
+        1263: "Backlog",
+      };
+      var number = graphQlNumber(args);
+      return cb(null, graphQlPage([{ id: "PVT_item_" + number, status: statuses[number] }]));
+    }
     cb(null, JSON.stringify([
       { number: 1259, title: "Urgent but ready for production", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ id: "PVT_item_1259", status: { name: "Ready for production" } }] },
       { number: 1260, title: "Dev complete", state: "OPEN", labels: [{ name: "P0" }], assignees: [{ login: "bojantv" }], projectItems: [{ id: "PVT_item_1260", status: { name: "Dev Complete" } }] },
@@ -702,7 +918,10 @@ test("live Webapp #2517 completed binding excludes the issue before scoring", fu
   assert.deepStrictEqual(resolved.conflicts, []);
 
   var fakeExec = function (cmd, args, cb) {
-    if (args[0] === "api") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "user") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] === "api" && args[1] === "graphql") {
+      return cb(null, graphQlPage([{ id: "PVT_item_2517", status: "Backlog" }]));
+    }
     cb(null, JSON.stringify([{
       number: 2517,
       title: "Live completed issue resurfaced",
