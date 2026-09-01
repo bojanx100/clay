@@ -1156,6 +1156,40 @@ test("append-only activity saves avoid a full rewrite and recover on restart", a
   }
 });
 
+test("assistant history survives a transient append failure through a durable rewrite", function () {
+  var h = makeSessionHarness();
+  var originalAppendFileSync = fs.appendFileSync;
+  var originalError = console.error;
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "assistant-append-repair" });
+    h.sm.saveSessionFile(session, { durable: true });
+    var target = sessionFile(h, "assistant-append-repair");
+    var failed = false;
+    fs.appendFileSync = function (file) {
+      if (!failed && path.resolve(String(file)) === path.resolve(target)) {
+        failed = true;
+        var error = new Error("injected transient append failure");
+        error.code = "EIO";
+        throw error;
+      }
+      return originalAppendFileSync.apply(fs, arguments);
+    };
+    console.error = function () {};
+
+    var event = { type: "delta", text: "assistant output that must survive" };
+    assert.strictEqual(h.sm.sendAndRecord(session, event), true);
+
+    var records = fs.readFileSync(target, "utf8").trimEnd().split("\n").slice(1).map(JSON.parse);
+    assert.ok(records.some(function (record) {
+      return record.type === "delta" && record.text === event.text;
+    }), "the durable fallback rewrite includes the event whose append failed");
+  } finally {
+    fs.appendFileSync = originalAppendFileSync;
+    console.error = originalError;
+    h.cleanup();
+  }
+});
+
 test("large session saves write bounded chunks instead of one whole-history payload", function () {
   var h = makeSessionHarness();
   var originalWriteFileSync = fs.writeFileSync;

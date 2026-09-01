@@ -180,7 +180,7 @@ function makeHarness(options) {
   var sm = {
     sessions: new Map([[session.localId, session]]),
     appendToSessionFile: function () {},
-    saveSessionFile: function () {},
+    saveSessionFile: function () { return opts.saveResult === undefined ? true : opts.saveResult; },
     broadcastSessionList: function () {},
     queuedUserMessagesForClient: function () { return []; },
   };
@@ -584,6 +584,18 @@ test("recordPrepared persists the prepared text and leaves the ingress anchor on
   assert.equal(item.coopProjectRef, null, "an uncategorised topic routes to no project");
   assert.ok(topicContextFromDispatchedText(item.coopIngressPreparedText),
     "the persisted prepared text still contains the topic context block");
+});
+
+test("a failed prepared-record rewrite stops Coop before provider dispatch", function () {
+  var h = makeHarness({ coopControl: true, saveResult: false });
+
+  send(h, TOPIC_A, "A reply that must stay recoverable", "cm-save-fail-1");
+
+  assert.equal(h.sdkCalls.length, 0,
+    "the provider must not receive a Coop turn whose routing metadata is only in memory");
+  assert.ok(h.sent.some(function (message) {
+    return message.type === "error" && /could not save its Coop routing metadata/.test(message.text || "");
+  }), "the owner is told that the saved message was not dispatched");
 });
 
 // --- two writers, one canonical event ----------------------------------------

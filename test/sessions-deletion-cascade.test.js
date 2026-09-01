@@ -160,6 +160,36 @@ test("Coop home and project channels cannot be hidden or deleted through deletio
   assert.strictEqual(saved.indexOf(home), -1);
 });
 
+test("deleting a Coop-controlled worker archives it without removing its transcript", function () {
+  var sessions = new Map();
+  var worker = {
+    localId: 11,
+    storageId: "controlled-worker",
+    coopControlledBy: { coopSessionStorageId: "coop-home", since: 1000 },
+    history: [{ type: "user_message", text: "delegated work" }],
+  };
+  var bulkWorker = {
+    localId: 12,
+    storageId: "bulk-controlled-worker",
+    orchestrationParent: { taskId: "task-12", sessionStorageId: "coordinator" },
+    history: [{ type: "delta", text: "worker answer" }],
+  };
+  sessions.set(worker.localId, worker);
+  sessions.set(bulkWorker.localId, bulkWorker);
+
+  var saved = [];
+  var api = sessionsDeletion.attachSessionDeletion(makeCtx(sessions, saved));
+  api.deleteSession(worker.localId, null);
+  api.deleteSessionsBulk([bulkWorker.localId], null);
+
+  assert.strictEqual(sessions.get(worker.localId), worker);
+  assert.strictEqual(worker.hidden, true);
+  assert.strictEqual(sessions.get(bulkWorker.localId), bulkWorker);
+  assert.strictEqual(bulkWorker.hidden, true);
+  assert.ok(saved.indexOf(worker) !== -1, "the individually archived worker is persisted");
+  assert.ok(saved.indexOf(bulkWorker) !== -1, "the bulk-archived worker is persisted");
+});
+
 test("background projection hide closes clients viewing the now-hidden session", function () {
   var sessions = new Map();
   var aborted = false;

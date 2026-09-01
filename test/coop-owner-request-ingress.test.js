@@ -239,7 +239,10 @@ var coopIngressModule = require("../lib/project-user-message-coop");
 test("the ingress seam records nothing when no ledger is injected", function () {
   var saved = [];
   var seam = coopIngressModule.attachCoopForegroundIngress({
-    sm: { saveSessionFile: function (session) { saved.push(session); } },
+    sm: { saveSessionFile: function (session, options) {
+      saved.push({ session: session, options: options, needsRewrite: session._historyNeedsRewrite });
+      return true;
+    } },
   });
   var session = coopSession([{ type: "user_message", coopIngressId: INGRESS }]);
   var metadata = { coopIngress: { ingressId: INGRESS, sequence: 182, kind: "text", key: "k" } };
@@ -248,6 +251,9 @@ test("the ingress seam records nothing when no ledger is injected", function () 
   seam.recordPrepared(session, metadata, { coopTopicRef: { topicId: "t" } }, "prepared");
   assert.equal(session.history[0].coopIngressPreparedText, "prepared");
   assert.equal(saved.length, 1);
+  assert.equal(saved[0].session, session);
+  assert.deepEqual(saved[0].options, { durable: true });
+  assert.equal(saved[0].needsRewrite, true);
   assert.equal(seam.recordUnroutable(session,
     { coop: true, ingressId: INGRESS, sequence: 182, kind: "text" }, "project_target_unavailable"), null);
 });
@@ -261,7 +267,7 @@ test("an injected ledger is the one that is written", function () {
   var ledger = tempLedger();
   var seam = coopIngressModule.attachCoopForegroundIngress({
     coopOwnerRequests: ledger,
-    sm: { saveSessionFile: function () {} },
+    sm: { saveSessionFile: function () { return true; } },
   });
   var session = coopSession([{ type: "user_message", coopIngressId: INGRESS }]);
   seam.recordPrepared(session,
