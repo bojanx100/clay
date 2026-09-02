@@ -349,6 +349,11 @@ test("Lead exact SessionRef restore still opens the requested reference session"
     assert.equal(switched.id, worker.localId);
     assert.equal(switched.coopHome, false);
     assert.equal(options.presenceWrites[0].sessionId, worker.localId);
+    assert.ok(events.indexOf("history") !== -1,
+      "the exact target session replays its canonical transcript");
+    assert.ok(sent.some(function (message) {
+      return message.type === "permission_request_pending";
+    }), "the exact target session restores its pending-input affordance");
   } finally {
     restore();
   }

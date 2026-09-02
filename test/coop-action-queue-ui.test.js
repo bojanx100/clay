@@ -270,6 +270,55 @@ test("a row opens its canonical topic and nothing else", async function () {
   assert.deepEqual(openedTopics, ["topic-attn"], "navigates by canonical TopicRef");
 });
 
+test("a task card opens its exact canonical SessionRef without exposing its full prompt", async function () {
+  var ctx = await harness();
+  var taskRef = { projectId: "p1", sessionStorageId: "task-2503-session" };
+  var longQuestion = "Should the owner approve this reconciliation after reviewing every linked " +
+    "worker transcript and the pending-input context from the canonical task session?";
+  var openedSessions = [];
+  var openedTopics = [];
+  var out = await renderedNow(ctx, {
+    openSession: function (ref) { openedSessions.push(ref); return true; },
+    openTopic: function (entry) { openedTopics.push(entry.topicRef); return true; },
+  }, nowMessage([{
+    topicRef: { topicId: "topic-task-card" }, projectRef: { projectId: "p1" },
+    title: "Reconcile canonical owner-input restoration", workState: "needs_input",
+    stateSource: "task_attention", updatedAt: 10,
+  }], [{
+    itemId: "p1|task-2503", topicRef: { topicId: "topic-task-card" },
+    projectRef: { projectId: "p1" }, projectTitle: "Clay", taskId: "task-2503",
+    title: "Reconcile canonical owner-input restoration", status: "needs_input",
+    decision: longQuestion, destination: { ref: taskRef, slug: "clay", localId: 41 },
+    updatedAt: 10,
+  }]));
+  var row = nowRowFor(out.container, "topic-task-card");
+  assert.equal(row.tagName, "BUTTON", "native activation supports pointer, Enter, and Space");
+  assert.equal(row.dataset.nowSessionId, "task-2503-session");
+  assert.equal(textOf(row, "coop-action-item-meta"), "Clay · Needs input");
+  assert.equal(row.textContent.indexOf(longQuestion), -1,
+    "the narrow card keeps the full owner prompt in the canonical task context");
+  assert.match(row.getAttribute("aria-label"), /opens the exact task session$/);
+  row.click();
+  assert.deepEqual(openedSessions, [taskRef],
+    "activation retains the server-projected canonical SessionRef");
+  assert.deepEqual(openedTopics, [], "a represented task session never falls back to a replacement route");
+});
+
+test("task-card styling stays compact, left-aligned, and title-clamped at sidebar widths", function () {
+  var css = require("node:fs").readFileSync(
+    path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
+  assert.match(css, /\.coop-action-item-meta \{[\s\S]*?font-size: 10px;[\s\S]*?text-align: left;/,
+    "cards expose compact project/status metadata without paragraph centering");
+  assert.match(css, /\.coop-action-item-title \{[\s\S]*?-webkit-line-clamp: 2;/,
+    "the title stays bounded to two readable lines");
+  assert.match(css, /\.coop-action-item\[aria-current="page"\],[\s\S]*?\.coop-action-item:focus-visible/,
+    "selected, hover, and keyboard focus states share the card treatment");
+  var sidebar = require("node:fs").readFileSync(
+    path.join(__dirname, "..", "lib", "public", "modules", "sidebar-coop-topics.js"), "utf8");
+  assert.match(sidebar, /openSession:[\s\S]*?requestCanonicalSession\([\s\S]*?"owner_request_hierarchy"/,
+    "the sidebar routes represented worker SessionRefs through the ACL-scoped exact resolver");
+});
+
 test("a queue decision without a topic link never becomes a Now row", async function () {
   var ctx = await harness();
   var queue = ctx.ui.normalizeActionQueue(serverProjection());

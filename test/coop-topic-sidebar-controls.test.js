@@ -316,15 +316,17 @@ test("both surfaces read section order from the one shared model function", func
   assert.match(mobile, /renderCoopTopicSections/);
 });
 
-test("desktop and mobile omit Now and expose execution through the project hierarchy", function () {
+test("desktop and mobile render compact current-task cards through the exact session resolver", function () {
   var topics = source("sidebar-coop-topics.js");
   var desktop = source("sidebar-sessions.js");
   var mobile = source("sidebar-mobile.js");
   var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "sidebar.css"), "utf8");
 
   assert.match(topics, /renderCoopNowIndex/);
-  assert.match(topics, /entries: \[\]/,
-    "the shared desktop/mobile boundary must suppress every legacy Now entry");
+  assert.match(topics, /openSession:[\s\S]*?requestCanonicalSession\([\s\S]*?"owner_request_hierarchy"/,
+    "the shared desktop/mobile boundary retains exact task SessionRefs for activation");
+  assert.match(css, /\.coop-action-item-meta/,
+    "current cards present compact project/status metadata instead of full prompt paragraphs");
   assert.doesNotMatch(topics, /owner-request|OwnerRequest|Unanswered/);
   assert.doesNotMatch(desktop, /ownerRequestPanelSignature|coop-owner-request/);
   assert.doesNotMatch(mobile, /coop-owner-request/);
