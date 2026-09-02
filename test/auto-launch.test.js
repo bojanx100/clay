@@ -1050,6 +1050,73 @@ test("a second tick over the same board work creates no second execution", async
   }
 });
 
+test("a fresh eligible scan upgrades a legacy awaiting-owner candidate and admits it once", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, assignedIssue(2725));
+  try {
+    var candidateFile = path.join(h.cwd, ".clay", "tasks", "automation-candidates.json");
+    fs.writeFileSync(candidateFile, JSON.stringify({
+      schema: "clay.automation_candidates",
+      version: 1,
+      candidates: [{
+        candidateKey: "launch:trialview/v2#2725",
+        itemKey: "trialview/v2#2725",
+        itemClass: "bug",
+        admission: "owner_approval",
+        projectRef: { projectId: CUTOVER_PROJECT },
+        policyDigest: "legacy-policy",
+        recipeId: "assigned-to-me",
+        intent: {
+          recipeId: "assigned-to-me",
+          automationClaimKey: "trialview/v2#2725",
+          number: 2725,
+          autoKind: "issue",
+        },
+        eligibilityPass: "legacy-scan",
+        eligibility: {
+          assignedToOwner: true,
+          recipeAllowsUnassigned: false,
+          reason: "assigned_to_owner",
+        },
+        qualificationReceipt: null,
+        status: "awaiting_owner",
+        firstSeenAt: 1,
+        lastSeenAt: 1,
+        seenCount: 1,
+        digest: "legacy-no-receipt",
+        attention: { reason: "owner_approval_required", needsOwner: true, firstAt: 1, lastAt: 1, count: 1 },
+        approvalStage: {
+          portfolioTaskId: "auto:legacy:trialview-v2-2725",
+          bindingRevision: 1,
+          targetProject: { projectId: CUTOVER_PROJECT },
+          question: "legacy owner approval",
+          stagedAt: 1,
+        },
+      }],
+    }));
+
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.equal(h.executions.length, 1,
+      "fresh qualified board evidence must replace the stale owner gate and reach Coop admission");
+    assert.equal(h.executions[0].targetProject.projectId, CUTOVER_PROJECT);
+
+    var stored = h.autoLaunch.candidateStore.get({ projectId: CUTOVER_PROJECT },
+      "launch:trialview/v2#2725");
+    assert.equal(stored.status, "admitted");
+    assert.ok(stored.qualificationReceipt,
+      "the new binding must be backed by this scan's typed qualification receipt");
+    assert.equal(stored.attention, undefined,
+      "a stale owner-approval attention record must not survive autonomous admission");
+    assert.equal(stored.approvalStage, undefined,
+      "a stale approval stage must not keep projecting an owner decision after admission");
+
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.equal(h.executions.length, 1,
+      "the next natural scan must reuse the same admitted candidate rather than duplicate work");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
 // --- Strict ownership -------------------------------------------------------
 //
 // The eligibility contract: automatic pickup requires work the owner has taken

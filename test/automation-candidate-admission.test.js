@@ -327,36 +327,30 @@ test("an owner approval cannot bypass a missing qualification receipt", function
   }
 });
 
-test("legacy #2522 and #2725 records keep their no-receipt lifecycle on fresh scans", function () {
+test("a legacy admitted record keeps its no-receipt lifecycle on a fresh scan", function () {
   var h = harness();
   try {
-    var cases = [
-      { number: 2522, status: "admitted" },
-      { number: 2725, status: "awaiting_owner" },
-    ];
-    for (var i = 0; i < cases.length; i++) {
-      var legacy = candidate({
-        candidateKey: "launch:trialview/v2#" + cases[i].number,
-        itemKey: "trialview/v2#" + cases[i].number,
-        intent: { recipeId: "assigned-to-me", number: cases[i].number, autoKind: "issue" },
-      });
-      delete legacy.qualificationReceipt;
-      assert.equal(h.store.upsert(legacy).ok, true);
-      var file = path.join(h.dir, ".clay", "tasks", "automation-candidates.json");
-      var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
-      persisted.candidates[i].status = cases[i].status;
-      fs.writeFileSync(file, JSON.stringify(persisted));
+    var legacy = candidate({
+      candidateKey: "launch:trialview/v2#2522",
+      itemKey: "trialview/v2#2522",
+      intent: { recipeId: "assigned-to-me", number: 2522, autoKind: "issue" },
+    });
+    delete legacy.qualificationReceipt;
+    assert.equal(h.store.upsert(legacy).ok, true);
+    var file = path.join(h.dir, ".clay", "tasks", "automation-candidates.json");
+    var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
+    persisted.candidates[0].status = "admitted";
+    fs.writeFileSync(file, JSON.stringify(persisted));
 
-      var refreshed = h.store.upsert(candidate({
-        candidateKey: legacy.candidateKey,
-        itemKey: legacy.itemKey,
-        intent: legacy.intent,
-      }));
-      assert.equal(refreshed.ok, true);
-      assert.equal(refreshed.legacyNoReceipt, true);
-      assert.equal(refreshed.candidate.status, cases[i].status);
-      assert.equal(refreshed.candidate.qualificationReceipt, null);
-    }
+    var refreshed = h.store.upsert(candidate({
+      candidateKey: legacy.candidateKey,
+      itemKey: legacy.itemKey,
+      intent: legacy.intent,
+    }));
+    assert.equal(refreshed.ok, true);
+    assert.equal(refreshed.legacyNoReceipt, true);
+    assert.equal(refreshed.candidate.status, "admitted");
+    assert.equal(refreshed.candidate.qualificationReceipt, null);
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
   }
