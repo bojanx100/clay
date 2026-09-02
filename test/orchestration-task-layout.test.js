@@ -142,6 +142,131 @@ test("chat worker preview keeps unfinished work and hides resolved-only groups",
   assert.equal(host.innerHTML, "");
 });
 
+test("client task projection retains only validated canonical worker SessionRefs", function () {
+  var validRef = {
+    projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+    sessionStorageId: "canonical-session",
+  };
+  var projected = orchestrationTasksForClient({ orchestrationTasks: [{
+    taskId: "valid-ref",
+    workerSessionId: 14,
+    workerSessionRef: Object.assign({ ignored: "server-only" }, validRef),
+  }, {
+    taskId: "malformed-ref",
+    workerSessionId: 15,
+    workerSessionRef: { projectId: validRef.projectId },
+  }, {
+    taskId: "same-project-no-ref",
+    workerSessionId: 16,
+  }] });
+
+  assert.deepEqual(projected[0].workerSessionRef, validRef,
+    "the client receives the exact normalized cross-project identity");
+  assert.equal(projected[1].workerSessionRef, null,
+    "an incomplete represented ref is never partially projected");
+  assert.equal(projected[1].workerSessionId, null,
+    "a malformed represented ref cannot fall through to project-local navigation");
+  assert.equal(projected[2].workerSessionRef, null);
+  assert.equal(projected[2].workerSessionId, 16,
+    "a genuine same-project task without a ref retains its local fallback");
+});
+
+test("cross-project task preview resolves its canonical session for pointer and keyboard activation", async function () {
+  var modulePath = path.join(
+    __dirname, "../lib/public/modules/orchestration-task-preview.js"
+  );
+  var previousDocument = globalThis.document;
+  var previousAnimationFrame = globalThis.requestAnimationFrame;
+  var previousLucide = globalThis.lucide;
+  globalThis.document = { createElement: element };
+  globalThis.requestAnimationFrame = function (callback) { callback(); return 1; };
+  globalThis.lucide = { createIcons: function () {} };
+
+  var preview = await import(pathToFileURL(modulePath).href);
+  var storeModule = await import(pathToFileURL(path.join(
+    __dirname, "../lib/public/modules/store.js"
+  )).href);
+  var wsModule = await import(pathToFileURL(path.join(
+    __dirname, "../lib/public/modules/ws-ref.js"
+  )).href);
+  var sent = [];
+  storeModule.createStore({ orchestrationTaskPreviewExpanded: true });
+  wsModule.setWs({
+    readyState: 1,
+    send: function (raw) { sent.push(JSON.parse(raw)); },
+  });
+
+  try {
+    var sessionRef = {
+      projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+      sessionStorageId: "canonical-worker-session",
+    };
+    var question = "Should the owner approve this task after reviewing the full canonical worker transcript?";
+    var task = orchestrationTasksForClient({ orchestrationTasks: [{
+      taskId: "cross-project-task",
+      title: "Correct Coop task activation",
+      status: "waiting_user",
+      workerSessionId: 14,
+      workerSessionRef: sessionRef,
+      userQuestion: question,
+      createdAt: 10,
+      updatedAt: 20,
+    }] })[0];
+    var originalTask = JSON.parse(JSON.stringify(task));
+    var host = element("div");
+    preview.renderOrchestrationTaskPreview(host, [task], { phase: "waiting_user" });
+    var row = byClass(host, "orchestration-task-item")[0];
+    var detail = byClass(row, "orchestration-task-detail")[0];
+    var title = byClass(row, "orchestration-task-title")[0];
+
+    assert.equal(row.attributes.role, "button");
+    assert.equal(row.tabIndex, 0);
+    assert.equal(detail.textContent, "Decision needed",
+      "the narrow visible row exposes only the compact waiting status");
+    assert.equal(row.textContent.indexOf(question), -1,
+      "the full pending question is absent from visible card text");
+    assert.match(title.title, new RegExp(question.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      "the full question remains available as tooltip context");
+
+    row.click();
+    var keyHandler = row.listeners.keydown[0];
+    var prevented = 0;
+    keyHandler({ key: "Enter", preventDefault: function () { prevented++; } });
+    keyHandler({ key: " ", preventDefault: function () { prevented++; } });
+
+    var expected = {
+      type: "resolve_session_ref",
+      sessionRef: sessionRef,
+      scope: "owner_request_hierarchy",
+    };
+    assert.deepEqual(sent, [expected, expected, expected],
+      "pointer, Enter, and Space all use the ACL-scoped exact-session resolver");
+    assert.equal(sent.some(function (message) { return message.type === "switch_session"; }), false,
+      "a represented canonical ref never falls through to a current-project numeric switch");
+    assert.equal(prevented, 2);
+    assert.deepEqual(task, originalTask,
+      "navigation does not mutate the projected task lifecycle state");
+
+    sent.length = 0;
+    var fallbackHost = element("div");
+    preview.renderOrchestrationTaskPreview(fallbackHost, [{
+      taskId: "same-project-no-ref",
+      title: "Local worker",
+      status: "running",
+      workerSessionId: 16,
+      workerSessionRef: null,
+    }], { phase: "executing" });
+    byClass(fallbackHost, "orchestration-task-item")[0].click();
+    assert.deepEqual(sent, [{ type: "switch_session", id: 16 }],
+      "the raw numeric route remains only for a genuine no-ref local task");
+  } finally {
+    wsModule.setWs(null);
+    globalThis.document = previousDocument;
+    globalThis.requestAnimationFrame = previousAnimationFrame;
+    globalThis.lucide = previousLucide;
+  }
+});
+
 test("serialized staged approval clicks one exact Main-scope owner decision", async function () {
   var modulePath = path.join(
     __dirname, "../lib/public/modules/orchestration-task-preview.js"

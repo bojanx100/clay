@@ -52,6 +52,7 @@ test("task projection exposes stable orchestration identity separately from work
     resultSummary: "",
       status: "running",
       workerSessionId: 42,
+      workerSessionRef: null,
       workerColor: null,
       parentTaskId: null,
     dependencies: [],

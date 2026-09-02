@@ -337,6 +337,12 @@ test("Lead exact SessionRef restore still opens the requested reference session"
     var home = makeSession(1);
     home.coopHome = true;
     var worker = makeSession(2);
+    worker.orchestrationParent = { taskId: "cross-project-task", sessionId: 1 };
+    worker.orchestrationTasks = [{ taskId: "pending-input", status: "waiting_user" }];
+    var lifecycleBefore = JSON.parse(JSON.stringify({
+      orchestrationParent: worker.orchestrationParent,
+      orchestrationTasks: worker.orchestrationTasks,
+    }));
     var ctx = makeContext(home, sent, events);
     ctx.slug = "lead";
     ctx.sm.sessions.set(worker.localId, worker);
@@ -349,6 +355,12 @@ test("Lead exact SessionRef restore still opens the requested reference session"
     assert.equal(switched.id, worker.localId);
     assert.equal(switched.coopHome, false);
     assert.equal(options.presenceWrites[0].sessionId, worker.localId);
+    assert.equal(ctx.sm.sessions.size, 2,
+      "exact activation reuses the represented session instead of creating a replacement");
+    assert.deepEqual({
+      orchestrationParent: worker.orchestrationParent,
+      orchestrationTasks: worker.orchestrationTasks,
+    }, lifecycleBefore, "exact activation does not mutate orchestration lifecycle state");
     assert.ok(events.indexOf("history") !== -1,
       "the exact target session replays its canonical transcript");
     assert.ok(sent.some(function (message) {
