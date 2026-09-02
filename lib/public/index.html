@@ -582,27 +582,21 @@
                 </div>
               </div>
               <div id="auto-approval-wrap" class="hidden">
-                <button id="auto-approval-chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="Auto-approval for eligible project work">
+                <button id="auto-approval-chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="Manage project automatic approvals">
                   <i data-lucide="shield-check"></i>
-                  <span id="auto-approval-chip-label">Approval: Off</span>
+                  <span id="auto-approval-chip-label">Approvals</span>
                 </button>
                 <div id="auto-approval-popover" class="hidden" role="dialog" aria-labelledby="auto-approval-title">
                   <div class="auto-approval-header">
                     <div>
-                      <div id="auto-approval-title" class="config-popover-title">PROJECT APPROVALS</div>
-                      <div id="auto-approval-summary" class="auto-approval-summary">Loading current authorization…</div>
+                      <div id="auto-approval-title" class="auto-approval-title">Project approvals</div>
+                      <div id="auto-approval-summary" class="auto-approval-summary">Loading project approvals…</div>
                     </div>
                   </div>
-                  <div id="auto-approval-project-section" class="auto-approval-section">
-                    <div id="auto-approval-project-label" class="config-section-label">THIS PROJECT</div>
-                    <button id="auto-approval-project-toggle" class="auto-approval-toggle" type="button" role="switch" aria-checked="false"></button>
-                    <button id="auto-approval-inherit" class="auto-approval-inherit hidden" type="button">Use all-projects setting</button>
-                  </div>
-                  <div id="auto-approval-projects-section" class="auto-approval-section hidden">
-                    <div class="config-section-label">PROJECTS</div>
+                  <div class="auto-approval-section">
                     <div id="auto-approval-projects" class="auto-approval-projects" aria-live="polite"></div>
                   </div>
-                  <p class="auto-approval-safety">Only current low-risk work is eligible. Destructive, spending, permission, secret, and approval-system changes still require an owner approval.</p>
+                  <p class="auto-approval-safety">Only eligible low-risk work can be approved automatically. Destructive and sensitive work still requires approval.</p>
                 </div>
               </div>
               <button id="task-btn" class="composer-task-btn" type="button" aria-label="Send as task" title="Send as task (Option/Alt+Enter)">
