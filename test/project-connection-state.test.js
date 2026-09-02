@@ -330,6 +330,7 @@ test("session-list serialization exposes validated Lead ownership without Coop i
   assert.equal(record.leadOwned, true);
   assert.equal(record.coordinationRole, "task_coordinator");
   assert.equal(record.coopExecutionStatus, "superseded");
+  assert.equal(record.coopTerminal, false);
   assert.equal(Object.prototype.hasOwnProperty.call(record, "coopControlledBy"), false);
   assert.equal(JSON.stringify(record).includes("coop-home-private"), false);
 
@@ -368,4 +369,20 @@ test("session-list broadcasts expose Lead ownership without Coop identifiers", a
   assert.equal(messages[0].sessions[0].coopExecutionStatus, "completed");
   assert.equal(JSON.stringify(messages[0]).includes("coop-home-private"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(messages[0].sessions[0], "coopControlledBy"), false);
+});
+
+test("a closed coordinator with persisted completion projects as terminal even with stale execution status", function () {
+  var record = state.serializeSessionListEntry({
+    localId: 77,
+    closedAt: 100,
+    orchestrationPolicy: { portfolioExecution: { status: "failed" } },
+    orchestrationProjectCompletion: { status: "completed" },
+  }, {
+    restoredActive: null,
+    activeSessionId: null,
+    loopRegistry: null,
+    orchestrationGroups: {},
+  });
+  assert.equal(record.coopExecutionStatus, "failed");
+  assert.equal(record.coopTerminal, true);
 });

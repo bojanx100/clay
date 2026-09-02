@@ -168,3 +168,24 @@ test("cross-project navigation leaves the canonical Lead Coop tab selection inta
   assert.equal(state.readTabSession("clay"), "project-worker");
   delete global.sessionStorage;
 });
+
+test("a Lead ProjectRef cached under an ordinary project is discarded without touching a local ref", async function () {
+  var values = new Map();
+  global.sessionStorage = {
+    setItem: function (key, value) { values.set(key, value); },
+    getItem: function (key) { return values.has(key) ? values.get(key) : null; },
+    removeItem: function (key) { values.delete(key); },
+  };
+  var state = await import("../lib/public/modules/session-tab-state.js");
+  state.rememberTabSessionRef("clay", {
+    projectId: "system-lead", sessionStorageId: "leaked-coop-root",
+  }, 9);
+  assert.equal(state.forgetTabSessionRefForProject("clay", "system-lead"), true);
+  assert.equal(state.readTabSession("clay"), null);
+  state.rememberTabSessionRef("clay", {
+    projectId: "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04", sessionStorageId: "local-session",
+  }, 10);
+  assert.equal(state.forgetTabSessionRefForProject("clay", "system-lead"), false);
+  assert.equal(state.readTabSession("clay"), "local-session");
+  delete global.sessionStorage;
+});

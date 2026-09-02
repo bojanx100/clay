@@ -16,6 +16,7 @@ test("Lead to Clay synchronous switches clear source rows before the target sess
   assert.match(sessions, /function prepareSessionListForProject\(slug\) \{\s+cachedSessions = \[\];\s+cachedSessionsSlug = ""/);
   assert.match(sessions, /if \(isSessionListLoading\(\)\) \{[\s\S]*Loading conversations/);
   assert.match(messages, /if \(msg\.projectSlug && msg\.projectSlug !== store\.get\('currentSlug'\)\) return;/);
+  assert.match(projects, /if \(st\.currentSlug === "lead" && slug !== "lead"\) \{\s+clearGlobalCoopProjection\(\);\s+forgetTabSessionRefForProject\(slug, "system-lead"\);/);
 });
 
 test("all plain Lead entry points route to canonical Coop home and preserve exact refs", function () {

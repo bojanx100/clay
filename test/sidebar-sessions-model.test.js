@@ -40,10 +40,12 @@ test("ordinary project sidebar omits the Coop root and is invariant across Lead 
     orchestrationParent: { taskStatus: "dismissed" } };
   var contradictoryAttention = { id: 11, title: "Terminal task with execution attention", leadOwned: true,
     orchestrationParent: { taskStatus: "completed" }, coopExecutionStatus: "failed" };
+  var reconciledTerminal = { id: 12, title: "Reconciled terminal", leadOwned: true,
+    coopExecutionStatus: "failed", coopTerminal: true };
 
   var visible = m.sessionsForOrdinaryProjectSidebar([
     ownerDirect, ownerCoordinator, coopDirectLeaf, projectRoot, taskCoordinator, taskWorker,
-    needsInput, superseded, cancelled, dismissed, contradictoryAttention,
+    needsInput, superseded, cancelled, dismissed, contradictoryAttention, reconciledTerminal,
   ]);
   assert.deepEqual(visible.map(function (item) { return item.id; }),
     [1, 2, 3, 5, 6, 7, 9, 11]);

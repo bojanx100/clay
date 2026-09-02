@@ -611,6 +611,61 @@ test("the same work refiled under a different portfolioTaskId is refused, not du
     "launch:trialview/v2#2522")).reason, "duplicate_work_identity");
 });
 
+test("legacy auto and project aliases preserve a verified completion over later unrouted retries", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-legacy-alias-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 100; } });
+
+  function binding(taskId, revision, extra) {
+    return Object.assign({
+      portfolioTaskId: taskId,
+      mode: "project_coordinator",
+      targetProject: { projectId: PROJECT_ID },
+      bindingRevision: revision,
+      idempotencyKey: taskId + "-r" + revision,
+    }, extra || {});
+  }
+
+  var completed = store.reserve(binding("auto:recipe:trialview-v2-2677", 2, {
+    candidateKey: "auto:recipe:trialview-v2-2677",
+  }));
+  assert.equal(completed.binding.workIdentity, "github:trialview/v2#2677");
+  assert.equal(store.commit(completed.binding.portfolioTaskId, 2, {
+    projectId: PROJECT_ID, sessionStorageId: "verified-2677",
+  }).ok, true);
+  assert.equal(store.complete(completed.binding.portfolioTaskId, 2, {
+    eventId: "verified-2677", terminalStatus: "completed",
+    ownerAcceptanceRequired: true, ownerAcceptance: { status: "pending" },
+    implementationCompletedAt: 101,
+  }).ok, true);
+  var rediscovered = store.reserve(binding("portfolio-webapp-2677", 3));
+  assert.equal(rediscovered.reason, "duplicate_work_identity");
+  assert.equal(rediscovered.binding.portfolioTaskId, "auto:recipe:trialview-v2-2677");
+
+  var historicalFile = path.join(dir, "historical-bindings.json");
+  fs.writeFileSync(historicalFile, JSON.stringify({
+    schema: "clay.portfolio_execution_bindings", version: 2, bindings: [{
+      portfolioTaskId: "portfolio-webapp-2725", mode: "project_coordinator",
+      targetProject: { projectId: PROJECT_ID }, bindingRevision: 1,
+      idempotencyKey: "portfolio-webapp-2725-r1", status: "superseded",
+      createdAt: 1, updatedAt: 102, completedAt: 102,
+      ownerAcceptanceRequired: true, ownerAcceptance: { status: "pending" },
+      implementationCompletedAt: 102,
+    }, {
+      portfolioTaskId: "portfolio-webapp-2725", mode: "project_coordinator",
+      targetProject: { projectId: PROJECT_ID }, bindingRevision: 2,
+      idempotencyKey: "portfolio-webapp-2725-r2", status: "unrouted",
+      createdAt: 103, updatedAt: 104, unroutedAt: 104,
+    }],
+  }, null, 2));
+  var historical = createBindings({ file: historicalFile, now: function () { return 105; } });
+  assert.equal(historical.get("portfolio-webapp-2725", 1).workIdentity, "github:trialview/v2#2725");
+  var retry = historical.reserve(binding("portfolio-webapp-2725", 2));
+  assert.equal(retry.reason, "duplicate_work_identity",
+    "an unrouted successor cannot supersede verified owner-acceptance work");
+  assert.equal(retry.binding.bindingRevision, 1);
+});
+
 test("a terminal failure keeps its provenance instead of erasing it", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-"));
   var file = path.join(dir, "bindings.json");

@@ -34,7 +34,8 @@ var MARKDOWN_ENVELOPE = [
   "**ESCALATION_REQUIRED: no**",
 ].join("\n");
 
-function completionHarness(resultText) {
+function completionHarness(resultText, options) {
+  var opts = options || {};
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-completion-bridge-"));
   var coordinator = {
     localId: 1,
@@ -100,8 +101,14 @@ function completionHarness(resultText) {
     sendState: function () {},
     crossProject: {
       createEnvelope: router.createEnvelope,
+      completeProjectCoordinatorExecution: router.completeProjectCoordinatorExecution,
       deliverEnvelope: function (envelope) {
         envelopes.push(envelope);
+        if (opts.deliveryError) {
+          var failed = { ok: false, reason: "delivery_error" };
+          deliveries.push(failed);
+          return failed;
+        }
         var outcome = router.completeProjectCoordinatorExecution(envelope);
         deliveries.push(outcome);
         return outcome;
@@ -112,6 +119,7 @@ function completionHarness(resultText) {
     binding: function () {
       return router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision);
     },
+    currentBindings: function () { return router.bindingStore.listCurrent(); },
     coordinator: coordinator,
     deliveries: deliveries,
     envelopes: envelopes,
@@ -158,6 +166,20 @@ test("re-delivering the same PROJECT_COMPLETED envelope is idempotent", function
   }
   assert.ok(harness.deliveries.length > 1);
   assert.equal(harness.deliveries[harness.deliveries.length - 1].duplicate, true);
+});
+
+test("a full completion terminalizes its exact binding before an exhausted inbox can reject delivery", function () {
+  var harness = completionHarness(MARKDOWN_ENVELOPE, { deliveryError: true });
+
+  harness.gate.handleTurnDone(harness.coordinator);
+
+  var binding = harness.binding();
+  assert.equal(binding.status, "completed");
+  assert.equal(harness.currentBindings().length, 0,
+    "the completed binding must release its single Lead-capacity slot");
+  assert.equal(harness.deliveries.length, 1);
+  assert.equal(harness.deliveries[0].reason, "delivery_error");
+  assert.equal(harness.coordinator.orchestrationPolicy.portfolioExecution.status, "completed");
 });
 
 test("prose that declines to complete never terminalizes the binding", function () {

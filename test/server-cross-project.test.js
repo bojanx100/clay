@@ -1510,6 +1510,65 @@ test("a missing ThreadRef is not blamed when no owner decision exists", function
   assert.equal(dispatch().reason, "thread_ref_required");
 });
 
+test("a ProjectRef-bound read-only diagnosis bypasses implementation-decision lookup but mutation stays gated", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-read-only-project-ref-"));
+  var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var ownerLookups = 0;
+  var delivered = [];
+  var leadSessions = new Map([[1, { localId: 1, storageId: "coop", coopHome: true }]]);
+  var leadSm = {
+    sessions: leadSessions,
+    createSessionRaw: function (value) {
+      var session = Object.assign({ localId: leadSessions.size + 1 }, value);
+      leadSessions.set(session.localId, session);
+      return session;
+    },
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+    allowLeadSourcedExecution: true,
+    requireOwnerImplementationDecision: true,
+    ownerRequests: {
+      forTopic: function () { ownerLookups++; return []; },
+    },
+    getProjectContextById: function (candidate) {
+      if (candidate !== "system-lead") return null;
+      return { getSessionManager: function () { return leadSm; } };
+    },
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return projectId; },
+    deliverCrossProjectEnvelope: function (envelope) {
+      delivered.push(envelope);
+      return { ok: true, sessionRef: { projectId: projectId, sessionStorageId: "read-only-review" } };
+    },
+  });
+  var base = {
+    source: { projectId: "system-lead", sessionStorageId: "coop" },
+    portfolioTaskId: "clay-terminal-state-diagnosis", bindingRevision: 1,
+    idempotencyKey: "clay-terminal-state-diagnosis-r1", mode: "project_coordinator",
+    targetProject: { projectId: projectId }, title: "Terminal reconciliation diagnosis",
+    objective: "Review the terminal reconciliation evidence without source edits.",
+    acceptanceCriteria: "Report exact lifecycle evidence.",
+    ownedPaths: "read-only: exact terminal binding and session evidence",
+  };
+  var diagnosis = router.createProjectExecution(base);
+  assert.equal(diagnosis.ok, true, diagnosis.reason);
+  assert.equal(ownerLookups, 0, "a read-only diagnosis must not require an implementation decision");
+  assert.equal(delivered[0].payload.reviewOnly, true);
+
+  var mutation = router.createProjectExecution(Object.assign({}, base, {
+    portfolioTaskId: "clay-terminal-state-mutation", bindingRevision: 1,
+    idempotencyKey: "clay-terminal-state-mutation-r1",
+    objective: "Review and update the terminal binding.",
+  }));
+  assert.equal(mutation.reason, "owner_implementation_decision_required");
+  assert.equal(delivered.length, 1, "a mutating brief must not create a project execution");
+});
+
 test("no owner turn at all is not reported as a missing ThreadRef", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-no-ingress-"));
   var projectId = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
