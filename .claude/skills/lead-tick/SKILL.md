@@ -84,6 +84,14 @@ fields below out of it; do not re-run any of these reads.
   already-completed issue eligible again and staffs the same work twice
   (guarded by `test/lead-tick-state-bindings.test.js`). `typedHistory` keeps
   every record and narrows by field instead.
+- **Owner-scoped continuation**: when the current owner instruction explicitly
+  limits a tick to named existing work, construct `ownerContinuationScope` from
+  the exact typed identities the owner named. Every entry must contain
+  `{ portfolioTaskId, bindingRevision, mode, targetProject: ProjectRef }`; never
+  infer an id or ProjectRef from a title or prose. This is a closed set, not a
+  portfolio filter. Pass it to `leadTick` unchanged alongside the full
+  `snapshot.bindings.typedHistory`. Do not include merely eligible, related, or
+  similarly named work.
 - **Historical Coop work** (`snapshot.historicalLedger`): this is a full scan of
   the persisted `~/.clay/lead/coop-session-ledger.json`, including terminal,
   missing, duplicate, and owner-blocked records that the visible session query
@@ -193,6 +201,12 @@ block restaffing — and the unanswered owner requests as
 `snapshot.historicalLedger` as `historicalLedger` unchanged. If it returns a
 `reconcile_history` decision, execute that decision before any standup, wait,
 or new staffing decision.
+
+When `ownerContinuationScope` is present, `leadTick` returns only
+`reconcile_scope` for the exact existing bindings, or `wait` if any exact typed
+binding is absent. It never fills spare capacity, reconciles unrelated history,
+or staffs another eligible issue in that tick. An unanswered owner request
+still outranks the scope because answering the owner is not staffing.
 The decisions array is your work order for this tick.
 
 `leadTick` returns a single `answer_owner` decision and NOTHING else when the
@@ -258,6 +272,13 @@ stall the backlog behind something only the boss can clear.
   Append a typed reconciliation note with the record key, outcome, and evidence
   after each durable action. Do not report `backlog empty` while any returned
   record remains unreconciled.
+- **reconcile_scope** — process only the returned exact bindings. Steer an
+  existing `needs_input` or active project coordinator through its canonical
+  ProjectRef-bound SessionRef; a `completed` binding is reconciliation evidence
+  and must not be restarted. Never dispatch a replacement, create Lead-local
+  execution, or fall through to `staff`, `reconcile_history`, or another
+  eligible issue during this tick. If an exact coordinator cannot be found,
+  return `wait` with the missing typed identity rather than broadening scope.
 - **ADMISSION-GATE RULE (owner decision 2026-08-04)**: the approval gate
   sits at backlog admission, not dispatch. An item that was discussed
   with the boss and admitted to `items.json` is pre-approved — staff it
