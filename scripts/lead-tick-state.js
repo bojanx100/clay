@@ -19,6 +19,7 @@
 //   node scripts/lead-tick-state.js            # compact snapshot on stdout
 //   node scripts/lead-tick-state.js --pretty   # human-readable
 //   node scripts/lead-tick-state.js --refresh  # warm caches only, no snapshot
+//   node scripts/lead-tick-state.js --set-capacity 10 --owner-ingress <id>
 //
 // `--refresh` is the background/prewarm entry point: run it off the foreground
 // turn (cron, post-turn hook, or a detached spawn) so the cold session-log
@@ -30,6 +31,78 @@ var os = require("os");
 
 var usageCache = require("../lib/lead-budget-usage-cache");
 var leadBudget = require("../lib/lead-budget");
+
+var CAPACITY_SCHEMA = "clay.lead_parallel_capacity";
+var CAPACITY_VERSION = 1;
+
+function configuredCapacityFile() {
+  return path.join(require("../lib/config").CONFIG_DIR, "lead", "parallel-capacity.json");
+}
+
+function validCapacity(value) {
+  return Number.isInteger(value) && value >= 1 && value <= 10;
+}
+
+function normalizeConfiguredCapacity(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      value.schema !== CAPACITY_SCHEMA || value.version !== CAPACITY_VERSION ||
+      !validCapacity(value.safeParallel) || typeof value.updatedAt !== "number" ||
+      !Number.isFinite(value.updatedAt) || value.updatedAt <= 0 ||
+      typeof value.ownerIngressId !== "string" || !value.ownerIngressId.trim()) return null;
+  return {
+    schema: CAPACITY_SCHEMA,
+    version: CAPACITY_VERSION,
+    safeParallel: value.safeParallel,
+    updatedAt: value.updatedAt,
+    ownerIngressId: value.ownerIngressId.trim(),
+  };
+}
+
+function readConfiguredCapacity(options) {
+  var opts = options || {};
+  var file = opts.file || configuredCapacityFile();
+  var raw;
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return { configured: false, safeParallel: null, record: null };
+    }
+    throw error;
+  }
+  var record;
+  try {
+    record = normalizeConfiguredCapacity(JSON.parse(raw));
+  } catch (error) {
+    throw new Error("Lead capacity configuration is unreadable");
+  }
+  if (!record) throw new Error("Lead capacity configuration is invalid");
+  return { configured: true, safeParallel: record.safeParallel, record: record };
+}
+
+function writeConfiguredCapacity(value, options) {
+  var opts = options || {};
+  var safeParallel = Number(value);
+  var ownerIngressId = typeof opts.ownerIngressId === "string" ? opts.ownerIngressId.trim() : "";
+  var updatedAt = typeof opts.now === "number" && Number.isFinite(opts.now) ? opts.now : Date.now();
+  var file = opts.file || configuredCapacityFile();
+  if (!validCapacity(safeParallel) || !ownerIngressId || updatedAt <= 0) {
+    return { ok: false, reason: "invalid_capacity_configuration" };
+  }
+  var record = {
+    schema: CAPACITY_SCHEMA,
+    version: CAPACITY_VERSION,
+    safeParallel: safeParallel,
+    updatedAt: updatedAt,
+    ownerIngressId: ownerIngressId,
+  };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  var tmp = file + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + "\n", { mode: 0o600 });
+  fs.renameSync(tmp, file);
+  try { fs.chmodSync(file, 0o600); } catch (error) {}
+  return { ok: true, record: record };
+}
 
 function localMidnight() {
   var now = new Date();
@@ -75,9 +148,10 @@ function readOwnerRequests() {
 //    superseded / cancelled / deleted for the same reason.
 //
 // So every record is kept and the narrowing is by FIELD. The three predicates
-// that read a binding here -- validTypedBinding (lead-loop.js:71),
-// bindingBlocksRestaff (:100) and latestCandidateBinding
-// (candidates.js:48-57) -- between them read exactly five properties.
+// that read a binding here -- validTypedBinding (lead-loop.js:87),
+// bindingConsumesCapacity (:97), bindingBlocksRestaff (:116), and
+// latestCandidateBinding (candidates.js:48-57) -- receive every identity,
+// lifecycle, and terminal-proof property they require.
 //
 // Current records keep their full shape because `inFlightForTick` echoes the
 // matched binding into its result and downstream staffing reads the rest of it;
@@ -108,6 +182,11 @@ function thinnedProjection(binding) {
     bindingRevision: binding.bindingRevision,
     mode: binding.mode,
     status: binding.status,
+    // A terminal needs_input result remains owner-visible, but it must carry
+    // its terminal proof through this history slice so Lead does not turn it
+    // back into live capacity merely by thinning the record.
+    completedAt: binding.completedAt,
+    completionEventId: binding.completionEventId,
   };
 }
 
@@ -146,6 +225,12 @@ function readBindings() {
 function capacityProjection(input) {
   var leadLoop = require("../lib/lead-loop");
   var value = input || {};
+  var requested = value.capacity == null ? null : Number(value.capacity);
+  if (requested != null) {
+    if (!Number.isFinite(requested)) requested = null;
+    else requested = Math.max(1, Math.min(leadLoop.MAX_PARALLEL_CAPACITY, Math.floor(requested)));
+  }
+  var baseline = requested || leadLoop.DEFAULT_PARALLEL_CAPACITY;
   var occupied = leadLoop.inFlightForTick({
     inFlight: value.inFlight,
     portfolioBindings: value.portfolioBindings,
@@ -161,7 +246,8 @@ function capacityProjection(input) {
     occupied: occupied,
     available: Math.max(0, safeParallel - occupied),
     defaultParallel: baseline,
-    source: occupied > baseline ? "occupancy_floor" : "task_orchestration_default",
+    source: occupied > baseline ? "occupancy_floor" :
+      (requested == null ? "task_orchestration_default" : "configured_capacity"),
   };
 }
 
@@ -263,6 +349,7 @@ function gather(options) {
   // shape actually lost its time.
   var bindingStep = attempt("bindings", readBindings);
   var steps = [
+    attempt("configuredCapacity", readConfiguredCapacity),
     attempt("leadMode", readLeadMode),
     attempt("ownerRequests", readOwnerRequests),
     bindingStep,
@@ -284,6 +371,7 @@ function gather(options) {
   }
   if (snapshot.bindings && snapshot.leadLedger) {
     snapshot.capacity = capacityProjection({
+      capacity: snapshot.configuredCapacity && snapshot.configuredCapacity.safeParallel,
       inFlight: snapshot.leadLedger.inFlight,
       portfolioBindings: snapshot.bindings.typedHistory,
     });
@@ -297,6 +385,16 @@ function gather(options) {
 function main(argv) {
   var args = argv || [];
   var pretty = args.indexOf("--pretty") !== -1;
+  var capacityIndex = args.indexOf("--set-capacity");
+
+  if (capacityIndex !== -1) {
+    var ingressIndex = args.indexOf("--owner-ingress");
+    var configured = writeConfiguredCapacity(args[capacityIndex + 1], {
+      ownerIngressId: ingressIndex === -1 ? "" : args[ingressIndex + 1],
+    });
+    process.stdout.write(JSON.stringify({ type: "lead_capacity_configuration", result: configured }) + "\n");
+    return configured.ok ? 0 : 1;
+  }
 
   if (args.indexOf("--refresh") !== -1) {
     var started = Date.now();
@@ -327,7 +425,9 @@ module.exports = {
   localMidnight: localMidnight,
   main: main,
   readBindings: readBindings,
+  readConfiguredCapacity: readConfiguredCapacity,
   readLooseItems: readLooseItems,
+  writeConfiguredCapacity: writeConfiguredCapacity,
   readHistoricalLedger: readHistoricalLedger,
   thinnedProjection: thinnedProjection,
 };

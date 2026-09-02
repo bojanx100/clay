@@ -10,6 +10,9 @@
 // gets a test rather than a comment.
 var test = require("node:test");
 var assert = require("node:assert");
+var fs = require("node:fs");
+var os = require("node:os");
+var path = require("node:path");
 
 var candidates = require("../lib/project-automation-candidates");
 var staffing = require("../lib/lead-staffing");
@@ -206,6 +209,72 @@ test("needs_input consumes capacity, so it must not be thinned", function () {
   );
   // Thinning it would have silently dropped exactly these fields.
   assert.strictEqual(project(needsInput).coordinator, undefined);
+});
+
+test("terminal owner attention frees capacity but prevents restaffing the same work", function () {
+  var loop = require("../lib/lead-loop");
+  var terminalAttention = bindingWith("needs_input", 1);
+  terminalAttention.portfolioTaskId = "clay-diagnose-auto-launch-runtime-restart-need-20260902";
+  terminalAttention.reviewOnly = true;
+  terminalAttention.completedAt = 1788361619655;
+  terminalAttention.completionEventId = "project-terminal-v1-project-coordinator-2ced65be";
+  terminalAttention.completionOwnerDelivered = true;
+  terminalAttention.ownerAcceptance = { status: "pending", source: "project_local_instructions" };
+  var live = bindingWith("active", 1);
+  live.portfolioTaskId = terminalAttention.portfolioTaskId;
+
+  assert.equal(loop.inFlightForTick({ inFlight: [], portfolioBindings: [live] }).length, 1,
+    "a live coordinator still occupies the slot");
+  assert.equal(loop.inFlightForTick({ inFlight: [], portfolioBindings: [terminalAttention] }).length, 0,
+    "delivered terminal attention is visible but is not execution");
+
+  var decisions = loop.leadTick({
+    portfolio: { items: [
+      { id: terminalAttention.portfolioTaskId, score: 100, route: { tier: 1 }, classification: {} },
+      { id: "next-live-work", score: 90, route: { tier: 1 }, classification: {} },
+    ] },
+    inFlight: [],
+    portfolioBindings: [terminalAttention],
+    capacity: 1,
+    now: 1788372000000,
+    lastStandupAt: 1788372000000,
+  });
+  assert.deepEqual(decisions.filter(function (entry) { return entry.action === "staff"; })
+    .map(function (entry) { return entry.item.id; }), ["next-live-work"]);
+});
+
+test("configured capacity persists across a fresh disk read and drives the snapshot", function () {
+  var state = require("../scripts/lead-tick-state.js");
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-lead-capacity-"));
+  var file = path.join(dir, "parallel-capacity.json");
+  try {
+    var written = state.writeConfiguredCapacity(10, {
+      file: file,
+      ownerIngressId: "coop:b3967af4-03d0-4f78-96c6-a2c838a6613f:4",
+      now: 1788372000000,
+    });
+    assert.equal(written.ok, true);
+    var reloaded = state.readConfiguredCapacity({ file: file });
+    assert.deepEqual(reloaded, {
+      configured: true,
+      safeParallel: 10,
+      record: written.record,
+    });
+    var active = bindingWith("active", 1);
+    assert.deepEqual(state.capacityProjection({
+      capacity: reloaded.safeParallel,
+      inFlight: [],
+      portfolioBindings: [active],
+    }), {
+      safeParallel: 10,
+      occupied: 1,
+      available: 9,
+      defaultParallel: 3,
+      source: "configured_capacity",
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("a non-string loose-item state is kept rather than silently dropped", function () {

@@ -54,7 +54,7 @@ test("inFlight derives open items; terminal events close them", function () {
   });
 });
 
-test("Webapp technical verification cannot manufacture owner acceptance", function () {
+test("Webapp technical verification cannot manufacture owner acceptance or hold execution capacity", function () {
   withDir(function (dir) {
     var webapp = { id: "webapp#2200", title: "Hover loop", project: "webapp" };
     ledger.appendEvent({ type: "staffed", item: webapp, route: ROUTE },
@@ -64,7 +64,8 @@ test("Webapp technical verification cannot manufacture owner acceptance", functi
     }, { dir: dir, now: 2 });
     assert.equal(guarded.type, "implementation_verified");
     assert.equal(guarded.acceptanceStatus, "pending");
-    assert.equal(ledger.inFlight({ dir: dir }).length, 1);
+    assert.equal(ledger.inFlight({ dir: dir }).length, 0);
+    assert.equal(ledger.readEvents({ dir: dir })[1].evidence, "suite green");
 
     var accepted = ledger.appendEvent({
       type: "completed",
