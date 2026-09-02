@@ -68,6 +68,29 @@ test("project overrides are ProjectRef-bound, durable, and resolve over the all-
   }
 });
 
+test("owner approval state aggregates duplicate project observations by canonical ProjectRef", function () {
+  var dir = tempDir();
+  var file = path.join(dir, "auto-approval.json");
+  try {
+    var store = policy.createPolicyStore({ file: file, now: function () { return 1000; } });
+    var state = store.stateFor(null, [
+      { projectRef: { projectId: PROJECT }, label: "Clay mobile controls" },
+      { projectRef: { projectId: PROJECT }, label: "Stale worktree alias" },
+      { projectRef: { projectId: OTHER_PROJECT }, label: "Dashboard" },
+      { projectRef: { projectId: "not-a-project-ref" }, label: "Ignored" },
+    ]);
+    assert.equal(state.ok, true);
+    assert.deepEqual(state.state.projects.map(function (project) {
+      return { projectId: project.projectRef.projectId, label: project.label };
+    }), [
+      { projectId: PROJECT, label: "Clay mobile controls" },
+      { projectId: OTHER_PROJECT, label: "Dashboard" },
+    ]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("reservations enforce limits and expire or revoke without leaving stale authority", function () {
   var dir = tempDir();
   var file = path.join(dir, "auto-approval.json");
