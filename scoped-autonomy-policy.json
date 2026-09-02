@@ -16,9 +16,17 @@
     "approved_revision_bump"
   ],
 
+  "coopSelfRepair": {
+    "enabled": false,
+    "projectRef": { "projectId": "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+    "portfolioTaskId": "clay-fix-coop-self-recovery-steering-20260902",
+    "bindingRevision": 2
+  },
+
   "_categories": {
     "read_only_diagnosis": "A dispatch whose EVERY owned-path segment is prefixed \"read-only:\" and whose title/objective reads as diagnosis, audit, investigation, review, triage, research or planning. It can read and report. It cannot edit a file.",
-    "approved_revision_bump": "Re-dispatch of a task this owner already approved at a LOWER revision, where the project, Thread and task id are all identical and only the revision number changed. A retry of approved work, not new work."
+    "approved_revision_bump": "Re-dispatch of a task this owner already approved at a LOWER revision, where the project, Thread and task id are all identical and only the revision number changed. A retry of approved work, not new work.",
+    "coopSelfRepair": "A separately default-OFF exact control for one admitted Coop self-repair revision. It never widens approved_revision_bump: the project, task, revision, original owner scope, payload digest, and typed project-coordinator authority must all match."
   },
 
   "permanentlyGated": [

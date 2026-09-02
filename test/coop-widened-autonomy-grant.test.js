@@ -11,6 +11,8 @@ var bindingsModule = require("../lib/portfolio-execution-bindings");
 var CLAY_ID = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var WEBAPP_ID = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 var OTHER_ID = "f2b7c47a-bb03-5b3d-89ff-dd32ddb2be53";
+var SELF_REPAIR_TASK = "clay-fix-coop-self-recovery-steering-20260902";
+var SELF_REPAIR_TOPIC = "coop-self-recovery-steering";
 
 var SHIPPED_FILE = path.join(__dirname, "..", "scoped-autonomy-policy.json");
 
@@ -88,6 +90,71 @@ function approvedScope(overrides) {
   }, overrides || {});
 }
 
+function selfRepairControl(enabled) {
+  return {
+    enabled: enabled,
+    projectRef: { projectId: CLAY_ID },
+    portfolioTaskId: SELF_REPAIR_TASK,
+    bindingRevision: 2,
+  };
+}
+
+function selfRepairDispatch(overrides) {
+  return Object.assign({
+    title: "Perform the exact admitted Coop self-fix",
+    objective: "Repair the exact admitted Coop recovery revision with the existing project scope.",
+    context: "Keep existing owner gates for external actions.",
+    acceptanceCriteria: "Run focused tests and report the verified result.",
+    ownedPaths: "lib/coop-autonomy-grant.js; test/coop-widened-autonomy-grant.test.js",
+    targetProject: { projectId: CLAY_ID },
+    portfolioTaskId: SELF_REPAIR_TASK,
+    bindingRevision: 2,
+    idempotencyKey: SELF_REPAIR_TASK + "-r2",
+    mode: "project_coordinator",
+    controlRole: "project_coordinator",
+  }, overrides || {});
+}
+
+function selfRepairRequest(overrides) {
+  return Object.assign({
+    targetProject: { projectId: CLAY_ID },
+    portfolioTaskId: SELF_REPAIR_TASK,
+    bindingRevision: 2,
+    idempotencyKey: SELF_REPAIR_TASK + "-r2",
+    mode: "project_coordinator",
+    coopTopicRef: { topicId: SELF_REPAIR_TOPIC },
+  }, overrides || {});
+}
+
+function selfRepairScope() {
+  return approvedScope({
+    implementationScope: {
+      projectRef: { projectId: CLAY_ID },
+      topicRef: { topicId: SELF_REPAIR_TOPIC },
+      portfolioTaskId: SELF_REPAIR_TASK,
+      bindingRevision: 1,
+      idempotencyKey: SELF_REPAIR_TASK + "-r1",
+    },
+  });
+}
+
+function bindingsWithApprovedSelfRepair(brief) {
+  var directory = fs.mkdtempSync(path.join(os.tmpdir(), "clay-self-repair-bind-"));
+  var store = bindingsModule.createPortfolioExecutionBindings({
+    file: path.join(directory, "bindings.json"),
+  });
+  var reserved = store.reserve(Object.assign({}, brief, {
+    portfolioTaskId: SELF_REPAIR_TASK,
+    mode: "project_coordinator",
+    targetProject: { projectId: CLAY_ID },
+    bindingRevision: 1,
+    idempotencyKey: SELF_REPAIR_TASK + "-r1",
+    coopTopicRef: { topicId: SELF_REPAIR_TOPIC },
+  }));
+  assert.equal(reserved.ok, true, "the admitted self-repair binding must reserve");
+  return store;
+}
+
 // --- The switch OFF ------------------------------------------------------------
 
 // The shipped file is the OWNER's switch, so its `enabled` value is data, not an
@@ -135,6 +202,76 @@ test("with the grant off, behavior is identical to having no grant at all", func
   assert.equal(itemApproval.executionAdmission(dispatch(), request(), null,
     { autonomyPolicyFile: off }), null,
     "with the switch off the approval gate must return null, not an admission");
+});
+
+test("a dedicated self-repair control is off by default and admits only its exact typed revision", function () {
+  var brief = selfRepairDispatch();
+  var request = selfRepairRequest();
+  var bindings = bindingsWithApprovedSelfRepair(brief);
+  var ownerRequests = ownerRequestsWith([selfRepairScope()]);
+  var off = policyFile({ enabled: true, coopSelfRepair: selfRepairControl(false) });
+  var offDeps = { autonomyPolicyFile: off, ownerRequests: ownerRequests, bindings: bindings };
+
+  assert.equal(grant.standingAdmission(brief, request, offDeps), null,
+    "OFF leaves the existing manual self-modification gate in charge");
+  assert.equal(itemApproval.executionAdmission(brief, request, null, offDeps), null,
+    "the real approval seam also remains manual while the dedicated control is off");
+
+  var on = policyFile({ enabled: true, coopSelfRepair: selfRepairControl(true) });
+  var onDeps = { autonomyPolicyFile: on, ownerRequests: ownerRequests, bindings: bindings };
+  var admitted = grant.standingAdmission(brief, request, onDeps);
+  assert.equal(admitted.ok, true, JSON.stringify(admitted));
+  assert.deepEqual(admitted.standingGrant, {
+    category: "coop_self_repair",
+    projectId: CLAY_ID,
+    portfolioTaskId: SELF_REPAIR_TASK,
+    bindingRevision: 2,
+    approvedIngressId: "coop:lead:400",
+    approvedRevision: 1,
+  });
+  assert.equal(itemApproval.executionAdmission(brief, request, null, onDeps).ok, true,
+    "the exact typed repair reaches the real admission seam without a second owner prompt");
+
+  function gated(label, input, scopedRequest, reason) {
+    assert.deepEqual(grant.standingAdmission(input, scopedRequest, onDeps),
+      { ok: false, reason: reason }, label);
+  }
+
+  gated("missing project-coordinator authority stays manual", selfRepairDispatch({
+    controlRole: undefined,
+  }), request, "autonomy_grant_self_repair_authority_required");
+  gated("spend work stays manual", selfRepairDispatch({ spendRequired: true }), request,
+    "autonomy_grant_spend_or_budget_exception_gated");
+  gated("budget exceptions stay manual", selfRepairDispatch({ budgetException: true }), request,
+    "autonomy_grant_spend_or_budget_exception_gated");
+  gated("scope expansion stays manual", selfRepairDispatch({ scopeExpansion: true }), request,
+    "autonomy_grant_scope_expansion_gated");
+  gated("a conflicting input ProjectRef stays manual", selfRepairDispatch({
+    targetProject: { projectId: WEBAPP_ID },
+  }), request, "autonomy_grant_self_repair_authority_required");
+
+  assert.deepEqual(grant.standingAdmission(dispatch({
+    title: "Perform an unrelated Coop self-fix",
+    objective: "Repair a different Coop control path.",
+    ownedPaths: "lib/coop-autonomy-grant.js",
+  }), selfRepairRequest({
+    portfolioTaskId: "clay-unrelated-coop-self-fix-20260902",
+    bindingRevision: 1,
+    idempotencyKey: "clay-unrelated-coop-self-fix-20260902-r1",
+  }), onDeps), {
+    ok: false, reason: "autonomy_grant_approval_policy_change_gated",
+  }, "an unrelated self-fix cannot inherit the generic revision-bump grant");
+
+  assert.deepEqual(grant.standingAdmission(brief, selfRepairRequest({
+    targetProject: { projectId: WEBAPP_ID },
+  }), onDeps), {
+    ok: false, reason: "autonomy_grant_approval_policy_change_gated",
+  }, "cross-project drift remains permanently gated");
+  assert.equal(grant.standingAdmission(brief, selfRepairRequest({ bindingRevision: 3 }), onDeps), null,
+    "a later revision cannot reuse this exact repair admission");
+  assert.equal(grant.standingAdmission(selfRepairDispatch({
+    ownedPaths: "lib/coop-autonomy-grant.js; lib/server.js; lib/project.js",
+  }), request, onDeps), null, "a widened brief cannot reuse the original admission");
 });
 
 test("a cited approval ingress is unaffected by the grant in either state", function () {
