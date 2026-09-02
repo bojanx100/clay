@@ -229,6 +229,49 @@ test("a genuinely active topic appears with the exact reason Working now", async
   assert.equal(textOf(row, "coop-action-item-reason"), "Working now");
 });
 
+test("a non-replayable Triage working topic opens its exact project session instead of LEAD", async function () {
+  var ctx = await harness();
+  var triageRef = {
+    projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+    sessionStorageId: "triage-working-context",
+  };
+  var openedSessions = [];
+  var leadTopicReplays = [];
+  var topic = {
+    topicRef: { topicId: "triage-working-topic" },
+    projectRef: { projectId: triageRef.projectId },
+    title: "Triage: repair working-topic navigation",
+    workState: "working",
+    stateSource: "task_working",
+    relatedSessions: [{
+      projectRef: { projectId: triageRef.projectId },
+      sessionRef: triageRef,
+      title: "Triage working context",
+    }],
+    // The visible working item has no replayable canonical events. Before this
+    // regression, its missing SessionRef made the UI select the empty topic
+    // replay and fall back to the active canonical Coop session titled LEAD.
+    canonicalEvents: [],
+    updatedAt: 10,
+  };
+  var original = JSON.parse(JSON.stringify(topic));
+  var out = await renderedNow(ctx, {
+    openSession: function (ref) { openedSessions.push(ref); return true; },
+    openTopic: function () { leadTopicReplays.push("LEAD"); return true; },
+  }, nowMessage([topic]));
+  var row = nowRowFor(out.container, "triage-working-topic");
+
+  assert.equal(row.dataset.nowSessionId, triageRef.sessionStorageId,
+    "the Now projection retains the already-validated project SessionRef");
+  row.click();
+  assert.deepEqual(openedSessions, [triageRef],
+    "activation resolves the exact project-bound Triage context");
+  assert.deepEqual(leadTopicReplays, [],
+    "a non-replayable working topic never falls back to canonical LEAD replay");
+  assert.deepEqual(topic, original,
+    "navigation projects read-only context and does not mutate topic state");
+});
+
 test("attention wins when the same topic is both active and actionable", async function () {
   var ctx = await harness();
   var topics = [

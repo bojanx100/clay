@@ -139,10 +139,18 @@ test("attention entries survive the bound before working ones", function () {
 });
 
 test("entries carry only link-only orientation fields", function () {
-  var out = buildNowIndex([topic("t1", "working", "task_working", 10, "Build it")], []);
+  var working = topic("t1", "working", "task_working", 10, "Build it");
+  working.relatedSessions = [{
+    projectRef: { projectId: "p1" },
+    sessionRef: { projectId: "p1", sessionStorageId: "working-context" },
+    title: "Working context",
+  }];
+  var out = buildNowIndex([working], []);
   assert.deepEqual(Object.keys(out[0]).sort(),
-    ["kind", "projectRef", "reason", "title", "topicRef", "updatedAt"]);
+    ["kind", "projectRef", "reason", "sessionRef", "title", "topicRef", "updatedAt"]);
   assert.equal(out[0].title, "Build it");
+  assert.deepEqual(out[0].sessionRef, { projectId: "p1", sessionStorageId: "working-context" },
+    "a working topic retains its existing project-bound navigation context");
 });
 
 test("the global projection carries the Now index end to end", function () {
