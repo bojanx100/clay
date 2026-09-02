@@ -162,6 +162,35 @@ test("concurrency: both populations count together", function () {
   assert.strictEqual(slots.available, 3);
 });
 
+test("concurrency: legacy admitted records without receipts or bindings do not leak capacity", function () {
+  // These records predate typed candidate receipts and typed bindings. A real
+  // legacy worker is counted directly from the session manager, so treating a
+  // record with neither proof as running forever prevents later qualified
+  // candidates from ever reaching Coop admission.
+  var legacy = {
+    candidateKey: "launch:trialview/v2#2522",
+    itemKey: "trialview/v2#2522",
+    status: "admitted",
+    projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" },
+    policyDigest: "legacy-policy-digest",
+    recipeId: "assigned-to-me",
+    intent: { recipeId: "assigned-to-me", autoKind: "issue" },
+  };
+  var l = limiter({
+    sm: sessionManager([autoSession("trialview/v2#2725")]),
+    candidates: candidateStore([legacy, admittedCandidate("trialview/v2#2726", "task-2726")]),
+    getBinding: bindingReader({ "task-2726": "active" }),
+    getLimit: function () { return 3; },
+  });
+  var slots = l.slots();
+  assert.strictEqual(slots.ok, true);
+  assert.strictEqual(slots.inFlight, 2,
+    "only the actual legacy session and the live typed binding consume capacity");
+  assert.deepStrictEqual(slots.items.sort(), ["trialview/v2#2725", "trialview/v2#2726"]);
+  assert.strictEqual(slots.available, 1,
+    "the next qualified candidate can be admitted through the normal queue");
+});
+
 // --- The backfill property ------------------------------------------------------
 
 test("concurrency: a completed binding frees exactly one slot and lets work backfill", function () {
