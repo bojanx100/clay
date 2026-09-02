@@ -721,6 +721,7 @@ test("launchScheduled skips an issue already live under another recipe", async f
 var automationAudit = require("../lib/project-automation-audit");
 var { createAutomationGate } = require("../lib/project-automation-gate");
 var { createCandidateStore } = require("../lib/project-automation-candidates");
+var { portfolioTaskIdFor } = require("../lib/project-automation-identity");
 
 var CUTOVER_PROJECT = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
 var URBAN_STAY_PROJECT = "51e67388-cea0-52b7-8e01-cde68cae713c";
@@ -1112,6 +1113,50 @@ test("a fresh eligible scan upgrades a legacy awaiting-owner candidate and admit
     await h.autoLaunch.launchScheduled("assigned-to-me");
     assert.equal(h.executions.length, 1,
       "the next natural scan must reuse the same admitted candidate rather than duplicate work");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("a canonical binding snapshot keeps a crash-window legacy record at capacity", async function () {
+  var h = makeIdleBoardHarness({ type: "bug" }, assignedIssue(2725), { maxConcurrent: 1 });
+  try {
+    var legacy = {
+      candidateKey: "launch:trialview/v2#2522",
+      itemKey: "trialview/v2#2522",
+      itemClass: "bug",
+      admission: "auto",
+      projectRef: { projectId: CUTOVER_PROJECT },
+      policyDigest: "legacy-policy",
+      recipeId: "assigned-to-me",
+      intent: { recipeId: "assigned-to-me", automationClaimKey: "trialview/v2#2522", autoKind: "issue" },
+      qualificationReceipt: null,
+      status: "admitted",
+      firstSeenAt: 1,
+      lastSeenAt: 1,
+      seenCount: 1,
+      digest: "legacy-no-pointer",
+    };
+    var candidateFile = path.join(h.cwd, ".clay", "tasks", "automation-candidates.json");
+    fs.writeFileSync(candidateFile, JSON.stringify({
+      schema: "clay.automation_candidates", version: 1, candidates: [legacy],
+    }));
+    var portfolioTaskId = portfolioTaskIdFor(legacy);
+    h.bound[portfolioTaskId + ":1"] = {
+      portfolioTaskId: portfolioTaskId,
+      bindingRevision: 1,
+      mode: "project_coordinator",
+      targetProject: { projectId: CUTOVER_PROJECT },
+      status: "active",
+    };
+
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.strictEqual(h.executions.length, 0,
+      "a committed binding with a missing candidate pointer must still consume the only slot");
+    var fresh = h.autoLaunch.candidateStore.get({ projectId: CUTOVER_PROJECT },
+      "launch:trialview/v2#2725");
+    assert.strictEqual(fresh.status, "pending",
+      "the naturally scanned issue waits for capacity instead of bypassing the crash window");
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }

@@ -10,6 +10,7 @@ var test = require("node:test");
 var assert = require("node:assert");
 
 var { createConcurrencyLimiter } = require("../lib/project-automation-concurrency");
+var { portfolioTaskIdFor } = require("../lib/project-automation-identity");
 
 // A session manager shaped like the real one: sessions is a Map with forEach.
 function sessionManager(sessions) {
@@ -72,6 +73,7 @@ function limiter(options) {
     sm: opts.sm === undefined ? sessionManager([]) : opts.sm,
     candidates: opts.candidates,
     getBinding: opts.getBinding,
+    getBindings: opts.getBindings,
     getLimit: opts.getLimit === undefined ? function () { return 3; } : opts.getLimit,
     now: function () { return 1700000000000; },
   });
@@ -180,6 +182,7 @@ test("concurrency: legacy admitted records without receipts or bindings do not l
     sm: sessionManager([autoSession("trialview/v2#2725")]),
     candidates: candidateStore([legacy, admittedCandidate("trialview/v2#2726", "task-2726")]),
     getBinding: bindingReader({ "task-2726": "active" }),
+    getBindings: function () { return []; },
     getLimit: function () { return 3; },
   });
   var slots = l.slots();
@@ -189,6 +192,78 @@ test("concurrency: legacy admitted records without receipts or bindings do not l
   assert.deepStrictEqual(slots.items.sort(), ["trialview/v2#2725", "trialview/v2#2726"]);
   assert.strictEqual(slots.available, 1,
     "the next qualified candidate can be admitted through the normal queue");
+});
+
+test("concurrency: a legacy unbound record stays capacity-bearing without a complete binding snapshot", function () {
+  var legacy = {
+    candidateKey: "launch:trialview/v2#2522",
+    itemKey: "trialview/v2#2522",
+    status: "admitted",
+    projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" },
+    policyDigest: "legacy-policy-digest",
+    recipeId: "assigned-to-me",
+    intent: { recipeId: "assigned-to-me", autoKind: "issue" },
+  };
+  var l = limiter({
+    candidates: candidateStore([legacy]),
+    getLimit: function () { return 1; },
+  });
+  assert.strictEqual(l.inFlight().count, 1,
+    "without the authoritative binding snapshot, an old record remains unknown");
+  assert.strictEqual(l.slots().available, 0);
+});
+
+test("concurrency: a matching active binding keeps a legacy unbound record capacity-bearing", function () {
+  var legacy = {
+    candidateKey: "launch:trialview/v2#2522",
+    itemKey: "trialview/v2#2522",
+    status: "admitted",
+    projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" },
+    policyDigest: "legacy-policy-digest",
+    recipeId: "assigned-to-me",
+    intent: { recipeId: "assigned-to-me", autoKind: "issue" },
+  };
+  var l = limiter({
+    candidates: candidateStore([legacy]),
+    getBindings: function () {
+      return [{
+        portfolioTaskId: portfolioTaskIdFor(legacy),
+        bindingRevision: 1,
+        status: "active",
+        targetProject: legacy.projectRef,
+      }];
+    },
+    getLimit: function () { return 1; },
+  });
+  assert.strictEqual(l.inFlight().count, 1,
+    "a crash before pointer persistence cannot make a committed worker invisible");
+  assert.strictEqual(l.slots().available, 0);
+});
+
+test("concurrency: a malformed canonical binding snapshot stays fail-closed", function () {
+  var legacy = {
+    candidateKey: "launch:trialview/v2#2522",
+    itemKey: "trialview/v2#2522",
+    status: "admitted",
+    projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" },
+    policyDigest: "legacy-policy-digest",
+    recipeId: "assigned-to-me",
+    intent: { recipeId: "assigned-to-me", autoKind: "issue" },
+  };
+  var l = limiter({
+    candidates: candidateStore([legacy]),
+    getBindings: function () {
+      return [{
+        portfolioTaskId: portfolioTaskIdFor(legacy),
+        bindingRevision: 1,
+        status: "active",
+      }];
+    },
+    getLimit: function () { return 1; },
+  });
+  assert.strictEqual(l.inFlight().count, 1,
+    "an incomplete snapshot cannot prove a record has no committed worker");
+  assert.strictEqual(l.slots().available, 0);
 });
 
 // --- The backfill property ------------------------------------------------------
