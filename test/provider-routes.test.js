@@ -56,9 +56,22 @@ test("a persisted cold-start Codex seed is not treated as a verified catalog", f
     }));
     assert.strictEqual(routes.verifiedCatalogForRoute(route).models.length, richLiveModels.length,
       "a legacy rich live catalog remains verified even when its IDs match the fallback set");
-    modelCatalogCache.rememberModels("codex", fallbackCodexModels());
-    assert.strictEqual(routes.verifiedCatalogForRoute(route).models.length, fallbackCodexModels().length,
-      "explicit live-discovery provenance supersedes fallback-set equality");
+    // RETRACTED: this previously asserted "explicit live-discovery provenance
+    // supersedes fallback-set equality", i.e. that persisting the seed through
+    // rememberModels() should overwrite the rich live catalog. That trust was
+    // the defect: adapters/codex.js substitutes the seed on any failed
+    // model/list, so the substitution could forge live-discovery provenance
+    // and drop real models from the picker. rememberModels() now rejects the
+    // seed by identity. The old assertion also could not fail -- richLiveModels
+    // is derived from fallbackCodexModels(), so both sides were length 7 either
+    // way -- so it is replaced with a discriminating check on the entries.
+    assert.strictEqual(modelCatalogCache.rememberModels("codex", fallbackCodexModels()), false,
+      "the static seed must never be recorded as a last-known-good catalog");
+    var afterSeed = routes.verifiedCatalogForRoute(route);
+    assert.strictEqual(afterSeed.models.length, richLiveModels.length,
+      "the rich live catalog must survive a seed substitution");
+    assert.ok(afterSeed.entries.every(function (entry) { return !!entry.id; }),
+      "the surviving entries must be the rich live ones, not the seed");
     var unwarmed = routes.verifiedCatalogForRoute(route, {
       providerRoutes: [{
         id: "codex-openai",

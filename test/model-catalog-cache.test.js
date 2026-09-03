@@ -9,6 +9,7 @@ var path = require("path");
 var TMP = path.join(os.tmpdir(), "clay-model-catalog-test-" + process.pid);
 process.env.CLAY_MODEL_CATALOG_PATH = path.join(TMP, "catalog.json");
 var cache = require("../lib/model-catalog-cache");
+var fallbackCodexModels = require("../lib/codex-models").fallbackCodexModels;
 
 function reset() {
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {}
@@ -132,5 +133,57 @@ test("transient probe attempts preserve definitive capability evidence", functio
   assert.strictEqual(stored.available, true);
   assert.strictEqual(stored.definitive, true);
   assert.strictEqual(stored.lastAttempt.reason, "rate-or-quota");
+  reset();
+});
+
+// Regression: the Codex adapter substitutes its hardcoded seed table for a live
+// catalog whenever `model/list` fails (lib/yoke/adapters/codex.js), and the
+// substitution is invisible in the returned shape. Recording it as
+// last-known-good silently drops every real model the seed does not name.
+test("the Codex static seed is never recorded as last-known-good", function () {
+  reset();
+  var live = [
+    { value: "gpt-5.6-sol" },
+    { value: "gpt-5.7-preview" },
+  ];
+  assert.strictEqual(cache.rememberModels("codex", live), true);
+  // Simulates codex.js falling back to fallbackCodexModels() after a failed
+  // model/list. The seed is "authoritative" by shape, so nothing but explicit
+  // seed detection stops it.
+  assert.strictEqual(cache.rememberModels("codex", fallbackCodexModels()), false,
+    "the seed must not overwrite a real live catalog");
+  assert.deepStrictEqual(cache.cachedModels("codex"), live,
+    "the newly released model must survive a failed model/list");
+  reset();
+});
+
+test("applyDiscovery prefers a cached live catalog over the Codex seed", function () {
+  reset();
+  var live = [{ value: "gpt-5.6-sol" }, { value: "gpt-5.7-preview" }];
+  cache.rememberModels("codex", live);
+  assert.deepStrictEqual(cache.applyDiscovery("codex", fallbackCodexModels()), live,
+    "a seed substitution must replay the last-known-good catalog instead");
+  // With no cache at all the seed is still the honest cold-start answer.
+  reset();
+  assert.deepStrictEqual(
+    cache.applyDiscovery("codex", fallbackCodexModels()).map(function (m) { return m.value; }),
+    fallbackCodexModels().map(function (m) { return m.value; }),
+    "cold start with no cache still yields the seed");
+  reset();
+});
+
+test("a degraded-provenance list never overwrites a live-discovery catalog", function () {
+  reset();
+  cache.rememberModels("codex", [{ value: "gpt-5.7-preview" }]);
+  assert.strictEqual(
+    cache.rememberModels("codex", [{ value: "gpt-4-legacy" }], "fallback-seed"), false,
+    "a caller that admits its list is degraded must not clobber proven live data");
+  assert.deepStrictEqual(cache.cachedModels("codex"), [{ value: "gpt-5.7-preview" }]);
+  // With no prior live catalog a degraded list is better than nothing, but it
+  // must be stored with honest provenance so downstream guards can see it.
+  reset();
+  assert.strictEqual(
+    cache.rememberModels("codex", [{ value: "gpt-4-legacy" }], "fallback-seed"), true);
+  assert.strictEqual(cache.cachedCatalog("codex").provenance, "fallback-seed");
   reset();
 });

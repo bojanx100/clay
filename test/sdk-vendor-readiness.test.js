@@ -66,3 +66,44 @@ test("vendor readiness records a failed runtime handshake without claiming readi
   assert.match(sm.providerVerificationByVendor.qwen.error, /please log in/);
   assert.strictEqual(sm.providerVerificationByVendor.qwen.modelCount, 0);
 });
+
+// Regression: the Codex adapter reports its hardcoded seed table as `models`
+// whenever `model/list` fails, indistinguishably from a live catalog. Readiness
+// persists whatever it is handed as last-known-good and marks the route
+// verified, so one failed discovery used to replace a real catalog -- dropping
+// any model the seed does not name -- and forge live-discovery provenance,
+// which also defeated the fail-closed seed check in provider-routes.js.
+test("a seed substitution never overwrites a live Codex catalog or verifies the route", async function () {
+  var modelCatalogCache = require("../lib/model-catalog-cache");
+  var fallbackCodexModels = require("../lib/codex-models").fallbackCodexModels;
+
+  var live = [{ value: "gpt-5.6-sol" }, { value: "gpt-5.7-preview" }];
+  assert.strictEqual(modelCatalogCache.rememberModels("codex", live), true);
+
+  // Adapter that failed model/list and is honestly reporting the substitution.
+  var sm = { installedVendors: ["codex"] };
+  var readiness = attachVendorReadiness({
+    adapters: {
+      codex: {
+        vendor: "codex",
+        init: async function () {
+          return { models: fallbackCodexModels(), modelsProvenance: "fallback-seed", capabilities: {} };
+        },
+      },
+    },
+    sm: sm,
+    cwd: "/tmp/readiness-seed",
+    slug: "readiness-seed",
+  });
+
+  await readiness.ensure("codex");
+
+  assert.deepStrictEqual(modelCatalogCache.cachedModels("codex"), live,
+    "the persisted last-known-good catalog must be untouched by the seed");
+  assert.deepStrictEqual(sm.modelsByVendor.codex, live,
+    "the picker must replay the real catalog, not the seed");
+  assert.strictEqual(modelCatalogCache.cachedCatalog("codex").provenance, "live-discovery",
+    "provenance must still record real live discovery");
+  assert.ok(!sm.verifiedModelsByRoute || !sm.verifiedModelsByRoute["codex-openai"],
+    "a seed substitution must not mark the route catalog verified");
+});
