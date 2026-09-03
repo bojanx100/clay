@@ -328,6 +328,65 @@ test("Lead connection restores Coop home instead of a remembered worker", functi
   }
 });
 
+test("Lead reload starts with one Main replay across compacted Coop history", function () {
+  var sent = [];
+  var events = [];
+  var options = { storedPresence: null, multiUser: false, presenceWrites: [] };
+  var restore = patchDependencies(options);
+  try {
+    var predecessor = makeSession(1);
+    predecessor.storageId = "coop-predecessor";
+    predecessor.hidden = true;
+    predecessor.history = [
+      { type: "user_message", text: "old owner message", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-old" },
+      { type: "thinking", text: "old internal reasoning" },
+      { type: "delta_replace", text: "old visible answer" },
+      { type: "done" },
+    ];
+    var home = makeSession(2);
+    home.storageId = "coop-successor";
+    home.coopHome = true;
+    home.compactedFromStorageId = predecessor.storageId;
+    home.history = [
+      { type: "info", text: "Compacted continuation" },
+      { type: "user_message", text: "new owner message", from: "a66ce4a1", fromName: "Admin", clientMessageId: "cm-new" },
+      { type: "tool_use", name: "Bash", input: { command: "pwd" } },
+      { type: "delta_replace", text: "new visible answer" },
+      { type: "done" },
+    ];
+    var ctx = makeContext(home, sent, events);
+    ctx.slug = "lead";
+    ctx.sm.sessions.set(predecessor.localId, predecessor);
+    var replays = [];
+    ctx.sm.replayHistory = function (session, from, socket, transform, replayOptions) {
+      replays.push({ session: session, transform: transform, options: replayOptions || null });
+    };
+
+    var ws = new FakeWebSocket();
+    handlers.attachConnectionHandlers(ctx).handleConnection(
+      ws, null, function () {}, function () {});
+
+    ws.emit("message", JSON.stringify({
+      type: "coop_topic_select", topicRef: null, projectRef: null, historyScope: "main",
+    }));
+
+    assert.equal(replays.length, 1,
+      "the browser's default-Main synchronization does not start a competing replay");
+    assert.equal(replays[0].options && replays[0].options.scope, "main",
+      "the first server replay matches the owner-facing default lens");
+    assert.equal(replays[0].session.history.length, 9,
+      "Main derives from the complete predecessor and successor lineage");
+    assert.deepEqual(replays[0].options.eventIndexes, [0, 2, 3, 5, 7, 8],
+      "the initial replay excludes internal execution narration deterministically");
+    assert.deepEqual(sent.filter(function (message) {
+      return message.type === "coop_topic_selected";
+    }).pop(), { type: "coop_topic_selected", ok: true, topicRef: null, projectRef: null },
+    "the already-current Main selection is still acknowledged");
+  } finally {
+    restore();
+  }
+});
+
 test("Lead exact SessionRef restore still opens the requested reference session", function () {
   var sent = [];
   var events = [];

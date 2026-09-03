@@ -51,7 +51,7 @@ test("All contains every message", function () {
   assert.match(CONNECTION, /if \(Array\.isArray\(eventIndexes\)\) options\.eventIndexes = eventIndexes;/);
   assert.match(CONNECTION, /var scope = result\.topicRef \? "topic" : \(wantsMain \? "main" : "canonical"\)/);
   // Only main and topic supply indexes; canonical never does.
-  assert.match(CONNECTION, /else if \(wantsMain\) indexes = mainMembershipIndexes\(session\)/);
+  assert.match(CONNECTION, /else if \(wantsMain\) indexes = coopMainReplay\.membershipIndexes\(session\)/);
 });
 
 test("Main excludes internal chatter and is a strict subset of All", function () {
@@ -150,7 +150,7 @@ test("Main paging uses Main membership, not the unfiltered fallback", function (
   // filter, so serving Main from it would make earlier pages disagree with the
   // first one.
   assert.match(CONNECTION, /var mainLens = !ws\._clayCoopTopicRef && ws\._clayCoopLensScope === "main"/);
-  assert.match(CONNECTION, /\? \{ ok: true, options: replayOptions\(null, null, mainMembershipIndexes\(session\), "main"\) \}/);
+  assert.match(CONNECTION, /\? \{ ok: true, options: replayOptions\(null, null, coopMainReplay\.membershipIndexes\(session\), "main"\) \}/);
   assert.match(CONNECTION, /scope: mainLens \? "main" : "topic"/);
 });
 
