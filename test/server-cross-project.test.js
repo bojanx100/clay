@@ -1635,7 +1635,7 @@ test("a missing ThreadRef is not blamed when no owner decision exists", function
   assert.equal(dispatch().reason, "thread_ref_required");
 });
 
-test("a ProjectRef-bound read-only diagnosis bypasses implementation-decision lookup but mutation stays gated", function () {
+test("a ProjectRef-bound read-only diagnosis still needs admission evidence", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-read-only-project-ref-"));
   var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var ownerLookups = 0;
@@ -1681,9 +1681,11 @@ test("a ProjectRef-bound read-only diagnosis bypasses implementation-decision lo
     ownedPaths: "read-only: exact terminal binding and session evidence",
   };
   var diagnosis = router.createProjectExecution(base);
-  assert.equal(diagnosis.ok, true, diagnosis.reason);
-  assert.equal(ownerLookups, 0, "a read-only diagnosis must not require an implementation decision");
-  assert.equal(delivered[0].payload.reviewOnly, true);
+  assert.equal(diagnosis.ok, false);
+  assert.equal(diagnosis.reason, "owner_implementation_decision_required");
+  assert.equal(ownerLookups, 0, "an unscoped refusal needs no owner-ledger scan");
+  assert.equal(delivered.length, 0,
+    "a read-only classification is not authorization by itself");
 
   var mutation = router.createProjectExecution(Object.assign({}, base, {
     portfolioTaskId: "clay-terminal-state-mutation", bindingRevision: 1,
@@ -1691,7 +1693,7 @@ test("a ProjectRef-bound read-only diagnosis bypasses implementation-decision lo
     objective: "Review and update the terminal binding.",
   }));
   assert.equal(mutation.reason, "owner_implementation_decision_required");
-  assert.equal(delivered.length, 1, "a mutating brief must not create a project execution");
+  assert.equal(delivered.length, 0, "neither unauthorized brief creates a project execution");
 });
 
 test("no owner turn at all is not reported as a missing ThreadRef", function () {
