@@ -45,6 +45,12 @@ test("one Coop projection shares one execution-binding snapshot across status re
   assert.match(projection,
     /!crossProject\.hasExecutionBindingSnapshot\(\)[\s\S]*?withExecutionBindingSnapshot\(function \(\) \{[\s\S]*?globalCoopProjectionFor\(ws\)/,
     "every initial and live global Coop projection must enter the shared snapshot scope");
+  var presenceStart = source.indexOf("function broadcastPresenceChange()");
+  var presence = source.slice(presenceStart,
+    source.indexOf("\n  function broadcastAll", presenceStart));
+  assert.match(presence,
+    /function flushPresenceChange\(\)[\s\S]*?!crossProject\.hasExecutionBindingSnapshot\(\)[\s\S]*?withExecutionBindingSnapshot\(flushPresenceChange\)/,
+    "presence refreshes must share one binding snapshot across project statuses");
 });
 
 test("the first session switch preserves text and attachment-only drafts typed during load", function () {
