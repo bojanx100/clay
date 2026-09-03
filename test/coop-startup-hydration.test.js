@@ -109,6 +109,9 @@ test("initial Coop hydration replays chat before sending a compact owner project
   assert.equal(providerCalls, 0,
     "the projection must not block the synchronous session replay path");
   await new Promise(function (resolve) { setImmediate(resolve); });
+  assert.equal(providerCalls, 0,
+    "the socket must get an I/O and render turn before projection work starts");
+  await new Promise(function (resolve) { setTimeout(resolve, 35); });
   assert.equal(providerCalls, 1);
   assert.equal(sent.length, 1);
   assert.deepEqual(Object.keys(sent[0].ownerSidebar).sort(), [
