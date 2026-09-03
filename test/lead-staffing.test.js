@@ -162,3 +162,66 @@ test("staffing carries a stable work identity so renamed attempts stay detectabl
   assert.ok(staffed, "an id-bearing item is still staffable without a work identity");
   assert.strictEqual(staffed.workIdentity, "");
 });
+
+// --- Restaff revalidation gate -------------------------------------------
+// trialview/v2#2777 was relaunched at r2 through this path after the issue had
+// been delivered, reassigned and moved to Dev Complete. Revision 1 reads a
+// fresh backlog; every revision above it is restaffing an old premise.
+
+function restaffOptions(extra) {
+  return staffingOptions("lib/thing.js", Object.assign({ bindingRevision: 2 }, extra || {}));
+}
+
+test("first-time staffing is not subject to the restaff gate", function () {
+  var item = makeItem("Fix crash in daemon restart path");
+  var route = routing.routeWorkItem(item.classification, {});
+  var args = staffing.composeStaffing(item, route, staffingOptions("lib/thing.js"));
+  assert.ok(args && args.ok, "revision 1 staffs on fresh backlog facts");
+  assert.strictEqual(args.bindingRevision, 1);
+});
+
+test("a restaff with no live verdict is refused, not allowed", function () {
+  var item = makeItem("Fix crash in daemon restart path");
+  var route = routing.routeWorkItem(item.classification, {});
+  var decision = staffing.composeStaffingDecision(item, route, restaffOptions());
+  assert.strictEqual(decision.ok, false);
+  assert.strictEqual(decision.reason, "restaff_revalidation_required");
+  assert.strictEqual(decision.attention.fallbackAllowed, false,
+    "silence must never fall back to relaunching");
+});
+
+test("a restaff the live board refuses does not dispatch", function () {
+  var item = makeItem("Fix crash in daemon restart path");
+  var route = routing.routeWorkItem(item.classification, {});
+  var decision = staffing.composeStaffingDecision(item, route, restaffOptions({
+    revalidateRestaff: function () {
+      return { ok: true, eligible: false, reason: "board_status_excluded" };
+    },
+  }));
+  assert.strictEqual(decision.ok, false);
+  assert.strictEqual(decision.reason, "board_status_excluded",
+    "the board's own reason must survive to the attention record");
+});
+
+test("a restaff the live board still allows dispatches normally", function () {
+  var item = makeItem("Fix crash in daemon restart path");
+  var route = routing.routeWorkItem(item.classification, {});
+  var seen = null;
+  var args = staffing.composeStaffing(item, route, restaffOptions({
+    revalidateRestaff: function (target) { seen = target; return { ok: true, eligible: true, reason: "eligible" }; },
+  }));
+  assert.ok(args && args.ok, "a live-verified restaff is still allowed through");
+  assert.strictEqual(args.bindingRevision, 2);
+  assert.ok(seen && seen.portfolioTaskId, "the gate receives the binding identity to re-check");
+  assert.strictEqual(seen.bindingRevision, 2);
+});
+
+test("a throwing revalidator refuses the restaff instead of leaking through", function () {
+  var item = makeItem("Fix crash in daemon restart path");
+  var route = routing.routeWorkItem(item.classification, {});
+  var decision = staffing.composeStaffingDecision(item, route, restaffOptions({
+    revalidateRestaff: function () { throw new Error("board unreachable"); },
+  }));
+  assert.strictEqual(decision.ok, false);
+  assert.strictEqual(decision.reason, "restaff_revalidation_unresolvable");
+});
