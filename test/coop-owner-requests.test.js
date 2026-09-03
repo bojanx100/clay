@@ -612,6 +612,28 @@ test("a failed write does not silently evict a record from memory only", functio
   var broken = false;
   var dir = realFs.mkdtempSync(path.join(os.tmpdir(), "clay-prune-"));
   var file = path.join(dir, "r.json");
+  var seed = ownerRequests.attachCoopOwnerRequests({ file: file });
+  var seedId = "coop:" + COOP_SESSION + ":1";
+  seed.record({ ingressId: seedId, ingressSequence: 1,
+    sessionRef: { projectId: LEAD_PROJECT, sessionStorageId: COOP_SESSION } });
+  seed.markAnswered(seedId, { eventIndex: 1 });
+
+  // Seed the real production cap in one durable write. Replaying 4,000 public
+  // mutations rewrites a growing JSON ledger each time and obscures this
+  // rollback assertion behind quadratic fixture setup.
+  var stored = JSON.parse(realFs.readFileSync(file, "utf8"));
+  var template = stored.requests[0];
+  stored.requests = [];
+  var cap = ownerRequests.MAX_RECORDS || 2000;
+  for (var i = 1; i <= cap; i++) {
+    var settled = JSON.parse(JSON.stringify(template));
+    settled.ingressId = "coop:" + COOP_SESSION + ":" + i;
+    settled.ingressSequence = i;
+    if (settled.response.responseRef) settled.response.responseRef.eventIndex = i;
+    stored.requests.push(settled);
+  }
+  realFs.writeFileSync(file, JSON.stringify(stored, null, 2) + "\n");
+
   var ledger = ownerRequests.attachCoopOwnerRequests({
     file: file,
     fs: {
@@ -623,15 +645,6 @@ test("a failed write does not silently evict a record from memory only", functio
       },
     },
   });
-
-  // Fill past the cap with settled records so the next insert triggers a prune.
-  var cap = ownerRequests.MAX_RECORDS || 2000;
-  for (var i = 1; i <= cap; i++) {
-    var id = "coop:" + COOP_SESSION + ":" + i;
-    ledger.record({ ingressId: id, ingressSequence: i,
-      sessionRef: { projectId: LEAD_PROJECT, sessionStorageId: COOP_SESSION } });
-    ledger.markAnswered(id, { eventIndex: i });
-  }
   var before = ledger.list().length;
 
   broken = true;

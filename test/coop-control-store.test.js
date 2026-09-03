@@ -72,13 +72,14 @@ availableTest("an activated ControlStore uses WAL and applies migrations in orde
     assert.equal(store.enabled, true);
     assert.equal(store.journalMode, "wal");
     assert.equal(store.schemaVersion, controlStore.LATEST_SCHEMA_VERSION);
-    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3, 4, 5]);
+    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3, 4, 5, 6]);
     assert.deepEqual(store.listMigrations().map(function (row) { return row.name; }), [
       "control-record-foundation",
       "shadow-comparison-foundation",
       "execution-control-foundation",
       "recovery-control-foundation",
       "recovery-payload-receipts",
+      "stale-r6-reconciliation-receipt",
     ]);
     store.close();
   } finally {
@@ -105,7 +106,7 @@ availableTest("an existing database is backed up before an ordered migration", f
     var store = controlStore.openControlStore({ dbPath: h.dbPath, now: function () { return 1000; } });
     assert.ok(store.migration.backupPath);
     assert.equal(fs.existsSync(store.migration.backupPath), true);
-    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3, 4, 5]);
+    assert.deepEqual(store.listMigrations().map(function (row) { return row.version; }), [1, 2, 3, 4, 5, 6]);
 
     var backup = new sqlite.DatabaseSync(store.migration.backupPath, { readOnly: true });
     assert.equal(backup.prepare("PRAGMA user_version").get().user_version, 1);
@@ -117,7 +118,7 @@ availableTest("an existing database is backed up before an ordered migration", f
   }
 });
 
-availableTest("a valid v4 recovery database is audited before backup and migrates to v5", function () {
+availableTest("a valid v4 recovery database is audited before backup and migrates to v6", function () {
   var h = harness();
   try {
     var sqlite = require("node:sqlite");
@@ -132,7 +133,7 @@ availableTest("a valid v4 recovery database is audited before backup and migrate
 
     var store = controlStore.openControlStore({ dbPath: h.dbPath, now: function () { return 1000; } });
     assert.equal(store.migration.fromVersion, 4);
-    assert.equal(store.migration.toVersion, 5);
+    assert.equal(store.migration.toVersion, 6);
     assert.ok(store.migration.backupPath);
     assert.equal(fs.existsSync(store.migration.backupPath), true);
     var backup = new sqlite.DatabaseSync(store.migration.backupPath, { readOnly: true });
@@ -165,7 +166,7 @@ availableTest("a corrupt v4 recovery database fails closed before backup", funct
     assert.throws(function () { controlStore.openControlStore({ dbPath: h.dbPath }); },
       function (error) { return error && error.code === "COOP_CONTROL_STORE_LOGICAL_CORRUPTION"; });
     assert.equal(fs.readdirSync(h.dir).some(function (name) {
-      return name.indexOf("backup-v4-to-v5") !== -1;
+      return name.indexOf("backup-v4-to-v6") !== -1;
     }), false);
   } finally {
     h.cleanup();
