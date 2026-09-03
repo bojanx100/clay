@@ -99,3 +99,22 @@ test("worktree rescan preserves inventory on errors and confirms removals", asyn
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("worktree discovery skips non-Git projects instead of starting failed rescans", async function () {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-non-git-rescan-"));
+  var parentPath = path.join(root, "plain-project");
+  var relay = createRelay();
+  var slug = "plain-project-" + process.pid + "-" + Date.now();
+  fs.mkdirSync(parentPath);
+  try {
+    var result = await daemonProjects.scanAndRegisterWorktrees(relay,
+      parentPath, slug, null, null, "5332aafc-31e7-5cb1-ba96-c8d90e78260e");
+    assert.deepEqual(result, { ok: true, skipped: "not_git_repository" });
+    assert.equal(relay.added.length, 0);
+    assert.equal(relay.removed.length, 0);
+    assert.equal(relay.broadcasts.length, 0);
+  } finally {
+    daemonProjects.cleanupWorktreesForParent(relay, slug);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
