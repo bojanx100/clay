@@ -606,6 +606,41 @@ test("Codex context usage uses current context tokens, not cumulative total toke
   assert.strictEqual(result.contextWindow, 258400);
 });
 
+test("Codex token accounting persists each turn's last usage instead of the thread total", function () {
+  var state = makeStreamState();
+  state.model = "gpt-5.6-terra";
+  var firstUpdate = {
+    method: "thread/tokenUsage/updated",
+    params: {
+      tokenUsage: {
+        last: { inputTokens: 2600 },
+        total: { inputTokens: 500000 },
+      },
+    },
+  };
+  var secondUpdate = {
+    method: "thread/tokenUsage/updated",
+    params: {
+      tokenUsage: {
+        last: { inputTokens: 3100 },
+        total: { inputTokens: 503100 },
+      },
+    },
+  };
+
+  routing.flattenEvent(firstUpdate, state);
+  var firstResult = routing.flattenEvent({ method: "turn/completed", params: {} }, state)
+    .filter(function (event) { return event.yokeType === "result"; })[0];
+  routing.flattenEvent(secondUpdate, state);
+  var secondResult = routing.flattenEvent({ method: "turn/completed", params: {} }, state)
+    .filter(function (event) { return event.yokeType === "result"; })[0];
+
+  assert.strictEqual(firstResult.usage.input_tokens, 2600);
+  assert.strictEqual(secondResult.usage.input_tokens, 3100);
+  assert.strictEqual(firstResult.usage.input_tokens + secondResult.usage.input_tokens, 5700,
+    "downstream additive accounting must receive only the two per-turn figures");
+});
+
 test("Codex rate limit credits keep the account-state update out of rejected state", function () {
   var events = routing.flattenEvent({
     method: "account/rateLimits/updated",
@@ -670,6 +705,24 @@ test("Codex rate limit reached type only rejects the window it names, not the si
   assert.strictEqual(primaryEvent.rateLimitInfo.status, "rejected");
   assert.strictEqual(secondaryEvent.rateLimitInfo.rateLimitType, "seven_day");
   assert.strictEqual(secondaryEvent.rateLimitInfo.status, "allowed");
+});
+
+test("Codex rate limit keeps missing utilization unknown", function () {
+  var events = routing.flattenEvent({
+    method: "account/rateLimits/updated",
+    params: {
+      rateLimits: {
+        limitId: "codex",
+        primary: {
+          windowDurationMins: 300,
+          resetsAt: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    },
+  }, makeStreamState());
+
+  assert.strictEqual(events.length, 1);
+  assert.strictEqual(events[0].rateLimitInfo.utilization, null);
 });
 
 test("Codex rate limit normalization reads the codex multi-bucket fallback", function () {

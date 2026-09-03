@@ -37,7 +37,7 @@ function loadRateLimitUi(currentVendor) {
       subscribe: function () {},
     },
   };
-  vm.runInNewContext(source + "\nthis.__rateLimitUi = { updateRateLimitUsage: updateRateLimitUsage };", context);
+  vm.runInNewContext(source + "\nthis.__rateLimitUi = { updateRateLimitUsage: updateRateLimitUsage, stopUsageTick: function () { if (rateLimitTickTimer) clearInterval(rateLimitTickTimer); rateLimitTickTimer = null; } };", context);
   return {
     api: context.__rateLimitUi,
     inserted: function () { return inserted; },
@@ -78,6 +78,33 @@ test("Claude usage chip remains a visible settings link without percentage data"
   assert.match(ui.inserted().innerHTML, /https:\/\/claude\.ai\/settings\/usage/);
   assert.match(ui.inserted().innerHTML, /Check usage/);
   assert.match(ui.inserted().innerHTML, /target="_blank" rel="noopener"/);
+});
+
+test("missing Codex utilization renders an em dash instead of a false 0%", function () {
+  var codexAdapter = require("../lib/yoke/adapters/codex");
+  var state = codexAdapter.contractTestKit.createEventState("gpt-5.6-terra");
+  var events = codexAdapter.contractTestKit.normalizeEvent({
+    method: "account/rateLimits/updated",
+    params: {
+      rateLimits: {
+        limitId: "codex",
+        primary: {
+          windowDurationMins: 300,
+          resetsAt: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    },
+  }, state);
+  var info = events[0].rateLimitInfo;
+  var ui = loadRateLimitUi("codex");
+
+  try {
+    ui.api.updateRateLimitUsage(Object.assign({ vendor: "codex" }, info));
+    assert.match(ui.inserted().innerHTML, /usage-progress-value unknown">—<\/span>/);
+    assert.doesNotMatch(ui.inserted().innerHTML, /usage-progress-value unknown">0%<\/span>/);
+  } finally {
+    ui.api.stopUsageTick();
+  }
 });
 
 test("normal in-process Claude query handles expose current plan usage", async function () {

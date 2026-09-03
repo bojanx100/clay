@@ -202,6 +202,53 @@ test("Codex ignores only the known remote-control status notification", function
   }
 });
 
+function waitForCondition(check, timeoutMs) {
+  var startedAt = Date.now();
+  return new Promise(function(resolve, reject) {
+    function poll() {
+      if (check()) {
+        resolve();
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        reject(new Error("condition was not met before timeout"));
+        return;
+      }
+      setTimeout(poll, 20);
+    }
+    poll();
+  });
+}
+
+test("Codex app-server restarts after an unexpected child exit", async function(t) {
+  var appServerDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-codex-app-server-restart-"));
+  var counterFile = path.join(appServerDir, "starts");
+  var appServerScript = path.join(appServerDir, "app-server");
+  fs.writeFileSync(appServerScript,
+    "var fs = require('fs');\n" +
+    "var counter = " + JSON.stringify(counterFile) + ";\n" +
+    "var starts = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) : 0;\n" +
+    "fs.writeFileSync(counter, String(starts + 1));\n" +
+    "if (starts === 0) process.exit(23);\n" +
+    "setInterval(function () {}, 1000);\n");
+  var server = new CodexAppServer(process.execPath, { cwd: appServerDir });
+
+  t.after(function() {
+    server.stop();
+    fs.rmSync(appServerDir, { recursive: true, force: true });
+  });
+
+  await server.start();
+  var firstPid = server.proc.pid;
+  await waitForCondition(function() {
+    var starts = fs.existsSync(counterFile) ? Number(fs.readFileSync(counterFile, "utf8")) : 0;
+    return starts >= 2 && server.proc && server.proc.pid !== firstPid && server.started;
+  }, 1200);
+
+  assert.ok(server.proc.pid !== firstPid, "the replacement app-server must have a new PID");
+  assert.strictEqual(server.started, true);
+});
+
 test("workspace discovery keeps expected non-repository Git failures off stderr", function(t) {
   var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-workspace-non-repo-"));
   t.after(function() { fs.rmSync(projectDir, { recursive: true, force: true }); });
