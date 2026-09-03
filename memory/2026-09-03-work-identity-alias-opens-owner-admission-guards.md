@@ -67,3 +67,19 @@ place to guess.
 
 Run it from a checkout WITH `node_modules` — a fresh `git worktree` has none and
 will report unrelated load failures instead.
+
+## Not to be confused with the other red suite
+
+A full run also shows `test/project-task-orchestrator-external.test.js` at
+28 pass / **2 fail** ("Council/Triage dispatch binds the current owner-approved
+read-only review ingress"). Those are a SEPARATE and OLDER bug — they already
+failed at `bd5d533e2a`, `8687526a9f`, `4c63de5e56`, `7eeffeb2db` and
+`d6d3f16141`, i.e. back to at least 2026-08-31, while the admission suite was
+still 48/0. `f738909689` did not cause them.
+
+Their shape: dispatch delivers `coop:canonical-coop:281` (the ingress carried in
+the session history fixture) where the test expects `coop:canonical-coop:332`
+(the ingress the owner authorized in the turn's context). So dispatch binds a
+superseded approval rather than the current one. Thematically related to the
+above — both are "which owner approval is authoritative" — but a distinct
+defect with a distinct age, and it is stale red rather than a fresh regression.
