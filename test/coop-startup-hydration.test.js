@@ -3,6 +3,7 @@ var assert = require("node:assert/strict");
 var fs = require("node:fs");
 var os = require("node:os");
 var path = require("node:path");
+var coopTopicConnection = require("../lib/coop-topic-connection");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 var createPortfolioExecutionBindings =
   require("../lib/portfolio-execution-bindings").createPortfolioExecutionBindings;
@@ -46,21 +47,24 @@ test("one Coop projection shares one execution-binding snapshot across status re
     "every initial and live global Coop projection must enter the shared snapshot scope");
 });
 
-test("the first session switch preserves text and attachment-only drafts typed during load", async function () {
-  var handlers = await import("../lib/public/modules/app-messages-sessions-handlers.js");
+test("the first session switch preserves text and attachment-only drafts typed during load", function () {
   var textDraft = { text: "typed while Coop loads", images: [], pastes: [], files: [] };
   var imageDraft = { text: "", images: ["data:image/png;base64,abc"], pastes: [], files: [] };
-
-  assert.strictEqual(handlers.initialDraftForSessionSwitch(null, textDraft), textDraft);
-  assert.strictEqual(handlers.initialDraftForSessionSwitch(null, imageDraft), imageDraft);
-  assert.equal(handlers.initialDraftForSessionSwitch(null, {
-    text: "", images: [], pastes: [], files: [],
-  }), null);
-  assert.equal(handlers.initialDraftForSessionSwitch(7, textDraft), null,
-    "ordinary session switches continue using their keyed per-session draft");
-
   var source = fs.readFileSync(path.join(__dirname,
     "../lib/public/modules/app-messages-sessions.js"), "utf8");
+  var helperStart = source.indexOf("function initialDraftForSessionSwitch(");
+  var helperEnd = source.indexOf("\n}\n\nfunction handleSessionSwitched", helperStart) + 2;
+  var initialDraftForSessionSwitch = Function(source.slice(helperStart, helperEnd) +
+    "\nreturn initialDraftForSessionSwitch;")();
+
+  assert.strictEqual(initialDraftForSessionSwitch(null, textDraft), textDraft);
+  assert.strictEqual(initialDraftForSessionSwitch(null, imageDraft), imageDraft);
+  assert.equal(initialDraftForSessionSwitch(null, {
+    text: "", images: [], pastes: [], files: [],
+  }), null);
+  assert.equal(initialDraftForSessionSwitch(7, textDraft), null,
+    "ordinary session switches continue using their keyed per-session draft");
+
   var handlerStart = source.indexOf("function handleSessionSwitched(msg)");
   var handlerEnd = source.indexOf("\n}\n\nfunction applySessionVendor", handlerStart);
   var sessionSwitch = source.slice(handlerStart, handlerEnd);
@@ -69,4 +73,47 @@ test("the first session switch preserves text and attachment-only drafts typed d
   assert.match(sessionSwitch,
     /resetClientState\(\);[\s\S]*?if \(initialDraft\) \{[\s\S]*?restoreInputDraft\(initialDraft\);[\s\S]*?saveInputDraftForSession/,
     "the live draft must be restored and keyed after reset clears the composer");
+});
+
+test("initial Coop hydration replays chat before sending a compact owner projection", async function () {
+  var providerCalls = 0;
+  var sent = [];
+  var ws = { readyState: 1 };
+  var duplicate = { entryId: "owner-work-1", title: "Fix startup" };
+  var ctx = {
+    slug: "lead",
+    getGlobalCoopProjection: function () {
+      providerCalls += 1;
+      return {
+        type: "global_coop_projection",
+        ownerSidebar: {
+          defaultOpen: true,
+          revision: 4,
+          entries: [duplicate],
+          open: [duplicate],
+          openWork: [duplicate],
+          working: [duplicate],
+          attention: [],
+          attentionGroups: [],
+          landed: [],
+          dismissed: [],
+          hidden: [],
+          counts: { openWork: 1 },
+        },
+      };
+    },
+    sendTo: function (_ws, message) { sent.push(message); },
+  };
+
+  coopTopicConnection.sendGlobalCoopProjection(ctx, ws);
+  assert.equal(providerCalls, 0,
+    "the projection must not block the synchronous session replay path");
+  await new Promise(function (resolve) { setImmediate(resolve); });
+  assert.equal(providerCalls, 1);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(Object.keys(sent[0].ownerSidebar).sort(), [
+    "attentionGroups", "counts", "defaultOpen", "dismissed", "hidden",
+    "landed", "revision", "working",
+  ]);
+  assert.strictEqual(sent[0].ownerSidebar.working[0], duplicate);
 });
