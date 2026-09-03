@@ -11,6 +11,21 @@ function git(args) {
   return childProcess.execFileSync("git", args, { encoding: "utf8" });
 }
 
+// These tests boot a real daemon, which spawns its own children. Waiting for the
+// daemon to exit does not mean those grandchildren are gone, and one still
+// flushing into the directory makes a recursive remove fail with ENOTEMPTY
+// partway through its walk. `force` only suppresses ENOENT, so it does nothing
+// for this.
+//
+// Measured, not assumed: against a writer that lingers ~250ms after teardown
+// starts, force-only failed 5 of 5 runs and force+retries passed 5 of 5. The
+// bound is real though -- a writer that never stops defeats retries too (0 of 5
+// either way), so this covers a straggler finishing its last write, which is the
+// case here, and not a genuinely leaked process.
+function removeTree(target) {
+  fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+}
+
 function canonicalPath(value) {
   var resolved = path.resolve(value);
   try { return fs.realpathSync(resolved); } catch (e) { return resolved; }
@@ -42,8 +57,8 @@ function createIndependentProjectFixture() {
 
 function removeWorktreeFixture(fixture) {
   try { git(["-C", fixture.parentPath, "worktree", "remove", "--force", fixture.worktreePath]); } catch (e) {}
-  fs.rmSync(fixture.parentPath, { recursive: true, force: true });
-  fs.rmSync(fixture.worktreePath, { recursive: true, force: true });
+  removeTree(fixture.parentPath);
+  removeTree(fixture.worktreePath);
 }
 
 function waitForDaemonStatus(socketPath, child) {
@@ -224,9 +239,9 @@ test("configured execution roots are discarded while their canonical project rem
       ["clay-chrome", "browser_helper", "clay"],
     ]);
   } finally {
-    fs.rmSync(isolatedPath, { recursive: true, force: true });
-    fs.rmSync(browserHelperPath, { recursive: true, force: true });
-    fs.rmSync(unrelatedProjectPath, { recursive: true, force: true });
+    removeTree(isolatedPath);
+    removeTree(browserHelperPath);
+    removeTree(unrelatedProjectPath);
     removeWorktreeFixture(fixture);
   }
 });
@@ -251,8 +266,8 @@ test("configured /private/tmp canary root is discarded while its canonical proje
       return [item.project.slug, item.kind, item.parent.slug];
     }), [["clay-r6-isolated-fixture", "temporary_execution", "clay"]]);
   } finally {
-    fs.rmSync(parentPath, { recursive: true, force: true });
-    fs.rmSync(isolatedPath, { recursive: true, force: true });
+    removeTree(parentPath);
+    removeTree(isolatedPath);
   }
 });
 
@@ -359,10 +374,10 @@ test("daemon startup discards a stale worktree config row in favor of its canoni
     "stale execution roots must not remain as inactive recent projects for a later CLI restore");
   } finally {
     if (child) await stopDaemon(child, socketPath);
-    fs.rmSync(home, { recursive: true, force: true });
-    fs.rmSync(isolatedPath, { recursive: true, force: true });
-    fs.rmSync(browserHelperPath, { recursive: true, force: true });
-    fs.rmSync(unrelatedProjectPath, { recursive: true, force: true });
+    removeTree(home);
+    removeTree(isolatedPath);
+    removeTree(browserHelperPath);
+    removeTree(unrelatedProjectPath);
     removeWorktreeFixture(fixture);
   }
 });
