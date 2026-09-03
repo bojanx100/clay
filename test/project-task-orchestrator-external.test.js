@@ -420,7 +420,7 @@ test("Council dispatch binds the current owner-approved read-only review ingress
     objective: "Run a participatory Council-style review for Coop Threads V2.",
     context: "The owner authorized both proposed reviews with ingress 332: do them.",
     acceptanceCriteria: "Return recommendations without source edits.",
-    ownedPaths: "read-only: product interaction architecture; no source edits",
+    ownedPaths: "read-only: product interaction architecture, no source edits",
   });
 
   assert.equal(delivered.coopIngressId, "coop:canonical-coop:332");
@@ -437,7 +437,7 @@ test("Triage dispatch binds the current owner-approved read-only review ingress"
     objective: "Run a focused Triage review of routing and title behavior.",
     context: "The owner authorized both proposed reviews with ingress 332: do them.",
     acceptanceCriteria: "Return prioritized findings without source edits.",
-    ownedPaths: "read-only: routing, title, and triage requirements; no source edits",
+    ownedPaths: "read-only: routing, title, and triage requirements, no source edits",
   });
 
   assert.equal(delivered.coopIngressId, "coop:canonical-coop:332");
