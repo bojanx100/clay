@@ -8,6 +8,17 @@ var createCrossProjectRouter = require("../lib/server-cross-project").createCros
 var createPortfolioExecutionBindings =
   require("../lib/portfolio-execution-bindings").createPortfolioExecutionBindings;
 
+test("live Coop projection refresh imports its transport dependency", function () {
+  var source = fs.readFileSync(path.join(__dirname, "../lib/server.js"), "utf8");
+  var importIndex = source.indexOf(
+    'var coopTopicConnection = require("./coop-topic-connection");');
+  var useIndex = source.indexOf("coopTopicConnection.clientProjection(projection)");
+
+  assert.ok(useIndex >= 0, "the live projection refresh must use the compact client transport");
+  assert.ok(importIndex >= 0 && importIndex < useIndex,
+    "server.js must import coop-topic-connection before its deferred refresh callback runs");
+});
+
 test("one Coop projection shares one execution-binding snapshot across status reads", function () {
   var directory = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-startup-"));
   var realStore = createPortfolioExecutionBindings({
