@@ -114,3 +114,12 @@ asserting it would encode the bug as the contract.
 - The simulated-runtime dry run SUPPLIES `runtimeObserved`; it shows what the
   predicate concludes given an idle runtime and is not evidence any runtime was
   idle.
+- **`npm test` from a fresh `git worktree` reports false failures.** A new
+  worktree has no `node_modules`, so every suite requiring an external
+  dependency (`ws`, `@modelcontextprotocol/sdk`) fails to LOAD. On 2026-09-03
+  this made `bojan` look like 11 failures across 5 files; the real number was 8
+  across 2, and the other 3 suites passed once `node_modules` was symlinked in.
+  Link or install dependencies in the worktree before trusting a suite run. The
+  `pass 0 / fail 1` shape is the tell — a suite reporting zero passes did not
+  load, rather than did not work. This trap matters here because much of the
+  work in this repo happens in throwaway worktrees.
