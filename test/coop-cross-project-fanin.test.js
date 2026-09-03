@@ -151,6 +151,70 @@ test("fan-in uses a durable typed envelope when project identities are available
   }
 });
 
+test("fan-in retains a retryable source-cursor dead letter until the typed router reconciles capacity", function () {
+  var scratch = createScratchDir("typed-cross-project-fanin-cursor-capacity");
+  var clock = 1000;
+  try {
+    var received = [];
+    var projects = new Map([["system-lead", {
+      deliverCrossProjectEnvelope: function (envelope) {
+        received.push(envelope.eventId);
+        return { ok: true };
+      },
+    }]]);
+    var crossProject = createCrossProjectRouter({
+      deliveryFile: path.join(scratch, "transport.json"),
+      bindingFile: path.join(scratch, "bindings.json"),
+      now: function () { return clock; },
+      getProjectContext: function () { return null; },
+      getProjectContextById: function (projectId) { return projects.get(projectId) || null; },
+    });
+    for (var i = 0; i < 512; i++) {
+      assert.equal(crossProject.deliverEnvelope({
+        schema: "clay.cross_project_delivery",
+        schemaVersion: 1,
+        eventId: "fanin-cursor-reserved-" + i,
+        source: { projectId: "system-reserved-" + i, sessionStorageId: "worker-" + i },
+        destination: { projectId: "system-lead", sessionStorageId: i < 256 ? "cursor-a" : "cursor-b" },
+        bindingRevision: 1,
+        sourceSeq: 1,
+        createdAt: i,
+        payload: { type: "coordinator_update", text: "reserved " + i },
+      }).delivered, true);
+    }
+    var fanIn = attachCoopFanIn({
+      sm: { sessions: new Map(), getProjectId: function () { return "system-source"; } },
+      slug: "clay",
+      crossProject: crossProject,
+      now: function () { return clock; },
+      queueCoordinatorUpdate: function () { assert.fail("non-lead event must use typed delivery"); },
+      deliveryFile: path.join(scratch, "fan-in.json"),
+    });
+    var event = {
+      eventId: "fanin-needs-input-after-capacity",
+      coopSessionStorageId: "coop-home",
+      sessionStorageId: "worker-needs-input",
+      taskId: "task-needs-input",
+      status: "needs_input",
+      occurredAt: clock,
+    };
+
+    var first = fanIn.deliverEvent(event);
+    assert.equal(first.pending, true);
+    assert.equal(fanIn.hasDelivered(event.eventId), false);
+    assert.deepEqual(fanIn.getPendingEventIds(), [event.eventId]);
+    assert.equal(received.includes(event.eventId), false);
+
+    clock += 1000;
+    assert.deepEqual(fanIn.retryPending(), [event.eventId]);
+    assert.equal(fanIn.hasDelivered(event.eventId), true);
+    assert.deepEqual(fanIn.getPendingEventIds(), []);
+    assert.equal(received.includes(event.eventId), true);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 test("cross-project delivery to a not-yet-registered lead project stays durably pending, never lost", function () {
   var scratch = createScratchDir("cross-project-fanin-pending");
   var sink = createRecoveryEventSink();

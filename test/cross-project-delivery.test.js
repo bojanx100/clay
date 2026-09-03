@@ -151,6 +151,80 @@ test("the envelope factory reserves source sequences before multiple events are 
   });
 });
 
+test("source cursor capacity stays retryable and redelivers after bounded cursor reconciliation", function () {
+  withTransport({}, function (scratch) {
+    var clock = 0;
+    var applied = [];
+    var recovery = [];
+    var options = {
+      deliveryFile: scratch.file,
+      now: function () { return clock; },
+      retryBaseMs: 5,
+      recordRecoveryEvent: function (event) { recovery.push(event); },
+      getProjectContextById: function (projectId) {
+        if (projectId !== TARGET.projectId) return null;
+        return { deliverCrossProjectEnvelope: function (received) {
+          applied.push(received.eventId);
+          return { ok: true };
+        } };
+      },
+    };
+    var delivery = createDurableDelivery(options);
+
+    for (var i = 0; i < 512; i++) {
+      var targetSession = i < 256 ? "cursor-a" : "cursor-b";
+      var reserved = {
+        schema: SCHEMA,
+        schemaVersion: SCHEMA_VERSION,
+        eventId: "cursor-reserved-" + i,
+        source: { projectId: "system-source-" + i, sessionStorageId: "session-" + i },
+        destination: { projectId: TARGET.projectId, sessionStorageId: targetSession },
+        bindingRevision: 1,
+        sourceSeq: 1,
+        createdAt: i,
+        payload: { type: "coordinator_update", text: "reserved " + i },
+      };
+      assert.equal(delivery.deliverEnvelope(reserved).delivered, true, "reserved " + i);
+    }
+    assert.equal(Object.keys(delivery.getState().sequences).length, 512);
+
+    var blocked = {
+      schema: SCHEMA,
+      schemaVersion: SCHEMA_VERSION,
+      eventId: "cursor-capacity-needs-input",
+      source: { projectId: "system-source-needs-input", sessionStorageId: "worker-needs-input" },
+      destination: { projectId: TARGET.projectId, sessionStorageId: "cursor-c" },
+      bindingRevision: 1,
+      sourceSeq: 1,
+      createdAt: 513,
+      payload: { type: "coordinator_update", text: "worker needs input" },
+    };
+    var first = delivery.deliverEnvelope(blocked);
+
+    assert.equal(first.deadLettered, true);
+    assert.equal(first.pending, true);
+    assert.deepEqual(delivery.getPendingEventIds(), ["cursor-capacity-needs-input"]);
+    assert.equal(applied.includes("cursor-capacity-needs-input"), false);
+    assert.deepEqual(recovery.map(function (event) { return event.lastError; }), [
+      "source cursor capacity reached",
+    ]);
+
+    // Older capacity failures were persisted only as a dead letter, with no
+    // outbox record for retry. Simulate that exact durable pre-repair state.
+    var persisted = delivery.getState();
+    delete persisted.outbox[blocked.eventId];
+    fs.writeFileSync(scratch.file, JSON.stringify(persisted));
+
+    clock = 5;
+    var afterRestart = createDurableDelivery(options);
+    assert.deepEqual(afterRestart.retryPending(), ["cursor-capacity-needs-input"]);
+    assert.equal(applied.includes("cursor-capacity-needs-input"), true);
+    assert.deepEqual(afterRestart.getPendingEventIds(), []);
+    assert.equal(afterRestart.getDeadLetters().length, 0);
+    assert.equal(Object.keys(afterRestart.getState().sequences).length, 512);
+  });
+});
+
 test("unacknowledged events survive restart and apply once when the project returns", function () {
   withTransport({}, function (scratch) {
     var clock = 100;

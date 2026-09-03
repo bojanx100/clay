@@ -294,6 +294,77 @@ test("typed delivery resolves a dynamically registered project by ProjectRef", f
   assert.deepEqual(delivered, ["resolver-project-ref"]);
 });
 
+test("target registration replays a legacy source-cursor dead letter", function () {
+  var directory = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-cursor-replay-"));
+  var transportFile = path.join(directory, "delivery.json");
+  var clock = 1000;
+  try {
+    var beforeRestart = createCrossProjectRouter({
+      deliveryFile: transportFile,
+      bindingFile: path.join(directory, "bindings.json"),
+      now: function () { return clock; },
+      getProjectContextById: function (projectId) {
+        if (projectId !== "system-lead") return null;
+        return { deliverCrossProjectEnvelope: function () {
+          return { ok: true };
+        } };
+      },
+    });
+    for (var i = 0; i < 512; i++) {
+      assert.equal(beforeRestart.deliverEnvelope({
+        schema: "clay.cross_project_delivery",
+        schemaVersion: 1,
+        eventId: "registration-cursor-reserved-" + i,
+        source: { projectId: "system-reserved-" + i, sessionStorageId: "worker-" + i },
+        destination: { projectId: "system-lead", sessionStorageId: i < 256 ? "cursor-a" : "cursor-b" },
+        bindingRevision: 1,
+        sourceSeq: 1,
+        createdAt: i,
+        payload: { type: "coordinator_update", text: "reserved " + i },
+      }).delivered, true);
+    }
+    var blocked = {
+      schema: "clay.cross_project_delivery",
+      schemaVersion: 1,
+      eventId: "registration-cursor-needs-input",
+      source: { projectId: "system-source", sessionStorageId: "worker-needs-input" },
+      destination: { projectId: "system-lead", sessionStorageId: "coop-home" },
+      bindingRevision: 1,
+      sourceSeq: 1,
+      createdAt: 513,
+      payload: { type: "coordinator_update", text: "worker needs input" },
+    };
+    assert.equal(beforeRestart.deliverEnvelope(blocked).deadLettered, true);
+
+    // This is the exact legacy persistence shape: capacity failures had no
+    // outbox row, so a later resolver registration was unable to replay them.
+    var persisted = beforeRestart.getDeliveryState();
+    delete persisted.outbox[blocked.eventId];
+    fs.writeFileSync(transportFile, JSON.stringify(persisted));
+
+    var replayed = [];
+    var afterRestart = createCrossProjectRouter({
+      deliveryFile: transportFile,
+      bindingFile: path.join(directory, "bindings.json"),
+      now: function () { return clock; },
+      getProjectContextById: function () { return null; },
+    });
+    afterRestart.registerProjectResolver({
+      getProjectId: function () { return "system-lead"; },
+      deliverCrossProjectEnvelope: function (envelope) {
+        replayed.push(envelope.eventId);
+        return { ok: true };
+      },
+    });
+
+    assert.deepEqual(replayed, [blocked.eventId]);
+    assert.deepEqual(afterRestart.getPendingEventIds(), []);
+    assert.equal(afterRestart.getDeadLetters().length, 0);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("project registration reconciles a hidden completed coordinator's active binding", function () {
   var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-completion-reconcile-"));
