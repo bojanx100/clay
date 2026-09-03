@@ -540,6 +540,28 @@ test("the projection emits finished work as an acceptance item end to end", func
   assert.equal(item.taskId, "task-2517");
 });
 
+test("work the owner rejected leaves the acceptance queue instead of re-asking", function () {
+  // A rejection is a decision. Before this, "not accepted" covered rejected
+  // too, so the item stayed in Action required offering to accept it or send
+  // it back -- which is what the owner had just done to it.
+  var rejected = Object.assign(task2503(), {
+    status: "completed",
+    ownerAcceptance: { status: "rejected", at: 6, note: "Rollup is wrong." },
+  });
+  var awaiting = Object.assign(task2517(), { status: "completed", resolutionSummary: "" });
+
+  var projection = buildGlobalCoopProjection({
+    projects: leadAnd(proj(WEBAPP_UUID, "webapp", [
+      sess(10, { coordinationMode: true, orchestrationTasks: [coordinator(), rejected, awaiting] }),
+    ])),
+  });
+
+  assert.equal(projection.actionQueue.length, 1,
+    "the rejected item must not still be asking to be accepted");
+  assert.equal(projection.actionQueue[0].taskId, "task-2517",
+    "only the genuinely undecided item stays");
+});
+
 // --- canonical topic linkage --------------------------------------------------
 //
 // The sidebar index is link-only: it opens the topic a decision lives in. That

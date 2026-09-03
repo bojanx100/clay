@@ -423,6 +423,68 @@ test("accepting one item leaves another finished item unaccepted", function () {
   assert.equal(b.ownerAcceptance, undefined, "#2517 must still await its own acceptance");
 });
 
+// --- owner rejection: the other half of the acceptance decision -------------
+//
+// Accepting finished work was reachable; rejecting it was not. The client
+// renders a "Request changes" button on an acceptance-kind card, but
+// applyDecision only allowed request_changes for ATTENTION_STATUSES, which
+// does not contain "completed". So the owner's rejection of verified work was
+// refused as already_decided and no rejection was ever recorded -- the item
+// kept reading "Verified work is awaiting your acceptance" forever.
+
+test("rejecting verified work records a durable rejection instead of being refused", function () {
+  var t = finished();
+  var project = projectDouble([t]);
+  var out = apply(project, req("task-2503", "request_changes", {
+    note: "The child rollup is still wrong.",
+  }));
+
+  assert.equal(out.ok, true, "the owner must be able to reject verified work");
+  assert.equal(project.calls.length, 1);
+  assert.equal(t.ownerAcceptance.status, "rejected");
+  assert.equal(t.ownerAcceptance.at, 4242);
+  // Rejection is an owner fact about acceptance, not a claim the work was undone.
+  assert.equal(t.status, "completed");
+});
+
+test("a rejected item no longer reports that it awaits the owner's acceptance", function () {
+  var t = finished();
+  apply(projectDouble([t]), req("task-2503", "request_changes", { note: "Not yet." }));
+  var rows = require("../lib/coop-owner-work-rows");
+  assert.equal(rows.isAwaitingOwnerAcceptance({
+    status: "completed", ownerAcceptanceRequired: true,
+    ownerAcceptance: t.ownerAcceptance,
+  }), false, "a rejection must clear the awaiting-acceptance nag");
+});
+
+test("each acceptance transition is recorded as a typed event", function () {
+  var t = finished();
+  var project = projectDouble([t]);
+  apply(project, req("task-2503", "request_changes", { note: "Not yet." }));
+  var rejected = t.ownerAcceptanceEvents[t.ownerAcceptanceEvents.length - 1];
+  assert.equal(rejected.schema, "clay.owner_acceptance_event");
+  assert.equal(rejected.version, 1);
+  assert.equal(rejected.type, "owner_acceptance_rejected");
+  assert.equal(rejected.at, 4242);
+
+  apply(project, req("task-2503", "accept"));
+  var accepted = t.ownerAcceptanceEvents[t.ownerAcceptanceEvents.length - 1];
+  assert.equal(accepted.type, "owner_acceptance_accepted");
+  assert.equal(t.ownerAcceptanceEvents.length, 2,
+    "both transitions must survive as ordered events, not last-write-wins");
+});
+
+test("a rejected item can still be accepted afterwards, and cannot be rejected twice", function () {
+  var t = finished();
+  var project = projectDouble([t]);
+  assert.equal(apply(project, req("task-2503", "request_changes", { note: "no" })).ok, true);
+  assert.equal(apply(project, req("task-2503", "request_changes", { note: "no" })).code,
+    "already_decided", "a double rejection must not write twice");
+  assert.equal(apply(project, req("task-2503", "accept")).ok, true,
+    "rejection must not permanently bar acceptance");
+  assert.equal(t.ownerAcceptance.status, "accepted");
+});
+
 test("acceptance obeys the same authority and ACL gates", function () {
   var project = projectDouble([finished()]);
   assert.equal(apply(project, req("task-2503", "accept"),

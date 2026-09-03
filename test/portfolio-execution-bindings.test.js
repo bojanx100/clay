@@ -666,6 +666,86 @@ test("legacy auto and project aliases preserve a verified completion over later 
   assert.equal(retry.binding.bindingRevision, 1);
 });
 
+// An owner's rejection has to survive the same round trip an acceptance does.
+// normalizeOwnerAcceptance previously kept only "accepted" and "pending", so a
+// rejection was dropped on the next whole-file save and the work reverted to
+// reading as never-decided -- the same field-stripping failure mode that made
+// the earlier live repair look like it had silently reverted.
+test("an owner rejection and its typed events survive a save and reload", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-reject-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 500; } });
+
+  assert.equal(store.reserve(request(1, "project_coordinator")).ok, true);
+  assert.equal(store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID, sessionStorageId: "worker-1",
+  }).ok, true);
+  assert.equal(store.complete("portfolio-task", 1, {
+    eventId: "done-1", terminalStatus: "completed",
+    ownerAcceptanceRequired: true,
+    ownerAcceptance: {
+      status: "rejected", at: 499, by: "owner-1",
+      source: "owner_decision", note: "The rollup is still wrong.",
+    },
+    ownerAcceptanceEvents: [{
+      schema: "clay.owner_acceptance_event", version: 1,
+      type: "owner_acceptance_rejected", at: 499, source: "owner_decision",
+    }],
+  }).ok, true);
+
+  // Re-read from disk rather than trusting the in-memory record.
+  var reloaded = readBindings({ file: file }).bindings.filter(function (entry) {
+    return entry.portfolioTaskId === "portfolio-task" && entry.bindingRevision === 1;
+  })[0];
+  assert.equal(reloaded.ownerAcceptance.status, "rejected",
+    "the rejection must not be downgraded to never-decided on persist");
+  assert.equal(reloaded.ownerAcceptance.at, 499);
+  assert.equal(reloaded.ownerAcceptance.note, "The rollup is still wrong.");
+  assert.equal(reloaded.ownerAcceptanceEvents.length, 1);
+  assert.equal(reloaded.ownerAcceptanceEvents[0].type, "owner_acceptance_rejected");
+
+  // A rejection is a decision, so it must stop the awaiting-acceptance nag.
+  var rows = require("../lib/coop-owner-work-rows");
+  assert.equal(rows.isAwaitingOwnerAcceptance(reloaded), false,
+    "a decided rejection must stop reading as awaiting the owner");
+});
+
+test("a malformed or unbounded acceptance event list cannot reach the store", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-events-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 600; } });
+  assert.equal(store.reserve(request(1, "project_coordinator")).ok, true);
+  assert.equal(store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID, sessionStorageId: "worker-1",
+  }).ok, true);
+
+  var oversized = [];
+  for (var i = 0; i < 120; i++) {
+    oversized.push({
+      schema: "clay.owner_acceptance_event", version: 1,
+      type: "owner_acceptance_pending", at: 100 + i,
+    });
+  }
+  // Interleaved junk the normalizer must discard rather than persist.
+  oversized.push({ schema: "clay.owner_acceptance_event", version: 1, type: "nonsense", at: 1 });
+  oversized.push({ schema: "wrong.schema", version: 1, type: "owner_acceptance_accepted", at: 1 });
+
+  assert.equal(store.complete("portfolio-task", 1, {
+    eventId: "done-1", terminalStatus: "completed",
+    ownerAcceptanceRequired: true, ownerAcceptance: { status: "pending" },
+    ownerAcceptanceEvents: oversized,
+  }).ok, true);
+
+  var reloaded = readBindings({ file: file }).bindings.filter(function (entry) {
+    return entry.portfolioTaskId === "portfolio-task" && entry.bindingRevision === 1;
+  })[0];
+  assert.equal(reloaded.ownerAcceptanceEvents.length, 50, "the list must stay bounded");
+  reloaded.ownerAcceptanceEvents.forEach(function (event) {
+    assert.equal(event.schema, "clay.owner_acceptance_event");
+    assert.equal(event.type, "owner_acceptance_pending");
+  });
+});
+
 test("a terminal failure keeps its provenance instead of erasing it", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-"));
   var file = path.join(dir, "bindings.json");

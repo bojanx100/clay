@@ -642,6 +642,9 @@
 .workspace-coop-owner .coop-owner-status-blocked,
 .workspace-coop-owner .coop-owner-status-failed { color: #de835d; }
 .workspace-coop-owner .coop-owner-status-verified-awaiting-acceptance { color: #d6a45b; }
+/* Rejected work is the owner's own verdict, not a system fault, so it reads as
+   in-progress rework rather than borrowing the failed/blocked warning colour. */
+.workspace-coop-owner .coop-owner-status-acceptance-rejected { color: var(--accent); }
 .workspace-coop-owner .coop-owner-status-dismissed { color: var(--text-muted); }
 .workspace-coop-owner .coop-owner-reason,
 .workspace-coop-owner .coop-owner-activity,
