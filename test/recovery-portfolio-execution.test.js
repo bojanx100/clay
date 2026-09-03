@@ -91,5 +91,22 @@ test("a persisted provider-start failure automatically dispatches one successor 
 test("app-server outages and watchdog start kills are infrastructure recovery reasons", function () {
   assert.equal(recovery.infrastructureFailure({ failureCode: "App-server not started" }), true);
   assert.equal(recovery.infrastructureFailure({ failureCode: "watchdog:first-event" }), true);
+  assert.equal(recovery.infrastructureFailure({
+    failureCode: "reaped_session_interrupted_before_runtime",
+  }), true);
   assert.equal(recovery.infrastructureFailure({ failureCode: "scope_expansion" }), false);
+});
+
+test("reaped recovery refuses a binding that does not match the captured execution", function () {
+  var runtime = attachInfrastructureRecovery({ sm: { saveSessionFile: function () {} } });
+  var session = { orchestrationPolicy: { portfolioExecution: {
+    portfolioTaskId: "expected-task",
+    bindingRevision: 2,
+  } } };
+  assert.deepEqual(runtime.recoverReaped(session, {
+    portfolioTaskId: "different-task",
+    bindingRevision: 2,
+    status: "failed",
+    failureCode: "reaped_session_interrupted_before_runtime",
+  }), { ok: false, reason: "reaped_execution_recovery_not_eligible" });
 });

@@ -21,7 +21,8 @@ function writeLog(file, at) {
   fs.writeFileSync(file, JSON.stringify({ type: "done", code: 1, _ts: at }) + "\n");
 }
 
-function harness() {
+function harness(options) {
+  var opts = options || {};
   var dir = tempDir("case");
   var sessionsDir = path.join(dir, "sessions");
   var storageId = "runtime-session";
@@ -41,6 +42,7 @@ function harness() {
   writeLog(manager.sessionFilePath(storageId), clock);
   var runtime = attachRuntime({ bindings: store, now: function () { return clock; },
     readLedgerEvents: function () { return []; }, appendLedgerEvent: function () { return true; },
+    onReaped: opts.onReaped,
     resolveProjectContextById: function (projectId) {
       return projectId === PROJECT ? { getSessionManager: function () { return manager; } } : null;
     },
@@ -76,9 +78,24 @@ test("runtime adapter reaps the same binding only after durable death evidence",
   } finally { h.cleanup(); }
 });
 
+test("runtime adapter contains a recovery callback failure after the reap is durable", function () {
+  var h = harness({ onReaped: function () { throw new Error("recovery unavailable"); } });
+  try {
+    h.session.isProcessing = false;
+    h.setNow(1000000 + 4 * DAY);
+    var report = h.runtime.run({ dryRun: false });
+    assert.equal(report.applied.length, 1);
+    assert.deepEqual(report.applied[0].recovery, {
+      ok: false,
+      reason: "reaped_execution_recovery_threw",
+    });
+    assert.equal(h.store.get(h.taskId, 1).status, "failed");
+  } finally { h.cleanup(); }
+});
+
 test("daemon owns a switch-gated, unrefed execution-reaper timer", function () {
   var source = fs.readFileSync(path.join(__dirname, "..", "lib", "daemon.js"), "utf8");
-  assert.match(source, /CLAY_COOP_EXECUTION_REAPER\s*===\s*["']1["']/);
+  assert.match(source, /CLAY_COOP_EXECUTION_REAPER\s*!==\s*["']0["']/);
   assert.match(source, /setInterval\(function \(\) \{[\s\S]*runCoopExecutionReaper\(\{ dryRun: false \}\)/);
   assert.match(source, /executionReaperHandle\.unref\(\)/);
   assert.match(source, /clearInterval\(executionReaperHandle\)/);

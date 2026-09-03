@@ -3,6 +3,7 @@ var assert = require("node:assert");
 require("./helpers/isolated-clay-home");
 
 var processorModule = require("../lib/sdk-message-processor");
+var finalizeStream = require("../lib/sdk-bridge-stream-finalize").finalizeStream;
 var providerHealth = require("../lib/provider-health");
 require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
@@ -230,6 +231,87 @@ test("usage-credit rate limit rejection continues immediately after turn ends", 
 
   assert.strictEqual(spies.scheduled, 0);
   assert.strictEqual(spies.continued, 1);
+  assert.strictEqual(session.rateLimitUseCreditsPending, false);
+  assert.strictEqual(session.rateLimitResetsAt, null);
+});
+
+test("productive usage-credit turn does not queue another continuation", function () {
+  var spies = { scheduled: 0, cancelled: 0, continued: 0 };
+  var processor = makeProcessor(spies);
+  var session = makeSession(true);
+  var activeQuery = { close: function () {} };
+  var abortController = { abort: function () {} };
+  session.queryInstance = activeQuery;
+  session.abortController = abortController;
+  session._turnDoneSent = true;
+  session._consecutiveAutoResumes = 3;
+
+  processor.processSDKMessage(session, { yokeType: "turn_start" });
+  processor.processSDKMessage(session, { yokeType: "text_start", blockId: "holding" });
+  processor.processSDKMessage(session, {
+    yokeType: "text_delta",
+    blockId: "holding",
+    text: "Holding.",
+  });
+  processor.processSDKMessage(session, overageRejectedMessage());
+  processor.processSDKMessage(session, {
+    yokeType: "result",
+    cost: 0.01,
+    usage: null,
+    modelUsage: null,
+    sessionId: "claude-session-1",
+  });
+  finalizeStream({
+    session: session,
+    query: activeQuery,
+    abortController: abortController,
+    clearInteractiveToolWaits: function () {},
+    sm: {
+      saveSessionFile: function () {},
+      broadcastSessionList: function () {},
+    },
+    sendAndRecord: function () {},
+    opts: {
+      getAutoContinueSetting: function () { return true; },
+      continueWithUsageCredits: function () { spies.continued++; },
+      reconcileQueuedUserMessages: function () {},
+    },
+    rateLimitResumeLabel: "auto-continue",
+  });
+
+  assert.strictEqual(spies.continued, 0);
+  assert.strictEqual(session.rateLimitAutoContinuePending, false);
+  assert.strictEqual(session.rateLimitUseCreditsPending, false);
+  assert.strictEqual(session.rateLimitResetsAt, null);
+  assert.strictEqual(session._lastTurnCompletedProductively, true);
+  assert.strictEqual(session._consecutiveAutoResumes, 0);
+});
+
+test("late usage-credit rejection does not wake an already completed productive turn", function () {
+  var spies = { scheduled: 0, cancelled: 0, continued: 0 };
+  var processor = makeProcessor(spies);
+  var session = makeSession(true);
+
+  processor.processSDKMessage(session, { yokeType: "turn_start" });
+  processor.processSDKMessage(session, { yokeType: "text_start", blockId: "answer" });
+  processor.processSDKMessage(session, {
+    yokeType: "text_delta",
+    blockId: "answer",
+    text: "Finished.",
+  });
+  processor.processSDKMessage(session, {
+    yokeType: "result",
+    cost: 0.01,
+    usage: null,
+    modelUsage: null,
+    sessionId: "claude-session-1",
+  });
+  processor.processSDKMessage(session, overageRejectedMessage());
+
+  assert.strictEqual(session.isProcessing, false);
+  assert.strictEqual(session._lastTurnCompletedProductively, true);
+  assert.strictEqual(spies.continued, 0);
+  assert.strictEqual(session.rateLimitAutoContinuePending, false);
   assert.strictEqual(session.rateLimitUseCreditsPending, false);
   assert.strictEqual(session.rateLimitResetsAt, null);
 });

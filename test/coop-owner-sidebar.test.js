@@ -126,9 +126,9 @@ test("a later answer lands a non-execution request without closing implementatio
   });
   assert.deepEqual(sidebar.landed.map(function (entry) { return entry.ingressId; }), [records[0].ingressId]);
   assert.deepEqual(sidebar.attention.map(function (entry) { return [entry.ingressId, entry.status]; }), [
+    [records[3].ingressId, "failed"],
     [records[1].ingressId, "planned"],
     [records[2].ingressId, "planned"],
-    [records[3].ingressId, "failed"],
   ]);
   assert.equal(sidebar.landed[0].clearable, true);
 });
@@ -194,6 +194,50 @@ test("Needs attention has stable canonical-project groups and a final Unassigned
   assert.deepEqual(sidebar.attention.map(function (entry) { return entry.entryId; }),
     ["webapp-action", records[0].ingressId, records[1].ingressId, records[2].ingressId],
     "the existing flat projection remains stable for consumers that do not render groups");
+});
+
+test("needs-input and failed work lead the attention projection before planned work", function () {
+  var records = [
+    request(1, "open", { expectsExecution: true }),
+    request(2, "working"),
+    request(3, "needs_input"),
+  ];
+  var sidebar = buildOwnerSidebar({
+    requests: records,
+    topics: topicList(),
+    executionBindings: [{
+      portfolioTaskId: "failed-attention",
+      bindingRevision: 1,
+      status: "failed",
+      coopTopicRef: { topicId: "topic-2" },
+    }],
+  });
+
+  assert.deepEqual(sidebar.attention.map(function (entry) {
+    return [entry.ingressSequence, entry.status];
+  }), [[3, "needs_owner"], [2, "failed"], [1, "planned"]]);
+  assert.deepEqual(sidebar.attentionGroups[0].entries.map(function (entry) {
+    return entry.status;
+  }), ["needs_owner", "failed", "planned"]);
+});
+
+test("equally urgent action rows have deterministic identity order", function () {
+  var actions = ["z-action", "a-action"].map(function (id) {
+    return {
+      itemId: id,
+      projectRef: { projectId: PROJECT },
+      projectTitle: "Clay",
+      taskId: id + "-worker",
+      title: id,
+      kind: "decision",
+      status: "needs_input",
+      decision: "Choose",
+      updatedAt: 10,
+    };
+  });
+  var sidebar = buildOwnerSidebar({ requests: [], topics: [], actionQueue: actions });
+  assert.deepEqual(sidebar.attention.map(function (entry) { return entry.entryId; }),
+    ["a-action", "z-action"]);
 });
 
 test("owner ledger separates working, attention, and landed work without trusting an unverified terminal row", function () {
@@ -653,6 +697,10 @@ test("Workspace groups are counted disclosure controls with durable collapsed st
     };
     var expanded = element("div");
     ui.renderCoopOwnerSidebar(expanded, sidebar, { send: function () { return true; } });
+    var surface = byClass(expanded, "coop-owner-sidebar")[0];
+    assert.match(surface.children[0].className, /coop-owner-section-attention/,
+      "Needs attention is the first workspace group");
+    assert.match(surface.children[1].className, /coop-owner-section-working/);
     var toggles = descendants(expanded).filter(function (node) {
       return node.tagName === "BUTTON" && /coop-owner-(group|project)-toggle/.test(node.className);
     });

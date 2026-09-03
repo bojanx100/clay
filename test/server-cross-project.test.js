@@ -64,6 +64,60 @@ test("an explicit binding file keeps its reconciled session ledger in the same i
   assert.strictEqual(router.sessionLedger.file, path.join(dir, "coop-session-ledger.json"));
 });
 
+test("runtime reaping hands an interrupted portfolio execution to project recovery", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-reaper-recovery-"));
+  var sessionsDir = path.join(dir, "sessions");
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var taskId = "interrupted-portfolio-work";
+  var storageId = "interrupted-session";
+  var recovered = [];
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionsDir, storageId + ".jsonl"),
+    JSON.stringify({ type: "tool_executing", _ts: 1000 }) + "\n");
+  var session = { storageId: storageId, isProcessing: false, queryInstance: null };
+  var manager = {
+    sessions: new Map([[1, session]]),
+    sessionFilePath: function (id) { return path.join(sessionsDir, id + ".jsonl"); },
+  };
+  var context = {
+    getSessionManager: function () { return manager; },
+    getTaskOrchestrator: function () {
+      return {
+        recoverInfrastructureExecution: function (target, binding) {
+          recovered.push({ target: target, binding: binding });
+          return { ok: true, successorRevision: 2 };
+        },
+      };
+    },
+  };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    getProjectContextById: function (id) { return id === projectId ? context : null; },
+  });
+  var request = {
+    portfolioTaskId: taskId,
+    bindingRevision: 1,
+    idempotencyKey: taskId + ":1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+  };
+  assert.equal(router.bindingStore.reserve(request).ok, true);
+  assert.equal(router.bindingStore.commit(taskId, 1, {
+    projectId: projectId,
+    sessionStorageId: storageId,
+  }).ok, true);
+
+  var report = router.runExecutionReaper({ dryRun: false });
+
+  assert.equal(report.applied.length, 1);
+  assert.equal(report.applied[0].finding.kind, "session_interrupted_before_runtime");
+  assert.deepEqual(report.applied[0].recovery, { ok: true, successorRevision: 2 });
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0].target, session);
+  assert.equal(recovered[0].binding.status, "failed");
+  assert.equal(recovered[0].binding.failureCode, "reaped_session_interrupted_before_runtime");
+});
+
 test("session queries preserve the last authoritative topic links across lifecycle reconciliation", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-ledger-links-"));
   var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";

@@ -715,6 +715,96 @@ test("restart recovery closes an archived project coordinator binding after sess
   assert.deepEqual(router.bindingStore.listCurrent(), []);
 });
 
+test("a reaped interrupted coordinator is restaffed through its captured approved input", function () {
+  var projectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var taskId = "portfolio-reaped-recovery";
+  var source = { projectId: "system-lead", sessionStorageId: "coop-home" };
+  var dispatched = [];
+  var binding = {
+    portfolioTaskId: taskId,
+    bindingRevision: 1,
+    idempotencyKey: taskId + ":1",
+    mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+    status: "failed",
+    failureCode: "reaped_session_interrupted_before_runtime",
+    statusReason: "runtime_reaper:session_interrupted_before_runtime",
+  };
+  var metadata = {
+    portfolioTaskId: taskId,
+    bindingRevision: 1,
+    idempotencyKey: taskId + ":1",
+    mode: "project_coordinator",
+    source: source,
+    targetProject: { projectId: projectId },
+    status: "active",
+    infrastructureRecovery: {
+      schema: "clay.portfolio_infrastructure_recovery",
+      version: 1,
+      attempt: 0,
+      input: {
+        portfolioTaskId: taskId,
+        targetProject: { projectId: projectId },
+        mode: "project_coordinator",
+        title: "Recover the interrupted coordinator",
+      },
+    },
+  };
+  var session = {
+    localId: 7,
+    storageId: "reaped-coordinator",
+    orchestrationPolicy: { portfolioExecution: metadata },
+  };
+  var sm = {
+    sessions: new Map([[session.localId, session]]),
+    getProjectId: function () { return projectId; },
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+  };
+  var target = attachPortfolioExecutionTarget({
+    crossProject: {
+      getExecutionBinding: function () { return binding; },
+      createProjectExecution: function (input) {
+        dispatched.push(input);
+        return { ok: true, binding: Object.assign({}, binding, {
+          bindingRevision: 2,
+          idempotencyKey: input.idempotencyKey,
+          status: "active",
+        }) };
+      },
+      reconcileStrandedCompletions: function () {},
+    },
+    sdk: {},
+    sm: sm,
+    slug: "clay",
+  });
+
+  var result = target.recoverInfrastructureExecution(session, binding);
+
+  assert.equal(result.ok, true);
+  assert.equal(metadata.status, "failed");
+  assert.equal(metadata.failureCode, "reaped_session_interrupted_before_runtime");
+  assert.equal(dispatched.length, 1);
+  assert.equal(dispatched[0].bindingRevision, 2);
+  assert.equal(dispatched[0].infrastructureRecoveryAttempt, 1);
+  assert.deepEqual(dispatched[0].source, source);
+});
+
+test("portfolio target remains usable when controlled startup recovery is explicitly unavailable", function () {
+  var target = attachPortfolioExecutionTarget({
+    crossProject: null,
+    sdk: {},
+    sm: {
+      sessions: new Map(),
+      getProjectId: function () { return "5332aafc-31e7-5cb1-ba96-c8d90e78260e"; },
+      saveSessionFile: function () {},
+      broadcastSessionList: function () {},
+    },
+    slug: "clay",
+  });
+  assert.equal(typeof target.recoverInfrastructureExecution, "function");
+});
+
 test("steering recovers an archived active task coordinator but leaves terminal evidence archived", function () {
   var saves = 0;
   var broadcasts = 0;
