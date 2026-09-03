@@ -187,3 +187,64 @@ test("reaped recovery refuses a binding that does not match the captured executi
     failureCode: "reaped_session_interrupted_before_runtime",
   }), { ok: false, reason: "reaped_execution_recovery_not_eligible" });
 });
+
+// Owner policy 2026-09-03 lets infrastructure recovery restaff under the
+// standing approval with no new owner decision. That makes this the only
+// remaining point that can notice the issue itself changed hands, so a
+// disqualified premise must retire the binding instead of relaunching it.
+function disqualificationCase(verdict) {
+  var second = request(2, "approved-infrastructure-recovery-r2");
+  second.infrastructureRecoveryAttempt = 1;
+  var session = { orchestrationPolicy: { portfolioExecution: Object.assign({}, second, {
+    source: SOURCE, status: "failed", failureCode: "provider_start_failed",
+  }) } };
+  recovery.capture(session, second, second);
+  var dispatched = [];
+  var retired = [];
+  var result = recovery.recover(session, {
+    getBinding: function (taskId, revision) {
+      if (taskId !== second.portfolioTaskId || revision !== 2) return null;
+      return Object.assign({}, second, { source: SOURCE, status: "failed",
+        failureCode: "provider_start_failed" });
+    },
+    createProjectExecution: function (input) {
+      dispatched.push(input);
+      return { ok: true, binding: Object.assign({}, input, { status: "active" }) };
+    },
+    revalidateRestaff: typeof verdict === "function" ? verdict : function () { return verdict; },
+    onDisqualified: function (metadata, seen) { retired.push({ metadata: metadata, verdict: seen }); },
+  });
+  return { result: result, dispatched: dispatched, retired: retired, session: session };
+}
+
+test("a restaff whose issue lost its qualification is retired, not relaunched", function () {
+  var run = disqualificationCase({ ok: true, eligible: false, reason: "not_assigned_to_owner" });
+  assert.equal(run.result.ok, false);
+  assert.equal(run.result.disqualified, true);
+  assert.equal(run.result.reason, "not_assigned_to_owner");
+  assert.equal(run.dispatched.length, 0, "a disqualified binding must never dispatch a successor");
+  assert.equal(run.retired.length, 1, "the owner must be told why approved work stopped");
+  assert.equal(run.retired[0].metadata.portfolioTaskId, "approved-infrastructure-recovery");
+  assert.equal(
+    run.session.orchestrationPolicy.portfolioExecution.infrastructureRecovery.disqualified.reason,
+    "not_assigned_to_owner", "the disposition must be durable, not only reported");
+});
+
+test("an unresolvable or throwing revalidation blocks the restaff rather than failing open", function () {
+  [null, undefined, {}, { ok: false, eligible: false, reason: "" },
+    function () { throw new Error("board unreachable"); }].forEach(function (verdict) {
+    var run = disqualificationCase(verdict);
+    assert.equal(run.result.ok, false);
+    assert.equal(run.dispatched.length, 0);
+    assert.equal(typeof run.result.reason, "string");
+    assert.ok(run.result.reason.length > 0);
+  });
+});
+
+test("a still-qualified issue restaffs exactly as before", function () {
+  var run = disqualificationCase({ ok: true, eligible: true, reason: "revalidated" });
+  assert.equal(run.result.ok, true);
+  assert.equal(run.dispatched.length, 1);
+  assert.equal(run.dispatched[0].bindingRevision, 3);
+  assert.equal(run.retired.length, 0);
+});
