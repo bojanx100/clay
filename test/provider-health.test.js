@@ -238,6 +238,29 @@ test("quota health is isolated to the exact provider route and model", function 
     "model quota must not become vendor-wide health");
 });
 
+test("local App-server errors never penalize the provider route-model", function () {
+  providerHealth._reset();
+  var options = {
+    now: T0,
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    strong: true,
+  };
+
+  providerHealth.recordFailure("codex", "provider-error:App-server not started", options);
+  providerHealth.recordFailure("codex", "provider-error:App-server not started",
+    Object.assign({}, options, { now: T0 + 1 }));
+  providerHealth.recordFailure("codex", "provider-error:App-server not started",
+    Object.assign({}, options, { now: T0 + 2 }));
+
+  var health = providerHealth.getRouteHealth("codex", "codex-openai", "gpt-5.6-sol", {
+    now: T0 + 2,
+  });
+  assert.strictEqual(health.state, "healthy");
+  assert.strictEqual(health.targetState, "healthy");
+  assert.strictEqual(health.consecutiveFailures, 0);
+});
+
 test("a successful Opus turn does not clear a Fable quota bucket", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "rate-limit-rejected", {
