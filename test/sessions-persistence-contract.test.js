@@ -222,3 +222,65 @@ test("flushPendingCoalescedSaves tolerates empty and session-free inputs", funct
 function readMeta(sessionPath) {
   return JSON.parse(fs.readFileSync(sessionPath, "utf8").split("\n")[0]);
 }
+
+// Deltas are coalesced into one line on the way to disk, deliberately, so that
+// indices held by connected clients stay valid against session.history. That
+// makes the in-memory history length a WRONG answer to "how many records are in
+// the file", and the range reader indexes backward from EOF using exactly that
+// number. When the two disagreed it computed a negative start, refused the read,
+// and the paged replay silently fell back to reading the whole transcript --
+// for every session saved during the process run.
+test("a save records how many records reached the file, not how many are in memory", function () {
+  withTmpDir(function (dir) {
+    var sessionPath = path.join(dir, "coalesce.jsonl");
+    var persistence = attach(sessionPath);
+    var history = [{ type: "user_message", text: "hi" }];
+    for (var i = 0; i < 12; i++) history.push({ type: "delta", text: "chunk" + i });
+    history.push({ type: "done" });
+
+    var session = makeSession({ history: history });
+    assert.ok(persistence.saveSessionFile(session, { durable: true }),
+      "the save must report success");
+
+    var lines = fs.readFileSync(sessionPath, "utf8").split("\n")
+      .filter(function (l) { return l.trim() !== ""; });
+    var records = lines.length - 1; // the meta header is line 1
+
+    assert.equal(session._persistedHistoryLength, history.length,
+      "the in-memory count is kept, because the rewrite check compares against it");
+    assert.equal(session._persistedDiskRecords, records,
+      "the disk count must match the records actually written");
+    assert.ok(session._persistedDiskRecords < session._persistedHistoryLength,
+      "precondition: this history really did coalesce, or the test proves nothing");
+  });
+});
+
+// The regression this guards: a truthful count only helps if the backward index
+// math the range reader performs now lands inside the file. It computes
+// start = lines - (total - from); with an overcounted total that went negative
+// and the read was refused, which is what disabled paging.
+test("a coalesced session's backward range math lands inside the file", function () {
+  withTmpDir(function (dir) {
+    var sessionPath = path.join(dir, "range.jsonl");
+    var persistence = attach(sessionPath);
+    var history = [{ type: "user_message", text: "hi" }];
+    for (var i = 0; i < 12; i++) history.push({ type: "delta", text: "chunk" + i });
+    history.push({ type: "done" });
+
+    var session = makeSession({ storageId: "range-session", history: history });
+    persistence.saveSessionFile(session, { durable: true });
+
+    var records = fs.readFileSync(sessionPath, "utf8").split("\n")
+      .filter(function (l) { return l.trim() !== ""; }).length - 1;
+
+    var total = session._persistedDiskRecords;
+    var from = 0;
+    var startWithDiskCount = records - (total - from);
+    assert.ok(startWithDiskCount >= 0,
+      "the recorded disk count must index inside the file");
+
+    var startWithMemoryCount = records - (session._persistedHistoryLength - from);
+    assert.ok(startWithMemoryCount < 0,
+      "precondition: the in-memory count really would have gone negative here");
+  });
+});
