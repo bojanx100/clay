@@ -380,6 +380,19 @@ test("serialized staged approval clicks one exact Main-scope owner decision", as
     assert.equal(replayedIngress.duplicate, true,
       "the server recognizes the real approval request as one durable ingress after restart");
     assert.equal(replayedIngress.ingressId, acceptedIngress.ingressId);
+    assert.equal(approve.disabled, true);
+    assert.equal(approve.textContent, "Sending…",
+      "a socket write alone is not presented as server acceptance");
+    assert.equal(rerenderApprove.disabled, true,
+      "the re-rendered control stays disabled while the same approval is in flight");
+    assert.equal(rerenderApprove.textContent, "Sending…");
+    assert.equal(preview.handleStagedApprovalMessageAccepted(sent[0].clientMessageId), true);
+    assert.equal(rerenderApprove.textContent, "Approval received",
+      "the durable server acknowledgement updates the visible approval control");
+    assert.equal(rerenderApprove.disabled, true,
+      "an accepted approval remains single-flight until its task resolves");
+    assert.equal(preview.handleStagedApprovalMessageAccepted("other-message"), false,
+      "unrelated acknowledgements do not change staged approval state");
     var revisionScope = Object.assign({}, scope, { bindingRevision: 3 });
     var revisionApprovalSet = {
       setId: approvalStaging.setIdFor([revisionScope]),
@@ -406,10 +419,6 @@ test("serialized staged approval clicks one exact Main-scope owner decision", as
       "a distinct binding revision remains independently approvable");
     assert.notEqual(sent[1].clientMessageId, sent[0].clientMessageId,
       "each exact staged task/revision has its own durable ingress identity");
-    assert.equal(approve.disabled, true);
-    assert.equal(approve.textContent, "Approval sent");
-    assert.equal(rerenderApprove.disabled, true,
-      "the re-rendered control stays disabled while the same approval is in flight");
     assert.equal(byClass(host, "orchestration-task-approve").length, 1,
       "a successful socket write keeps the staged control until server confirmation");
     var discovered = itemApproval.approvalEventForTask([{
@@ -448,7 +457,16 @@ test("serialized staged approval clicks one exact Main-scope owner decision", as
     assert.equal(sent[2].text,
       "Approve " + taskId + " revision 2 implementation for ProjectRef " + projectId);
     assert.equal(retry.disabled, true);
+    assert.equal(retry.textContent, "Sending…");
     assert.equal(byClass(retryHost, "orchestration-task-approval-error")[0].textContent, "");
+    assert.equal(preview.handleStagedApprovalMessageFailed(
+      sent[2].clientMessageId, "Approval could not be saved. Try again."
+    ), true);
+    assert.equal(retry.disabled, false,
+      "a durable server rejection makes the exact approval retryable");
+    assert.equal(retry.textContent, "Approve");
+    assert.match(byClass(retryHost, "orchestration-task-approval-error")[0].textContent,
+      /could not be saved/i);
 
     var completedTask = JSON.parse(JSON.stringify(orchestrationTasksForClient({
       orchestrationTasks: [Object.assign({}, serverTask, {

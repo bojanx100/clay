@@ -223,5 +223,6 @@ test("a delayed rejected send cannot replace a newer pending Coop selection", as
 
 test("stream message failures invoke Coop route recovery after removing the optimistic bubble", function () {
   var source = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules", "app-messages-stream.js"), "utf8");
-  assert.match(source, /case "message_failed":[\s\S]*?removeOptimisticUserMessage\(msg\.clientMessageId \|\| ""\);[\s\S]*?handleRejectedCoopIngress\(msg\);/);
+  assert.match(source, /case "message_accepted":[\s\S]*?handleStagedApprovalMessageAccepted\(msg\.clientMessageId \|\| ""\);[\s\S]*?markUserMessageAccepted\(msg\.clientMessageId \|\| ""\);/);
+  assert.match(source, /case "message_failed":[\s\S]*?removeOptimisticUserMessage\(msg\.clientMessageId \|\| ""\);[\s\S]*?handleStagedApprovalMessageFailed\(msg\.clientMessageId \|\| "", msg\.text \|\| ""\);[\s\S]*?handleRejectedCoopIngress\(msg\);/);
 });
