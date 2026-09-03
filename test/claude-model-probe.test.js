@@ -197,3 +197,123 @@ test("mergeExtras inserts a verified Opus 5 route near the frontier models", fun
   assert.deepStrictEqual(out.map(function (model) { return model.value; }),
     ["best", "default", "opus", "claude-fable-5", "claude-opus-5", "sonnet", "haiku"]);
 });
+
+// Regression: a definitive verdict was treated as fresh forever, with no age
+// check at all. classifyError() marks "unauthorized"/"forbidden"/"no access" as
+// definitive, so an outage that answers like an entitlement error records a
+// permanent "unavailable". extraClaudeModels() only offers models whose cached
+// entry is `available`, and only re-probes entries that are not fresh -- so the
+// model stays silently missing from the picker forever, with nothing that can
+// ever correct it (no caller anywhere passes force:true).
+function writeCapability(model, deps, entry) {
+  var key = require("../lib/model-catalog-cache").capabilityKey(probe.contextFor(model, deps));
+  fs.mkdirSync(TMP, { recursive: true });
+  var caps = {};
+  caps[key] = entry;
+  fs.writeFileSync(process.env.CLAY_MODEL_CATALOG_PATH,
+    JSON.stringify({ version: 3, vendors: {}, capabilities: caps }));
+}
+
+var DAY_MS = 24 * 60 * 60 * 1000;
+
+test("a stale definitive-unavailable verdict expires so the model can be re-probed", function () {
+  reset();
+  var deps = probeDeps();
+  writeCapability("claude-opus-5", deps, {
+    available: false,
+    definitive: true,
+    reason: "access-denied",
+    attemptedAt: new Date(Date.now() - 8 * DAY_MS).toISOString(),
+  });
+  var cached = probe.cachedEntry("claude-opus-5", deps);
+  assert.strictEqual(cached.available, false);
+  assert.strictEqual(cached.fresh, false,
+    "an 8-day-old definitive negative must not be treated as fresh, or nothing ever re-probes it");
+  reset();
+});
+
+test("a recent definitive-unavailable verdict stays fresh, so there is no probe storm", function () {
+  reset();
+  var deps = probeDeps();
+  writeCapability("claude-opus-5", deps, {
+    available: false,
+    definitive: true,
+    reason: "access-denied",
+    attemptedAt: new Date(Date.now() - 60 * 1000).toISOString(),
+  });
+  assert.strictEqual(probe.cachedEntry("claude-opus-5", deps).fresh, true,
+    "a minute-old definitive negative must still be honored");
+  reset();
+});
+
+test("a definitive-available verdict stays fresh indefinitely", function () {
+  reset();
+  var deps = probeDeps();
+  writeCapability("claude-opus-5", deps, {
+    available: true,
+    definitive: true,
+    reason: "exact-probe-success",
+    resolvedModel: "claude-opus-5",
+    attemptedAt: new Date(Date.now() - 90 * DAY_MS).toISOString(),
+  });
+  var cached = probe.cachedEntry("claude-opus-5", deps);
+  assert.strictEqual(cached.fresh, true,
+    "a proven-available model must not be re-probed: that costs a real query and " +
+    "a revoked entitlement surfaces visibly at use time");
+  assert.strictEqual(cached.available, true);
+  reset();
+});
+
+test("a definitive negative with an unparseable timestamp is not treated as fresh", function () {
+  reset();
+  var deps = probeDeps();
+  writeCapability("claude-opus-5", deps, {
+    available: false, definitive: true, reason: "access-denied", attemptedAt: "not-a-date",
+  });
+  assert.strictEqual(probe.cachedEntry("claude-opus-5", deps).fresh, false,
+    "a legacy entry with no usable timestamp must fail open to a re-probe");
+  reset();
+});
+
+test("an expired definitive negative backs off after a failed re-probe", function () {
+  reset();
+  var deps = probeDeps();
+  // rememberCapability keeps the original attemptedAt when a transient attempt
+  // follows a definitive verdict, so this entry is permanently past its TTL.
+  // Without a backoff it would re-probe on every catalog resolution.
+  writeCapability("claude-opus-5", deps, {
+    available: false,
+    definitive: true,
+    reason: "access-denied",
+    attemptedAt: new Date(Date.now() - 8 * DAY_MS).toISOString(),
+    lastAttempt: {
+      available: false,
+      definitive: false,
+      reason: "transport",
+      attemptedAt: new Date(Date.now() - 30 * 1000).toISOString(),
+    },
+  });
+  assert.strictEqual(probe.cachedEntry("claude-opus-5", deps).fresh, true,
+    "a re-probe that just failed transiently must suppress the next one");
+  reset();
+});
+
+test("an expired definitive negative is re-probed again once the backoff lapses", function () {
+  reset();
+  var deps = probeDeps();
+  writeCapability("claude-opus-5", deps, {
+    available: false,
+    definitive: true,
+    reason: "access-denied",
+    attemptedAt: new Date(Date.now() - 8 * DAY_MS).toISOString(),
+    lastAttempt: {
+      available: false,
+      definitive: false,
+      reason: "transport",
+      attemptedAt: new Date(Date.now() - 40 * 60 * 1000).toISOString(),
+    },
+  });
+  assert.strictEqual(probe.cachedEntry("claude-opus-5", deps).fresh, false,
+    "once the transient window has passed the model must become eligible again");
+  reset();
+});
