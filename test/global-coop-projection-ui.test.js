@@ -149,3 +149,16 @@ test("desktop and mobile Coop renderers share the persistent project coordinator
   assert.match(projection, /requestCanonicalSession/);
   assert.doesNotMatch(projection, /toggleGlobalTaskExpanded/);
 });
+
+test("a top Now attention update repaints the loaded Coop sidebar", function () {
+  var sessions = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "modules",
+    "sidebar-sessions.js"), "utf8");
+  var subscription = sessions.slice(sessions.indexOf("store.subscribe(function (state, prev)"),
+    sessions.indexOf("function sessionVendorOverrideKey"));
+  assert.match(subscription, /state\.coopNowIndex !== prev\.coopNowIndex/,
+    "the server-built Now source must invalidate the visible sidebar");
+  assert.match(subscription, /state\.coopProjectionVersion !== prev\.coopProjectionVersion/,
+    "a projection-only reconciliation must invalidate the visible sidebar");
+  assert.match(subscription, /cachedSessions\.length > 0/,
+    "ordinary unloaded-list behavior remains unchanged");
+});

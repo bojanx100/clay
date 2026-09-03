@@ -5,6 +5,8 @@ var os = require("node:os");
 var path = require("node:path");
 var buildGlobalCoopProjection = require("../lib/global-coop-projection").buildGlobalCoopProjection;
 var createTopicIndex = require("../lib/coop-topic-index").createTopicIndex;
+var attachCoopSessionLedger = require("../lib/coop-session-ledger").attachCoopSessionLedger;
+var projectedTopicState = require("../lib/coop-topic-state").projectedTopicState;
 
 function session(id, value) {
   return Object.assign({
@@ -228,6 +230,84 @@ test("a canonical Coop plan decision projects into the owner work ledger", funct
   assert.deepEqual(projection.ownerSidebar.open.map(function (entry) {
     return [entry.entryId, entry.reason, entry.topicRef.topicId];
   }), [["system-lead|owner-decision:owner-decision-123", "Accept these Council-derived defaults?", "post-council-plan"]]);
+});
+
+test("reconciled needs-input and failed bindings lead the global Coop Now source", function () {
+  var clayId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-global-coop-attention-"));
+  var ledger = attachCoopSessionLedger({ file: path.join(dir, "ledger.json") });
+  var needsInputTopic = { topicId: "needs-input-binding" };
+  var failedTopic = { topicId: "failed-binding" };
+  var bindings = [{
+    portfolioTaskId: "needs-input-binding", bindingRevision: 1,
+    idempotencyKey: "needs-input-binding-r1", mode: "project_coordinator",
+    status: "needs_input", targetProject: { projectId: clayId },
+    coordinator: { projectId: clayId, sessionStorageId: "missing-needs-input" },
+    coopTopicRef: needsInputTopic, createdAt: 10, updatedAt: 10,
+  }, {
+    portfolioTaskId: "failed-binding", bindingRevision: 1,
+    idempotencyKey: "failed-binding-r1", mode: "project_coordinator",
+    status: "failed", targetProject: { projectId: clayId },
+    coordinator: { projectId: clayId, sessionStorageId: "missing-failed" },
+    coopTopicRef: failedTopic, createdAt: 11, updatedAt: 11,
+  }];
+  assert.equal(ledger.reconcile({
+    bindings: bindings,
+    projects: [{ projectRef: { projectId: clayId }, sessions: [] }],
+  }).ok, true);
+
+  function stateFromReconciledEvidence(topicRef) {
+    var evidence = ledger.topicEvidence(topicRef);
+    return projectedTopicState(topicRef, {
+      // This is the same bounded work-state adapter server.js applies to the
+      // reconciled session ledger before it builds the public projection.
+      bindings: evidence.map(function (entry) {
+        return { coopTopicRef: entry.coopTopicRef, status: entry.workState };
+      }),
+    });
+  }
+
+  var staleNeedsInput = ledger.topicEvidence(needsInputTopic);
+  var staleFailed = ledger.topicEvidence(failedTopic);
+  assert.equal(staleNeedsInput.length, 1,
+    "a binding-backed owner question survives after its historical session is gone");
+  assert.equal(staleNeedsInput[0].sessionPresent, false);
+  assert.equal(staleNeedsInput[0].workState, "needs_input");
+  assert.equal(staleFailed.length, 1,
+    "a failed binding remains visible as owner attention without a live session");
+  assert.equal(staleFailed[0].lifecycleState, "failed");
+
+  var home = session(1, { storageId: "coop-home", coopHome: true, history: [] });
+  var lead = project("system-lead", "lead", [home], { isLead: true });
+  var clay = project(clayId, "clay", []);
+  var index = {
+    ensureRetro: function () { return { ok: true }; },
+    project: function (input) {
+      var topics = [{
+        topicRef: needsInputTopic, title: "Needs input binding", status: "open",
+        threadState: "handed_off", projectRef: { projectId: clayId }, updatedAt: 10,
+      }, {
+        topicRef: failedTopic, title: "Failed binding", status: "open",
+        threadState: "handed_off", projectRef: { projectId: clayId }, updatedAt: 11,
+      }];
+      for (var i = 0; i < topics.length; i++) {
+        Object.assign(topics[i], input.computeTopicState(topics[i].topicRef, topics[i]));
+      }
+      return { groups: [{ kind: "project", projectRef: { projectId: clayId }, topics: topics }] };
+    },
+  };
+  var projection = buildGlobalCoopProjection({
+    projects: [lead, clay], coopTopicIndex: index,
+    computeCoopTopicState: stateFromReconciledEvidence,
+  });
+  assert.deepEqual(projection.nowIndex.map(function (entry) {
+    return [entry.topicRef.topicId, entry.kind];
+  }), [
+    ["needs-input-binding", "attention"],
+    ["failed-binding", "attention"],
+  ], "owner attention is the first sidebar/workspace data source in stable order");
+
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("workspace work context hydrates compacted owner ingress and collapses one typed work item", function () {
