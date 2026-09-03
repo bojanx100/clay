@@ -390,17 +390,32 @@ test("browser click preserves trusted-input errors and allows debugger latency",
   );
 });
 
-test("browser open reports the extension tabId", async function () {
-  var browserTools = getBrowserToolDefs(function (command) {
+test("browser open defaults to a background tab and reports the extension tabId", async function () {
+  var browserTools = getBrowserToolDefs(function (command, args) {
     assert.equal(command, "tab_open");
+    assert.deepEqual(args, { url: "https://example.com", active: false });
     return Promise.resolve({ tabId: 73 });
   }, function () { return []; });
   var open = browserTools.find(function (tool) {
     return tool.name === "browser_open";
   });
 
-  var result = await open.handler({ url: "https://example.com", active: false });
+  var result = await open.handler({ url: "https://example.com" });
   assert.match(result.content[0].text, /Opened tab 73/);
+});
+
+test("browser open still activates a tab when explicitly requested", async function () {
+  var browserTools = getBrowserToolDefs(function (command, args) {
+    assert.equal(command, "tab_open");
+    assert.deepEqual(args, { url: "https://example.com", active: true });
+    return Promise.resolve({ tabId: 74 });
+  }, function () { return []; });
+  var open = browserTools.find(function (tool) {
+    return tool.name === "browser_open";
+  });
+
+  var result = await open.handler({ url: "https://example.com", active: true });
+  assert.match(result.content[0].text, /Opened tab 74/);
 });
 
 test("browser screenshot preserves the extension failure reason", async function () {
