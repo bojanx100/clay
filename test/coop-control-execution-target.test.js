@@ -205,10 +205,12 @@ availableTest("the real target starts only after durable bind and barrier, then 
     var runtime = target(control, timeline);
     var result = runtime.attached.handleEnvelope(envelope(1));
     assert.equal(result.ok, true);
-    assert.deepEqual(timeline.slice(0, 5), ["session", "append", "save", "save", "provider"]);
+    assert.deepEqual(timeline.slice(0, 4), ["session", "append", "save", "provider"]);
     var session = runtime.sessions.get(result.localSessionId);
     var metadata = session.orchestrationPolicy.portfolioExecution.control;
     assert.ok(metadata.executionId);
+    assert.equal(session.orchestrationPolicy.portfolioExecution.infrastructureRecovery.input.portfolioTaskId,
+      "portfolio-controlled-task");
     assert.equal(Object.prototype.hasOwnProperty.call(metadata, "capability"), false);
     var durable = control.inspect(metadata.executionId);
     assert.equal(durable.current.sessionRef.sessionStorageId, session.storageId);
