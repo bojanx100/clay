@@ -115,6 +115,7 @@ function printHelp() {
 
 var args = process.argv.slice(2);
 var port = _isDev ? 2635 : 2633;
+var portWasSpecified = false;
 var useHttps = true;
 var forceMkcert = false;
 var forceBuiltin = false;
@@ -143,6 +144,7 @@ for (var i = 0; i < args.length; i++) {
       console.error("Invalid port number");
       process.exit(1);
     }
+    portWasSpecified = true;
     i++;
   } else if (args[i] === "--host" || args[i] === "--bind") {
     host = args[i + 1] || null;
@@ -2879,6 +2881,7 @@ var currentVersion = require("../package.json").version;
       });
     } else {
       // Reuse existing config (repeat run)
+      port = devWatcherTakeover.resolveDevLaunchPort(port, portWasSpecified, devConfig);
       await devMode(devConfig.mode || "multi", devConfig.keepAwake || false, devConfig.pinHash || null, devConfig.osUsers || false);
     }
     return;

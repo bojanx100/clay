@@ -5,6 +5,7 @@ var assert = require("node:assert/strict");
 
 var devWatcherTakeover = require("../lib/dev-watcher-takeover");
 var priorWatcherToStop = devWatcherTakeover.priorWatcherToStop;
+var resolveDevLaunchPort = devWatcherTakeover.resolveDevLaunchPort;
 var waitForDaemonReady = devWatcherTakeover.waitForDaemonReady;
 var takeOverExistingDev = devWatcherTakeover.takeOverExistingDev;
 
@@ -90,6 +91,20 @@ test("the dev CLI opts into healthy-instance reuse", function () {
     require("path").join(__dirname, "..", "bin", "cli.js"), "utf8");
   assert.match(source, /reuseHealthyExisting: true/);
   assert.match(source, /Run with --dev --restart to restart the daemon/);
+});
+
+test("a repeated dev launch preserves its configured custom port", function () {
+  assert.equal(resolveDevLaunchPort(2635, false, { port: 7292 }), 7292);
+  assert.equal(resolveDevLaunchPort(2635, true, { port: 7292 }), 2635,
+    "an explicit CLI port must still override the saved port");
+  assert.equal(resolveDevLaunchPort(2635, false, { port: 70000 }), 2635,
+    "an invalid saved port must fall back to the dev default");
+
+  var source = require("fs").readFileSync(
+    require("path").join(__dirname, "..", "bin", "cli.js"), "utf8");
+  assert.match(source,
+    /port = devWatcherTakeover\.resolveDevLaunchPort\(port, portWasSpecified, devConfig\)/,
+    "the config-reuse path must apply the saved port before starting the daemon");
 });
 
 test("daemon readiness keeps polling beyond the old ten-attempt startup window", async function () {
