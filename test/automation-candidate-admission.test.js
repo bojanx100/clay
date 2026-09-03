@@ -168,6 +168,12 @@ function fakeCrossProject(behavior) {
         coopTopicRef: input.coopTopicRef,
         automationAuthorization: input.automationAuthorization,
         status: "active",
+        // commit() always stamps the coordinator ref, and the store refuses to
+        // load an "active" record without one (portfolio-execution-bindings.js
+        // :520, :872). A ref-less "active" binding is not a state production can
+        // reach, so the fake must not invent one.
+        coordinator: { projectId: input.targetProject.projectId,
+          sessionStorageId: "coordinator-r" + input.bindingRevision },
       };
       bindings.push(binding);
       return { ok: true, binding: binding };
@@ -880,6 +886,74 @@ test("#2517: an unverifiable existing binding fails closed", function () {
     }));
     h.store.upsert(candidate());
     assert.strictEqual(h.admission.admitPending().attention[0].reason, "binding_unverifiable");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+// A binding this admission filed can come back as active_binding_exists while
+// sitting at a status that means no coordinator was ever created: delivery
+// failed and createAndCommitExecution released the reservation to "unrouted",
+// leaving every identity field intact. Identity alone therefore proves nothing
+// about liveness. Live evidence for board issue trialview/v2#2725: binding
+// auto:344dd511172b31317028bdd4:trialview-v2-2725 r2 went unrouted at
+// 1788343227520 and the candidate was marked admitted 16ms later at
+// 1788343227536, dropping it out of the pending queue for good.
+// Derived from a real admission rather than hand-built, so the identity fields
+// are whatever admitOne actually files -- including the generated automation
+// authorization and topic ref. A hand-written seed silently degrades into a
+// binding_mismatch test and would never exercise the liveness guard at all.
+function unroutedSeed(status) {
+  var h = harness();
+  try {
+    h.store.upsert(candidate());
+    assert.strictEqual(h.admission.admitPending().admitted, 1,
+      "fixture setup: the baseline admission must succeed");
+    var bindings = h.cross.getExecutionBindings();
+    assert.strictEqual(bindings.length, 1, "fixture setup: expected exactly one binding");
+    bindings[0].status = status;
+    // releaseReservation/re-arm strip the ref, so an "unrouted" record really
+    // has none. "unavailable" keeps its ref (statusRequiresRef), which is what
+    // makes it the case only the status check can catch.
+    if (status === "unrouted") delete bindings[0].coordinator;
+    return bindings[0];
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+}
+
+["unrouted", "unavailable"].forEach(function (status) {
+  test("#2725: a " + status + " binding of ours is not admission, so the item stays pending",
+    function () {
+      var h = harness({ behavior: { bindings: [unroutedSeed(status)] } });
+      try {
+        h.store.upsert(candidate());
+        var result = h.admission.admitPending();
+        assert.strictEqual(result.admitted, 0, "nothing was routed, so nothing was admitted");
+        assert.strictEqual(result.failed, 1);
+        assert.strictEqual(result.attention[0].reason, "binding_never_routed");
+        // The point of the fix: reserve() re-arms this exact revision, but only
+        // if the candidate is still in the pending queue to be replayed.
+        assert.strictEqual(
+          h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517").status, "pending",
+          "a binding that never produced a coordinator must not retire the candidate");
+      } finally {
+        fs.rmSync(h.dir, { recursive: true, force: true });
+      }
+    });
+});
+
+test("#2725: an active binding of ours still replays as admitted", function () {
+  // The guard must reject only never-routed bindings. A genuine replay -- our
+  // binding, already live -- must still count, or every restart would duplicate.
+  var h = harness({ behavior: { bindings: [unroutedSeed("active")] } });
+  try {
+    h.store.upsert(candidate());
+    var result = h.admission.admitPending();
+    assert.strictEqual(result.failed, 0, "a live binding of ours is a legitimate replay");
+    assert.strictEqual(result.admitted, 1);
+    assert.strictEqual(h.store.get({ projectId: WEBAPP }, "launch:trialview/v2#2517").status,
+      "admitted");
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
   }
