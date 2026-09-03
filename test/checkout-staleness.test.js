@@ -3,6 +3,8 @@ var assert = require("node:assert/strict");
 var staleness = require("../lib/checkout-staleness").staleness;
 var stalenessMessage = require("../lib/checkout-staleness").stalenessMessage;
 var followedRefFromReflog = require("../lib/checkout-staleness").followedRefFromReflog;
+var bootDrift = require("../lib/checkout-staleness").bootDrift;
+var bootDriftMessage = require("../lib/checkout-staleness").bootDriftMessage;
 
 // A packaged install updates through npx. A git checkout does not: restarting
 // re-execs lib/daemon.js from the same working tree, so a restart after a merge
@@ -106,4 +108,54 @@ test("with nothing comparable, it stays quiet instead of inventing a baseline", 
   assert.equal(verdict.stale, false,
     "no comparison point means no claim; a wrong count is worse than no count");
   assert.equal(verdict.reason, "no_comparable_ref");
+});
+
+// The recurring failure staleness() CANNOT see: the daemon boots on a current
+// checkout, the checkout moves ahead, and the process keeps serving old code.
+// At the next restart the checkout is up to date, so staleness() correctly
+// stays silent -- and the owner is left wondering why merged work did nothing.
+test("a checkout that moved past the running process is reported", function () {
+  var verdict = bootDrift("777f06388f814a2f7bba15b30fb8289e99faa482",
+                          "4098f94d7270517ba486ca89392ae1abf92da6c9");
+  assert.equal(verdict.drifted, true);
+  assert.equal(verdict.reason, "checkout_moved");
+  var message = bootDriftMessage(verdict);
+  assert.match(message, /running code from 777f06388f/);
+  assert.match(message, /moved to 4098f94d72/);
+  assert.match(message, /Restart Clay/,
+    "the fix is a restart, and the message must say so");
+});
+
+test("a process running the checkout it booted from says nothing", function () {
+  var same = "4098f94d7270517ba486ca89392ae1abf92da6c9";
+  var verdict = bootDrift(same, same);
+  assert.equal(verdict.drifted, false);
+  assert.equal(verdict.reason, "up_to_date");
+  assert.equal(bootDriftMessage(verdict), "");
+});
+
+test("an unknown commit on either side is not reported as drift", function () {
+  assert.equal(bootDrift("", "abc123").drifted, false,
+    "a packaged install has no boot commit to compare");
+  assert.equal(bootDrift("abc123", "").drifted, false,
+    "an unreadable HEAD is not evidence the checkout moved");
+  assert.equal(bootDrift(null, null).reason, "unknown_commit");
+  assert.equal(bootDriftMessage(null), "");
+  assert.equal(bootDriftMessage({ drifted: false }), "");
+});
+
+test("boot drift and checkout staleness answer different questions", function () {
+  // Being behind origin is a CHECKOUT problem: restarting alone will not fix
+  // it. Being behind your own checkout is a RESTART problem: restarting is
+  // exactly the fix. Conflating them sends the owner to the wrong action.
+  var stale = staleness({
+    isGitCheckout: true, followedRef: "origin/bojan", behind: 3, head: "aaa1111111",
+  });
+  assert.equal(stale.stale, true);
+  assert.match(stalenessMessage(stale, null), /will NOT take effect/);
+
+  var drift = bootDrift("aaa1111111", "bbb2222222");
+  assert.match(bootDriftMessage(drift), /Restart Clay to pick up the newer code/);
+  assert.equal(/Restart Clay to pick up/.test(stalenessMessage(stale, null)), false,
+    "a stale checkout must not tell the owner a restart is sufficient");
 });
