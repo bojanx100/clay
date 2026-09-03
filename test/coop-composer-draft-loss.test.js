@@ -131,3 +131,21 @@ test("an idempotent or extended restore is not treated as a clobber", async func
   assert.equal(extended.value, "hello world",
     "a draft that extends what is typed is the same message, so it may apply");
 });
+
+// app-messages-sessions.js has its own startup guard (initialDraftForSessionSwitch,
+// 13f8fae8fc), but it deliberately opts out as soon as a previous session
+// exists. Every switch AFTER startup -- notably a project change, which the
+// owner reported as a separate symptom -- still falls through to
+// restoreInputDraftForSession and its unconditional assignment. So the guard
+// inside restoreInputDraft is the only thing covering that case, on every
+// switch rather than just the first.
+test("typing survives a switch that is not the startup one", async function () {
+  var input = await loadInput();
+  var el = composer("text the owner typed during a project change");
+  initWithComposer(input, el);
+
+  // Three switches in a row: only the first could ever be startup.
+  for (var i = 0; i < 3; i++) input.restoreInputDraft({ text: "" });
+  assert.equal(el.value, "text the owner typed during a project change",
+    "later switches are exactly where the startup guard no longer applies");
+});
