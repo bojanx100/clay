@@ -35,3 +35,33 @@ test("targeted history repair changes only generated and restart user rows", fun
   assert.equal(rows[2].synthetic, true);
   assert.equal(rows[2].autoAction, true);
 });
+
+test("targeted history repair marks one exact queued message and rejects identity drift", function() {
+  assert.deepEqual(repair.parseQueuedSpec("target=8771:cm-exact"), {
+    label: "target",
+    appendIndex: 8771,
+    clientMessageId: "cm-exact",
+  });
+  var queued = JSON.stringify({
+    type: "user_message",
+    text: "after interrupted work",
+    clientMessageId: "cm-exact",
+    queueId: "q-exact",
+    _ts: 5,
+  });
+  var raw = queued + "\n";
+  var selector = [{ appendIndex: 0, clientMessageId: "cm-exact" }];
+  var result = repair.repairContent(raw, { queuedDuringProcessing: selector });
+  var row = JSON.parse(result.content);
+
+  assert.equal(result.changedFields, 1);
+  assert.equal(row.queuedDuringProcessing, true);
+  assert.equal(repair.repairContent(result.content, {
+    queuedDuringProcessing: selector,
+  }).changedFields, 0, "the repair is idempotent");
+  assert.throws(function() {
+    repair.repairContent(raw, {
+      queuedDuringProcessing: [{ appendIndex: 0, clientMessageId: "cm-wrong" }],
+    });
+  }, /does not match/);
+});

@@ -101,6 +101,17 @@ function textPreview(text) {
   return String(text || "").replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
+function uploadedReferences(text) {
+  var value = String(text || "");
+  var pattern = /\[Uploaded (file|image): ([^\]\n]+)\]/g;
+  var references = [];
+  var match;
+  while ((match = pattern.exec(value)) !== null) {
+    references.push({ kind: match[1], path: match[2] });
+  }
+  return references;
+}
+
 function summarizeClay(rows) {
   var summary = {
     rows: rows.length,
@@ -110,6 +121,7 @@ function summarizeClay(rows) {
     userMessages: 0,
     latestRealUser: null,
     imageRefs: [],
+    uploadedReferences: [],
   };
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i] || {};
@@ -158,6 +170,16 @@ function summarizeClay(rows) {
           mediaType: row.imageRefs[ri] && row.imageRefs[ri].mediaType,
         });
       }
+    }
+    var uploads = uploadedReferences(row.text);
+    for (var ui = 0; ui < uploads.length; ui++) {
+      summary.uploadedReferences.push({
+        appendIndex: i,
+        fileLine: i + 1,
+        timestamp: timestampOf(row),
+        kind: uploads[ui].kind,
+        path: uploads[ui].path,
+      });
     }
   }
   return summary;
@@ -234,6 +256,7 @@ function exportSessionHistory(options) {
 
   var manifest = [];
   var audit = { createdAt: new Date().toISOString(), clay: {}, provider: {}, attachments: [] };
+  var copiedUploadPaths = {};
   var imageRoots = keyedSpecs(options.imageRoot || []);
   var groups = [
     { kind: "clay", specs: options.clay || [] },
@@ -255,9 +278,8 @@ function exportSessionHistory(options) {
       }
       audit.clay[spec.label] = summarizeClay(rows);
       var root = imageRoots[spec.label] && imageRoots[spec.label].path;
-      if (!root) continue;
       var refs = audit.clay[spec.label].imageRefs;
-      for (var ii = 0; ii < refs.length; ii++) {
+      for (var ii = 0; root && ii < refs.length; ii++) {
         if (!refs[ii].file || path.basename(refs[ii].file) !== refs[ii].file) continue;
         var imagePath = path.join(root, refs[ii].file);
         var record = Object.assign({ label: spec.label, source: imagePath, exists: fs.existsSync(imagePath) }, refs[ii]);
@@ -268,6 +290,28 @@ function exportSessionHistory(options) {
           record.sha256 = hashFile(imageCopy);
         }
         audit.attachments.push(record);
+      }
+      var uploads = audit.clay[spec.label].uploadedReferences;
+      for (var ui = 0; ui < uploads.length; ui++) {
+        var uploadPath = path.resolve(uploads[ui].path);
+        var uploadKey = spec.label + "\0" + uploadPath;
+        var uploadRecord = Object.assign({
+          label: spec.label,
+          source: uploadPath,
+          exists: fs.existsSync(uploadPath) && fs.statSync(uploadPath).isFile(),
+          referenceKind: uploads[ui].kind,
+        }, uploads[ui]);
+        if (uploadRecord.exists && !copiedUploadPaths[uploadKey]) {
+          var uploadName = shaPath(uploadPath) + "--" + path.basename(uploadPath);
+          var uploadCopy = path.join(attachmentsDir, "uploaded-references", spec.label, uploadName);
+          copyVerified(uploadPath, uploadCopy, manifest);
+          copiedUploadPaths[uploadKey] = { copy: uploadCopy, sha256: hashFile(uploadCopy) };
+        }
+        if (copiedUploadPaths[uploadKey]) {
+          uploadRecord.copy = copiedUploadPaths[uploadKey].copy;
+          uploadRecord.sha256 = copiedUploadPaths[uploadKey].sha256;
+        }
+        audit.attachments.push(uploadRecord);
       }
     }
   }
@@ -280,6 +324,10 @@ function exportSessionHistory(options) {
     generatedFiles: ["audit.json", "chronology/*.jsonl", "manifest.json"],
   });
   return { output: output, copiedFiles: manifest.length, audit: audit };
+}
+
+function shaPath(filePath) {
+  return crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 16);
 }
 
 function usage() {

@@ -13,11 +13,14 @@ test("session export preserves raw evidence and produces a chronological audit",
   var providerPath = path.join(root, "rollout.jsonl");
   var imageRoot = path.join(root, "images");
   var imageName = "proof.png";
+  var uploadedPath = path.join(root, "historical upload.pdf");
   fs.mkdirSync(imageRoot);
   fs.writeFileSync(path.join(imageRoot, imageName), "image-bytes");
+  fs.writeFileSync(uploadedPath, "uploaded-bytes");
   fs.writeFileSync(clayPath, [
     JSON.stringify({ type: "meta", storageId: "target" }),
-    JSON.stringify({ type: "user_message", text: "latest real", imageRefs: [{ file: imageName }], _ts: 30 }),
+    JSON.stringify({ type: "user_message", text: "latest real\n[Uploaded file: " + uploadedPath + "]" +
+      "\n[Uploaded file: /missing/report.pdf]", imageRefs: [{ file: imageName }], _ts: 30 }),
     JSON.stringify({ type: "delta", text: "earlier assistant", _ts: 20 }),
     JSON.stringify({ type: "user_message", text: "↻ Resuming after restart", synthetic: true, autoAction: true, _ts: 10 }),
   ].join("\n") + "\n");
@@ -35,15 +38,24 @@ test("session export preserves raw evidence and produces a chronological audit",
     imageRoot: [{ label: "target", path: imageRoot }],
   });
 
-  assert.equal(result.audit.clay.target.latestRealUser.preview, "latest real");
+  assert.equal(result.audit.clay.target.latestRealUser.preview,
+    "latest real [Uploaded file: " + uploadedPath + "] [Uploaded file: /missing/report.pdf]");
   assert.equal(result.audit.clay.target.restartMarkers.length, 1);
   assert.deepEqual(result.audit.provider.target.orphanedCalls, []);
   assert.equal(result.audit.attachments[0].exists, true);
+  assert.deepEqual(result.audit.clay.target.uploadedReferences.map(function(ref) { return ref.path; }),
+    [uploadedPath, "/missing/report.pdf"]);
+  assert.equal(result.audit.attachments.filter(function(item) {
+    return item.referenceKind === "file" && item.exists;
+  }).length, 1);
+  assert.equal(result.audit.attachments.filter(function(item) {
+    return item.referenceKind === "file" && !item.exists;
+  }).length, 1);
   assert.equal(fs.readFileSync(path.join(output, "raw", "clay--target--session.jsonl"), "utf8"),
     fs.readFileSync(clayPath, "utf8"));
   var chronology = fs.readFileSync(path.join(output, "chronology", "target.clay.jsonl"), "utf8")
     .trim().split("\n").map(JSON.parse);
   assert.deepEqual(chronology.slice(1).map(function(row) { return row.timestamp; }), [10, 20, 30]);
   assert.equal(fs.existsSync(path.join(output, "attachments", "target", imageName)), true);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(output, "manifest.json"))).copiedFiles.length, 3);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(output, "manifest.json"))).copiedFiles.length, 4);
 });

@@ -22,10 +22,33 @@ function parseSpec(value) {
   return { label: label, path: path.resolve(value.slice(separator + 1)) };
 }
 
+function parseQueuedSpec(value) {
+  var equals = String(value || "").indexOf("=");
+  if (equals <= 0) {
+    throw new Error("Expected label=appendIndex:clientMessageId, got: " + value);
+  }
+  var label = String(value).slice(0, equals);
+  if (!/^[A-Za-z0-9._-]+$/.test(label)) throw new Error("Invalid session label: " + label);
+  var selector = String(value).slice(equals + 1);
+  var separator = selector.indexOf(":");
+  if (separator <= 0) {
+    throw new Error("Expected label=appendIndex:clientMessageId, got: " + value);
+  }
+  var appendIndex = Number(selector.slice(0, separator));
+  var clientMessageId = selector.slice(separator + 1);
+  if (!Number.isInteger(appendIndex) || appendIndex < 0 || !clientMessageId) {
+    throw new Error("Invalid queued message selector: " + value);
+  }
+  return { label: label, appendIndex: appendIndex, clientMessageId: clientMessageId };
+}
+
 function parseArgs(argv) {
-  var options = { sessions: [], apply: false };
+  var options = { sessions: [], queuedDuringProcessing: [], apply: false };
   for (var i = 0; i < argv.length; i++) {
     if (argv[i] === "--session") options.sessions.push(parseSpec(argv[++i]));
+    else if (argv[i] === "--queued-during-processing") {
+      options.queuedDuringProcessing.push(parseQueuedSpec(argv[++i]));
+    }
     else if (argv[i] === "--evidence-manifest") options.evidenceManifest = path.resolve(argv[++i]);
     else if (argv[i] === "--apply") options.apply = true;
     else throw new Error("Unknown argument: " + argv[i]);
@@ -37,7 +60,16 @@ function parseArgs(argv) {
   return options;
 }
 
-function repairContent(raw) {
+function repairContent(raw, options) {
+  options = options || {};
+  var queuedByIndex = {};
+  var queued = options.queuedDuringProcessing || [];
+  for (var qi = 0; qi < queued.length; qi++) {
+    if (queuedByIndex[queued[qi].appendIndex]) {
+      throw new Error("Duplicate queued message selector at append index " + queued[qi].appendIndex);
+    }
+    queuedByIndex[queued[qi].appendIndex] = queued[qi];
+  }
   var trailingNewline = raw.endsWith("\n");
   var lines = raw.split("\n");
   if (trailingNewline) lines.pop();
@@ -53,6 +85,17 @@ function repairContent(raw) {
     }
     var before = JSON.stringify(row);
     var count = loaderHistory.classifyLegacyInjectedHistory([row]);
+    var queuedSelector = queuedByIndex[i];
+    if (queuedSelector) {
+      if (row.type !== "user_message" || row.clientMessageId !== queuedSelector.clientMessageId || !row.queueId) {
+        throw new Error("Queued message selector does not match line " + (i + 1));
+      }
+      if (row.queuedDuringProcessing !== true) {
+        row.queuedDuringProcessing = true;
+        count++;
+      }
+      delete queuedByIndex[i];
+    }
     if (!count) continue;
     output[i] = JSON.stringify(row);
     changedFields += count;
@@ -67,6 +110,8 @@ function repairContent(raw) {
       afterSha256: sha256(output[i]),
     });
   }
+  var unmatched = Object.keys(queuedByIndex);
+  if (unmatched.length) throw new Error("Queued message append index not found: " + unmatched[0]);
   return {
     content: output.join("\n") + (trailingNewline ? "\n" : ""),
     changedFields: changedFields,
@@ -121,7 +166,10 @@ function repairSessions(options) {
   for (var i = 0; i < options.sessions.length; i++) {
     var spec = options.sessions[i];
     var raw = fs.readFileSync(spec.path, "utf8");
-    var result = repairContent(raw);
+    var queued = (options.queuedDuringProcessing || []).filter(function(item) {
+      return item.label === spec.label;
+    });
+    var result = repairContent(raw, { queuedDuringProcessing: queued });
     var item = {
       label: spec.label,
       path: spec.path,
@@ -142,6 +190,7 @@ function repairSessions(options) {
 function usage() {
   return [
     "Usage: node scripts/repair-session-history.js --session label=/absolute/session.jsonl ...",
+    "  [--queued-during-processing label=appendIndex:clientMessageId]",
     "  [--evidence-manifest /absolute/export/manifest.json --apply]",
   ].join("\n");
 }
@@ -157,6 +206,7 @@ if (require.main === module) {
 
 module.exports = {
   parseArgs: parseArgs,
+  parseQueuedSpec: parseQueuedSpec,
   repairContent: repairContent,
   repairSessions: repairSessions,
 };
