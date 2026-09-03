@@ -133,11 +133,72 @@ commit `0647af3b50`.
 
 Both fixes were proved by reverting them with the tests kept: symptom-1 source
 reverted → 12 pass / 5 fail, restored → 17/17; the render fix extracted with the
-defect intact → 2 pass / 3 fail, fixed → 5/5. Full-suite comparison in matched
-environments (neither /tmp worktree has `node_modules`, so some failures are
-environmental): fix = 25 fail / 14 files vs clean `origin/bojan` baseline = 26
-fail / 15 files, i.e. the failing set is a strict subset — no new failures.
+defect intact → 2 pass / 3 fail, fixed → 5/5.
 
-Not covered: no live Codex app-server was driven through a real `model/list`
-failure, so the failover is verified at the readiness seam, not end-to-end
-against a real codex process.
+**RETRACTED (same day, corrected below):** this section first reported a
+full-suite comparison of "fix = 25 fail / 14 files vs clean `origin/bojan`
+baseline = 26 fail / 15 files". Those numbers are inflated and should not be
+cited. Both runs were in `/tmp` worktrees with no `node_modules`, so 11 of the
+failures were missing-dependency noise, not test failures. A `git worktree add`
+does **not** get you `node_modules`; symlink the main checkout's copy before
+running anything (see also commit `80f783fee9`, where another agent hit this).
+
+Corrected numbers, with dependencies present: **3709 tests, 14 fail across 5
+files**, identical to the pre-change baseline on the same 5 files
+(`coop-control-store`, `coop-thread-execution-admission`, `lazy-session-history`,
+`project-connection-orchestration`, `project-task-orchestrator-external`) — all
+pre-existing and none attributable to this work. Codex/catalog suites: 72/72.
+`yoke-adapter-contract` and `codex-models-cache` pass once deps exist; their
+earlier failures were purely environmental.
+
+**RETRACTED (same day):** this section also claimed "no live Codex app-server
+was driven through a real `model/list` failure, so the failover is verified at
+the readiness seam, not end-to-end". That limitation was real when written but
+has since been closed — see below. Do not repeat the claim.
+
+## The real init() path IS covered — and how
+
+`lib/yoke/adapters/codex.js` destructures `CodexAppServer` at module load
+(`var { CodexAppServer } = require("../codex-app-server");`), so installing a
+fake in `require.cache` for that module *before* codex.js loads is the entire
+injection. `test/codex-init-seed-substitution-e2e.test.js` (commit
+`195009cffa`) uses this to run the genuine `init()` path in-process: no codex
+binary spawned, no network call. The fake needs only
+`start`/`send`/`notify`/`started`. Confirmed genuine rather than stubbed by the
+production log line firing: `[codex] model/list failed, using fallback models`.
+
+**Hazard worth knowing before reusing this:** `init()` calls
+`migrateModelsCache` against the real per-user `~/.codex/models_cache.json`, and
+that call **can write**. Set `process.env.CODEX_HOME` to an empty temp dir first
+(an absent file makes the migration a no-op) and use
+`test/helpers/isolated-clay-home` for `~/.clay`. Without both, an innocent-looking
+adapter test edits live state.
+
+## The two protection layers are independent — neither is load-bearing alone
+
+Breaking each layer separately (rather than only reverting everything at once)
+is what shows this, and it is the most useful thing to know if you touch this
+code:
+
+| Broken | Result |
+|---|---|
+| provenance label only (`resolveCodexCatalog` always claims live) | 1 fail — the cache's seed-identity guard still holds |
+| cache guards only (`isCodexSeedList` call sites removed) | 0 fail — honest provenance still holds |
+| both, i.e. the true pre-fix state | 2 fail, including the full-chain test |
+
+So a future refactor that breaks either one alone will not reopen the poisoning
+hole, and the single-layer break results are *expected*, not a sign the tests
+are toothless. Only the both-layers break exercises the original defect.
+
+Commit `7b1a522c67` additionally funnelled the substitution through one
+`resolveCodexCatalog()` / `applyCatalog()` path, because it had been written out
+three times with the provenance label repeated by hand — which is how a label
+and the thing it describes drift apart in the first place.
+
+**Method note:** two of this task's own break-verifications were initially
+vacuous — a `perl -0pi` substitution silently failed to match, and a `grep -c`
+counted a function *definition* as a call site, so a "0 failures" result looked
+meaningful when the edit had not applied. Always confirm a break actually landed
+before believing what its test run tells you. Relatedly, `git stash -u` stashes
+an untracked `node_modules` symlink and will manufacture a fake regression; use
+a tracked-only `git stash` when comparing against a baseline.
