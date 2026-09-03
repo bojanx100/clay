@@ -10,6 +10,7 @@ var os = require("os");
 var path = require("path");
 
 var historyStore = require("../lib/sessions-history-store");
+var loaderHistory = require("../lib/sessions-loader-history");
 
 function clearSessionModuleCache() {
   delete require.cache[require.resolve("../lib/config")];
@@ -131,7 +132,12 @@ test("load-time normalization survives a release, so a reload behaves like a fre
         origin: { kind: "task-notification" },
         _ts: 12,
       },
-      { type: "done", code: 0, _ts: 13 },
+      {
+        type: "user_message",
+        text: "final owner prompt",
+        _ts: 13,
+      },
+      { type: "done", code: 0, _ts: 14 },
     ]);
   });
   try {
@@ -145,6 +151,47 @@ test("load-time normalization survives a release, so a reload behaves like a fre
   } finally {
     h.cleanup();
   }
+});
+
+test("targeted repair classifies only exact generated history and restart prompts", function () {
+  var history = [
+    {
+      type: "user_message",
+      text: "[Context from previous claude conversation]\n\nUser: old prompt",
+    },
+    {
+      type: "user_message",
+      text: "[Context from previous Claude conversation, prepared for Codex handoff]\n\n" +
+        "User: historical question\nAssistant: historical answer",
+    },
+    {
+      type: "user_message",
+      text: "[Context from this Clay session before the current thread was persisted, " +
+        "prepared for the current vendor handoff]\n\nUser: older prompt",
+    },
+    {
+      type: "user_message",
+      text: "Resume the work that was interrupted when Clay restarted. Continue from where " +
+        "you left off; do not restart from scratch or re-ask for confirmation.",
+    },
+    {
+      type: "user_message",
+      text: "Keep this real owner request visible even though it quotes " +
+        "[Context from previous claude conversation] later in the text.",
+    },
+  ];
+
+  assert.equal(loaderHistory.classifyLegacyInjectedHistory(history), 12);
+  for (var i = 0; i < 3; i++) {
+    assert.equal(history[i].internalOnly, true);
+    assert.equal(history[i].synthetic, true);
+    assert.deepEqual(history[i].origin, { kind: "handoff-context" });
+  }
+  assert.equal(history[3].text, "↻ Resuming after restart");
+  assert.equal(history[3].synthetic, true);
+  assert.equal(history[3].autoAction, true);
+  assert.notEqual(history[4].internalOnly, true);
+  assert.notEqual(history[4].synthetic, true);
 });
 
 test("provider ids used for CLI adoption are derived at load, not by rescanning", function () {

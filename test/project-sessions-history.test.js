@@ -18,6 +18,9 @@ test("regular history pagination reads a bounded disk range", function () {
           text: "event-" + i,
         });
       }
+      items[301].internalOnly = true;
+      items[302].type = "digest_checkpoint";
+      items[303] = { type: "user_message", text: "queued", queuedPending: true };
       return items;
     },
   };
@@ -43,7 +46,41 @@ test("regular history pagination reads a bounded disk range", function () {
   assert.deepEqual(rangeReads, [{ from: 400, to: 1000 }]);
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0].meta, { from: 700, to: 1000, hasMore: true });
-  assert.equal(sent[0].items.length, 300);
+  assert.equal(sent[0].items.length, 297);
   assert.equal(sent[0].items[0].text, "event-700");
-  assert.equal(sent[0].items[299].text, "event-999");
+  assert.equal(sent[0].items[296].text, "event-999");
+  assert.equal(sent[0].items.some(function (item) { return item.internalOnly; }), false);
+  assert.equal(sent[0].items.some(function (item) { return item.type === "digest_checkpoint"; }), false);
+  assert.equal(sent[0].items.some(function (item) { return item.queuedPending; }), false);
+});
+
+test("fallback history pagination applies the same replay exclusions", function () {
+  var session = {
+    _persistedHistoryLength: 0,
+    history: [
+      { type: "user_message", text: "visible" },
+      { type: "user_message", text: "generated", internalOnly: true },
+      { type: "digest_checkpoint", text: "digest" },
+      { type: "user_message", text: "pending", queuedPending: true },
+      { type: "delta", text: "answer" },
+    ],
+  };
+  var sent = [];
+  var api = attachProjectSessionsHistory({
+    sm: {
+      HISTORY_PAGE_SIZE: 300,
+      findTurnBoundary: function () { return 0; },
+      getHistoryView: function () { return { history: session.history }; },
+    },
+    sendTo: function (ws, message) { sent.push(message); },
+    getSessionForWs: function () { return session; },
+    hydrateImageRefs: function (item) { return item; },
+  });
+
+  assert.equal(api.handleHistoryMessage({}, {
+    type: "load_more_history",
+    before: 5,
+    target: 0,
+  }), true);
+  assert.deepEqual(sent[0].items.map(function (item) { return item.text; }), ["visible", "answer"]);
 });
