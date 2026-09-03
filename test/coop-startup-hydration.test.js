@@ -75,9 +75,13 @@ test("the first session switch preserves text and attachment-only drafts typed d
     "the live draft must be restored and keyed after reset clears the composer");
 });
 
-test("initial Coop hydration replays chat before sending a compact owner projection", async function () {
+test("initial Coop hydration replays chat before sending a compact owner projection", function () {
   var providerCalls = 0;
   var sent = [];
+  var immediates = [];
+  var timers = [];
+  var realSetImmediate = global.setImmediate;
+  var realSetTimeout = global.setTimeout;
   var ws = { readyState: 1 };
   var duplicate = { entryId: "owner-work-1", title: "Fix startup" };
   var ctx = {
@@ -105,13 +109,27 @@ test("initial Coop hydration replays chat before sending a compact owner project
     sendTo: function (_ws, message) { sent.push(message); },
   };
 
-  coopTopicConnection.sendGlobalCoopProjection(ctx, ws);
-  assert.equal(providerCalls, 0,
-    "the projection must not block the synchronous session replay path");
-  await new Promise(function (resolve) { setImmediate(resolve); });
-  assert.equal(providerCalls, 0,
-    "the socket must get an I/O and render turn before projection work starts");
-  await new Promise(function (resolve) { setTimeout(resolve, 35); });
+  global.setImmediate = function (callback) { immediates.push(callback); };
+  global.setTimeout = function (callback, delay) {
+    timers.push({ callback: callback, delay: delay });
+  };
+  try {
+    coopTopicConnection.sendGlobalCoopProjection(ctx, ws);
+    assert.equal(providerCalls, 0,
+      "the projection must not block the synchronous session replay path");
+    assert.equal(immediates.length, 1);
+    assert.equal(timers.length, 0,
+      "the render timer must not age while synchronous history is still replaying");
+    immediates.shift()();
+    assert.equal(providerCalls, 0,
+      "the socket must get an I/O and render turn before projection work starts");
+    assert.equal(timers.length, 1);
+    assert.ok(timers[0].delay >= 16);
+    timers.shift().callback();
+  } finally {
+    global.setImmediate = realSetImmediate;
+    global.setTimeout = realSetTimeout;
+  }
   assert.equal(providerCalls, 1);
   assert.equal(sent.length, 1);
   assert.deepEqual(Object.keys(sent[0].ownerSidebar).sort(), [
