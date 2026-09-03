@@ -490,3 +490,63 @@ test("readLogTail reports the last durable event and ignores a torn tail", funct
 
   assert.equal(reaperModule.readLogTail(fs, path.join(dir, "missing.jsonl")), null);
 });
+
+// KNOWN GAP, pinned deliberately.
+//
+// A session killed mid-turn -- daemon SIGKILL, OOM, provider crash -- never gets
+// to write the terminal `done` marker, so its log tail stays non-terminal for
+// good. This module's header states the consequence as intended: "without a
+// terminal last event this never fires, so a mid-turn session is unreapable at
+// any age." That is the deliberate price of never reaping live work, because a
+// mid-turn tail on its own cannot distinguish a crashed turn from a running one.
+//
+// What was NOT written down is the capacity consequence, which is what this test
+// records: the binding goes on consuming a Lead parallel-capacity slot forever.
+// The only difference between this case and the reaped case above is the tail
+// TYPE -- the age is identical -- so the contrast is asserted directly.
+//
+// Closing the gap needs a discriminator the reaper does not have today (the tail
+// predating the current daemon's start would prove the executing process is
+// gone). That interacts with session-recovery resume semantics, so it is an open
+// design question, not something this test should assert away.
+//
+// If a future change makes a mid-turn session reapable, this test SHOULD fail.
+// It is here so that becomes a deliberate contract change rather than a silent
+// one -- update it, do not delete it.
+test("KNOWN GAP: a session killed mid-turn is never reaped and holds its slot at any age", function () {
+  var leadLoop = require("../lib/lead-loop");
+  var base = 1000000;
+  var h = harness({
+    label: "midturn",
+    taskId: "crashed-midturn-coordinator",
+    // Identical setup to the reaped case, except the log tail is mid-turn.
+    lastEventType: "tool_executing",
+    lastEventAt: base,
+    startAt: base,
+    // Registered, observed, and provably idle: every veto is clear, so the tail
+    // type is the only thing standing between this binding and a reap.
+    session: { isProcessing: false, queryInstance: null },
+  });
+
+  [9 * DAY, 365 * DAY, 3650 * DAY].forEach(function (age) {
+    h.setNow(base + age);
+    var report = h.reaper.dryRun();
+    assert.equal(report.ok, true);
+    assert.equal(report.reapable.length, 0, "mid-turn tail is never reapable at age " + age);
+
+    var found = findingFor(report, "crashed-midturn-coordinator");
+    assert.equal(found.decision, "skip");
+    assert.equal(found.kind, "session_log_mid_turn:tool_executing");
+
+    // The point of the test: the slot is never given back.
+    var binding = h.store.get("crashed-midturn-coordinator", 1);
+    assert.equal(binding.status, "active");
+    assert.equal(leadLoop.bindingConsumesCapacity(binding), true,
+      "a dead mid-turn binding still consumes Lead capacity at age " + age);
+  });
+
+  // Applying changes nothing, and writes no audit record -- the leak is silent.
+  var applied = h.reaper.run();
+  assert.equal(applied.applied.length, 0);
+  assert.equal(h.audits.length, 0);
+});
