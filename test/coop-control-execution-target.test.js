@@ -966,7 +966,7 @@ availableTest("restart reconciliation preserves a durable completion committed b
   }
 });
 
-availableTest("every injected pre-start crash point yields zero provider starts and converges", function () {
+availableTest("every injected pre-start crash point yields zero provider starts and converges", async function () {
   var phases = ["afterReserve", "afterBind", "afterBarrier", "beforeProviderStart"];
   for (var i = 0; i < phases.length; i++) {
     var h = harness();
@@ -987,6 +987,9 @@ availableTest("every injected pre-start crash point yields zero provider starts 
         assert.throws(function () {
           runtime.attached.handleEnvelope(envelope(i + 10));
         }, new RegExp("injected " + phase), phase);
+      }
+      if (phase === "beforeProviderStart") {
+        await new Promise(function (resolve) { setImmediate(resolve); });
       }
       assert.equal(timeline.indexOf("provider"), -1, phase);
       if (phase === "afterReserve") assert.equal(control.recoverIncomplete(), 1);
