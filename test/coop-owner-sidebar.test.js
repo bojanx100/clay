@@ -520,7 +520,10 @@ test("Coop mounts a default-open owner ledger instead of generic workspace conte
   var container = element("div");
   assert.equal(owner.renderWorkspaceCoopOwner(container, { send: function () { return true; } }), true);
   assert.equal(byClass(container, "workspace-coop-owner-title")[0].textContent, "Owner work ledger");
-  assert.equal(byClass(container, "coop-owner-section-open").length, 1);
+  assert.equal(byClass(container, "coop-owner-section-openWork").length, 1,
+    "a payload carrying only the outstanding list still renders it as open work");
+  assert.equal(byClass(container, "workspace-coop-owner-open-count").length, 0,
+    "an absent open-work count renders nothing rather than a confident zero");
   coop.setGlobalCoopProjection({ type: "global_coop_projection", projects: [], topics: [{
     topicRef: { topicId: "topic-1" }, title: "Owner ask 1",
   }], ownerSidebar: {
@@ -533,6 +536,43 @@ test("Coop mounts a default-open owner ledger instead of generic workspace conte
   assert.match(workspace, /openDefaultCoopLedger\(\)/);
   assert.match(workspace, /shouldDefaultOpenCoopOwnerLedger/);
   assert.equal(owner.hasCoopOwnerContext([{ id: 42, coopHome: false }]), false);
+  coop.clearGlobalCoopProjection();
+});
+
+// End-to-end on the default owner surface: a real buildOwnerSidebar payload
+// for a Thread whose only execution attempt failed must render as open work,
+// with the server's own count, without the owner opening or filtering anything.
+test("the default owner surface renders the open-work list and the server's count", async function () {
+  await ownerSidebarUi();
+  var root = pathToFileURL(path.join(__dirname, "..", "lib", "public", "modules"));
+  var coop = await import(root.href + "/global-coop-projection.js");
+  var owner = await import(root.href + "/workspace-coop-owner.js?v=" + Date.now());
+  var clientStore = await import(root.href + "/store.js");
+  clientStore.store.set({ currentSlug: "lead", activeSessionId: 42 });
+  var ownerSidebar = buildOwnerSidebar({
+    requests: [],
+    topics: [{ topicRef: { topicId: "topic-stuck" }, threadRef: { threadId: "topic-stuck" },
+      title: "Six days stuck with no default surface", status: "open",
+      threadState: "handed_off", relatedSessions: [], executionProjectRefs: [], updatedAt: 900 }],
+    sessions: [session("dead-attempt", "topic-stuck", "failed", { sessionPresent: false })],
+    executionBindings: [],
+  });
+  assert.equal(ownerSidebar.counts.openWork, 1);
+  coop.setGlobalCoopProjection({ type: "global_coop_projection", projects: [],
+    topics: [], ownerSidebar: ownerSidebar });
+  var sessions = [{ id: 42, coopHome: true }];
+  assert.equal(owner.shouldDefaultOpenCoopOwnerLedger(sessions), true,
+    "the ledger opens by default rather than waiting to be found");
+  var container = element("div");
+  assert.equal(owner.renderWorkspaceCoopOwner(container, { send: function () { return true; } }), true);
+  var badge = byClass(container, "workspace-coop-owner-open-count");
+  assert.equal(badge.length, 1);
+  assert.equal(badge[0].textContent, "1 open");
+  var rows = byClass(container, "coop-owner-row");
+  assert.equal(rows.length, 1, "the failed attempt leaves exactly one open-work row");
+  assert.equal(byClass(container, "coop-owner-section-attention").length, 1,
+    "the outstanding ask renders on the attention surface, not under Landed");
+  assert.equal(byClass(container, "coop-owner-section-landed").length, 0);
   coop.clearGlobalCoopProjection();
 });
 

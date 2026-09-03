@@ -581,14 +581,16 @@
 /* Canonical Coop only: a compact owner decision surface, not another worker
    tree. Status color is descriptive; it never implies background activity. */
 .workspace-coop-owner { display: grid; gap: 16px; padding: 2px 0 10px; }
-.workspace-coop-owner-title { color: var(--text); font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+.workspace-coop-owner-title { align-items: baseline; color: var(--text); display: flex; font-size: 13px; font-weight: 700; gap: 8px; letter-spacing: .02em; }
+.workspace-coop-owner-open-count { background: rgba(var(--accent-rgb), .14); border-radius: 999px; color: var(--text-secondary); font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 2px 7px; text-transform: uppercase; }
 .workspace-coop-owner .coop-owner-sidebar { display: grid; gap: 16px; }
 .workspace-coop-owner .coop-owner-section { border-left: 2px solid rgba(var(--overlay-rgb), .14); padding-left: 12px; }
 .workspace-coop-owner .coop-owner-section-next { border-left-color: rgba(var(--accent-rgb), .56); }
 .workspace-coop-owner .coop-owner-section-needs-you,
 .workspace-coop-owner .coop-owner-section-blocked { border-left-color: rgba(225, 123, 83, .72); }
 .workspace-coop-owner .coop-owner-section-recent { border-left-color: rgba(94, 177, 137, .64); }
-.workspace-coop-owner .coop-owner-section-open { border-left-color: rgba(var(--accent-rgb), .56); }
+.workspace-coop-owner .coop-owner-section-open,
+.workspace-coop-owner .coop-owner-section-openWork { border-left-color: rgba(var(--accent-rgb), .56); }
 .workspace-coop-owner .coop-owner-section-working { border-left-color: rgba(var(--accent-rgb), .72); }
 .workspace-coop-owner .coop-owner-section-attention { border-left-color: rgba(225, 123, 83, .72); }
 .workspace-coop-owner .coop-owner-section-landed { border-left-color: rgba(94, 177, 137, .72); }
