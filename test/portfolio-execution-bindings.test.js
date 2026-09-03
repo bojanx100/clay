@@ -666,48 +666,123 @@ test("legacy auto and project aliases preserve a verified completion over later 
   assert.equal(retry.binding.bindingRevision, 1);
 });
 
-// An owner's rejection has to survive the same round trip an acceptance does.
-// normalizeOwnerAcceptance previously kept only "accepted" and "pending", so a
-// rejection was dropped on the next whole-file save and the work reverted to
-// reading as never-decided -- the same field-stripping failure mode that made
-// the earlier live repair look like it had silently reverted.
-test("an owner rejection and its typed events survive a save and reload", function () {
-  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-reject-"));
+// The whole acceptance lifecycle, driven only through the store's own API and
+// re-read from disk at every step. Rejection previously had NO binding-level
+// path at all: complete() refuses one as a completion_conflict, and
+// normalizeOwnerAcceptance kept only "accepted" and "pending", so a rejection
+// was dropped on the next whole-file save and the work reverted to reading as
+// never-decided.
+test("verified -> pending -> rejected -> pending -> accepted, with a durable audit trail",
+  function () {
+    var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-reject-"));
+    var file = path.join(dir, "bindings.json");
+    var clock = 1000;
+    var store = createBindings({ file: file, now: function () { return clock++; } });
+
+    function reload() {
+      return readBindings({ file: file }).bindings.filter(function (entry) {
+        return entry.portfolioTaskId === "portfolio-task" && entry.bindingRevision === 1;
+      })[0];
+    }
+    function trail() {
+      return (reload().ownerAcceptanceEvents || []).map(function (event) {
+        return event.type;
+      });
+    }
+
+    assert.equal(store.reserve(request(1, "project_coordinator")).ok, true);
+    assert.equal(store.commit("portfolio-task", 1, {
+      projectId: PROJECT_ID, sessionStorageId: "worker-1",
+    }).ok, true);
+
+    // 1. Implementation verified. Acceptance is required, so the binding parks
+    //    at needs_input rather than reporting itself done.
+    assert.equal(store.complete("portfolio-task", 1, {
+      eventId: "impl-1", terminalStatus: "needs_input", ownerAcceptanceRequired: true,
+      implementationCompletedAt: 1500, implementationCompletionRevision: 1,
+      ownerAcceptanceEvents: [{
+        schema: "clay.owner_acceptance_event", version: 1,
+        type: "owner_acceptance_pending", at: 1500,
+      }],
+    }).ok, true);
+    assert.equal(reload().status, "needs_input");
+    assert.equal(reload().ownerAcceptance.status, "pending");
+
+    // 2. The owner rejects. The binding must NOT terminalize -- rework is owed.
+    assert.equal(store.recordOwnerVerdict("portfolio-task", 1, {
+      status: "rejected", at: 1600, by: "owner-1", note: "The rollup is still wrong.",
+      decisionEventId: "decision-1",
+    }).ok, true);
+    var rejected = reload();
+    assert.equal(rejected.ownerAcceptance.status, "rejected",
+      "the rejection must not be downgraded to never-decided on persist");
+    assert.equal(rejected.ownerAcceptance.note, "The rollup is still wrong.");
+    assert.equal(rejected.status, "needs_input", "rejecting is not un-completing");
+    var rows = require("../lib/coop-owner-work-rows");
+    assert.equal(rows.isAwaitingOwnerAcceptance(rejected), false,
+      "a decided rejection must stop reading as awaiting the owner");
+
+    // 3. The same owner click replayed must not append a second event.
+    var replay = store.recordOwnerVerdict("portfolio-task", 1, {
+      status: "rejected", at: 1650, decisionEventId: "decision-1",
+    });
+    assert.equal(replay.duplicate, true);
+    assert.deepEqual(trail(), ["owner_acceptance_pending", "owner_acceptance_rejected"]);
+
+    // 4. Coordinator reworks; the item goes back to awaiting the owner.
+    assert.equal(store.recordOwnerVerdict("portfolio-task", 1, {
+      status: "pending", at: 1700, decisionEventId: "decision-2",
+    }).ok, true);
+    assert.equal(rows.isAwaitingOwnerAcceptance(Object.assign(reload(), {
+      status: "completed",
+    })), true, "reworked work awaits the owner again");
+
+    // 5. The owner accepts, which is the only thing that terminalizes it.
+    assert.equal(store.complete("portfolio-task", 1, {
+      eventId: "impl-2", terminalStatus: "completed", ownerAcceptanceRequired: true,
+      implementationCompletedAt: 1500, implementationCompletionRevision: 1,
+      ownerAcceptance: { status: "accepted", at: 1800, by: "owner-1", withdrawnAt: null },
+      ownerAcceptanceEvents: [{
+        schema: "clay.owner_acceptance_event", version: 1,
+        type: "owner_acceptance_accepted", at: 1800,
+      }],
+    }).ok, true);
+    assert.equal(reload().status, "completed");
+    assert.equal(reload().ownerAcceptance.status, "accepted");
+
+    // The earlier rejection must still be visible. ownerAcceptance alone is
+    // last-write-wins and would claim the owner had only ever accepted.
+    assert.deepEqual(trail(), [
+      "owner_acceptance_pending", "owner_acceptance_rejected",
+      "owner_acceptance_pending", "owner_acceptance_accepted",
+    ]);
+  });
+
+test("an owner verdict is refused unless the binding is genuinely awaiting one", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-verdict-"));
   var file = path.join(dir, "bindings.json");
   var store = createBindings({ file: file, now: function () { return 500; } });
-
   assert.equal(store.reserve(request(1, "project_coordinator")).ok, true);
   assert.equal(store.commit("portfolio-task", 1, {
     projectId: PROJECT_ID, sessionStorageId: "worker-1",
   }).ok, true);
+
+  // Still active: nothing has been verified, so there is nothing to reject.
+  assert.equal(store.recordOwnerVerdict("portfolio-task", 1, {
+    status: "rejected", at: 501, decisionEventId: "d-1",
+  }).reason, "owner_verdict_mismatch");
+
   assert.equal(store.complete("portfolio-task", 1, {
-    eventId: "done-1", terminalStatus: "completed",
-    ownerAcceptanceRequired: true,
-    ownerAcceptance: {
-      status: "rejected", at: 499, by: "owner-1",
-      source: "owner_decision", note: "The rollup is still wrong.",
-    },
-    ownerAcceptanceEvents: [{
-      schema: "clay.owner_acceptance_event", version: 1,
-      type: "owner_acceptance_rejected", at: 499, source: "owner_decision",
-    }],
+    eventId: "impl-1", terminalStatus: "needs_input", ownerAcceptanceRequired: true,
   }).ok, true);
-
-  // Re-read from disk rather than trusting the in-memory record.
-  var reloaded = readBindings({ file: file }).bindings.filter(function (entry) {
-    return entry.portfolioTaskId === "portfolio-task" && entry.bindingRevision === 1;
-  })[0];
-  assert.equal(reloaded.ownerAcceptance.status, "rejected",
-    "the rejection must not be downgraded to never-decided on persist");
-  assert.equal(reloaded.ownerAcceptance.at, 499);
-  assert.equal(reloaded.ownerAcceptance.note, "The rollup is still wrong.");
-  assert.equal(reloaded.ownerAcceptanceEvents.length, 1);
-  assert.equal(reloaded.ownerAcceptanceEvents[0].type, "owner_acceptance_rejected");
-
-  // A rejection is a decision, so it must stop the awaiting-acceptance nag.
-  var rows = require("../lib/coop-owner-work-rows");
-  assert.equal(rows.isAwaitingOwnerAcceptance(reloaded), false,
-    "a decided rejection must stop reading as awaiting the owner");
+  // A verdict the module does not model must not be coerced into one it does.
+  assert.equal(store.recordOwnerVerdict("portfolio-task", 1, {
+    status: "accepted", at: 502, decisionEventId: "d-2",
+  }).reason, "owner_verdict_mismatch",
+  "accepting terminalizes and must go through complete(), not this path");
+  assert.equal(store.recordOwnerVerdict("portfolio-task", 1, {
+    status: "rejected", at: 503,
+  }).reason, "owner_verdict_mismatch", "an unidentified decision is refused");
 });
 
 test("a malformed or unbounded acceptance event list cannot reach the store", function () {
