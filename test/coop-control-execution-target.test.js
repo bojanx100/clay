@@ -7,6 +7,8 @@ var controlStore = require("../lib/coop-control-store");
 var executions = require("../lib/coop-control-executions");
 var deliveryModule = require("../lib/coop-control-delivery");
 var external = require("../lib/project-task-orchestrator-external");
+var createBindings =
+  require("../lib/portfolio-execution-bindings").createPortfolioExecutionBindings;
 var attachCompletionGate =
   require("../lib/project-task-orchestrator-completion").attachCompletionGate;
 var finishControlledExecution =
@@ -146,7 +148,7 @@ function target(control, timeline, options) {
     coopDeliveryControl: opts.deliveryControl,
     coopExecutionControl: control,
     coopStartupRecovery: opts.startupRecovery,
-    crossProject: {
+    crossProject: opts.crossProject || {
       getExecutionBinding: function () {
         var session = Array.from(sessions.values())[0];
         return { worker: { projectId: PROJECT_A, sessionStorageId: session.storageId } };
@@ -203,7 +205,7 @@ availableTest("the real target starts only after durable bind and barrier, then 
     var runtime = target(control, timeline);
     var result = runtime.attached.handleEnvelope(envelope(1));
     assert.equal(result.ok, true);
-    assert.deepEqual(timeline.slice(0, 4), ["session", "append", "save", "provider"]);
+    assert.deepEqual(timeline.slice(0, 5), ["session", "append", "save", "save", "provider"]);
     var session = runtime.sessions.get(result.localSessionId);
     var metadata = session.orchestrationPolicy.portfolioExecution.control;
     assert.ok(metadata.executionId);
@@ -729,6 +731,72 @@ availableTest("an asynchronously reported provider-start failure removes the new
     control.close();
   } finally {
     h.cleanup();
+  }
+});
+
+availableTest("controlled infrastructure start failures restaff from persisted bindings before discard", async function () {
+  var failures = ["provider_start_failed", "App-server not started", "watchdog:provider_start"];
+  for (var i = 0; i < failures.length; i++) {
+    var h = harness();
+    try {
+      var timeline = [];
+      var bindings = createBindings({ file: path.join(path.dirname(h.dbPath), "bindings.json") });
+      var request = envelope(67);
+      request.payload.portfolioTaskId += "-infrastructure-" + i;
+      request.payload.idempotencyKey = request.payload.portfolioTaskId + "-r1";
+      request.payload.coopTopicRef = { topicId: "owner-approved-provider-recovery" };
+      request.payload.coopApprovalIngressId = "coop:canonical-coop:410";
+      request.payload.coopIngressId = "coop:canonical-coop:410";
+      var first = Object.assign({}, request.payload, { source: request.source });
+      assert.equal(bindings.reserve(first).ok, true);
+      assert.equal(bindings.commit(first.portfolioTaskId, first.bindingRevision, {
+        projectId: PROJECT_A, sessionStorageId: "controlled-session-1",
+      }).ok, true);
+      var dispatched = [];
+      var sessions = new Map();
+      var control = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+      var runtime = target(control, timeline, {
+        abandonOnStartFailure: true,
+        startResult: { ok: false, reason: failures[i] },
+        sessions: sessions,
+        crossProject: {
+          reconcileStrandedCompletions: function () {
+            return bindings.reconcileStrandedCompletions({
+              sessionForBinding: function () {
+                return Array.from(sessions.values())[0] || null;
+              },
+              saveSession: function () {},
+            });
+          },
+          getExecutionBinding: bindings.get,
+          createProjectExecution: function (input) {
+            assert.equal(bindings.get(first.portfolioTaskId, 1).status, "failed",
+              "the original binding must be durably failed before successor dispatch");
+            assert.equal(input.portfolioTaskId, first.portfolioTaskId);
+            assert.equal(input.bindingRevision, 2);
+            assert.equal(input.coopApprovalIngressId, first.coopApprovalIngressId);
+            assert.deepEqual(input.coopTopicRef, first.coopTopicRef);
+            dispatched.push(input);
+            assert.equal(bindings.reserve(input).ok, true);
+            assert.equal(bindings.commit(input.portfolioTaskId, input.bindingRevision, {
+              projectId: PROJECT_A, sessionStorageId: "successor-controlled-session",
+            }).ok, true);
+            return { ok: true, binding: bindings.get(input.portfolioTaskId, input.bindingRevision) };
+          },
+        },
+      });
+
+      assert.equal(runtime.attached.handleEnvelope(request).ok, true);
+      await new Promise(function (resolve) { setImmediate(resolve); });
+      assert.equal(runtime.sessions.size, 0);
+      assert.equal(dispatched.length, 1);
+      assert.equal(bindings.get(first.portfolioTaskId, 1).status, "failed");
+      assert.equal(bindings.get(first.portfolioTaskId, 1).failureCode, failures[i]);
+      assert.equal(bindings.get(first.portfolioTaskId, 2).status, "active");
+      control.close();
+    } finally {
+      h.cleanup();
+    }
   }
 });
 

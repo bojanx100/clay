@@ -78,8 +78,8 @@ test("a persisted provider-start failure automatically dispatches one successor 
     },
   } });
   runtime.capture(session, first, first);
-  assert.equal(runtime.afterStart(session, false), false,
-    "a provider-start failure must trigger recovery without a second dispatch call");
+  assert.equal(runtime.recover(session).ok, true,
+    "recovery must dispatch from the persisted infrastructure failure");
 
   assert.equal(store.get(first.portfolioTaskId, 1).status, "failed");
   assert.equal(store.get(first.portfolioTaskId, 1).failureCode, "provider_start_failed");
