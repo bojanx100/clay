@@ -95,6 +95,7 @@ function element(tag) {
   node.setAttribute = function (name, value) { node.attributes[name] = String(value); };
   node.removeAttribute = function (name) { delete node.attributes[name]; };
   node.getAttribute = function (name) { return node.attributes[name] || null; };
+  node.hasAttribute = function (name) { return Object.prototype.hasOwnProperty.call(node.attributes, name); };
   node.querySelector = function () { return null; };
   node.querySelectorAll = function () { return []; };
   node.focus = function () {};
