@@ -42,6 +42,23 @@ test("deriveHealth: stale transitions are dropped (assume healthy)", function ()
   assert.deepStrictEqual(snapshot, {});
 });
 
+test("deriveHealth: expired quota windows are dropped immediately", function () {
+  var failedAt = Date.parse("2026-08-04T11:00:00Z");
+  var events = health.parseHealthEvents(line({
+    at: "2026-08-04T11:00:00Z",
+    kind: "provider_health",
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    scope: "route-model",
+    unavailableUntil: failedAt + 1000,
+    to: "unhealthy",
+  }));
+  var snapshot = health.deriveHealth(events, { now: NOW });
+  assert.deepStrictEqual(snapshot, {});
+  assert.strictEqual(health.healthForCandidate(snapshot, "codex", "codex-openai", "gpt-5.6-sol"), "healthy");
+});
+
 test("deriveHealth: a new provider session completed after failure proves recovery", function () {
   var failedAt = Date.parse("2026-08-04T11:00:00Z");
   var events = health.parseHealthEvents(
