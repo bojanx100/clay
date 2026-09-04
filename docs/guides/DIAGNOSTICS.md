@@ -120,6 +120,68 @@ canaries stay completely quiet while it happens. JSONL, append-only, written by
   snapshots read as earlier than every approval ever made. Fixed in
   `fda4b5eba9`; entries at or before seq 543 may still carry it.
 
+## 5. Daemon shutdowns — `~/.clay/daemon(-dev).log`
+
+Not a canary either, and the canaries stay silent while this happens. Since
+`9177d1d047` the daemon names who stopped it on one line:
+
+```
+[daemon] Shutting down... reason=SIGTERM pid=45660 ppid=45633
+```
+
+`reason` is a signal name (`SIGTERM`/`SIGINT`/`SIGHUP`) for an external kill, or
+a named in-app cause (`ipc`, `web-ui`, `update-handoff`, `update-dev-watcher`,
+`restart-dev-watcher`, `uncaught-exception`). `ppid` is the best sender hint
+Node can give: a signal carries no sender PID, but the parent — usually the dev
+watcher — is by far the most common source.
+
+- **One shutdown, one banner.** A follow-up signal logs
+  `Shutdown already in progress (started by SIGTERM), ignoring: SIGTERM` and
+  returns. That is the dev watcher's `child.kill("SIGTERM")` arriving at a
+  daemon already tearing down, **not** a second shutdown. Before `9177d1d047`
+  the banner was printed *before* the reentrancy guard, so it appeared twice and
+  one shutdown read as two.
+- **`reason=SIGTERM` with `ppid` = the watcher means the kill landed on the
+  watcher, not the daemon.** A Ctrl+C reaches the daemon directly as `SIGINT`:
+  the watcher spawns it without `detached` (`bin/cli.js:1916`), so it shares the
+  foreground process group and receives the terminal's signal itself. Therefore
+  `SIGTERM` — the signal `shutdownWatcher` forwards with `child.kill("SIGTERM")`
+  — means the daemon was stopped *by its watcher*, and you should be asking what
+  signalled the watcher. `[dev] Shutting down...` appearing *first* confirms the watcher was
+  signalled and forwarded: that exact marker comes only from the watcher's
+  own `SIGINT`/`SIGTERM`/`SIGHUP` handler (`bin/cli.js:2026`). Do not confuse it
+  with `[dev] Shutting down existing daemon...` (`bin/cli.js:2844`), which is a
+  different cause — a *new* `clay --dev` taking the port over from this one.
+- **Sick:** repeated `reason=SIGTERM` shutdowns, each followed by a manual
+  restart. That is not clay failing — something outside it is killing the
+  watcher on a loop. See below.
+
+**Reading a shutdown logged before `9177d1d047`** (bare `Shutting down...`, no
+reason). Rule these out in order, cheapest first:
+
+| Evidence | Rules out |
+|---|---|
+| no `crash.json`, no `Recovered from crash` on the next boot | `uncaughtException` |
+| no `Shutdown requested via IPC` / `via web UI` line | in-app shutdown |
+| no `Dev watcher — restarting` / `Spawned new daemon` | update or self-restart |
+| `pmset -g log` shows no `Sleep` in the window | suspend |
+| `pmset -g log` shows `Display is turned off` across it | a human at the keyboard |
+
+What is left is an external signal. Correlate the boot-banner PID immediately
+preceding the death (`grep -n "^\[daemon\] v2\..* PID " …`) against
+`kill -TERM <pid>` in `~/.clay/sessions/**/*.jsonl` — but exclude your own
+session file, or you will match your own notes about the search.
+
+**An agent running inside Clay cannot stop Clay.** Killing the watcher/daemon
+kills its own session mid-turn, so neither the work nor the restart step
+finishes; on the next manual restart the session resumes and repeats. The
+symptom is clay dying shortly after every restart. On 2026-09-04 this cost five
+outages. The shape that works: a fully detached script (`nohup`, PPID 1) that
+does the work in a function returning error codes rather than `set -e` aborts,
+and restarts clay *outside* that function so every path — including aborts —
+relaunches it. Never hardcode the current watcher/daemon PIDs and regenerate
+them per attempt; that is what makes the loop recur.
+
 ## Debugging protocol for agents
 
 1. `tail -30 ~/.clay/recovery-events-dev.log` — any recent entries? What case?
@@ -130,12 +192,17 @@ canaries stay completely quiet while it happens. JSONL, append-only, written by
 4. If the complaint is "work was approved but nothing ran", the canaries will be
    silent — go to section 4 and read the `reason` on the newest
    `staffing_attention` / `cutover_attention` in `~/.clay/lead/ledger.jsonl`.
-5. Only then trace code — and when you fix something, these logs are your
+5. If the complaint is "clay shut down for no reason", the canaries will be
+   silent — go to section 5 and read the `reason=` on the last
+   `[daemon] Shutting down...` in `~/.clay/daemon-dev.log`. Do not read source
+   code first: four of the five 2026-09-04 outages were an external `kill -TERM`
+   and none of them were a clay defect.
+6. Only then trace code — and when you fix something, these logs are your
    before/after evidence. A fix without a quiet canary afterwards is not done.
    A quiet canary is NOT proof of health: every 2026-08-17/18 entry in the table
    below was found with all canaries clean, so pair them with the live stores
    (`~/.clay/lead/*.json`) when the symptom is "nothing is happening".
-6. **Before any control-plane repair, take a snapshot the safe way** — see the
+7. **Before any control-plane repair, take a snapshot the safe way** — see the
    next section. Do not hand-copy `coop-control.sqlite`.
 
 ## Snapshotting the control store (READ THIS BEFORE ANY REPAIR)
@@ -196,6 +263,7 @@ Background: `memory/2026-08-19-first-live-dispatch-result.md`, *New defect 3*.
 
 | Date | Signature | Root cause | Fix |
 |---|---|---|---|
+| 2026-09-04 | canaries quiet; five clay outages, each shortly after a manual restart; log said only `Shutting down...` twice with a 130-project `Destroying project:` sweep between | an agent's throwaway repair script SIGTERMed the watcher and daemon by hardcoded PID to quiesce session ledgers; running inside clay it killed its own runner before its restart step, so every manual restart resumed the session and it retried with fresh PIDs | `9177d1d047` name the signal and sender, log the banner after the reentrancy guard (`lib/shutdown-gate.js`) |
 | 2026-08-18 | canaries quiet; owner-approved work never dispatched, repeating `thread_ref_required` in the Lead ledger | the owner said "approve eligibility fix" and no code recognized approval as a decision; the gate then blamed the missing ThreadRef instead of the missing decision | `bc55f9811d` referential named-approval admission, `a6d005642c` accurate blocker, `81e46d9a0d` server-derived approval route |
 | 2026-08-18 | canaries quiet; approval could not bind to work that WAS pending | `lead-ledger.recordFor` defaulted a missing `at` to `0`, and the "already pending when the owner spoke" snapshots read `0` as earlier than every approval | `fda4b5eba9` stamp write time; record the attention before asking |
 | 2026-08-17 | canaries quiet; 4 ledger rows `active`/`working` since 2026-08-12 under a project that never existed | `reconcile` gated absent-session demotion on `registered[projectId]`, so a row with neither session nor binding kept an ACTIVE state permanently with no path able to terminalize it | `cda4ba371b` demote evidence-free rows; `8f418e241c` one-time cleanup (retired `a9e099778d`) |
