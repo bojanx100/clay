@@ -50,6 +50,22 @@ test("ordinary projects keep their own titles and are never renamed to Coop", as
   assert.equal(id.coopHeaderTitle("leadgen", "Lead", null), "Lead");
 });
 
+test("an acknowledged session title outranks a stale sidebar row", async function () {
+  var id = await loadIdentity();
+  // The real ordering is session_switched -> model_info -> session_list. The
+  // model refresh can rebuild the sidebar from its previous cached list before
+  // the replacement session_list arrives, so the DOM may still name Guesty
+  // after the store has acknowledged google ads sleek.
+  assert.equal(id.sessionHeaderCandidate(1, "google ads sleek", "Guesty 2.0"),
+    "google ads sleek");
+  // On first connection session_list deliberately precedes session_switched.
+  // Until the store has an active id, the server-marked sidebar row is the only
+  // available session identity and must keep the initial paint working.
+  assert.equal(id.sessionHeaderCandidate(null, "", "Guesty 2.0"), "Guesty 2.0");
+  // A partially populated switch payload still degrades to the visible row.
+  assert.equal(id.sessionHeaderCandidate(1, "", "Guesty 2.0"), "Guesty 2.0");
+});
+
 // --- Topic titles: canonical metadata, never a snapshot or an internal id ----
 
 test("internal topic identifiers are never treated as owner-facing titles", async function () {
@@ -158,6 +174,7 @@ test("every header-title producer routes through the one applier", function () {
   assert.doesNotMatch(sessions, /headerTitleEl\.textContent = msg\.coopHome \? "Coop"/);
 
   var sidebar = source("sidebar.js");
+  assert.match(sidebar, /sessionHeaderCandidate\(\s*store\.get\('activeSessionId'\), store\.get\('activeSessionTitle'\), sidebarSessionTitle\)/);
   assert.match(sidebar, /applyCoopChatHeader\(sessionTitle, ctx\.projectName\)/);
   assert.doesNotMatch(sidebar, /ctx\.headerTitleEl\.textContent = headerTitle/);
   assert.doesNotMatch(sidebar, /textContent = sessionTitle \|\| ctx\.projectName \|\| "Clay"/);
