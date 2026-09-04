@@ -67,6 +67,31 @@ test("vendor readiness records a failed runtime handshake without claiming readi
   assert.strictEqual(sm.providerVerificationByVendor.qwen.modelCount, 0);
 });
 
+test("vendor readiness initializes the provider with the resolved runtime environment", async function () {
+  var initOptions = null;
+  var sm = { installedVendors: ["codex"] };
+  var readiness = attachVendorReadiness({
+    adapters: {
+      codex: {
+        vendor: "codex",
+        init: async function (opts) {
+          initOptions = opts;
+          return { models: [{ value: "gpt-runtime-env" }], capabilities: {} };
+        },
+      },
+    },
+    sm: sm,
+    cwd: "/tmp/runtime-env-readiness",
+    slug: "runtime-env-readiness",
+    getRuntimeEnv: function (session) {
+      return { OWNER: session.linuxUser, PROJECT_TOKEN: "resolved" };
+    },
+  });
+
+  await readiness.ensure("codex", "owner-a");
+  assert.deepEqual(initOptions.env, { OWNER: "owner-a", PROJECT_TOKEN: "resolved" });
+});
+
 // Regression: the Codex adapter reports its hardcoded seed table as `models`
 // whenever `model/list` fails, indistinguishably from a live catalog. Readiness
 // persists whatever it is handed as last-known-good and marks the route

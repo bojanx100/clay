@@ -78,6 +78,16 @@ test("Codex app-server uses the supplied credential environment without daemon f
   assert.deepEqual(Object.keys(spec.options.env).sort(), ["HOME", "PATH"]);
 });
 
+test("Codex keeps resolved project values in an OS-isolated app-server environment", function() {
+  var resolved = { HOME: "/home/owner-a", USER: "owner-a", PROJECT_TOKEN: "resolved" };
+  var env = require("../lib/yoke/adapters/codex")._test.runtimeEnvironmentForCodex(
+    { env: resolved },
+    { uid: 1200, gid: 1200, home: "/home/owner-a", user: "owner-a", shell: "/bin/zsh" }
+  );
+  assert.equal(env, resolved, "the already-sanitized resolved environment remains authoritative");
+  assert.equal(env.PROJECT_TOKEN, "resolved");
+});
+
 test("restart recovery forwards the session owner to a resumed Codex query", async function() {
   var captured = null;
   var adapter = {
@@ -126,6 +136,7 @@ test("restart recovery forwards the session owner to a resumed Codex query", asy
     handleElicitation: function() { return Promise.resolve({ action: "decline" }); },
     handleUserDialog: function() { return Promise.resolve({ action: "cancel" }); },
     processQueryStream: function() { return Promise.resolve(); },
+    getRuntimeEnv: function() { return { PROJECT_TOKEN: "resolved" }; },
   });
   var session = {
     localId: 31,
@@ -140,6 +151,7 @@ test("restart recovery forwards the session owner to a resumed Codex query", asy
 
   assert.equal(captured.linuxUser, "owner-a");
   assert.equal(captured.resumeSessionId, "persisted-codex-thread");
+  assert.deepEqual(captured.env, { PROJECT_TOKEN: "resolved" });
   assert.ok(captured.adapterOptions.CODEX.sandboxMode);
 });
 
