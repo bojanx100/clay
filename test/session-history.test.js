@@ -23,6 +23,54 @@ test("history boundary preserves a nearby user turn", function () {
   assert.equal(sessionHistory.findTurnBoundary(history, history.length - 10), 41);
 });
 
+test("history replay orders queued owner turns by their durable timestamps", function () {
+  var sent = [];
+  var api = sessionHistory.attachSessionHistory({
+    send: function (msg) { sent.push(msg); },
+    isMeaninglessUnknownError: function () { return false; },
+  });
+  var history = [
+    { type: "user_message", text: "update prices", _ts: 100 },
+    { type: "delta", text: "editing", _ts: 200 },
+    { type: "user_message", text: "push everything", queuedDuringProcessing: true, _ts: 400 },
+    { type: "tool_result", text: "tests pass", _ts: 300 },
+    { type: "user_message", text: "answer the image", queuedDuringProcessing: true, _ts: 700 },
+    { type: "delta", text: "prices updated", _ts: 350 },
+    { type: "done", code: 0, _ts: 390 },
+    { type: "message_uuid", messageType: "user", _ts: 410 },
+    { type: "delta", text: "push started", _ts: 420 },
+    { type: "info", text: "restart", _ts: 500 },
+    { type: "done", code: 1, _ts: 510 },
+    { type: "user_message", text: "↻ Resuming after restart", synthetic: true, autoAction: true, _ts: 530 },
+    { type: "delta", text: "deployment verified", _ts: 690 },
+    { type: "done", code: 0, _ts: 690 },
+    { type: "message_uuid", messageType: "user", _ts: 710 },
+    { type: "delta", text: "image answer", _ts: 720 },
+    { type: "done", code: 0, _ts: 730 },
+  ];
+
+  api.replayHistory({ history: history });
+
+  var replayed = sent.filter(function(item) {
+    return item.type !== "history_meta" && item.type !== "history_done";
+  });
+  assert.deepEqual(replayed.map(function(item) { return item._ts; }),
+    [100, 200, 300, 350, 390, 400, 410, 420, 500, 510, 530, 690, 690, 700, 710, 720, 730]);
+  assert.equal(replayed.filter(function(item) { return item.text === "push everything"; }).length, 1);
+  assert.equal(replayed.filter(function(item) { return item.text === "answer the image"; }).length, 1);
+});
+
+test("history pages never start at a queued owner turn", function () {
+  var history = [
+    { type: "user_message", text: "active turn", _ts: 100 },
+    { type: "delta", text: "working", _ts: 200 },
+    { type: "user_message", text: "queued turn", queuedDuringProcessing: true, _ts: 400 },
+    { type: "delta", text: "still working", _ts: 300 },
+  ];
+
+  assert.equal(sessionHistory.findTurnBoundary(history, 2), 0);
+});
+
 test("history boundary does not expand a page across an unbounded tool-heavy turn", function () {
   var history = makeToolHeavyHistory(1605);
   var targetIndex = history.length - sessionHistory.HISTORY_PAGE_SIZE;

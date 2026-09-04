@@ -84,3 +84,34 @@ test("fallback history pagination applies the same replay exclusions", function 
   }), true);
   assert.deepEqual(sent[0].items.map(function (item) { return item.text; }), ["visible", "answer"]);
 });
+
+test("older history pages place queued owner turns at their timestamp position", function () {
+  var session = {
+    _persistedHistoryLength: 0,
+    history: [
+      { type: "user_message", text: "update", _ts: 100 },
+      { type: "delta", text: "working", _ts: 200 },
+      { type: "user_message", text: "push", queuedDuringProcessing: true, _ts: 400 },
+      { type: "tool_result", text: "tested", _ts: 300 },
+      { type: "delta", text: "complete", _ts: 390 },
+      { type: "message_uuid", messageType: "user", _ts: 410 },
+      { type: "delta", text: "pushing", _ts: 420 },
+    ],
+  };
+  var sent = [];
+  var api = attachProjectSessionsHistory({
+    sm: {
+      HISTORY_PAGE_SIZE: 300,
+      findTurnBoundary: function () { return 0; },
+      getHistoryView: function () { return { history: session.history }; },
+    },
+    sendTo: function (ws, message) { sent.push(message); },
+    getSessionForWs: function () { return session; },
+    hydrateImageRefs: function (item) { return item; },
+  });
+
+  api.handleHistoryMessage({}, { type: "load_more_history", before: 7, target: 0 });
+
+  assert.deepEqual(sent[0].items.map(function (item) { return item._ts; }),
+    [100, 200, 300, 390, 400, 410, 420]);
+});

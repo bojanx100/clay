@@ -122,6 +122,7 @@ function summarizeClay(rows) {
     latestRealUser: null,
     imageRefs: [],
     uploadedReferences: [],
+    queuedTimestampExcursions: [],
   };
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i] || {};
@@ -159,6 +160,23 @@ function summarizeClay(rows) {
         preview: textPreview(row.text),
         imageCount: Array.isArray(row.imageRefs) ? row.imageRefs.length : 0,
       };
+    }
+    var nextRow = rows[i + 1];
+    var rowTimestamp = timestampOf(row);
+    var nextTimestamp = timestampOf(nextRow);
+    if (row.queueId && row.clientMessageId && rowTimestamp != null &&
+        nextTimestamp != null && nextTimestamp < rowTimestamp) {
+      summary.queuedTimestampExcursions.push({
+        appendIndex: i,
+        fileLine: i + 1,
+        timestamp: rowTimestamp,
+        clientMessageId: row.clientMessageId,
+        queueId: row.queueId,
+        preview: textPreview(row.text),
+        nextAppendIndex: i + 1,
+        nextTimestamp: nextTimestamp,
+        classified: row.queuedDuringProcessing === true,
+      });
     }
     if (Array.isArray(row.imageRefs)) {
       for (var ri = 0; ri < row.imageRefs.length; ri++) {
