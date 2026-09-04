@@ -103,6 +103,20 @@ test("init() reports a real model/list result as live discovery", function () {
   });
 });
 
+test("Codex readiness exposes chat-only rewind", function () {
+  return withFakeAppServer(function (method) {
+    if (method === "model/list") return Promise.resolve({ data: [], nextCursor: null });
+    return Promise.resolve({});
+  }, function (adapterModule) {
+    return initAdapter(adapterModule, "e2e-chat-rewind").then(function (r) {
+      assert.equal(r.ready.capabilities.rewind, true,
+        "Codex must expose the existing conversation rollback path to the client");
+      assert.equal(r.ready.capabilities.fileCheckpointing, false,
+        "Codex rewind must remain chat-only until file checkpointing exists");
+    });
+  });
+});
+
 // The full chain: real init() -> readiness -> persisted catalog cache. This is
 // what proves a failed model/list cannot drop a real model from the picker.
 test("a failed model/list cannot clobber a previously discovered live catalog", function () {
