@@ -12,7 +12,7 @@ test("Lead to Clay synchronous switches clear source rows before the target sess
   var sessions = source("modules/sidebar-sessions.js");
   var messages = source("modules/app-messages-sessions.js");
 
-  assert.match(projects, /store\.set\(\{ currentSlug: slug \}\);\s+window\.dispatchEvent\(new CustomEvent\("clay:project-switching"/);
+  assert.match(projects, /store\.set\(\{ currentSlug: slug, activeSessionId: null, activeSessionProjectSlug: null, cliSessionId: null \}\);\s+window\.dispatchEvent\(new CustomEvent\("clay:project-switching"/);
   assert.match(sessions, /function prepareSessionListForProject\(slug\) \{\s+cachedSessions = \[\];\s+cachedSessionsSlug = ""/);
   assert.match(sessions, /if \(isSessionListLoading\(\)\) \{[\s\S]*Loading conversations/);
   assert.match(messages, /if \(msg\.projectSlug && msg\.projectSlug !== store\.get\('currentSlug'\)\) return;/);
@@ -48,7 +48,7 @@ test("selecting the already-current project revalidates its default session", fu
     projects.indexOf("resetFileBrowser();")
   );
 
-  assert.match(sameProject, /resetClientState\(\);\s+connect\(\{ preferProjectDefault: true \}\);\s+return;/);
+  assert.match(sameProject, /activeSessionId: null[\s\S]*?resetClientState\(\);\s+connect\(\{ preferProjectDefault: true \}\);\s+return;/);
   assert.doesNotMatch(projects, /isHomeHubVisible\(\)[\s\S]{0,180}preferProjectDefault\)\) return/);
 });
 
@@ -60,4 +60,19 @@ test("Back and Forward use the same target-keyed session cache reset", function 
 test("mobile uses the same neutral target loading state and never renders a stale list", function () {
   var mobile = source("modules/sidebar-mobile.js");
   assert.match(mobile, /if \(isSessionListLoading\(\)\) \{[\s\S]*mobile-session-list-target-loading/);
+});
+
+test("project navigation isolates composer drafts from the previous session identity", function () {
+  var projects = source("modules/app-projects.js");
+  var dm = source("modules/app-dm.js");
+
+  assert.match(projects,
+    /store\.set\(\{ currentSlug: slug, activeSessionId: null, activeSessionProjectSlug: null, cliSessionId: null \}\);[\s\S]*?resetClientState\(\);[\s\S]*?connect\(/,
+    "typing during project load must enter the initial-draft path for the destination chat");
+  assert.match(dm,
+    /connectMateProject\(slug\)[\s\S]*?saveInputDraftForSession\(s\.currentSlug, s\.activeSessionId\)[\s\S]*?activeSessionId: null[\s\S]*?resetClientState\(\)/,
+    "mate project navigation must save the source draft and clear its session identity");
+  assert.match(dm,
+    /disconnectMateProject\(\)[\s\S]*?saveInputDraftForSession\(current\.currentSlug, current\.activeSessionId\)[\s\S]*?activeSessionId: null[\s\S]*?resetClientState\(\)/,
+    "returning from a mate must isolate both project drafts too");
 });

@@ -116,6 +116,26 @@ test("an empty composer still restores its draft normally", async function () {
   assert.equal(cleared.value, "", "clearing an empty composer stays a no-op");
 });
 
+test("a confirmed chat switch restores only that chat's draft", async function () {
+  var input = await loadInput();
+  var storeModule = await import(pathToFileURL(path.join(__dirname,
+    "../lib/public/modules/store.js")).href);
+  storeModule.createStore({
+    sessionDrafts: {
+      "clay:session:1": { text: "draft for chat one", images: [], pastes: [], files: [] },
+      "clay:session:2": { text: "draft for chat two", images: [], pastes: [], files: [] },
+    },
+  });
+  var el = composer("draft for chat one");
+  initWithComposer(input, el);
+
+  input.restoreInputDraftForSession("clay", 2);
+  assert.equal(el.value, "draft for chat two",
+    "the source chat's live text must not win over the destination chat's draft");
+  input.restoreInputDraftForSession("clay", 3);
+  assert.equal(el.value, "", "a chat without a draft must get an empty composer");
+});
+
 // Restoring the same text, or a prefix the owner has since extended, is the
 // ordinary idempotent repaint and must not be mistaken for a clobber.
 test("an idempotent or extended restore is not treated as a clobber", async function () {
@@ -132,20 +152,16 @@ test("an idempotent or extended restore is not treated as a clobber", async func
     "a draft that extends what is typed is the same message, so it may apply");
 });
 
-// app-messages-sessions.js has its own startup guard (initialDraftForSessionSwitch,
-// 13f8fae8fc), but it deliberately opts out as soon as a previous session
-// exists. Every switch AFTER startup -- notably a project change, which the
-// owner reported as a separate symptom -- still falls through to
-// restoreInputDraftForSession and its unconditional assignment. So the guard
-// inside restoreInputDraft is the only thing covering that case, on every
-// switch rather than just the first.
-test("typing survives a switch that is not the startup one", async function () {
+// Non-navigation recovery events may repeat while a switch or reconnect is in
+// flight. They still use the protective default; confirmed session changes use
+// restoreInputDraftForSession's authoritative replacement path above.
+test("typing survives repeated non-navigation recovery restores", async function () {
   var input = await loadInput();
   var el = composer("text the owner typed during a project change");
   initWithComposer(input, el);
 
-  // Three switches in a row: only the first could ever be startup.
+  // Repeated stale recovery payloads must not erase live typing.
   for (var i = 0; i < 3; i++) input.restoreInputDraft({ text: "" });
   assert.equal(el.value, "text the owner typed during a project change",
-    "later switches are exactly where the startup guard no longer applies");
+    "the recovery restore remains protective outside confirmed chat changes");
 });
