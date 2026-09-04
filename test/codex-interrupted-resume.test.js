@@ -96,3 +96,98 @@ test("Codex resumes interrupted rollouts without orphaned custom tool calls", as
   assert.ok(laterMessage, "history after the interrupted call must be preserved");
   assert.strictEqual(turn.params.threadId, "repaired-thread");
 });
+
+test("Codex waits for an interrupted turn to release its thread before resuming", async function(t) {
+  var handlers = [];
+  var running = false;
+  var resumeAttempts = 0;
+  var resolveFirstTurn;
+  var resolveSecondTurn;
+  var firstTurnStarted = new Promise(function(resolve) { resolveFirstTurn = resolve; });
+  var secondTurnStarted = new Promise(function(resolve) { resolveSecondTurn = resolve; });
+  var turnStarts = 0;
+
+  function emit(message) {
+    handlers.slice().forEach(function(handler) { handler(message); });
+  }
+
+  var server = {
+    started: true,
+    subscribe: function(handler) {
+      handlers.push(handler);
+      return function() {
+        handlers = handlers.filter(function(candidate) { return candidate !== handler; });
+      };
+    },
+    send: function(method, params) {
+      if (method === "thread/start") return Promise.resolve({ thread: { id: "shared-thread" } });
+      if (method === "thread/read") {
+        return Promise.resolve({ thread: { id: params.threadId, path: null } });
+      }
+      if (method === "thread/resume") {
+        resumeAttempts++;
+        if (running) {
+          return Promise.reject(new Error("cannot resume thread shared-thread with history while it is already running"));
+        }
+        return Promise.resolve({ thread: { id: "shared-thread" } });
+      }
+      if (method === "turn/start") {
+        turnStarts++;
+        running = true;
+        if (turnStarts === 1) {
+          resolveFirstTurn();
+        } else {
+          resolveSecondTurn();
+          setImmediate(function() {
+            running = false;
+            emit({
+              method: "turn/completed",
+              params: { threadId: "shared-thread",
+                turn: { id: "second-turn", status: "completed", items: [] } },
+            });
+          });
+        }
+        return Promise.resolve({});
+      }
+      if (method === "turn/interrupt") {
+        setTimeout(function() {
+          running = false;
+          emit({
+            method: "turn/completed",
+            params: { threadId: "shared-thread",
+              turn: { id: "first-turn", status: "interrupted", items: [] } },
+          });
+        }, 25);
+        return Promise.resolve({});
+      }
+      return Promise.resolve({});
+    },
+  };
+
+  var first = codexAdapter.contractTestKit.createQueryHandle(server, {
+    cwd: process.cwd(), model: "gpt-5.6-sol", abortController: new AbortController(),
+  });
+  var second = codexAdapter.contractTestKit.createQueryHandle(server, {
+    cwd: process.cwd(), model: "gpt-5.6-sol", resumeSessionId: "shared-thread",
+    abortController: new AbortController(), resumeRetryDelayMs: 5,
+    resumeRetryTimeoutMs: 250,
+  });
+  t.after(function() { first.close(); second.close(); });
+
+  first.pushMessage("first turn");
+  await firstTurnStarted;
+  var firstDrain = first.abort();
+  second.pushMessage("replacement turn");
+
+  await Promise.race([
+    secondTurnStarted,
+    new Promise(function(resolve, reject) {
+      setTimeout(function() { reject(new Error("replacement turn never started")); }, 500);
+    }),
+  ]);
+  await firstDrain;
+
+  assert.ok(resumeAttempts >= 2,
+    "the real already-running refusal must be retried after the interrupted turn terminates");
+  assert.equal(turnStarts, 2, "the queued replacement message must start exactly one new turn");
+});

@@ -2031,13 +2031,16 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
     if (debounceTimer) clearTimeout(debounceTimer);
     intentionalKill = true;
     if (child) {
-      child.kill("SIGTERM");
-      child.on("exit", function () {
+      devWatcherTakeover.stopOwnedDaemon(child).then(function (result) {
+        if (!result.exited) {
+          console.error("[dev] Daemon did not exit after SIGKILL; keeping its config for the next recovery attempt.");
+          process.exit(1);
+          return;
+        }
+        if (result.forced) console.log("[dev] Daemon exceeded the shutdown grace period and was force-killed.");
         clearStaleConfig();
         process.exit(0);
       });
-      // Force kill after 3s
-      setTimeout(function () { process.exit(0); }, 3000);
     } else {
       clearStaleConfig();
       process.exit(0);
@@ -2845,6 +2848,15 @@ var currentVersion = require("../package.json").version;
       reuseHealthyExisting: true,
       isDaemonAlive: function () {
         return devConfig ? isDaemonAliveAsync(devConfig) : Promise.resolve(false);
+      },
+      isDaemonProcessAlive: function () {
+        if (!devConfig || !Number.isInteger(devConfig.pid) || devConfig.pid <= 0) return false;
+        try {
+          process.kill(devConfig.pid, 0);
+          return true;
+        } catch (error) {
+          return false;
+        }
       },
       shutdownDaemon: function () {
         console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Shutting down existing daemon...");

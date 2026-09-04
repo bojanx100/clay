@@ -2,12 +2,14 @@
 // while real takeover paths still prevent two live instances from fighting.
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var EventEmitter = require("node:events");
 
 var devWatcherTakeover = require("../lib/dev-watcher-takeover");
 var priorWatcherToStop = devWatcherTakeover.priorWatcherToStop;
 var resolveDevLaunchPort = devWatcherTakeover.resolveDevLaunchPort;
 var waitForDaemonReady = devWatcherTakeover.waitForDaemonReady;
 var takeOverExistingDev = devWatcherTakeover.takeOverExistingDev;
+var stopOwnedDaemon = devWatcherTakeover.stopOwnedDaemon;
 
 var alive = function () { return true; };
 var dead = function () { return false; };
@@ -208,4 +210,64 @@ test("takeover preserves a real IPC failure while the daemon is still alive", as
       shutdownDaemon: function () { return Promise.reject(new Error("permission denied")); },
     });
   }, /permission denied/);
+});
+
+test("Ctrl+C force-kills a daemon that outlives the watcher's grace period", async function () {
+  var child = new EventEmitter();
+  var signals = [];
+  child.kill = function (signal) {
+    signals.push(signal);
+    if (signal === "SIGKILL") {
+      setImmediate(function () { child.emit("exit", null, "SIGKILL"); });
+    }
+    return true;
+  };
+
+  var result = await stopOwnedDaemon(child, { graceMs: 5, killWaitMs: 100 });
+
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(result.exited, true, "the watcher must observe daemon exit before it exits");
+  assert.equal(result.forced, true, "the result must explain that graceful shutdown timed out");
+});
+
+test("takeover waits for an orphaned daemon to exit after shutdown acknowledgement", async function () {
+  var daemonSocketAlive = true;
+  var daemonProcessAlive = true;
+  var sleeps = 0;
+  var shutdownCalls = 0;
+  var result = await takeOverExistingDev({ pid: 4243 }, {
+    currentPid: 99,
+    daemonWaitAttempts: 5,
+    daemonWaitIntervalMs: 0,
+    sleep: function () {
+      sleeps++;
+      if (sleeps === 3) daemonProcessAlive = false;
+      return Promise.resolve();
+    },
+    isDaemonAlive: function () { return Promise.resolve(daemonSocketAlive); },
+    isDaemonProcessAlive: function () { return daemonProcessAlive; },
+    shutdownDaemon: function () {
+      shutdownCalls++;
+      daemonSocketAlive = false;
+      return Promise.resolve({ ok: true });
+    },
+  });
+
+  assert.equal(shutdownCalls, 1);
+  assert.equal(sleeps, 3, "an IPC acknowledgement is not proof that the daemon has exited");
+  assert.equal(result.shutdownRequested, true);
+});
+
+test("the dev watcher delegates Ctrl+C teardown to the owned-daemon stop barrier", function () {
+  var source = require("fs").readFileSync(
+    require("path").join(__dirname, "..", "bin", "cli.js"), "utf8");
+  var shutdownStart = source.indexOf("function shutdownWatcher(signal)");
+  var shutdownEnd = source.indexOf("process.on(\"SIGINT\"", shutdownStart);
+  var shutdownSource = source.slice(shutdownStart, shutdownEnd);
+
+  assert.match(shutdownSource, /devWatcherTakeover\.stopOwnedDaemon\(/);
+  assert.doesNotMatch(shutdownSource, /setTimeout\(function \(\) \{ process\.exit\(0\); \}, 3000\)/,
+    "the watcher must never exit on a timer while its daemon remains alive");
+  assert.match(source, /isDaemonProcessAlive:[\s\S]*process\.kill\(devConfig\.pid, 0\)/,
+    "takeover must wait for the daemon PID, not only for its IPC socket to close");
 });
