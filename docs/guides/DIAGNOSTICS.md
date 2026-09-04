@@ -126,7 +126,7 @@ Not a canary either, and the canaries stay silent while this happens. Since
 `9177d1d047` the daemon names who stopped it on one line:
 
 ```
-[daemon] Shutting down... reason=SIGTERM pid=45660 ppid=45633
+[daemon] Shutting down... reason=SIGTERM pid=45660 ppid=45633 parent="node bin/cli.js --dev"
 ```
 
 `reason` is a signal name (`SIGTERM`/`SIGINT`/`SIGHUP`) for an external kill, or
@@ -134,6 +134,14 @@ a named in-app cause (`ipc`, `web-ui`, `update-handoff`, `update-dev-watcher`,
 `restart-dev-watcher`, `uncaught-exception`). `ppid` is the best sender hint
 Node can give: a signal carries no sender PID, but the parent — usually the dev
 watcher — is by far the most common source.
+
+`parent=` is that parent's command line, **read while it is still alive**. A pid
+alone is unreadable after the fact: diagnosing the 2026-09-04 restart run meant
+looking up `ppid=6107`, `ppid=89392` and `ppid=67752` hours later, and `ps -p`
+returned nothing for any of them because every parent had already exited. The
+field is absent when the probe cannot answer — a daemon re-parented to init
+(`ppid=1`), no `ps`, or a parent that died first — so treat a missing `parent=`
+as "unknown", never as "no parent".
 
 - **One shutdown, one banner.** A follow-up signal logs
   `Shutdown already in progress (started by SIGTERM), ignoring: SIGTERM` and
@@ -155,6 +163,19 @@ watcher — is by far the most common source.
 - **Sick:** repeated `reason=SIGTERM` shutdowns, each followed by a manual
   restart. That is not clay failing — something outside it is killing the
   watcher on a loop. See below.
+- **A restart is not a provider outage.** Teardown destroys every project, which
+  aborts the in-flight provider stream, and the vendor's own wording comes back
+  on the way out — `provider-error:ACP connection closed`,
+  `GitHub Copilot session closed`, a truncated read. Those aborts used to be
+  scored against provider health, so on 2026-09-04 three restart-induced aborts
+  inside the 120s window drove `claude-github-copilot`/`claude-opus-5`
+  `healthy -> degraded -> unhealthy` and failed a live session over to
+  `claude-anthropic`; the owner saw only `Claude process error: ACP connection
+  closed`. `gracefulShutdown()` and `performRestart()` now latch
+  `providerHealth.markLocalShutdown()` before `shutdownProjects()`, so these no
+  longer count. **If you see a `provider_health` or `provider_failover` entry in
+  `~/.clay/recovery-events-dev.log` within a minute of a shutdown banner, check
+  the banner first** — the route is probably fine and the restart is your bug.
 
 **Reading a shutdown logged before `9177d1d047`** (bare `Shutting down...`, no
 reason). Rule these out in order, cheapest first:
@@ -263,6 +284,7 @@ Background: `memory/2026-08-19-first-live-dispatch-result.md`, *New defect 3*.
 
 | Date | Signature | Root cause | Fix |
 |---|---|---|---|
+| 2026-09-04 | `Claude process error: ACP connection closed` twice in the owner's session, then `provider_health` `claude-opus-5` `healthy -> degraded -> unhealthy` and a `provider_failover` off Copilot, all inside 67s | six daemon restarts in one working period (pids 61877 → 45660 → 67768 → 89408 → 6193 → 45993) each aborted the in-flight stream during `shutdownProjects()`; the aborts carried the vendor's wording, so Clay scored its own teardown against a healthy provider route and moved a live session to another vendor | latch `providerHealth.markLocalShutdown()` before teardown in both `gracefulShutdown()` and `performRestart()`; describe the parent in the banner while it is still alive |
 | 2026-09-04 | canaries quiet; five clay outages, each shortly after a manual restart; log said only `Shutting down...` twice with a 130-project `Destroying project:` sweep between | an agent's throwaway repair script SIGTERMed the watcher and daemon by hardcoded PID to quiesce session ledgers; running inside clay it killed its own runner before its restart step, so every manual restart resumed the session and it retried with fresh PIDs | `9177d1d047` name the signal and sender, log the banner after the reentrancy guard (`lib/shutdown-gate.js`) |
 | 2026-08-18 | canaries quiet; owner-approved work never dispatched, repeating `thread_ref_required` in the Lead ledger | the owner said "approve eligibility fix" and no code recognized approval as a decision; the gate then blamed the missing ThreadRef instead of the missing decision | `bc55f9811d` referential named-approval admission, `a6d005642c` accurate blocker, `81e46d9a0d` server-derived approval route |
 | 2026-08-18 | canaries quiet; approval could not bind to work that WAS pending | `lead-ledger.recordFor` defaulted a missing `at` to `0`, and the "already pending when the owner spoke" snapshots read `0` as earlier than every approval | `fda4b5eba9` stamp write time; record the attention before asking |

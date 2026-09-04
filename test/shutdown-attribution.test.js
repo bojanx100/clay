@@ -64,6 +64,86 @@ test("the winning reason is reported, not overwritten by later requests", functi
   assert.strictEqual(gate.hasStarted(), true);
 });
 
+// --- Naming the parent while it is still alive ------------------------------
+// A bare ppid turned out to be unreadable after the fact. Investigating the
+// 2026-09-04 restart run (pids 61877 -> 45660 -> 67768 -> 89408 -> 6193 ->
+// 45993) meant reading "ppid=6107" / "ppid=89392" / "ppid=67752" out of the log
+// hours later, and `ps -p` returned nothing for any of them: every parent had
+// already exited, so the number named an unidentifiable process and the trigger
+// for six restarts could not be established at all. The description has to be
+// taken during teardown, while the parent still exists.
+
+test("the shutdown banner names the parent process, not just its pid", function () {
+  var asked = [];
+  var gate = createShutdownGate({
+    pid: 6193,
+    ppid: 6107,
+    resolveParent: function (ppid) {
+      asked.push(ppid);
+      return "node /Users/bojansubotic/Desktop/clay/bin/cli.js --dev --headless\n";
+    },
+  });
+
+  var decision = gate.request("SIGTERM");
+
+  assert.deepStrictEqual(asked, [6107], "the probe must be given the parent pid");
+  assert.match(decision.message, /ppid=6107/, "the raw pid stays, for correlation");
+  assert.match(decision.message, /parent="node .*bin\/cli\.js --dev --headless"/,
+    "without this the log cannot say what stopped the daemon");
+  assert.doesNotMatch(decision.message, /\n/, "the banner must stay on one line");
+});
+
+test("the parent is described once, on the request that actually wins the latch", function () {
+  var calls = 0;
+  var gate = createShutdownGate({
+    pid: 1, ppid: 2,
+    resolveParent: function () { calls += 1; return "dev-watcher"; },
+  });
+
+  gate.request("SIGTERM");
+  assert.strictEqual(calls, 1);
+
+  // The follow-up signal is already ignored; probing again would shell out
+  // during teardown for a line nobody prints.
+  var second = gate.request("SIGTERM");
+  assert.strictEqual(calls, 1, "an ignored request must not run the probe");
+  assert.doesNotMatch(second.message, /parent=/);
+});
+
+test("a shutdown never depends on the probe succeeding", function () {
+  function bannerWith(resolveParent) {
+    return createShutdownGate({ pid: 1, ppid: 2, resolveParent: resolveParent }).request("SIGTERM");
+  }
+
+  var thrown = bannerWith(function () { throw new Error("ps: command not found"); });
+  assert.strictEqual(thrown.proceed, true, "diagnostics must never block teardown");
+  assert.match(thrown.message, /reason=SIGTERM/);
+  assert.doesNotMatch(thrown.message, /parent=/);
+
+  // A dead or unknown parent yields nothing rather than an empty field.
+  assert.doesNotMatch(bannerWith(function () { return null; }).message, /parent=/);
+  assert.doesNotMatch(bannerWith(function () { return "   \n"; }).message, /parent=/);
+  assert.doesNotMatch(bannerWith(undefined).message, /parent=/);
+
+  // Absent ppid: nothing to ask about.
+  var noParent = createShutdownGate({
+    pid: 1,
+    resolveParent: function () { throw new Error("must not be called"); },
+  }).request("SIGTERM");
+  assert.strictEqual(noParent.proceed, true);
+  assert.doesNotMatch(noParent.message, /parent=/);
+});
+
+test("a runaway parent description cannot flood the log", function () {
+  var gate = createShutdownGate({
+    pid: 1, ppid: 2,
+    resolveParent: function () { return "x".repeat(5000); },
+  });
+
+  var message = gate.request("SIGTERM").message;
+  assert.ok(message.length < 400, "one shutdown line, not a wall of argv: got " + message.length);
+});
+
 test("a missing or blank reason degrades to an explicit marker, never a silent blank", function () {
   assert.match(createShutdownGate({}).request().message, new RegExp("reason=" + UNKNOWN_REASON));
   assert.match(createShutdownGate({}).request("   ").message, new RegExp("reason=" + UNKNOWN_REASON));
@@ -79,7 +159,7 @@ test("a missing or blank reason degrades to an explicit marker, never a silent b
 var daemonSource = fs.readFileSync(path.join(__dirname, "..", "lib", "daemon.js"), "utf8");
 
 test("daemon.js routes shutdown through the gate instead of a bare latch", function () {
-  assert.match(daemonSource, /createShutdownGate\(\{ pid: process\.pid, ppid: process\.ppid \}\)/,
+  assert.match(daemonSource, /createShutdownGate\(\{\s*pid: process\.pid,\s*ppid: process\.ppid,/,
     "daemon must build the gate with its own pid/ppid");
   assert.doesNotMatch(daemonSource, /console\.log\("\[daemon\] Shutting down\.\.\."\)/,
     "the banner must come from the gate, never from a bare log before the guard");
@@ -89,6 +169,57 @@ test("every signal handler passes its signal name", function () {
   assert.match(daemonSource, /process\.on\("SIGTERM", function \(\) \{ gracefulShutdown\("SIGTERM"\); \}\)/);
   assert.match(daemonSource, /process\.on\("SIGINT", function \(\) \{ gracefulShutdown\("SIGINT"\); \}\)/);
   assert.match(daemonSource, /process\.on\("SIGHUP", function \(\) \{ gracefulShutdown\("SIGHUP"\); \}\)/);
+});
+
+test("daemon.js gives the gate a real parent probe", function () {
+  assert.match(daemonSource, /resolveParent: describeParentProcess/,
+    "the gate can only name the parent if the daemon supplies the probe");
+  assert.match(daemonSource, /execFileSync\("ps", \["-o", "args=", "-p", String\(ppid\)\]/,
+    "the probe must read the live process table");
+  assert.match(daemonSource, /if \(!ppid \|\| ppid === 1\) return null;/,
+    "a daemon re-parented to init has no identifiable parent left to describe");
+});
+
+test("shutdown stops provider-health scoring before any project is torn down", function () {
+  assert.match(daemonSource, /providerHealth\.markLocalShutdown\(\)/,
+    "without this a restart marks healthy provider routes unhealthy");
+
+  // Ordering is the whole fix: shutdownProjects() is what closes the streams,
+  // so EVERY path that calls it must arm the latch first. There are two -
+  // gracefulShutdown() and performRestart()'s self-spawn branch, which tears
+  // down directly without going through the gate. Anchoring on the call sites
+  // rather than the declaration is what exposed the second one.
+  var latches = daemonSource.match(/providerHealth\.markLocalShutdown\(\)/g) || [];
+  var teardowns = daemonSource.match(/shutdownProjects\(\)\.then\(/g) || [];
+  assert.strictEqual(latches.length, teardowns.length,
+    "every teardown path needs its own latch: found " + teardowns.length
+    + " shutdownProjects() call(s) but " + latches.length + " latch(es)");
+
+  // Each teardown must be preceded by a latch with no unlatched teardown in
+  // between, checked positionally so a latch cannot be credited to a path it
+  // does not guard.
+  var events = [];
+  var pattern = /providerHealth\.markLocalShutdown\(\)|shutdownProjects\(\)\.then\(/g;
+  var match;
+  while ((match = pattern.exec(daemonSource)) !== null) {
+    events.push(match[0].indexOf("markLocalShutdown") !== -1 ? "latch" : "teardown");
+  }
+  var armed = 0;
+  for (var i = 0; i < events.length; i++) {
+    if (events[i] === "latch") armed += 1;
+    else {
+      assert.ok(armed > 0,
+        "teardown #" + (i + 1) + " runs with no latch set - its first aborted streams are still blamed on the provider");
+      armed -= 1;
+    }
+  }
+
+  // The latch belongs in the shutdown paths, not at module load, which would
+  // disarm provider health for the whole process life.
+  var firstLatch = daemonSource.indexOf("providerHealth.markLocalShutdown()");
+  var firstShutdownPath = daemonSource.indexOf("function performRestart(");
+  assert.ok(firstLatch > firstShutdownPath,
+    "the latch belongs in the shutdown paths, not at startup");
 });
 
 test("no gracefulShutdown call site is left without a reason", function () {
