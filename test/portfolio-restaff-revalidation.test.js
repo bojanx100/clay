@@ -81,6 +81,18 @@ test("board exclusions match despite emoji, case and spacing noise", function ()
   });
 });
 
+test("every live board card status is checked", function () {
+  var result = verdict({
+    observation: observation({
+      boardStatus: undefined,
+      boardStatuses: ["In progress", "Ready for production"],
+    }),
+  });
+  assert.strictEqual(result.eligible, false);
+  assert.strictEqual(result.reason, "board_status_excluded");
+  assert.strictEqual(result.detail.boardStatus, "Ready for production");
+});
+
 test("an owner among several assignees still qualifies", function () {
   var result = verdict({
     observation: observation({ assignees: ["quinnovelandres04", "bojantv"] }),
