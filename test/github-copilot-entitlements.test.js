@@ -32,9 +32,11 @@ function makeAcpLoader(connection) {
 test("Copilot entitlement discovery reads the account-scoped ACP model option", async function() {
   entitlements._test.reset();
   var closedSessionId = null;
+  var newSessionParams = null;
   var connection = {
     initialize: function() { return Promise.resolve({ agentCapabilities: {} }); },
-    newSession: function() {
+    newSession: function(params) {
+      newSessionParams = params;
       return Promise.resolve({
         sessionId: "discovery-session",
         configOptions: [{
@@ -65,6 +67,7 @@ test("Copilot entitlement discovery reads the account-scoped ACP model option", 
   assert.deepStrictEqual(snapshot.models, ["claude-sonnet-5", "auto", "claude-fable-5", "gpt-5.5"]);
   assert.strictEqual(snapshot.defaultModel, "claude-sonnet-5");
   assert.strictEqual(snapshot.source, "acp-config");
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(newSessionParams, "mcpServers"), false);
   assert.strictEqual(closedSessionId, "discovery-session");
   assert.strictEqual(proc.killed, true);
 });

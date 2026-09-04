@@ -44,6 +44,39 @@ test("Copilot image support follows ACP agent prompt capabilities", function () 
   assert.strictEqual(helpers.copilotSupportsPromptImages({}), false);
 });
 
+test("startCopilotSession omits MCP tool servers from ACP session requests", async function () {
+  var cases = [{
+    caps: { sessionCapabilities: { resume: true } },
+    opts: { cwd: "/x", sessionId: "stored-resume", mcpServers: [{ name: "clay-tools" }] },
+    method: "resumeSession",
+    expected: { cwd: "/x", sessionId: "stored-resume" },
+  }, {
+    caps: { loadSession: true },
+    opts: { cwd: "/x", sessionId: "stored-load", mcpServers: [{ name: "clay-tools" }] },
+    method: "loadSession",
+    expected: { cwd: "/x", sessionId: "stored-load" },
+  }, {
+    caps: { sessionCapabilities: { resume: true } },
+    opts: { cwd: "/x", mcpServers: [{ name: "clay-tools" }] },
+    method: "newSession",
+    expected: { cwd: "/x" },
+  }];
+
+  for (var i = 0; i < cases.length; i++) {
+    var calls = [];
+    var connection = {
+      resumeSession: function (params) { calls.push({ method: "resumeSession", params: params }); return Promise.resolve({ sessionId: params.sessionId }); },
+      loadSession: function (params) { calls.push({ method: "loadSession", params: params }); return Promise.resolve({ sessionId: params.sessionId }); },
+      newSession: function (params) { calls.push({ method: "newSession", params: params }); return Promise.resolve({ sessionId: "fresh" }); },
+    };
+    await helpers.startCopilotSession(connection, cases[i].caps, cases[i].opts);
+
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].method, cases[i].method);
+    assert.deepStrictEqual(calls[0].params, cases[i].expected);
+  }
+});
+
 test("startCopilotSession resumes when a session id and resume capability are present", async function () {
   var calls = [];
   var connection = {

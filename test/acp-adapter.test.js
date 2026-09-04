@@ -217,6 +217,7 @@ test("shared ACP adapter streams standard updates through the YOKE contract", as
   var handle = await adapter.createQuery({
     cwd: process.cwd(),
     model: "provider/default",
+    mcpServers: [{ name: "direct-tools", command: "node", args: ["direct.js"], env: [] }],
     adapterOptions: { ACP: { mcpServers: [{ name: "clay-tools", command: "node", args: ["bridge.js"], env: [] }] } },
   });
   assert.strictEqual(handle.pushMessage("hello"), true);
@@ -236,8 +237,49 @@ test("shared ACP adapter streams standard updates through the YOKE contract", as
     return call.method === "session/set_config_option" && call.params.configId === "mode";
   }), false);
   var newSessionCall = FakeManager.instances[0].calls.find(function(call) { return call.method === "session/new"; });
-  assert.strictEqual(newSessionCall.params.mcpServers[0].name, "clay-tools");
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(newSessionCall.params, "mcpServers"), false);
   await adapter.shutdown();
+});
+
+test("shared ACP session requests omit MCP tool servers on every open path", async function() {
+  var cases = [{
+    method: "session/new",
+    opts: { canResumeSession: false, canLoadSession: false },
+  }, {
+    method: "session/resume",
+    opts: { resumeSessionId: "stored-resume", canResumeSession: true, canLoadSession: true },
+  }, {
+    method: "session/load",
+    opts: { resumeSessionId: "stored-load", canResumeSession: false, canLoadSession: true },
+  }];
+
+  for (var i = 0; i < cases.length; i++) {
+    var manager = new FakeManager("/contract/acp", {});
+    manager.started = true;
+    var handle = createAcpQueryHandle(manager, Object.assign({
+      vendor: "opencode",
+      cwd: process.cwd(),
+      driver: { permissionModeGuaranteed: true },
+      model: "auto",
+      mcpServers: [{ name: "clay-tools", command: "node", args: ["bridge.js"], env: [] }],
+    }, cases[i].opts));
+    assert.strictEqual(handle.pushMessage("hello"), true);
+    handle.endInput();
+
+    var sawResult = false;
+    for await (var event of handle) {
+      if (event.yokeType === "result") {
+        sawResult = true;
+        break;
+      }
+    }
+    handle.close();
+
+    var call = manager.calls.find(function(item) { return item.method === cases[i].method; });
+    assert.strictEqual(sawResult, true);
+    assert.ok(call, cases[i].method + " was called");
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(call.params, "mcpServers"), false);
+  }
 });
 
 test("ACP vendor drivers extend YOKE without replacing the shared defaults", async function() {
@@ -318,10 +360,7 @@ test("ACP vendor drivers extend YOKE without replacing the shared defaults", asy
   assert.ok(manager.requestHandlers["vendor/token"]);
   assert.deepStrictEqual(manager.opts.args, ["acp", "--vendor-extension"]);
   assert.deepStrictEqual(manager.calls[0].params._meta, { vendorExtension: true });
-  assert.deepStrictEqual(adapter.createToolServer({ name: "tool" }), {
-    definition: { name: "tool" },
-    vendor: "opencode",
-  });
+  assert.strictEqual(adapter.createToolServer({ name: "tool" }), null);
   assert.deepStrictEqual(await adapter.listSessions(), [{ sessionId: "vendor-session" }]);
 
   var handle = await adapter.createQuery({ cwd: process.cwd(), model: "provider/default" });
