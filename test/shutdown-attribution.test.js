@@ -229,3 +229,62 @@ test("no gracefulShutdown call site is left without a reason", function () {
   assert.deepStrictEqual(argless, [],
     "a shutdown with no reason is exactly the bug this test exists to prevent");
 });
+
+// --- Watcher exit notice ----------------------------------------------------
+// The daemon is supervised and the watcher is not: bin/cli.js respawns the
+// daemon 500ms after any unexpected exit (the "Unexpected exit — auto restart"
+// branch), but shutdownWatcher sets intentionalKill, which suppresses that
+// respawn, and nothing supervises the watcher itself. So killing the daemon is
+// a blip Clay recovers from alone, while killing the watcher is terminal. The
+// old exit line was a bare "Shutting down...", identical for a Ctrl+C and for a
+// scripted kill, and never said Clay would stay down.
+
+var { watcherShutdownMessage } = require('../lib/shutdown-gate');
+
+test('the watcher exit line names the signal that stopped it', function () {
+  assert.match(watcherShutdownMessage('SIGTERM'), /\(SIGTERM\)/);
+  assert.match(watcherShutdownMessage('SIGINT'), /\(SIGINT\)/);
+  assert.match(watcherShutdownMessage('SIGHUP'), /\(SIGHUP\)/);
+});
+
+test('the watcher exit line says the outage is terminal and how to undo it', function () {
+  var msg = watcherShutdownMessage('SIGTERM');
+  assert.match(msg, /Clay stays down/, 'must state the outage is terminal');
+  assert.match(msg, /this watcher is not/, 'must name the supervised/unsupervised asymmetry');
+  assert.match(msg, /Run `clay`/, 'must say how to bring Clay back');
+});
+
+test('a scripted kill reads differently from a Ctrl+C', function () {
+  var ctrlC = watcherShutdownMessage('SIGINT');
+  var scripted = watcherShutdownMessage('SIGTERM');
+  // This is the whole point: five 2026-09-04 outages were scripted kills that
+  // looked exactly like the owner pressing Ctrl+C.
+  assert.doesNotMatch(ctrlC, /not a Ctrl\+C/, 'a real Ctrl+C must not be called unexpected');
+  assert.match(scripted, /not a Ctrl\+C, something sent SIGTERM/,
+    'a SIGTERM must be flagged as coming from something other than the owner');
+});
+
+test('a missing signal still produces a usable line', function () {
+  var msg = watcherShutdownMessage();
+  assert.match(msg, new RegExp('\\(' + UNKNOWN_REASON + '\\)'));
+  assert.match(msg, /Clay stays down/);
+});
+
+test('bin/cli.js routes its exit line through the shared helper', function () {
+  var cliSource = fs.readFileSync(path.join(__dirname, '..', 'bin', 'cli.js'), 'utf8');
+  assert.match(cliSource, /watcherShutdownMessage\(signal\)/,
+    'the watcher must build its line from the helper, not inline text');
+  assert.doesNotMatch(cliSource, /\[dev\]\\x1b\[0m Shutting down\.\.\."/,
+    'the bare unattributed "Shutting down..." line must be gone');
+});
+
+test('every watcher signal handler passes its signal name', function () {
+  var cliSource = fs.readFileSync(path.join(__dirname, '..', 'bin', 'cli.js'), 'utf8');
+  ['SIGINT', 'SIGTERM', 'SIGHUP'].forEach(function (sig) {
+    assert.match(cliSource,
+      new RegExp('process\\.on\\("' + sig + '", function \\(\\) \\{ shutdownWatcher\\("' + sig + '"\\); \\}\\)'),
+      sig + ' must be forwarded by name');
+  });
+  assert.doesNotMatch(cliSource, /process\.on\("SIG[A-Z]+", shutdownWatcher\)/,
+    'no handler may pass the function bare, which loses the signal name');
+});

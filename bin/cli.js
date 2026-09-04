@@ -38,6 +38,7 @@ var { sendIPCCommand } = require("../lib/ipc");
 var { generateAuthToken } = require("../lib/server");
 var { enableMultiUser, disableMultiUser, hasAdmin, isMultiUser, getSetupCode } = require("../lib/users");
 var { refreshBuiltinCertCache } = require("../lib/daemon-network");
+var { watcherShutdownMessage } = require("../lib/shutdown-gate");
 var clayStudioCert = require("../lib/clay-studio-cert");
 
 function openUrl(url) {
@@ -2020,10 +2021,12 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
 
   // Clean exit on Ctrl+C
   var shuttingDown = false;
-  function shutdownWatcher() {
+  function shutdownWatcher(signal) {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log("\n\x1b[38;2;0;183;133m[dev]\x1b[0m Shutting down...");
+    // Name the signal and say the outage is terminal: intentionalKill below
+    // suppresses the daemon respawn, and nothing supervises this watcher.
+    console.log("\n\x1b[38;2;0;183;133m[dev]\x1b[0m " + watcherShutdownMessage(signal));
     if (watcher) watcher.close();
     if (debounceTimer) clearTimeout(debounceTimer);
     intentionalKill = true;
@@ -2045,9 +2048,12 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
   // send SIGTERM, and without a handler this process died instantly and left its
   // daemon running as an orphan -- still holding the port and still being
   // SIGTERMed by, and SIGTERMing, whichever daemon started next.
-  process.on("SIGINT", shutdownWatcher);
-  process.on("SIGTERM", shutdownWatcher);
-  process.on("SIGHUP", shutdownWatcher);
+  // Pass the signal name explicitly: a Ctrl+C arrives here as SIGINT, so any
+  // other signal came from a script, a takeover or a supervisor, and the exit
+  // line has to say which so the two are told apart in the terminal.
+  process.on("SIGINT", function () { shutdownWatcher("SIGINT"); });
+  process.on("SIGTERM", function () { shutdownWatcher("SIGTERM"); });
+  process.on("SIGHUP", function () { shutdownWatcher("SIGHUP"); });
 }
 
 // ==============================

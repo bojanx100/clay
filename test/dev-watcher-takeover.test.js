@@ -52,11 +52,20 @@ test("the default liveness probe reports this process as alive and a free pid as
 test("the dev watcher handles the signals a takeover actually sends", function () {
   // The takeover, `kill`, and supervising scripts all send SIGTERM. Only SIGINT
   // was handled, so the watcher died without killing its daemon, orphaning it.
+  //
+  // These patterns used to require the handler be passed bare
+  // (`process.on("SIGTERM", shutdownWatcher)`). The handlers now wrap it to
+  // forward the signal name, which the exit line reports so a scripted kill
+  // reads differently from a Ctrl+C. This test owns "all three signals are
+  // handled at all", so it stays deliberately tolerant of the call shape;
+  // test/shutdown-attribution.test.js owns the exact forwarding form.
   var source = require("fs").readFileSync(
     require("path").join(__dirname, "..", "bin", "cli.js"), "utf8");
-  assert.match(source, /process\.on\("SIGTERM", shutdownWatcher\)/);
-  assert.match(source, /process\.on\("SIGINT", shutdownWatcher\)/);
-  assert.match(source, /process\.on\("SIGHUP", shutdownWatcher\)/);
+  // [^;]* rather than [^)]*: the wrapper contains `function ()`, so a
+  // paren-excluding class cannot reach the handler name.
+  assert.match(source, /process\.on\("SIGTERM",[^;]*shutdownWatcher/);
+  assert.match(source, /process\.on\("SIGINT",[^;]*shutdownWatcher/);
+  assert.match(source, /process\.on\("SIGHUP",[^;]*shutdownWatcher/);
 });
 
 test("the dev watcher records its own pid so a later takeover can find it", function () {

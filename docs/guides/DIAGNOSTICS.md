@@ -193,6 +193,26 @@ preceding the death (`grep -n "^\[daemon\] v2\..* PID " …`) against
 `kill -TERM <pid>` in `~/.clay/sessions/**/*.jsonl` — but exclude your own
 session file, or you will match your own notes about the search.
 
+**The daemon is supervised; the watcher is not.** This asymmetry decides whether
+a kill is a blip or an outage, so establish it first:
+
+- **Daemon killed alone** → it exits 0, falls through to the "Unexpected exit —
+  auto restart" branch (`bin/cli.js:1958`) and is respawned 500ms later. Clay
+  never fully closes. The terminal shows
+  `[dev] Daemon exited (code 0), restarting...` and this log gets a fresh boot
+  banner.
+- **Watcher killed** → `shutdownWatcher` sets `intentionalKill`, the exit
+  handler returns without respawning (`bin/cli.js:1941`), and the watcher exits
+  too. Nothing supervises the watcher, so **Clay stays down until someone runs
+  `clay` again.** The watcher now says so on the way out, naming the signal:
+  `[dev] Shutting down (SIGTERM) — not a Ctrl+C, something sent SIGTERM. Clay
+  stays down: the daemon is supervised, this watcher is not.`
+
+A script that wants Clay actually down therefore has to kill the watcher;
+killing only the daemon is undone in half a second. That is why the 2026-09-04
+script killed watcher `55860` *before* daemon `92055`, and why those outages
+were total rather than momentary.
+
 **An agent running inside Clay cannot stop Clay.** Killing the watcher/daemon
 kills its own session mid-turn, so neither the work nor the restart step
 finishes; on the next manual restart the session resumes and repeats. The
