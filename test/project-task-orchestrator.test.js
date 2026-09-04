@@ -1553,7 +1553,7 @@ test("Webapp portfolio staffing fails closed when a local instruction is missing
     "unrouted");
 });
 
-test("project-coordinator needs-input turns stay active and resume through typed steering", function () {
+test("project-coordinator needs-input turns surface and resume through typed steering", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-coordinator-needs-input-"));
   var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
   var router = createCrossProjectRouter({
@@ -1620,7 +1620,7 @@ test("project-coordinator needs-input turns stay active and resume through typed
   });
   assert.equal(metadata.status, "needs_input");
   assert.equal(metadata.reason, "verification_route_unavailable");
-  assert.equal(binding.status, "active");
+  assert.equal(binding.status, "needs_input");
   assert.equal(projectCoordinator.hidden, undefined);
   assert.equal(projectCoordinator.orchestrationProjectCompletion.status, "pending");
   assert.equal(projectCoordinator.orchestrationEvents.some(function (event) {
@@ -1643,8 +1643,9 @@ test("project-coordinator needs-input turns stay active and resume through typed
     idempotencyKey: "needs-input-coordinator-steer-1",
     message: "A verified reviewer route is available. Continue the review gate.",
   });
-  assert.equal(steer.isError, undefined);
+  assert.equal(steer.isError, undefined, JSON.stringify(steer));
   assert.equal(metadata.status, "running");
+  assert.equal(router.getExecutionBinding("portfolio-needs-input-coordinator", 1).status, "active");
   assert.equal(Object.hasOwn(metadata, "reason"), false);
   projected = router.queryCoopSessions({
     projectRefs: [{ projectId: targetProjectId }],
@@ -1670,7 +1671,7 @@ test("project-coordinator needs-input turns stay active and resume through typed
     return entry.sessionStorageId === projectCoordinator.storageId;
   });
   assert.equal(metadata.status, "needs_input");
-  assert.equal(router.getExecutionBinding("portfolio-needs-input-coordinator", 1).status, "active");
+  assert.equal(router.getExecutionBinding("portfolio-needs-input-coordinator", 1).status, "needs_input");
   assert.equal(projectCoordinator.hidden, undefined);
   assert.equal(projected.lifecycleState, "needs_input");
   assert.equal(projected.workState, "needs_input");

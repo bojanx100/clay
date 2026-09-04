@@ -6,6 +6,7 @@ var path = require("path");
 var controlStore = require("../lib/coop-control-store");
 var executions = require("../lib/coop-control-executions");
 var deliveryModule = require("../lib/coop-control-delivery");
+var executionFence = require("../lib/coop-control-fence");
 var external = require("../lib/project-task-orchestrator-external");
 var createBindings =
   require("../lib/portfolio-execution-bindings").createPortfolioExecutionBindings;
@@ -466,6 +467,159 @@ availableTest("terminal review attention durably releases its controlled executi
     assert.equal(recoveredTarget.reconcileSession(session,
       session.orchestrationPolicy.portfolioExecution), false);
     assert.equal(session.orchestrationPolicy.portfolioExecution.status, "needs_input");
+    recoveredControl.close();
+  } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("ordinary coordinator needs-input reaches the owner attention transport", function () {
+  var h = harness();
+  try {
+    var timeline = [];
+    var deliveries = [];
+    var control = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var runtime = target(control, timeline, { crossProject: {
+      createEnvelope: function (value) { return value; },
+      deliverEnvelope: function (value) {
+        deliveries.push(value);
+        return { ok: true, delivered: true, acknowledged: true };
+      },
+      getExecutionBinding: function () { return null; },
+    } });
+    var root = {
+      localId: 98,
+      storageId: "ordinary-needs-input-coordinator",
+      coordinationMode: true,
+      orchestrationPolicy: {},
+      orchestrationTasks: [],
+      orchestrationEvents: [],
+      history: [],
+      pendingPermissions: {},
+      pendingAskUser: {},
+      allowedTools: {},
+    };
+    runtime.sessions.set(root.localId, root);
+    runtime.attached.handleEnvelope(coordinatorEnvelope(622, root.storageId));
+    var session = controlledSession(runtime);
+    var metadata = session.orchestrationPolicy.portfolioExecution;
+    session.isProcessing = false;
+    session.history.push({ type: "delta", text: "WORKER_STATUS: needs_input\n" +
+      "REASON: one_owner_decision\nSUMMARY: The owner must choose one option.\n" +
+      "VERIFICATION: diagnosis complete\nESCALATION_REQUIRED: no" });
+    var gate = attachCompletionGate({
+      crossProject: {
+        createEnvelope: function (value) { return value; },
+        deliverEnvelope: function (value) {
+          deliveries.push(value);
+          return { ok: true, delivered: true, acknowledged: true };
+        },
+      },
+      sm: runtime.sm,
+      flushCoordinatorUpdates: function () { return false; },
+      queueCoordinatorUpdate: function () {},
+      sendState: function () {},
+      finishControlledExecution: function (targetSession, status) {
+        return finishControlledExecution(targetSession, status, { control: control });
+      },
+    });
+
+    gate.handleTurnDone(session);
+
+    assert.equal(metadata.status, "needs_input");
+    assert.equal(deliveries.length, 1, "every needs-input result must reach the owner transport");
+    assert.equal(deliveries[0].payload.terminalStatus, "needs_input");
+    assert.equal(deliveries[0].payload.ownerNotification, true);
+    assert.equal(typeof metadata.attentionDeliveredAt, "number");
+    var durable = control.inspect(metadata.control.executionId);
+    assert.equal(durable.execution.status, "running",
+      "an ordinary waiting coordinator retains its reusable control lease");
+    assert.equal(durable.current.startState, "started");
+
+    delete metadata.attentionDeliveredAt;
+    delete metadata.ownerAcceptanceAttentionResultEventId;
+    delete metadata.ownerAcceptanceAttentionDeliveryEventId;
+    session.history = [];
+    deliveries.length = 0;
+    gate.handleTurnDone(session);
+    assert.equal(deliveries.length, 1,
+      "persisted needs-input metadata must surface even when its report is empty");
+    assert.equal(deliveries[0].payload.resultSummary,
+      "Read-only verification returned actionable attention.");
+    control.close();
+  } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("a restarted needs-input coordinator accepts steering on its active incarnation", function () {
+  var h = harness();
+  try {
+    var firstTimeline = [];
+    var firstControl = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var firstRuntime = target(firstControl, firstTimeline);
+    var root = {
+      localId: 97,
+      storageId: "restart-needs-input-coordinator",
+      coordinationMode: true,
+      orchestrationPolicy: {},
+      orchestrationTasks: [],
+      orchestrationEvents: [],
+      history: [],
+      pendingPermissions: {},
+      pendingAskUser: {},
+      allowedTools: {},
+    };
+    firstRuntime.sessions.set(root.localId, root);
+    var create = coordinatorEnvelope(623, root.storageId);
+    create.payload.ownerAcceptanceRequired = true;
+    firstRuntime.attached.handleEnvelope(create);
+    var session = controlledSession(firstRuntime);
+    var metadata = session.orchestrationPolicy.portfolioExecution;
+    var executionId = metadata.control.executionId;
+    firstControl.close();
+
+    delete session._coopExecutionFence;
+    var recoveredControl = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var recoveredToken = recoveredControl.recoverTarget({
+      projectId: PROJECT_A,
+      sessionStorageId: session.storageId,
+    });
+    metadata.control = executionFence.attachFence(session,
+      recoveredControl.createFence(recoveredToken));
+    session._coopExecutionFence.markProviderStarted();
+    session.isProcessing = false;
+    metadata.status = "needs_input";
+    metadata.reason = "awaiting_owner_acceptance";
+
+    var delivery = deliveryModule.createDeliveryControl({
+      enabled: true,
+      store: recoveredControl.getStore(),
+    });
+    var recoveredTimeline = [];
+    var recoveredRuntime = target(recoveredControl, recoveredTimeline, {
+      deliveryControl: delivery,
+      sessions: firstRuntime.sessions,
+      startupRecovery: { assertReady: function () { return true; } },
+    });
+    var historyLength = session.history.length;
+    var result = recoveredRuntime.attached.handleEnvelope(
+      messageEnvelope(624, "Record the verified result and close the owned task."));
+
+    assert.equal(result.ok, true);
+    assert.equal(result.localSessionId, session.localId);
+    assert.equal(session.history.length, historyLength + 1);
+    assert.equal(session.history[session.history.length - 1].text,
+      "Record the verified result and close the owned task.");
+    assert.equal(metadata.status, "running");
+    var durable = recoveredControl.inspect(executionId);
+    assert.equal(durable.execution.currentEpoch, 2,
+      "steering must reuse the restart incarnation instead of minting epoch 3");
+    assert.equal(durable.execution.status, "running");
+    assert.equal(durable.current.startState, "started");
+    assert.equal(delivery.inspectOutbox("event-624").state, "acked");
+    assert.equal(delivery.listPendingEffects().length, 0);
+    delivery.close();
     recoveredControl.close();
   } finally {
     h.cleanup();

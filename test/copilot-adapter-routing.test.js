@@ -5,6 +5,7 @@ var stream = require("stream");
 
 var copilotAdapter = require("../lib/yoke/adapters/github-copilot");
 var copilotHelpers = require("../lib/yoke/adapters/github-copilot-helpers");
+var launchQuery = require("../lib/sdk-bridge-query-launch").launchQuery;
 var routing = copilotAdapter._test;
 
 function makeFakeProcess() {
@@ -158,6 +159,56 @@ test("GitHub Copilot routes a full turn with text, tool calls, and completion", 
       cache_creation_input_tokens: 0,
     });
     assert.strictEqual(result.verifiedModel, "gpt-5");
+  } finally {
+    handle.close();
+  }
+});
+
+test("GitHub Copilot launches through Clay's single-turn finalization path", async function() {
+  var fakeConnection = {
+    initialize: function() {
+      return Promise.resolve({ agentCapabilities: { sessionCapabilities: { resume: true } } });
+    },
+    newSession: function() {
+      return Promise.resolve({ sessionId: "copilot-single-turn", configOptions: [] });
+    },
+    prompt: function() {
+      return Promise.resolve({ usage: { inputTokens: 1, outputTokens: 1 }, stopReason: "end_turn" });
+    },
+    closeSession: function() {
+      return Promise.resolve({});
+    },
+    cancel: function() {
+      return Promise.resolve({});
+    },
+  };
+  var handle = createHandle(fakeConnection, { prompt: "" });
+  var recorded = [];
+  var session = { localId: 7, storageId: "copilot-single-turn", singleTurn: true };
+  var streamed = null;
+
+  try {
+    await launchQuery({
+      onProcessingChanged: function() {},
+      processQueryStream: function(target) {
+        return readUntil(target.queryInstance, function(event) {
+          return event.yokeType === "result";
+        }).then(function(eventsOut) { streamed = eventsOut; });
+      },
+      sendAndRecord: function(target, event) { recorded.push(event); },
+      sm: {
+        broadcastSessionList: function() {},
+        saveSessionFile: function() {},
+      },
+    }, session, {
+      vendor: "github-copilot",
+      createQuery: function() { return Promise.resolve(handle); },
+    }, { options: {}, initialTitle: "" }, "Continue the task", null, null, null);
+    await session.streamPromise;
+
+    assert.strictEqual(session.queryInstance, handle);
+    assert.deepStrictEqual(recorded, []);
+    assert.strictEqual(eventsByType(streamed, "result").length, 1);
   } finally {
     handle.close();
   }
