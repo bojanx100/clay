@@ -30,6 +30,63 @@ test("append assigns monotonic seq and persists across reads", function () {
   });
 });
 
+// Regression: seq was derived from the LAST row, so one foreign row written
+// without a seq collapsed the whole sequence back to 1.
+//
+// Live damage, 2026-09-04: ~/.clay/lead/ledger.jsonl held max seq 1440 while
+// its tail read 1,2,3,null,null,1,2. The lead_finding rows were appended with
+// a direct fs.appendFileSync, bypassing appendEvent; `undefined + 1` -> NaN ->
+// serialised `null` -> `null + 1` -> 1. Several agents append to this file, so
+// the numbering has to survive writers that do not go through this module.
+test("a foreign row with no seq cannot restart the numbering", function () {
+  withDir(function (dir) {
+    var file = path.join(dir, "ledger.jsonl");
+    ledger.appendEvent({ type: "lead_note", note: "a" }, { dir: dir, now: 100 });
+    ledger.appendEvent({ type: "lead_note", note: "b" }, { dir: dir, now: 200 });
+    var third = ledger.appendEvent({ type: "lead_note", note: "c" }, { dir: dir, now: 300 });
+    assert.strictEqual(third.seq, 3);
+
+    // Exactly how the live lead_finding rows were written.
+    fs.appendFileSync(file, JSON.stringify({ type: "lead_finding", at: 400 }) + "\n");
+
+    var after = ledger.appendEvent({ type: "lead_tick_wake" }, { dir: dir, now: 500 });
+    assert.strictEqual(after.seq, 4,
+      "must continue from the highest seq, not restart at 1 over rows that own those numbers");
+    assert.ok(Number.isFinite(after.seq), "NaN is what serialised to null and started the collapse");
+
+    var next = ledger.appendEvent({ type: "lead_tick_wake" }, { dir: dir, now: 600 });
+    assert.strictEqual(next.seq, 5, "and the row after the repaired one must not reuse a seq either");
+
+    var seqs = fs.readFileSync(file, "utf8").trim().split("\n").map(function (line) {
+      return JSON.parse(line).seq;
+    });
+    assert.deepStrictEqual(seqs, [1, 2, 3, undefined, 4, 5],
+      "the foreign row keeps its missing seq; ours stay unique and ascending");
+  });
+});
+
+test("numbering survives explicitly broken seq values, not just missing ones", function () {
+  withDir(function (dir) {
+    var file = path.join(dir, "ledger.jsonl");
+    ledger.appendEvent({ type: "lead_note", note: "a" }, { dir: dir, now: 100 });
+
+    // The three shapes actually found in the live file.
+    fs.appendFileSync(file, JSON.stringify({ type: "x", seq: null, at: 200 }) + "\n");
+    fs.appendFileSync(file, JSON.stringify({ type: "x", seq: "12", at: 300 }) + "\n");
+    fs.appendFileSync(file, JSON.stringify({ type: "x", seq: -5, at: 400 }) + "\n");
+
+    // "12" is a real number once coerced, so it must count as the high-water
+    // mark; null and -5 must not drag the sequence backwards.
+    assert.strictEqual(ledger.appendEvent({ type: "lead_note", note: "b" }, { dir: dir, now: 500 }).seq, 13);
+  });
+});
+
+test("an empty ledger still starts at 1", function () {
+  withDir(function (dir) {
+    assert.strictEqual(ledger.appendEvent({ type: "lead_note", note: "first" }, { dir: dir, now: 1 }).seq, 1);
+  });
+});
+
 test("corrupt tail lines are skipped, never fatal", function () {
   withDir(function (dir) {
     ledger.appendEvent({ type: "staffed", item: item("x1"), route: ROUTE }, { dir: dir, now: 1 });
