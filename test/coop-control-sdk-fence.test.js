@@ -51,6 +51,7 @@ function controlledSession(fence) {
     localId: 9,
     storageId: "controlled-session",
     vendor: "codex",
+    providerRouteId: "codex-openai",
     model: "gpt-5.6-sol",
     orchestrationPolicy: { portfolioExecution: { control: Object.assign({}, REFS) } },
     history: [],
@@ -100,6 +101,9 @@ function queryHarness(fence, calls, options) {
     saveSessionFile: function () {},
     broadcastSessionList: function () {},
   };
+  if (typeof opts.ensureCoopTopTierRoute === "function") {
+    sm.ensureCoopTopTierRoute = opts.ensureCoopTopTierRoute;
+  }
   var bridge = attachBridgeQueryStart({
     adapters: { codex: adapter },
     adapter: adapter,
@@ -128,9 +132,9 @@ function queryHarness(fence, calls, options) {
     getLoginCommand: function () { return "codex login"; },
     notifyAuthRequired: function () {},
     copilotRouteIdForModel: function () { return null; },
-    getModelsForSession: function () { return []; },
-    modelListContains: function () { return true; },
-    resolveModelInList: function () { return null; },
+    getModelsForSession: opts.getModelsForSession || function () { return []; },
+    modelListContains: opts.modelListContains || function () { return true; },
+    resolveModelInList: opts.resolveModelInList || function () { return null; },
     modelEntryValue: function (value) { return value; },
     mergeMcpServers: function () { return {}; },
     getMcpServers: function () {
@@ -201,6 +205,26 @@ test("provider creation and every provider tool callback use the captured execut
   harness.options().onElicitation({}, {});
   harness.options().onUserDialog({}, {});
   assert.ok(calls.indexOf("assert:callback") !== -1);
+});
+
+test("canonical Coop rejects a catalog substitution before provider construction", async function () {
+  var calls = [];
+  var fence = fakeFence({}, calls);
+  var session = controlledSession(fence);
+  session.coopHome = true;
+  var harness = queryHarness(fence, calls, {
+    ensureCoopTopTierRoute: function () { return { ok: true }; },
+    getModelsForSession: function () { return ["gpt-5.6-terra"]; },
+    modelListContains: function (list, model) {
+      return list.indexOf(model) !== -1;
+    },
+  });
+
+  var result = await harness.bridge.startQuery(session, "start", null, null);
+
+  assert.deepEqual(result, { ok: false, reason: "coop_top_tier_unavailable" });
+  assert.equal(calls.indexOf("create"), -1);
+  assert.ok(calls.indexOf("record") !== -1);
 });
 
 test("a stale provider-start capability is rejected before adapter creation", async function () {

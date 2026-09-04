@@ -4,6 +4,8 @@ var assert = require("node:assert/strict");
 var policy = require("../lib/coop-model-policy");
 var providerHealth = require("../lib/provider-health");
 var attachBridgeQueryStart = require("../lib/sdk-bridge-query-start").attachBridgeQueryStart;
+var attachProjectSessionsSettings =
+  require("../lib/project-sessions-settings").attachProjectSessionsSettings;
 
 function states(values) {
   return function (designation) {
@@ -203,4 +205,52 @@ test("fresh Coop routing returns a typed unavailable result before adapter start
   assert.equal(session.isProcessing, false);
   assert.match(recorded[0].text, /no designated top-tier route is healthy/i);
   providerHealth._reset();
+});
+
+test("server and project defaults never rebind the canonical Coop session", function () {
+  var session = {
+    coopHome: true,
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+  };
+  var setModelCalls = 0;
+  var sm = {
+    currentModel: "gpt-5.6-sol",
+    defaultModelsByVendor: {},
+    serverDefaultModelsByVendor: {},
+    saveSessionFile: function () {},
+    broadcastSessionList: function () {},
+  };
+  var handler = attachProjectSessionsSettings({
+    slug: "lead",
+    sm: sm,
+    sdk: { setModel: function () { setModelCalls += 1; } },
+    send: function () {},
+    sendTo: function () {},
+    opts: {
+      onSetServerDefaultModel: function () {},
+      onSetProjectDefaultModel: function () {},
+    },
+    getSessionForWs: function () { return session; },
+    sendConfigForSession: function () {},
+    applyAutomationModeToSession: function () {},
+    copilotRouteIdForModel: function () { return null; },
+    isKnownCodexSession: function () { return false; },
+  });
+
+  assert.equal(handler.handleSettingsMessage({}, {
+    type: "set_server_default_model",
+    vendor: "codex",
+    model: "gpt-5.6-terra",
+  }), true);
+  assert.equal(handler.handleSettingsMessage({}, {
+    type: "set_project_default_model",
+    vendor: "codex",
+    model: "gpt-5.6-luna",
+  }), true);
+  assert.equal(session.model, "gpt-5.6-sol");
+  assert.equal(setModelCalls, 0);
+  assert.equal(sm.serverDefaultModelsByVendor.codex, "gpt-5.6-terra");
+  assert.equal(sm.defaultModelsByVendor.codex, "gpt-5.6-luna");
 });

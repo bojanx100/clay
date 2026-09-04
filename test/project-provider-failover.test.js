@@ -322,6 +322,34 @@ test("a fresh canonical Coop session binds to Sol before its first provider turn
   providerHealth._reset();
 });
 
+test("canonical Coop leaves a catalog-missing Sol route for verified Fable", function () {
+  providerHealth._reset();
+  var sm = makeSm(["claude", "codex"]);
+  sm.modelsByVendor.claude = ["claude-fable-5"];
+  sm.modelsByVendor.codex = ["gpt-5.6-terra"];
+  var failover = makeFailover(sm, []);
+  var session = {
+    localId: 46,
+    storageId: "existing-coop",
+    cliSessionId: "codex-thread",
+    coopHome: true,
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    requestedModel: "gpt-5.6-sol",
+    history: [{ type: "user_message", text: "Continue" }],
+    isProcessing: false,
+  };
+
+  var decision = failover.ensureCoopTopTierRoute(session);
+
+  assert.equal(decision.ok, true);
+  assert.equal(session.vendor, "claude");
+  assert.equal(session.providerRouteId, "claude-anthropic");
+  assert.equal(session.model, "claude-fable-5");
+  providerHealth._reset();
+});
+
 test("Fable schedules the original provider reset instead of downgrading to Copilot Opus", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });

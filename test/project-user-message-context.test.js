@@ -85,6 +85,38 @@ test("unknown and prototype message types fall through, while empty message is c
   assert.equal(h.sdkCalls.length, 0);
 });
 
+test("a fresh canonical Coop message cannot seed an ungoverned vendor", async function () {
+  var session = {
+    localId: 15,
+    history: [],
+    coopHome: true,
+    vendor: null,
+    coopTopicSelection: {
+      topicRef: { topicId: "initial-route" },
+      projectRef: { projectId: "system-lead" },
+    },
+  };
+  var h = makeContext({
+    session: session,
+    validateCoopTopicIngress: function () {
+      return { ok: true, topicRef: { topicId: "initial-route" },
+        projectRef: { projectId: "system-lead" } };
+    },
+  });
+
+  h.context.handleUserMessage({}, {
+    type: "message",
+    text: "Start on a lower route",
+    vendor: "github-copilot",
+    coopComposerScope: "main",
+  });
+  await waitForAsyncDispatch();
+
+  assert.equal(session.vendor, null);
+  assert.equal(h.sdkCalls.length, 1,
+    "the shared query-start policy owns the eventual approved route binding");
+});
+
 test("canonical topic ingress rejects stale Thread refs and Main records a newly inferred route", function () {
   var seen = null;
   var session = {
