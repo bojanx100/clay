@@ -729,6 +729,7 @@ var URBAN_STAY_PROJECT = "51e67388-cea0-52b7-8e01-cde68cae713c";
 function typedIssueAutomation() {
   return {
     autonomy: { bug: "autonomous", feature: "owner_approval", ambiguous: "owner_approval" },
+    externalActions: { done_workflow: "approval" },
     qualification: {
       version: 1,
       normalIssueIntake: {
@@ -1599,7 +1600,7 @@ function makeCoordinatorSessionManager(projectId) {
       sessions.set(session.localId, session);
       return session;
     },
-    saveSessionFile: function () {},
+    saveSessionFile: function () { return true; },
     appendToSessionFile: function () {},
     broadcastSessionList: function () {},
   };
@@ -1733,6 +1734,264 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     assert.strictEqual(roots[0].orchestrationTasks[0].status, "completed");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("adopted require-user-trigger primitive fans in internal completion before owner Done", async function () {
+  var serverCrossProject = require("../lib/server-cross-project");
+  var projectIdentity = require("../lib/project-identity");
+  var taskSources = require("../lib/project-task-sources");
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-auto-fanin-"));
+  var hidden = [];
+  var externalEvaluations = 0;
+  var reportCalls = 0;
+  var pendingSaveAttempts = 0;
+  var completionSaveAttempts = 0;
+  var durableTaskLauncher = null;
+  var originalGetIssueStatus = taskSources.getIssueStatus;
+  taskSources.getIssueStatus = function () { return ""; };
+  try {
+    var tasksDir = path.join(cwd, ".clay", "tasks");
+    fs.mkdirSync(tasksDir, { recursive: true });
+    var recipe = {
+      id: "assigned-to-me",
+      source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
+      launch: { defaultLimit: 10 }, session: {},
+      completion: {
+        marker: "CLAY_TASK_COMPLETE",
+        requireUserTrigger: true,
+        closeSession: true,
+        archiveSession: true,
+      },
+      filter: { type: "bug", assigned: "me" },
+    };
+    fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
+    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+      autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 1 },
+      automation: typedIssueAutomation(),
+    }));
+
+    var leadManager = makeCoordinatorSessionManager(projectIdentity.LEAD_PROJECT_ID);
+    leadManager.sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
+    var targetManager = makeCoordinatorSessionManager(CUTOVER_PROJECT);
+    var failFirstCompletionSave = false;
+    targetManager.saveSessionFile = function (session, options) {
+      var launcherState = session && session.taskLauncher;
+      if (launcherState && launcherState.executionCompletionPending &&
+          !launcherState.executionCompletionReported) {
+        pendingSaveAttempts++;
+        assert.strictEqual(options && options.durable, true,
+          "completion intent must survive a restart before coordinator delivery");
+        durableTaskLauncher = JSON.parse(JSON.stringify(launcherState));
+      } else if (launcherState && launcherState.executionCompletionReported &&
+          !launcherState.completionCallbackInvoked) {
+        completionSaveAttempts++;
+        assert.strictEqual(options && options.durable, true,
+          "capacity release must survive a restart before it is acknowledged");
+        if (failFirstCompletionSave) {
+          failFirstCompletionSave = false;
+          return false;
+        }
+        durableTaskLauncher = JSON.parse(JSON.stringify(launcherState));
+      }
+      return true;
+    };
+    targetManager.hideSessionForActiveClients = function (localId) {
+      hidden.push(localId);
+      var session = targetManager.sessions.get(localId);
+      if (session) session.hidden = true;
+    };
+    var autoLaunch = null;
+    var leadContext = {
+      getProjectId: function () { return projectIdentity.LEAD_PROJECT_ID; },
+      getSessionManager: function () { return leadManager; },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    };
+    var targetContext = {
+      getProjectId: function () { return CUTOVER_PROJECT; },
+      getSessionManager: function () { return targetManager; },
+      validateAutomationAuthorization: function (input) {
+        return autoLaunch.validateAutomationAuthorization(input);
+      },
+      deliverCrossProjectEnvelope: function () { return { ok: false }; },
+    };
+    var router = serverCrossProject.createCrossProjectRouter({
+      allowLeadSourcedExecution: true,
+      requireOwnerImplementationDecision: true,
+      bindingFile: path.join(cwd, "bindings.json"),
+      automationThreadIndex: {
+        ensureAutomationThread: function (input) {
+          return { ok: true, topicRef: { topicId: input.authorization.threadRef.threadId },
+            threadRef: input.authorization.threadRef };
+        },
+      },
+      onThreadHandedOff: function () { return { ok: true }; },
+      ownerRequests: {
+        claimCoordinator: function (input) {
+          this.claimed = input.coordinator;
+          return { ok: true };
+        },
+        canonicalCoordinator: function () { return this.claimed || null; },
+      },
+      getProjectContextById: function (projectId) {
+        if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
+        if (projectId === CUTOVER_PROJECT) return targetContext;
+        return null;
+      },
+    });
+    var originalReport = router.reportAutoLaunchExecution;
+    var failFirstReport = false;
+    router.reportAutoLaunchExecution = function (input) {
+      reportCalls++;
+      if (failFirstReport) {
+        failFirstReport = false;
+        return { ok: false, reason: "temporary_delivery_failure" };
+      }
+      return originalReport(input);
+    };
+    var taskLauncher = attachTaskLauncher({
+      cwd: cwd,
+      sm: targetManager,
+      sdk: { startQuery: function () {} },
+      usersModule: { isMultiUser: function () { return false; } },
+      ensureProjectAccessForSession: function () { return true; },
+      onProcessingChanged: function () {},
+      getAutomationGate: function () {
+        return {
+          evaluateExternal: function (input) {
+            externalEvaluations++;
+            return autoLaunch.automationGate.evaluateExternal(input);
+          },
+        };
+      },
+      onComplete: function (session, summary) {
+        return autoLaunch.notifyCompleted(session, summary);
+      },
+    });
+    var scanItems = [Object.assign({}, assignedIssue(2565), { key: "trialview/v2#2565" })];
+    autoLaunch = attachAutoLaunch({
+      cwd: cwd,
+      slug: "webapp",
+      sm: targetManager,
+      getTaskLauncher: function () { return taskLauncher; },
+      getLeadMode: function () { return true; },
+      crossProject: router,
+      fetchItems: function () { return scanItems; },
+    });
+
+    await autoLaunch.launchScheduled("assigned-to-me");
+    var primitive = targetManager.sessions.get(100);
+    assert.ok(primitive, "the real task launcher should create the primitive session");
+    primitive.isProcessing = false;
+    var persisted = JSON.parse(fs.readFileSync(path.join(cwd, "bindings.json"), "utf8"));
+    var binding = persisted.bindings[0];
+    var roots = Array.from(leadManager.sessions.values()).filter(function (session) {
+      return session.coordinationRole === "project_coordinator";
+    });
+    assert.strictEqual(roots.length, 1);
+    assert.strictEqual(roots[0].orchestrationTasks.length, 1);
+    assert.strictEqual(binding.status, "active");
+
+    failFirstReport = true;
+    failFirstCompletionSave = true;
+    taskLauncher.handleTaskTurnDone(primitive, "", "Verified the implementation. CLAY_TASK_COMPLETE: internal work");
+    assert.notStrictEqual(primitive.taskLauncher.workflowCompleted, true,
+      "the internal marker must not close the owner-gated local workflow");
+    assert.ok(!primitive.taskLauncher.closeAfterNextTurn,
+      "the internal marker must not arm a local owner-triggered close");
+    assert.strictEqual(primitive.taskLauncher.ownerCompletionApproval, undefined,
+      "the internal marker must not grant owner approval");
+    assert.deepStrictEqual(hidden, [], "internal completion must not hide the session");
+    assert.strictEqual(externalEvaluations, 0,
+      "internal completion must not pass through the external Done gate");
+    binding = JSON.parse(fs.readFileSync(path.join(cwd, "bindings.json"), "utf8")).bindings[0];
+    assert.strictEqual(binding.status, "active",
+      "a failed coordinator report must not claim internal completion");
+    assert.notStrictEqual(primitive.taskLauncher.completionCallbackInvoked, true,
+      "a failed coordinator report must remain retryable");
+    assert.notStrictEqual(primitive.taskLauncher.executionCompletionReported, true,
+      "a failed coordinator report must keep the capacity slot occupied");
+    assert.ok(primitive.taskLauncher.executionCompletionPending,
+      "a failed coordinator report must leave a durable retry intent");
+    assert.strictEqual(pendingSaveAttempts, 1,
+      "the retry intent must be durable before coordinator delivery begins");
+    assert.strictEqual(completionSaveAttempts, 0,
+      "a failed coordinator report must not persist a false completion");
+
+    taskLauncher.handleTaskTurnDone(primitive, "", "Verified the implementation. CLAY_TASK_COMPLETE: internal work");
+    binding = JSON.parse(fs.readFileSync(path.join(cwd, "bindings.json"), "utf8")).bindings[0];
+    assert.strictEqual(binding.status, "completed");
+    assert.strictEqual(roots[0].orchestrationTasks[0].status, "completed");
+    assert.strictEqual(reportCalls, 2, "internal completion must retry the failed report");
+    assert.strictEqual(completionSaveAttempts, 1);
+    assert.notStrictEqual(primitive.taskLauncher.completionCallbackInvoked, true,
+      "a failed durable save must keep coordinator completion retryable");
+    assert.notStrictEqual(primitive.taskLauncher.executionCompletionReported, true,
+      "a failed durable save must keep the live capacity slot occupied");
+    assert.ok(primitive.taskLauncher.executionCompletionPending,
+      "a failed acknowledgement save must restore the durable retry intent");
+
+    // A fresh controller over the reloaded session state is the daemon-restart
+    // path. It must finish the idempotent report without another model marker.
+    primitive.taskLauncher = JSON.parse(JSON.stringify(durableTaskLauncher));
+    autoLaunch = attachAutoLaunch({
+      cwd: cwd,
+      slug: "webapp",
+      sm: targetManager,
+      getTaskLauncher: function () { return taskLauncher; },
+      getLeadMode: function () { return true; },
+      crossProject: router,
+      fetchItems: function () { return scanItems; },
+    });
+    var recovered = autoLaunch.drainLegacyAutomation();
+    assert.strictEqual(recovered.completionReconciliation.recovered, 1);
+    assert.strictEqual(recovered.completionReconciliation.pending, 0);
+    assert.strictEqual(recovered.drained, 0,
+      "a pending completion must never be re-adopted as live legacy work");
+    assert.strictEqual(reportCalls, 3,
+      "restart recovery must replay the idempotent coordinator report");
+    assert.strictEqual(completionSaveAttempts, 2);
+    assert.strictEqual(primitive.taskLauncher.executionCompletionReported, true);
+    assert.strictEqual(primitive.taskLauncher.executionCompletionPending, undefined);
+
+    scanItems.push(Object.assign({}, assignedIssue(2566), { key: "trialview/v2#2566" }));
+    await autoLaunch.launchScheduled("assigned-to-me");
+    assert.ok(targetManager.sessions.get(101),
+      "terminal internal completion must release capacity for another primitive");
+
+    // Duplicate marker delivery is harmless, and the real owner trigger still
+    // closes the local task without sending a second coordinator completion.
+    taskLauncher.handleTaskTurnDone(primitive, "", "CLAY_TASK_COMPLETE: internal work");
+    assert.strictEqual(reportCalls, 3, "duplicate marker must remain idempotent");
+    var directive = taskLauncher.handleTaskUserMessageDispatched(primitive, "mark as done");
+    assert.ok(directive && directive.indexOf("CLAY_TASK_COMPLETE") !== -1);
+    assert.strictEqual(externalEvaluations, 1, "only the owner trigger may reach the external gate");
+    assert.ok(primitive.taskLauncher.ownerCompletionApproval,
+      "the owner trigger should record its approval");
+    taskLauncher.handleTaskTurnDone(primitive, "", "Done workflow complete. CLAY_TASK_COMPLETE: owner Done");
+    assert.strictEqual(primitive.taskLauncher.workflowCompleted, true);
+    assert.deepStrictEqual(hidden, [primitive.localId]);
+    assert.strictEqual(reportCalls, 3, "owner-triggered local closure must not re-report completion");
+  } finally {
+    taskSources.getIssueStatus = originalGetIssueStatus;
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("require-user-trigger non-primitives still wait for owner Done", function () {
+  var h = makeTaskLauncher();
+  try {
+    var session = makeAutoSession();
+    session.taskLauncher.completion.requireUserTrigger = true;
+    session.orchestrationPolicy = { portfolioExecution: {
+      automationAuthorization: { kind: "project_execution" },
+    } };
+    h.tl.handleTaskTurnDone(session, "", "Verified work. CLAY_TASK_COMPLETE");
+    assert.notStrictEqual(session.taskLauncher.workflowCompleted, true);
+    assert.strictEqual(h.completed.length, 0);
+    assert.deepStrictEqual(h.hidden, []);
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
   }
 });
 

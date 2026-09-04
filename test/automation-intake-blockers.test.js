@@ -496,11 +496,15 @@ test("a legacy session that cannot be attributed to an item fails closed", funct
   }
 });
 
-test("completed and hidden legacy sessions are not drained", function () {
+test("completed, internally completed, and hidden legacy sessions are not drained", function () {
   var h = drainHarness([
     { localId: 5, storageId: "a", taskLauncher: { autoLaunch: true, itemKey: "o/r#1", workflowCompleted: true } },
     { localId: 6, storageId: "b", hidden: true, taskLauncher: { autoLaunch: true, itemKey: "o/r#2" } },
     { localId: 7, storageId: "c", taskLauncher: { autoLaunch: false, itemKey: "o/r#3" } },
+    { localId: 8, storageId: "d", taskLauncher: {
+      autoLaunch: true, itemKey: "o/r#4", workflowCompleted: false,
+      executionCompletionReported: true,
+    } },
   ]);
   try {
     var result = h.autoLaunch.drainLegacyAutomation();

@@ -456,6 +456,41 @@ test("the owner-triggered carve-out needs authentic provenance too", function ()
   }).decision, "execute");
 });
 
+test("only owner-triggered Done may reuse its exact completed binding", function () {
+  var h = makeGate();
+  attestBinding("task-internally-complete", 1, {
+    status: "completed",
+    automationAuthorization: { kind: "project_auto_launch_primitive" },
+  });
+  var authorization = { portfolioTaskId: "task-internally-complete", bindingRevision: 1 };
+  var approval = { granted: true, by: "owner" };
+
+  assert.strictEqual(h.gate.evaluateExternal({
+    itemKey: "x", externalKind: "done_workflow", ownerTriggered: true,
+    coopAuthorization: authorization, completion: null, approval: approval,
+  }).decision, "execute", "the authenticated owner must retain the separate Done step");
+
+  assert.strictEqual(h.gate.evaluateExternal({
+    itemKey: "x", externalKind: "done_workflow", ownerTriggered: false,
+    coopAuthorization: authorization, completion: evidence(), approval: approval,
+  }).reason, "coop_authorization_not_committed",
+  "an agent-originated Done workflow must not inherit terminal binding authority");
+
+  assert.strictEqual(h.gate.evaluateExternal({
+    itemKey: "x", externalKind: "merge", ownerTriggered: true,
+    coopAuthorization: authorization, completion: evidence(), approval: approval,
+  }).reason, "coop_authorization_not_committed",
+  "the exception must not widen irreversible external actions");
+
+  attestBinding("task-generic-complete", 1, { status: "completed" });
+  assert.strictEqual(h.gate.evaluateExternal({
+    itemKey: "x", externalKind: "done_workflow", ownerTriggered: true,
+    coopAuthorization: { portfolioTaskId: "task-generic-complete", bindingRevision: 1 },
+    completion: null, approval: approval,
+  }).reason, "coop_authorization_not_committed",
+  "completed generic work must not impersonate an adopted primitive");
+});
+
 test("without a binding reader nothing external is authorized", function () {
   var dir = workspace([BUG_RECIPE]);
   var gate = gateModule.createAutomationGate({

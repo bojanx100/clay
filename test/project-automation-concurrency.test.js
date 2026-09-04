@@ -108,6 +108,19 @@ test("concurrency: hidden and workflow-completed sessions free their slots", fun
   assert.strictEqual(slots.available, 2);
 });
 
+test("concurrency: internally completed adopted primitive frees capacity while awaiting owner Done", function () {
+  var sm = sessionManager([
+    autoSession("org/repo#1", {
+      taskLauncher: { autoLaunch: true, executionCompletionReported: true },
+    }),
+  ]);
+  var slots = limiter({ sm: sm, getLimit: function () { return 1; } }).slots();
+  assert.strictEqual(slots.ok, true);
+  assert.strictEqual(slots.inFlight, 0,
+    "internal implementation completion releases the worker slot");
+  assert.strictEqual(slots.available, 1);
+});
+
 test("concurrency: a live auto session with no item key still occupies a slot", function () {
   // Unattributable, so it cannot dedupe — but it is real running work and must
   // never be invisible to the limit.
