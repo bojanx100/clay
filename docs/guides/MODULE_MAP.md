@@ -504,6 +504,7 @@ Bootstraps UI, initializes store, wires remaining Tier 3 modules. All business l
 | `queued-messages.js` | Client-side queued/steer message indicators and orchestration preview coordination |
 | `orchestration-task-preview.js` | Compact worker metric strip, expandable worker detail rows, worker navigation, and close controls |
 | `sidebar-projects.js` | Project icon strip, context menus, emoji picker, drag-and-drop reorder, worktree modal, project access popover, project rename, project badges |
+| `sidebar-worktree-rail.js` | Expandable worktree discovery and navigation inside desktop project rail families |
 | `branch-switcher.js` | Title-bar branch picker, worktree navigation, new-worktree launch, and worktree removal actions |
 | `worktree-family.js` | Pure parent/worktree family lookup and aggregate display-state helpers |
 | `sidebar-lead.js` | Lead pseudo-project detection and pinned desktop/mobile sidebar row creation |

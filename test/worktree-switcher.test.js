@@ -58,3 +58,27 @@ test("switcher labels a worktree as parent and branch", async function() {
   var helpers = await loadHelpers();
   assert.strictEqual(helpers.switcherProjectName(projects, projects[1]), "Clay \u2387 feat/alpha");
 });
+
+test("worktree rail opens the active family without persisting a preference", async function() {
+  var helpers = await loadHelpers();
+  assert.strictEqual(helpers.worktreeFamilyExpanded("clay", projects.slice(1, 3), "clay", {}, false), false);
+  assert.strictEqual(helpers.worktreeFamilyExpanded("clay", projects.slice(1, 3), "clay--alpha", {}, false), true);
+  assert.strictEqual(helpers.worktreeFamilyExpanded("clay", projects.slice(1, 3), "clay--alpha", { clay: false }, false), false);
+  assert.strictEqual(helpers.worktreeFamilyExpanded("clay", projects.slice(1, 3), "clay", { clay: false }, true), true);
+});
+
+test("desktop project families expose an accessible worktree disclosure", function () {
+  var sidebar = fs.readFileSync(path.join(__dirname, "../lib/public/modules/sidebar-projects.js"), "utf8");
+  var rail = fs.readFileSync(path.join(__dirname, "../lib/public/modules/sidebar-worktree-rail.js"), "utf8");
+  var css = fs.readFileSync(path.join(__dirname, "../lib/public/css/icon-strip.css"), "utf8");
+
+  assert.match(sidebar, /createWorktreeRailGroup\(el, p, worktrees\)/);
+  assert.match(rail, /toggle\.setAttribute\("aria-expanded"/);
+  assert.match(rail, /items\.hidden = !expanded/);
+  assert.match(rail, /switchProject\(worktree\.slug, \{ exactProject: true \}\)/);
+  assert.match(rail, /expandedWorktreeFamilies/);
+  assert.doesNotMatch(rail, /localStorage/);
+  assert.match(css, /\.icon-strip-group-toggle/);
+  assert.match(css, /\.icon-strip-group-items\[hidden\]/);
+  assert.match(css, /\.icon-strip-wt-item\.active/);
+});

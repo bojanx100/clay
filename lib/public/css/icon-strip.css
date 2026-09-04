@@ -207,6 +207,152 @@
   color: #fff;
 }
 
+/* --- Expandable worktree families --- */
+.icon-strip-group {
+  position: relative;
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.icon-strip-group-header {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+}
+
+.icon-strip-group-header .folder-header {
+  z-index: 1;
+}
+
+.icon-strip-group-toggle {
+  position: absolute;
+  right: -1px;
+  bottom: 0;
+  z-index: 3;
+  min-width: 24px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--sidebar-bg);
+  color: var(--text-dimmer);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.icon-strip-group-toggle svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.5;
+}
+
+.icon-strip-group-toggle:hover,
+.icon-strip-group-toggle:focus-visible,
+.icon-strip-group.expanded .icon-strip-group-toggle {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--bg-alt);
+}
+
+.icon-strip-group-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.icon-strip-group-count {
+  min-width: 6px;
+  text-align: center;
+}
+
+.icon-strip-group-items {
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-left: 2px solid var(--border);
+}
+
+.icon-strip-group-items[hidden] {
+  display: none;
+}
+
+.icon-strip-wt-item {
+  position: relative;
+  width: 48px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.icon-strip-wt-item::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--bg-alt);
+  opacity: 0.72;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.icon-strip-wt-item:hover::before {
+  opacity: 1;
+}
+
+.icon-strip-wt-item.active {
+  color: #fff;
+}
+
+.icon-strip-wt-item.active::before {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.icon-strip-wt-item .wt-branch-abbrev {
+  position: relative;
+  z-index: 1;
+  max-width: 26px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+  line-height: 1;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.icon-strip-wt-item .project-emoji img {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-strip-wt-item .icon-strip-status {
+  z-index: 2;
+}
+
+.icon-strip-wt-item.wt-disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
 /* --- Socket status indicator on icon (top-left dot) --- */
 .icon-strip-status {
   position: absolute;
@@ -246,6 +392,7 @@
 
 /* Pending permission shake */
 .icon-strip-item.has-pending-perm,
+.icon-strip-wt-item.has-pending-perm,
 .icon-strip-mate.has-pending-perm {
   animation: permShake 2s ease-in-out infinite;
 }
