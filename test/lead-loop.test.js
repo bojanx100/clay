@@ -288,9 +288,17 @@ test("the oldest unanswered owner request leads", function () {
   });
   assert.strictEqual(d[0].action, "answer_owner");
   assert.deepStrictEqual(d[0].requests.map(function (r) { return r.ingressSequence; }), [182, 185, 190]);
+  // responseLink is version 2 and carries BATCHES, not one flat array. The
+  // Coop control gate caps a single link_owner_response call, so emitting
+  // every answerable request at once made the decision structurally
+  // unlinkable once the backlog passed that cap. Three requests still fit in
+  // one batch; the batching itself is pinned in
+  // test/coop-owner-request-batching.test.js.
   assert.deepStrictEqual(d[0].responseLink, {
-    version: 1,
-    requests: [182, 185, 190].map(function (sequence) {
+    version: 2,
+    maxRequestsPerCall: require("../lib/coop-owner-request-batching").MAX_OWNER_REQUEST_BATCH,
+    totalRequests: 3,
+    batches: [[182, 185, 190].map(function (sequence) {
       return {
         ingressId: "coop:871a194b-8879-40f7-a1fe-656e48e722af:" + sequence,
         requestRef: {
@@ -299,7 +307,7 @@ test("the oldest unanswered owner request leads", function () {
           eventIndex: 1000 + sequence,
         },
       };
-    }),
+    })],
   });
 });
 

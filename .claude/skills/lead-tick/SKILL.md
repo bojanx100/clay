@@ -228,11 +228,22 @@ stall the backlog behind something only the boss can clear.
   staff the work; the answer and the staffing are two separate obligations.
   Before writing the owner-facing answer, call
   `clay-coop-control/link_owner_response` with the canonical Coop `sessionId`
-  and the decision's exact `responseLink.requests` unchanged. This durably
-  binds the current response turn to those ingress/request refs without
-  changing their answer state. Finalization marks only that exact set after
-  the turn completes with visible output. If linkage is rejected, fail closed
-  and report the typed error; never write to or reconcile the ledger by hand.
+  and **one entry of `responseLink.batches`, unchanged, per call** — iterate
+  until every batch has been linked. `responseLink` is `version: 2` and
+  carries `batches` (each already within the gate's per-call cap),
+  `maxRequestsPerCall` and `totalRequests`; there is no flat `requests` key
+  any more. The gate refuses more than `maxRequestsPerCall` targets in one
+  call, so a single call carrying the whole backlog is rejected outright with
+  a typed `too_big` and NOTHING gets linked — that is exactly the deadlock
+  batching exists to remove. Do not merge, re-split, reorder or drop batches,
+  and do not stop after the first one: every batch you skip is an owner
+  question left unanswered with nothing recording it. Check that the number of
+  refs you linked equals `totalRequests` before you write the answer.
+  This durably binds the current response turn to those ingress/request refs
+  without changing their answer state. Finalization marks only that exact set
+  after the turn completes with visible output. If linkage is rejected, fail
+  closed and report the typed error; never write to or reconcile the ledger by
+  hand.
 
 - **staff, needsApproval: false** — apply judgment to pick the MINIMAL
   `ownedPaths` for the item; compose the brief with
