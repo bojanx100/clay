@@ -108,6 +108,46 @@ test("readHealthSnapshot reconciles a recent durable worker result without readi
   }
 });
 
+test("readHealthSnapshot reads session metadata when the first JSONL line is large", function () {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), "clay-lead-health-"));
+  var logPath = path.join(root, "recovery-events.log");
+  var sessionsRoot = path.join(root, "sessions");
+  var projectDir = path.join(sessionsRoot, "project");
+  var failedAt = Date.parse("2026-08-04T11:00:00Z");
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(logPath, line({
+    at: "2026-08-04T11:00:00Z",
+    kind: "provider_health",
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    scope: "route-model",
+    to: "unhealthy",
+  }) + "\n");
+  fs.writeFileSync(path.join(projectDir, "worker.jsonl"), [
+    line({
+      type: "meta",
+      vendor: "codex",
+      providerRouteId: "codex-openai",
+      model: "gpt-5.6-sol",
+      createdAt: failedAt + 1,
+      orchestrationContext: "x".repeat(3 * 1024 * 1024),
+    }),
+    line({ type: "user_message", _ts: failedAt + 1 }),
+    line({ type: "result", _ts: failedAt + 2 }),
+    line({ type: "done", _ts: failedAt + 2 }),
+  ].join("\n") + "\n");
+  try {
+    var snapshot = health.readHealthSnapshot(logPath, {
+      now: NOW,
+      sessionRoot: sessionsRoot,
+    });
+    assert.strictEqual(snapshot[health.routeModelKey("codex-openai", "gpt-5.6-sol")], "healthy");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("readHealthSnapshot returns empty map for a missing file", function () {
   assert.deepStrictEqual(health.readHealthSnapshot("/nonexistent/path.log"), {});
 });
