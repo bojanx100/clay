@@ -1,5 +1,8 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("node:fs");
+var path = require("node:path");
+var connectionState = require("../lib/project-connection-state");
 
 test("open browser chats remember independent stable session references", async function () {
   var values = new Map();
@@ -188,4 +191,80 @@ test("a Lead ProjectRef cached under an ordinary project is discarded without to
   assert.equal(state.forgetTabSessionRefForProject("clay", "system-lead"), false);
   assert.equal(state.readTabSession("clay"), "local-session");
   delete global.sessionStorage;
+});
+
+test("returning to a project family restores the conversation from its last visited worktree", async function () {
+  var values = new Map();
+  var now = 100;
+  var originalNow = Date.now;
+  global.sessionStorage = {
+    setItem: function (key, value) { values.set(key, value); },
+    getItem: function (key) { return values.has(key) ? values.get(key) : null; },
+    removeItem: function (key) { values.delete(key); },
+  };
+  Date.now = function () { return now; };
+
+  try {
+    var tabState = await import("../lib/public/modules/session-tab-state.js");
+    var family = await import("../lib/public/modules/worktree-family.js");
+    var policy = await import("../lib/public/modules/connection-policy.js");
+    var projects = [
+      { slug: "clay", project: "Clay" },
+      { slug: "clay--feature", project: "Feature", isWorktree: true,
+        parentSlug: "clay", worktreeAccessible: true },
+    ];
+    var parentSession = {
+      localId: 10,
+      storageId: "parent-storage",
+      cliSessionId: "parent-provider-session",
+      lastActivity: 10,
+    };
+    var worktreeSession = {
+      localId: 20,
+      storageId: "worktree-storage",
+      cliSessionId: "worktree-provider-session",
+      lastActivity: 20,
+    };
+
+    tabState.rememberTabSession("clay", parentSession.localId, parentSession.cliSessionId);
+    now = 200;
+    tabState.rememberTabSession(
+      "clay--feature", worktreeSession.localId, worktreeSession.cliSessionId);
+
+    var familySlugs = family.projectFamilySlugs(projects, "clay");
+    var rememberedProject = tabState.readMostRecentTabProject(familySlugs);
+    var targetSlug = family.familyNavigationTarget(projects, "clay", rememberedProject);
+    var requestedSessionId = policy.initialSessionReference({
+      currentSlug: targetSlug,
+      urlSessionRef: null,
+      tabSessionId: tabState.readTabSession(targetSlug),
+      activeSessionProjectSlug: "other-project",
+      activeSessionId: 30,
+      cliSessionId: "other-provider-session",
+    });
+    var sessions = new Map([[worktreeSession.localId, worktreeSession]]);
+    var restored = connectionState.findRestoredActiveSession({
+      sessions: sessions,
+      allSessions: Array.from(sessions.values()),
+      requestedSessionId: requestedSessionId,
+      storedPresence: null,
+      usersModule: { canAccessSession: function () { return true; } },
+      multiUser: false,
+      user: null,
+    });
+    var projectsSource = fs.readFileSync(
+      path.join(__dirname, "../lib/public/modules/app-projects.js"), "utf8");
+    var branchesSource = fs.readFileSync(
+      path.join(__dirname, "../lib/public/modules/branch-switcher.js"), "utf8");
+
+    assert.equal(targetSlug, "clay--feature");
+    assert.equal(restored.active, worktreeSession);
+    assert.match(projectsSource, /slug = resolveProjectFamilyTarget\(slug, options\)/);
+    assert.match(branchesSource,
+      /switchProject\(project\.slug, \{ exactProject: true \}\)/,
+      "an explicit branch choice must not redirect back to the remembered worktree");
+  } finally {
+    Date.now = originalNow;
+    delete global.sessionStorage;
+  }
 });
