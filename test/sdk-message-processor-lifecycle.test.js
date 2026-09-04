@@ -1,7 +1,12 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+require("./helpers/isolated-clay-home");
 
 var attachMessageProcessor = require("../lib/sdk-message-processor").attachMessageProcessor;
+var providerHealth = require("../lib/provider-health");
+var coopModelPolicy = require("../lib/coop-model-policy");
+var flattenCodexEvent = require("../lib/yoke/adapters/codex-events").flattenEvent;
+require("../lib/recovery-log").recordRecoveryEvent = function () {};
 
 function makeSession() {
   var startedAt = Date.now() - 100;
@@ -17,6 +22,7 @@ function makeSession() {
     pendingAskUser: {},
     activeTaskToolIds: {},
     taskIdMap: {},
+    messageUUIDs: [],
     isProcessing: true,
     _queryStartTs: startedAt,
     _turnSawActivity: false,
@@ -66,6 +72,30 @@ function emptyResult() {
     modelUsage: null,
     sessionId: "thread-empty",
   };
+}
+
+function codexResult(outputTokens) {
+  var codexState = {
+    threadId: "codex-thread",
+    model: "gpt-5.6-sol",
+    contextWindowTokens: 258400,
+    lastInputTokens: 1200,
+    aborted: false,
+  };
+  return flattenCodexEvent({
+    method: "turn/completed",
+    params: {
+      status: "completed",
+      usage: {
+        input_tokens: 1200,
+        cached_input_tokens: 0,
+        output_tokens: outputTokens,
+      },
+      turn: { status: "completed", items: [] },
+    },
+  }, codexState).filter(function (event) {
+    return event.yokeType === "result";
+  })[0];
 }
 
 test("terminal empty provider turns clear processing reasserted without a follow-on", function () {
@@ -130,4 +160,68 @@ test("turn telemetry separates model activity from visible text", function () {
   assert.equal(lines.filter(function (line) {
     return line.indexOf("turn=17:4 first_visible_text") !== -1;
   }).length, 1);
+});
+
+test("a token-backed Codex turn recovers Sol so canonical Coop can run", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "rate-limit-rejected", {
+    providerRouteId: "claude-anthropic",
+    model: "fable",
+    immediate: true,
+    unavailableUntil: Date.now() + 3600000,
+  });
+  providerHealth.recordFailure("codex", "provider-error:session-local-overflow", {
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    strong: true,
+  });
+  assert.equal(coopModelPolicy.selectRoute("execution").ok, false,
+    "with Fable unavailable and Sol degraded, Coop must fail closed");
+
+  var session = makeSession();
+  session.vendor = "codex";
+  session.providerRouteId = "codex-openai";
+  session.model = "gpt-5.6-sol";
+  var processor = makeProcessor();
+  processor.processSDKMessage(session, { yokeType: "text_start", blockId: "answer" });
+  processor.processSDKMessage(session, {
+    yokeType: "text_delta",
+    blockId: "answer",
+    text: "Sol completed real work.",
+  });
+
+  var result = codexResult(40);
+  assert.equal(result.cost, null, "the real Codex adapter has no dollar-cost signal");
+
+  processor.processSDKMessage(session, result);
+
+  assert.equal(session._lastTurnCompletedProductively, true);
+  assert.equal(providerHealth.getRouteHealth(
+    "codex", "codex-openai", "gpt-5.6-sol").state, "healthy");
+  var recoveredRoute = coopModelPolicy.selectRoute("execution");
+  assert.equal(recoveredRoute.ok, true);
+  assert.equal(recoveredRoute.providerRouteId, "codex-openai");
+  assert.equal(recoveredRoute.model, "gpt-5.6-sol");
+  providerHealth._reset();
+});
+
+test("an empty token-accounted Codex turn does not recover Sol", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("codex", "provider-error:session-local-overflow", {
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    strong: true,
+  });
+  var session = makeSession();
+  session.vendor = "codex";
+  session.providerRouteId = "codex-openai";
+  session.model = "gpt-5.6-sol";
+
+  makeProcessor().processSDKMessage(session, codexResult(0));
+
+  assert.equal(session._turnSawActivity, false);
+  assert.equal(session._lastTurnCompletedProductively, false);
+  assert.equal(providerHealth.getRouteHealth(
+    "codex", "codex-openai", "gpt-5.6-sol").state, "degraded");
+  providerHealth._reset();
 });
