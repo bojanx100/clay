@@ -148,13 +148,14 @@ test("#2517: an eligible bug produces exactly one durable candidate for Coop", a
   }
 });
 
-test("#2517: ticking for hours refreshes one candidate, never accumulates", async function () {
+test("#2517: ticking for hours launches one candidate, never accumulates", async function () {
   var h = harness();
   try {
     for (var i = 0; i < 12; i++) await h.autoLaunch.launchScheduled("assigned-to-me");
     var all = h.candidates.list();
     assert.strictEqual(all.length, 1, "12 ticks must not create 12 candidates");
-    assert.strictEqual(all[0].seenCount, 12, "but each tick must refresh it");
+    assert.strictEqual(all[0].seenCount, 1,
+      "launch state must suppress later rediscovery after the primitive starts");
     assert.ok(all[0].lastSeenAt >= all[0].firstSeenAt);
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
@@ -173,13 +174,15 @@ test("#2517: repeated ticks do not spam the activity feed", async function () {
   }
 });
 
-test("#2517: nothing is ever recorded as started under Lead mode ON", async function () {
+test("#2517: Lead mode ON preserves exactly one primitive launch", async function () {
   var h = harness();
   try {
     for (var i = 0; i < 6; i++) await h.autoLaunch.launchScheduled("assigned-to-me");
     var starts = activity(h.dir).filter(function (e) { return e.type === "started"; });
-    assert.deepStrictEqual(starts, [], "the controller does not launch under Coop");
-    assert.deepStrictEqual(h.started, [], "and no session may be created");
+    assert.strictEqual(starts.length, 1, "the legacy primitive must start once under Lead");
+    assert.strictEqual(starts[0].sessionId, 2517);
+    assert.strictEqual(starts[0].storageId, "s-2517");
+    assert.deepStrictEqual(h.started, [2517], "later ticks must not create a duplicate session");
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
   }

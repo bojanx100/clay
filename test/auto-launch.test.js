@@ -714,16 +714,16 @@ test("launchScheduled skips an issue already live under another recipe", async f
 
 // --- Coop cutover: Lead mode ON -----------------------------------------------
 //
-// With Lead mode on, auto-launch keeps discovering but may only start work its
-// OWN project policy makes autonomous, and only while holding a unique claim.
-// Everything else becomes a proposal for Coop.
+// With Lead mode on, auto-launch preserves each eligible recipe's proven
+// primitive while also handing the concrete session to Coop for ProjectRef
+// ownership, progress, and acceptance handling.
 
 var automationAudit = require("../lib/project-automation-audit");
 var { createAutomationGate } = require("../lib/project-automation-gate");
 var { createCandidateStore } = require("../lib/project-automation-candidates");
 var { portfolioTaskIdFor } = require("../lib/project-automation-identity");
 
-var CUTOVER_PROJECT = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+var CUTOVER_PROJECT = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var URBAN_STAY_PROJECT = "51e67388-cea0-52b7-8e01-cde68cae713c";
 
 function typedIssueAutomation() {
@@ -762,12 +762,19 @@ function makeCutoverHarness(recipeFilter) {
   }));
   var started = [];
   var candidates = [];
+  var sessions = new Map();
   var launcher = {
     loadRecipe: function () { return recipe; },
     findExistingSessionForItem: function () { return null; },
     findAnyLiveSessionForItem: function () { return null; },
     findAnyVisibleSessionForItem: function () { return null; },
-    startSessionForItem: function (ws, r, item) { started.push(item.number); return { localId: item.number }; },
+    startSessionForItem: function (ws, r, item) {
+      var session = { localId: item.number, storageId: "primitive-" + item.number,
+        taskLauncher: { autoLaunch: true, itemKey: "o/r#" + item.number } };
+      started.push(item.number);
+      sessions.set(session.localId, session);
+      return session;
+    },
   };
   function buildGate() {
     return createAutomationGate({
@@ -778,8 +785,7 @@ function makeCutoverHarness(recipeFilter) {
       getLeadMode: function () { return true; },
       emitCandidate: function (candidate) {
         candidates.push(candidate);
-        // Typed handoff: an untyped return now reads as a lost candidate.
-        return { ok: true, created: true, changed: true };
+        return createCandidateStore({ cwd: cwd }).upsert(candidate);
       },
       audit: automationAudit.createAutomationAudit({ file: path.join(cwd, "audit.jsonl"), slug: "cutover" }),
     });
@@ -787,7 +793,8 @@ function makeCutoverHarness(recipeFilter) {
   function buildAutoLaunch(gate) {
     return attachAutoLaunch({
       cwd: cwd,
-      sm: { sessions: new Map(), broadcastSessionList: function () {} },
+      sm: { sessions: sessions, broadcastSessionList: function () {},
+        getProjectId: function () { return CUTOVER_PROJECT; } },
       getTaskLauncher: function () { return launcher; },
       automationGate: gate,
       fetchItems: function () {
@@ -809,27 +816,25 @@ function makeCutoverHarness(recipeFilter) {
   };
 }
 
-test("lead mode on: a project without bug autonomy starts nothing", async function () {
+test("lead mode on: owner-gated work keeps the primitive launch", async function () {
   var h = makeCutoverHarness({});
   try {
     var result = await h.autoLaunch.launchScheduled("issues");
-    assert.deepStrictEqual(h.started, [], "nothing may start under Coop");
-    assert.strictEqual(result.skipped.length, 1);
-    assert.strictEqual(h.gate.audit.read().pop().decision, "propose");
+    assert.deepStrictEqual(h.started, [11], "Lead must not turn proposal into a launch veto");
+    assert.strictEqual(result.started.length, 1);
+    assert.ok(h.gate.audit.read().some(function (entry) { return entry.decision === "propose"; }));
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
 });
 
-// The headline invariant of the cutover: with Lead mode ON the project
-// launcher starts ZERO sessions, even for work its own policy makes
-// autonomous. Autonomy now decides how Coop ADMITS the candidate, not whether
-// this controller may launch it.
-test("lead mode on: even bug-autonomous work starts zero sessions", async function () {
+// The headline invariant of this revision: Lead ownership is additive. It may
+// not swap an existing issue or PR primitive for a generic coordinator launch.
+test("lead mode on: bug-autonomous work keeps the primitive launch", async function () {
   var h = makeCutoverHarness({ type: "bug" });
   try {
     await h.autoLaunch.launchScheduled("issues");
-    assert.deepStrictEqual(h.started, [], "a project controller may not launch");
+    assert.deepStrictEqual(h.started, [11], "the proven project launcher remains the execution primitive");
     assert.strictEqual(h.candidates.length, 1, "it proposes instead");
     assert.strictEqual(h.candidates[0].admission, "auto");
     assert.strictEqual(h.candidates[0].intent.recipeId, "issues");
@@ -838,36 +843,29 @@ test("lead mode on: even bug-autonomous work starts zero sessions", async functi
   }
 });
 
-// Two ticks — or two daemons, or two recipes — produce candidates that name
-// the SAME work, so Coop's canonical binding dedupes them to one execution.
-// The controller holds no state, so there is nothing to race.
-test("lead mode on: repeated ticks propose the same work identically", async function () {
+// Launch state and the canonical binding jointly make repeated scans safe.
+test("lead mode on: repeated ticks do not duplicate the primitive", async function () {
   var h = makeCutoverHarness({ type: "bug" });
   try {
     await h.autoLaunch.launchScheduled("issues");
     await h.autoLaunch.launchScheduled("issues");
-    assert.deepStrictEqual(h.started, []);
-    assert.strictEqual(h.candidates.length, 2);
-    assert.strictEqual(h.candidates[0].candidateKey, h.candidates[1].candidateKey);
-    assert.strictEqual(h.candidates[0].projectRef.projectId, h.candidates[1].projectRef.projectId);
+    assert.deepStrictEqual(h.started, [11]);
+    assert.strictEqual(h.candidates.length, 1,
+      "the launch-state dedupe must stop before a second proposal or launch");
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
 });
 
-// A restart replays the candidate rather than duplicating work: the controller
-// keeps no launch state under Coop, so the second run is byte-identical.
-test("lead mode on: a restart replays the candidate without local state", async function () {
+// Durable launch state survives a restart and prevents a second primitive.
+test("lead mode on: a restart does not duplicate an already launched primitive", async function () {
   var h = makeCutoverHarness({ type: "bug" });
   try {
     await h.autoLaunch.launchScheduled("issues");
-    var before = JSON.parse(JSON.stringify(h.candidates[0]));
     var restarted = h.restart();
     await restarted.launchScheduled("issues");
-    assert.deepStrictEqual(h.started, []);
-    var after = h.candidates[h.candidates.length - 1];
-    assert.strictEqual(after.candidateKey, before.candidateKey);
-    assert.strictEqual(after.admission, before.admission);
+    assert.deepStrictEqual(h.started, [11]);
+    assert.strictEqual(h.candidates.length, 1);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
@@ -923,12 +921,24 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
     automation: typedIssueAutomation(),
   }));
   var started = [];
+  var sessions = new Map();
   var launcher = {
     loadRecipe: function () { return recipe; },
     findExistingSessionForItem: function () { return null; },
     findAnyLiveSessionForItem: function () { return null; },
     findAnyVisibleSessionForItem: function () { return null; },
-    startSessionForItem: function (ws, r, i) { started.push(i.number); return { localId: i.number }; },
+    startSessionForItem: function (ws, r, i) {
+      var itemKey = (recipe.source.repo || "") + "#" + i.number;
+      var session = {
+        localId: i.number,
+        storageId: "primitive-" + i.number,
+        title: i.title,
+        taskLauncher: { autoLaunch: true, itemKey: itemKey, automationClaimKey: itemKey },
+      };
+      started.push(i.number);
+      sessions.set(session.localId, session);
+      return session;
+    },
   };
   // Behaves like the real binding store: the same (portfolioTaskId, revision)
   // replays instead of creating a second execution.
@@ -954,6 +964,7 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
         mode: input.mode,
         idempotencyKey: input.idempotencyKey,
         targetProject: input.targetProject,
+        coordinator: input.adoptSessionRef,
         status: "active",
       };
       return { ok: true, binding: bound[key] };
@@ -966,7 +977,7 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
       cwd: cwd,
       slug: "webapp",
       sm: {
-        sessions: new Map(),
+        sessions: sessions,
         broadcastSessionList: function () {},
         getProjectId: function () { return settings.projectId || CUTOVER_PROJECT; },
       },
@@ -986,6 +997,13 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
     // does. This is what has to free a slot.
     finish: function (portfolioTaskId) {
       bound[portfolioTaskId + ":1"].status = "completed";
+      sessions.forEach(function (session) {
+        var execution = executions.find(function (request) {
+          return request.portfolioTaskId === portfolioTaskId &&
+            request.adoptSessionRef.sessionStorageId === session.storageId;
+        });
+        if (execution) session.taskLauncher.workflowCompleted = true;
+      });
     },
   };
 }
@@ -1017,11 +1035,8 @@ test("bug-scoped board work auto-launches through the canonical binding", async 
   var h = makeIdleBoardHarness({ type: "bug" }, unlabeledIssue());
   try {
     await h.autoLaunch.launchScheduled("assigned-to-me");
-    // The controller itself still launches nothing — Coop owns that.
-    assert.deepStrictEqual(h.started, [], "a project controller may not launch");
-    // What must change is that the work is ADMITTED rather than parked on the
-    // owner. Before the fix this array was empty and the candidate sat in
-    // awaiting_owner forever, which is precisely the idle board.
+    assert.deepStrictEqual(h.started, [2565],
+      "Lead ownership must preserve the proven primitive launch");
     assert.strictEqual(h.executions.length, 1, "eligible board work must reach a binding");
     var request = h.executions[0];
     assert.strictEqual(request.mode, "project_coordinator");
@@ -1030,6 +1045,37 @@ test("bug-scoped board work auto-launches through the canonical binding", async 
     assert.strictEqual(request.source.projectId, "system-lead",
       "the binding must be attributed to the live Coop session");
     assert.strictEqual(request.bindingRevision, 1);
+    assert.deepStrictEqual(request.adoptSessionRef,
+      { projectId: CUTOVER_PROJECT, sessionStorageId: "primitive-2565" });
+    assert.strictEqual(request.automationAuthorization.kind,
+      "project_auto_launch_primitive");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("PR review keeps its primitive launch and is adopted by the same binding path", async function () {
+  var item = {
+    key: "trialview/v2#3010",
+    number: 3010,
+    title: "Review the failing PR",
+    url: "https://github.com/trialview/v2/pull/3010",
+    head_sha: "abc123",
+    ci_failing: true,
+    latestFeedbackTs: 1000,
+    labels: [],
+  };
+  var h = makeIdleBoardHarness({}, item, {
+    source: { provider: "github", kind: "pr-reviews", repo: "trialview/v2" },
+  });
+  try {
+    await h.autoLaunch.launchScheduled("assigned-to-me");
+    assert.deepStrictEqual(h.started, [3010]);
+    assert.strictEqual(h.executions.length, 1);
+    assert.strictEqual(h.executions[0].automationAuthorization.kind,
+      "project_auto_launch_primitive");
+    assert.deepStrictEqual(h.executions[0].adoptSessionRef,
+      { projectId: CUTOVER_PROJECT, sessionStorageId: "primitive-3010" });
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
@@ -1043,7 +1089,7 @@ test("a second tick over the same board work creates no second execution", async
   try {
     await h.autoLaunch.launchScheduled("assigned-to-me");
     await h.autoLaunch.launchScheduled("assigned-to-me");
-    assert.deepStrictEqual(h.started, []);
+    assert.deepStrictEqual(h.started, [2565]);
     assert.strictEqual(h.executions.length, 1,
       "the admitted candidate must not be admitted a second time");
   } finally {
@@ -1250,15 +1296,16 @@ test("lead mode off still refuses unassigned work but launches assigned work", a
   }
 });
 
-// The containment half. A project whose recipe declares no scope has granted no
-// autonomy, so its work must still stop at the owner gate and reach no binding.
-test("unscoped board work stays owner-gated and reaches no binding", async function () {
+// Lead ownership is additive to the launch primitive. An owner-approval policy
+// classification remains relevant to external actions, but cannot become a new
+// literal-owner precondition for an otherwise eligible existing recipe.
+test("unscoped eligible board work is launched without a new owner-turn gate", async function () {
   var h = makeIdleBoardHarness({}, unlabeledIssue());
   try {
     await h.autoLaunch.launchScheduled("assigned-to-me");
-    assert.deepStrictEqual(h.started, []);
-    assert.deepStrictEqual(h.executions, [],
-      "work no policy made autonomous must never be admitted automatically");
+    assert.deepStrictEqual(h.started, [2565]);
+    assert.strictEqual(h.executions.length, 1,
+      "Lead adopts the primitive instead of waiting for a literal owner turn");
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
@@ -1445,70 +1492,17 @@ test("an explicit owner inclusion runs one unassigned item without widening the 
   }
 });
 
-// An include waives ASSIGNMENT and nothing else. Work the project's own policy
-// sends to the owner still goes to the owner.
-test("an owner inclusion does not waive the approval gate", async function () {
-  // An unscoped recipe grants no autonomy, so this class is owner-gated.
+// An include waives assignment and nothing else. With Lead on, however, the
+// policy's owner-approval classification is not a new literal-owner launch gate:
+// Lead adopts the same primitive the owner would have launched.
+test("an owner inclusion does not create a literal-owner launch gate", async function () {
   var h = makeIdleBoardHarness({}, unassignedIssue());
   try {
     overridesModule.createOverrideStore({ cwd: h.cwd })
       .set("trialview/v2#2539", "include", { by: "bojan" });
     await h.autoLaunch.launchScheduled("assigned-to-me");
-    assert.deepStrictEqual(h.executions, [],
-      "an include is not an approval — the approval gate still holds");
-  } finally {
-    fs.rmSync(h.cwd, { recursive: true, force: true });
-  }
-});
-
-test("owner-approved work is revalidated by the current scan before binding", async function () {
-  var item = assignedIssue(2565);
-  var board = [item];
-  // An unscoped recipe deliberately requires owner approval.
-  var h = makeIdleBoardHarness({}, board);
-  var store = createCandidateStore({ cwd: h.cwd });
-  try {
-    await h.autoLaunch.launchScheduled("assigned-to-me");
-    var key = "launch:trialview/v2#2565";
-    assert.strictEqual(store.get({ projectId: CUTOVER_PROJECT }, key).status,
-      "awaiting_owner");
-
-    var stage = store.get({ projectId: CUTOVER_PROJECT }, key).approvalStage;
-    var approved = store.decideOwner({ projectId: CUTOVER_PROJECT }, key,
-      { approved: true, by: "bojan", portfolioTaskId: stage.portfolioTaskId,
-        bindingRevision: stage.bindingRevision });
-    assert.strictEqual(approved.ok, true);
-    assert.strictEqual(approved.candidate.status, "owner_approved");
-    assert.strictEqual(approved.candidate.eligibilityPass, null);
-
-    // Source-level recipe, feature/bug, board/status, PR/branch and collision
-    // gates all suppress an item by omitting it from this exact fetch result.
-    board.length = 0;
-    await h.autoLaunch.launchScheduled("assigned-to-me");
-    assert.strictEqual(h.executions.length, 0,
-      "an earlier owner approval cannot bypass a current source/gate miss");
-
-    // Session dedup and ownership are downstream of fetch but upstream of the
-    // candidate handoff. They must likewise leave the old approval powerless.
-    board.push(item);
-    h.launcher.findAnyLiveSessionForItem = function () { return { localId: 99 }; };
-    await h.autoLaunch.launchScheduled("assigned-to-me");
-    assert.strictEqual(h.executions.length, 0,
-      "an owner-approved item already in flight must not bind again");
-
-    h.launcher.findAnyLiveSessionForItem = function () { return null; };
-    item.assignedToOwner = false;
-    item.assignees = [];
-    await h.autoLaunch.launchScheduled("assigned-to-me");
-    assert.strictEqual(h.executions.length, 0,
-      "an owner-approved item that is no longer assigned must not bind");
-
-    // Once a later scan sees it pass every current gate, the approval remains
-    // meaningful and the same candidate may bind exactly once.
-    item.assignedToOwner = true;
-    item.assignees = [{ login: "bojantv" }];
-    await h.autoLaunch.launchScheduled("assigned-to-me");
     assert.strictEqual(h.executions.length, 1);
+    assert.deepStrictEqual(h.started, [2539]);
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
@@ -1592,10 +1586,28 @@ test("assigned:any is source policy, not a literal GitHub assignee", function ()
 // and the REAL portfolio binding store — no fake in the admission path. This is
 // the test that proves the repaired pipeline actually lands a canonical
 // ProjectRef binding on disk rather than merely satisfying a stub.
+function makeCoordinatorSessionManager(projectId) {
+  var sessions = new Map();
+  var nextLocalId = 100;
+  return {
+    sessions: sessions,
+    getProjectId: function () { return projectId; },
+    createSessionRaw: function (options) {
+      var session = Object.assign({
+        localId: nextLocalId++, history: [], orchestrationPolicy: {},
+      }, options || {});
+      sessions.set(session.localId, session);
+      return session;
+    },
+    saveSessionFile: function () {},
+    appendToSessionFile: function () {},
+    broadcastSessionList: function () {},
+  };
+}
+
 test("end to end: a scan lands a real canonical binding, exactly once", async function () {
   var serverCrossProject = require("../lib/server-cross-project");
   var projectIdentity = require("../lib/project-identity");
-  var externalTarget = require("../lib/project-task-orchestrator-external");
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-"));
   try {
     var tasksDir = path.join(cwd, ".clay", "tasks");
@@ -1614,38 +1626,36 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
 
     var bindingFile = path.join(cwd, "bindings.json");
     var delivered = [];
+    var leadManager = makeCoordinatorSessionManager(projectIdentity.LEAD_PROJECT_ID);
+    leadManager.sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
+    var targetManager = makeCoordinatorSessionManager(CUTOVER_PROJECT);
+    var autoLaunch = null;
     // The Lead project, holding the live Coop home session the router resolves
     // admission's source ref from. Nothing here is fabricated by the project.
     var leadContext = {
       getProjectId: function () { return projectIdentity.LEAD_PROJECT_ID; },
-      getSessionManager: function () {
-        var sessions = new Map();
-        sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
-        return { sessions: sessions };
-      },
+      getSessionManager: function () { return leadManager; },
       deliverCrossProjectEnvelope: function () { return { ok: true }; },
     };
     var targetContext = {
       getProjectId: function () { return CUTOVER_PROJECT; },
-      getSessionManager: function () { return { sessions: new Map() }; },
-      // Validates with the REAL intake function and refuses exactly as
-      // production does. A stub that accepted anything is how a prose-only
-      // payload passed a green suite and then produced 22 unrouted bindings on
-      // the live board: production builds its brief from NAMED fields and
-      // rejects the command outright when `objective` is empty.
-      deliverCrossProjectEnvelope: function (envelope) {
-        delivered.push(envelope);
-        var brief = externalTarget.executionBrief(envelope.payload || {});
-        if (!brief.objective) return { ok: false, reason: "invalid_payload" };
-        return {
-          ok: true, created: true, localSessionId: 7,
-          sessionRef: { projectId: CUTOVER_PROJECT, sessionStorageId: "coordinator-session" },
-        };
+      getSessionManager: function () { return targetManager; },
+      validateAutomationAuthorization: function (input) {
+        return autoLaunch.validateAutomationAuthorization(input);
       },
+      deliverCrossProjectEnvelope: function (envelope) { delivered.push(envelope); return { ok: false }; },
     };
     var router = serverCrossProject.createCrossProjectRouter({
       allowLeadSourcedExecution: true,
+      requireOwnerImplementationDecision: true,
       bindingFile: bindingFile,
+      automationThreadIndex: {
+        ensureAutomationThread: function (input) {
+          return { ok: true, topicRef: { topicId: input.authorization.threadRef.threadId },
+            threadRef: input.authorization.threadRef };
+        },
+      },
+      onThreadHandedOff: function () { return { ok: true }; },
       ownerRequests: {
         claimCoordinator: function (input) {
           this.claimed = input.coordinator;
@@ -1660,19 +1670,22 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
       },
     });
 
-    var autoLaunch = attachAutoLaunch({
+    var primitive = null;
+    autoLaunch = attachAutoLaunch({
       cwd: cwd, slug: "webapp",
-      sm: {
-        sessions: new Map(), broadcastSessionList: function () {},
-        getProjectId: function () { return CUTOVER_PROJECT; },
-      },
+      sm: targetManager,
       getTaskLauncher: function () {
         return {
           loadRecipe: function () { return recipe; },
           findExistingSessionForItem: function () { return null; },
           findAnyLiveSessionForItem: function () { return null; },
           findAnyVisibleSessionForItem: function () { return null; },
-          startSessionForItem: function () { throw new Error("the controller must not launch"); },
+          startSessionForItem: function (ws, value, item) {
+            primitive = targetManager.createSessionRaw({ storageId: "primitive-session",
+              title: item.title, taskLauncher: { autoLaunch: true,
+                itemKey: "trialview/v2#" + item.number } });
+            return primitive;
+          },
         };
       },
       getLeadMode: function () { return true; },
@@ -1689,215 +1702,110 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     assert.strictEqual(binding.mode, "project_coordinator");
     assert.strictEqual(binding.status, "active");
     assert.strictEqual(binding.targetProject.projectId, CUTOVER_PROJECT);
-    assert.strictEqual(delivered.length, 1, "the target project must actually receive the command");
+    assert.strictEqual(delivered.length, 0,
+      "adoption must not replace the primitive with a generic delivery");
 
     // And the coordinator session it bound is the one the target reported.
-    assert.strictEqual(binding.coordinator.sessionStorageId, "coordinator-session");
+    assert.strictEqual(binding.coordinator.sessionStorageId, "primitive-session");
+    assert.strictEqual(binding.projectCoordinator.projectId, projectIdentity.LEAD_PROJECT_ID);
+    assert.strictEqual(primitive.coordinationRole, "task_coordinator");
+    var roots = Array.from(leadManager.sessions.values()).filter(function (session) {
+      return session.coordinationRole === "project_coordinator";
+    });
+    assert.strictEqual(roots.length, 1, "one resident ProjectRef coordinator owns the primitive");
+    assert.strictEqual(roots[0].orchestrationTasks.length, 1);
+    assert.strictEqual(roots[0].orchestrationTasks[0].workerStorageId, "primitive-session");
+    assert.strictEqual(autoLaunch.candidateStore.get({ projectId: CUTOVER_PROJECT },
+      "launch:trialview/v2#2565").status, "admitted");
 
     // Idempotency against the real store: scanning again replays.
     await autoLaunch.launchScheduled("assigned-to-me");
     var again = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
     assert.strictEqual(again.bindings.length, 1, "a second scan must not create a second binding");
-    assert.strictEqual(delivered.length, 1, "nor deliver the work twice");
+    assert.strictEqual(delivered.length, 0, "nor deliver generic duplicate work");
+    assert.strictEqual(roots[0].orchestrationTasks.length, 1, "nor duplicate the coordinator task");
+
+    autoLaunch.notifyNeedsInput(primitive, "Choose the owner-sensitive option");
+    assert.strictEqual(roots[0].orchestrationTasks[0].status, "needs_input");
+    autoLaunch.notifyCompleted(primitive, "Verified internal work");
+    var completed = JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings[0];
+    assert.strictEqual(completed.status, "completed");
+    assert.strictEqual(roots[0].orchestrationTasks[0].status, "completed");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
 
-// Continuous scanning only works if a failed attempt leaves the work RETRYABLE.
-// A target that cannot start a coordinator must not strand a reserved binding:
-// a stranded `pending` record blocks every later revision with
-// active_binding_exists while being impossible to terminalize, so the item
-// would be lost for good instead of retried on the next scan.
-test("end to end: a delivery that starts no coordinator strands no binding", async function () {
+test("standing autonomy dispatches before owner-thread checks and keeps external gates", function () {
   var serverCrossProject = require("../lib/server-cross-project");
   var projectIdentity = require("../lib/project-identity");
-  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-fail-"));
+  var autonomyGrant = require("../lib/coop-autonomy-grant");
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-standing-order-"));
   try {
-    var tasksDir = path.join(cwd, ".clay", "tasks");
-    fs.mkdirSync(tasksDir, { recursive: true });
-    var recipe = {
-      id: "assigned-to-me",
-      source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
-      launch: { defaultLimit: 10 }, session: {}, completion: {},
-      filter: { type: "bug", assigned: "me" },
-    };
-    fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
-    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
-      autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
-      automation: typedIssueAutomation(),
+    var policyFile = path.join(cwd, "scoped-autonomy-policy.json");
+    fs.writeFileSync(policyFile, JSON.stringify({
+      schema: autonomyGrant.SCHEMA,
+      version: autonomyGrant.VERSION,
+      enabled: true,
+      projects: [{ projectId: CUTOVER_PROJECT, name: "Webapp" }],
+      categories: ["read_only_diagnosis"],
+      permanentlyGated: autonomyGrant.forbiddenIds(),
     }));
-    var bindingFile = path.join(cwd, "bindings.json");
-    var leadContext = {
-      getProjectId: function () { return projectIdentity.LEAD_PROJECT_ID; },
-      getSessionManager: function () {
-        var sessions = new Map();
-        sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
-        return { sessions: sessions };
+    var leadManager = makeCoordinatorSessionManager(projectIdentity.LEAD_PROJECT_ID);
+    leadManager.sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
+    var delivered = [];
+    var claimed = null;
+    var router = serverCrossProject.createCrossProjectRouter({
+      allowLeadSourcedExecution: true,
+      requireOwnerImplementationDecision: true,
+      autonomyPolicyFile: policyFile,
+      bindingFile: path.join(cwd, "bindings.json"),
+      ownerRequests: {
+        claimCoordinator: function (input) { claimed = input.coordinator; return { ok: true }; },
+        canonicalCoordinator: function () { return claimed; },
       },
-      deliverCrossProjectEnvelope: function () { return { ok: true }; },
-    };
-    var healthy = false;
-    var targetContext = {
+      getProjectContextById: function (projectId) {
+        if (projectId === projectIdentity.LEAD_PROJECT_ID) {
+          return { getSessionManager: function () { return leadManager; } };
+        }
+        return null;
+      },
+    });
+    router.registerProjectResolver({
       getProjectId: function () { return CUTOVER_PROJECT; },
-      getSessionManager: function () { return { sessions: new Map() }; },
-      deliverCrossProjectEnvelope: function () {
-        if (!healthy) return { ok: false, reason: "session_start_failed" };
+      deliverCrossProjectEnvelope: function (envelope) {
+        delivered.push(envelope);
         return { ok: true, created: true,
-          sessionRef: { projectId: CUTOVER_PROJECT, sessionStorageId: "coordinator-session" } };
+          sessionRef: { projectId: CUTOVER_PROJECT, sessionStorageId: "diagnosis-session" } };
       },
+    });
+    var base = {
+      source: { projectId: projectIdentity.LEAD_PROJECT_ID,
+        sessionStorageId: "coop-home-live" },
+      portfolioTaskId: "lead-standing-diagnosis",
+      bindingRevision: 1,
+      idempotencyKey: "lead-standing-diagnosis-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: CUTOVER_PROJECT },
+      title: "Diagnose the launch ordering",
+      objective: "Inspect and report the exact launch evidence.",
+      acceptanceCriteria: "Return read-only evidence.",
+      ownedPaths: "read-only: automation state",
     };
-    var router = serverCrossProject.createCrossProjectRouter({
-      allowLeadSourcedExecution: true,
-      bindingFile: bindingFile,
-      ownerRequests: {
-        claimCoordinator: function (input) {
-          this.claimed = input.coordinator;
-          return { ok: true };
-        },
-        canonicalCoordinator: function () { return this.claimed || null; },
-      },
-      getProjectContextById: function (projectId) {
-        if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
-        if (projectId === CUTOVER_PROJECT) return targetContext;
-        return null;
-      },
-    });
-    var autoLaunch = attachAutoLaunch({
-      cwd: cwd, slug: "webapp",
-      sm: { sessions: new Map(), broadcastSessionList: function () {},
-        getProjectId: function () { return CUTOVER_PROJECT; } },
-      getTaskLauncher: function () {
-        return {
-          loadRecipe: function () { return recipe; },
-          findExistingSessionForItem: function () { return null; },
-          findAnyLiveSessionForItem: function () { return null; },
-          findAnyVisibleSessionForItem: function () { return null; },
-          startSessionForItem: function () { throw new Error("the controller must not launch"); },
-        };
-      },
-      getLeadMode: function () { return true; },
-      crossProject: router,
-      fetchItems: function () { return [assignedIssue(2565)]; },
-    });
+    var admitted = router.createProjectExecution(base);
+    assert.strictEqual(admitted.ok, true,
+      "a covered grant must not stop at an owner-turn or missing-Thread check");
+    assert.strictEqual(delivered.length, 1);
 
-    await autoLaunch.launchScheduled("assigned-to-me");
-    var afterFailure = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
-    var live = afterFailure.bindings.filter(function (b) {
-      return b.status === "active" || b.status === "pending";
-    });
-    assert.deepStrictEqual(live, [], "a failed delivery must leave no live binding behind");
-
-    // The target recovers. The very next scan must pick the item up — the whole
-    // point of a continuous scan is that it heals without anyone intervening.
-    healthy = true;
-    await autoLaunch.launchScheduled("assigned-to-me");
-    var recovered = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
-    var active = recovered.bindings.filter(function (b) { return b.status === "active"; });
-    assert.strictEqual(active.length, 1, "the next scan must recover the work by itself");
-    assert.strictEqual(active[0].targetProject.projectId, CUTOVER_PROJECT);
-  } finally {
-    fs.rmSync(cwd, { recursive: true, force: true });
-  }
-});
-
-// The activation regression, stated as a property: A BROKEN ROUTE MUST NOT
-// FAN OUT. The live run put 22 candidates through a limit of 5 because the cap
-// counted successes rather than attempts, so every one reserved and released a
-// durable `unrouted` binding. A limit that only bounds what works does not
-// bound a failure, which is precisely when bounding matters.
-test("end to end: a broken route makes at most maxConcurrent attempts per scan", async function () {
-  var serverCrossProject = require("../lib/server-cross-project");
-  var projectIdentity = require("../lib/project-identity");
-  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-fanout-"));
-  try {
-    var tasksDir = path.join(cwd, ".clay", "tasks");
-    fs.mkdirSync(tasksDir, { recursive: true });
-    var recipe = {
-      id: "assigned-to-me",
-      source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
-      launch: { defaultLimit: 10 }, session: {}, completion: {},
-      filter: { type: "bug", assigned: "me" },
-    };
-    fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
-    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
-      autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
-      automation: typedIssueAutomation(),
+    var gated = router.createProjectExecution(Object.assign({}, base, {
+      portfolioTaskId: "lead-standing-external",
+      idempotencyKey: "lead-standing-external-r1",
+      objective: "Diagnose the launch and git push the result to origin.",
     }));
-    var bindingFile = path.join(cwd, "bindings.json");
-    var leadContext = {
-      getProjectId: function () { return projectIdentity.LEAD_PROJECT_ID; },
-      getSessionManager: function () {
-        var sessions = new Map();
-        sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
-        return { sessions: sessions };
-      },
-      deliverCrossProjectEnvelope: function () { return { ok: true }; },
-    };
-    var attempts = 0;
-    var targetContext = {
-      getProjectId: function () { return CUTOVER_PROJECT; },
-      getSessionManager: function () { return { sessions: new Map() }; },
-      // Every route fails, exactly as the live board did.
-      deliverCrossProjectEnvelope: function () {
-        attempts++;
-        return { ok: false, reason: "invalid_payload" };
-      },
-    };
-    var router = serverCrossProject.createCrossProjectRouter({
-      allowLeadSourcedExecution: true,
-      bindingFile: bindingFile,
-      ownerRequests: {
-        claimCoordinator: function (input) {
-          this.claimed = input.coordinator;
-          return { ok: true };
-        },
-        canonicalCoordinator: function () { return this.claimed || null; },
-      },
-      getProjectContextById: function (projectId) {
-        if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
-        if (projectId === CUTOVER_PROJECT) return targetContext;
-        return null;
-      },
-    });
-    // A 22-item board, the size that actually broke.
-    var board = [];
-    for (var i = 0; i < 22; i++) board.push(assignedIssue(2500 + i));
-    var autoLaunch = attachAutoLaunch({
-      cwd: cwd, slug: "webapp",
-      sm: { sessions: new Map(), broadcastSessionList: function () {},
-        getProjectId: function () { return CUTOVER_PROJECT; } },
-      getTaskLauncher: function () {
-        return {
-          loadRecipe: function () { return recipe; },
-          findExistingSessionForItem: function () { return null; },
-          findAnyLiveSessionForItem: function () { return null; },
-          findAnyVisibleSessionForItem: function () { return null; },
-          startSessionForItem: function () { throw new Error("the controller must not launch"); },
-        };
-      },
-      getLeadMode: function () { return true; },
-      crossProject: router,
-      fetchItems: function () { return board; },
-    });
-
-    await autoLaunch.launchScheduled("assigned-to-me");
-    assert.strictEqual(attempts, 5,
-      "a failing route must be attempted at most maxConcurrent times, not once per board item");
-    var persisted = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
-    assert.ok(persisted.bindings.length <= 5,
-      "a broken scan must not strand a durable binding per board item, got " +
-      persisted.bindings.length);
-
-    // And the failure must not have eaten capacity: released reservations hold
-    // no worker, so the next scan gets its full budget again rather than
-    // grinding to a permanent halt.
-    var unrouted = persisted.bindings.filter(function (b) { return b.status === "unrouted"; });
-    assert.strictEqual(unrouted.length, persisted.bindings.length,
-      "every failed route must be released, not left live");
-    await autoLaunch.launchScheduled("assigned-to-me");
-    assert.strictEqual(attempts, 10,
-      "the next scan must still have its full budget — unrouted must not consume capacity");
+    assert.strictEqual(gated.ok, false);
+    assert.strictEqual(gated.reason, "autonomy_grant_push_to_remote_gated",
+      "the reordered grant must not widen external-action authority");
+    assert.strictEqual(delivered.length, 1);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
