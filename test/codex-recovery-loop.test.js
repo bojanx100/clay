@@ -363,7 +363,7 @@ test("Codex failed MCP status produces an error tool result without an error obj
   assert.strictEqual(result.isError, true);
 });
 
-test("Codex abort keeps its event subscription until the interrupted turn terminates", async function() {
+test("Codex abort keeps its stream and event subscription open until the interrupted turn terminates", async function() {
   var handler = null;
   var unsubscribeCount = 0;
   var turnStartedResolve;
@@ -403,10 +403,13 @@ test("Codex abort keeps its event subscription until the interrupted turn termin
 
   var drain = handle.abort();
   assert.ok(drain && typeof drain.then === "function", "abort must expose its drain promise");
-  assert.strictEqual((await iteratorEnd).done, true,
-    "the visible query iterator must still end immediately on abort");
+  var iteratorSettled = false;
+  iteratorEnd.then(function() { iteratorSettled = true; });
+  await new Promise(function(resolve) { setImmediate(resolve); });
+  assert.strictEqual(iteratorSettled, false,
+    "sdk-bridge must remain busy until Codex confirms that the interrupted turn stopped");
   assert.strictEqual(unsubscribeCount, 0,
-    "late hook and terminal events still need a subscriber after the iterator ends");
+    "late hook and terminal events still need a subscriber while the iterator is open");
   handler({ method: "hook/started", params: { threadId: "interrupt-thread" } });
   assert.strictEqual(unsubscribeCount, 0);
   handler({
@@ -416,6 +419,16 @@ test("Codex abort keeps its event subscription until the interrupted turn termin
       turn: { id: "interrupt-turn", status: "interrupted", items: [] },
     },
   });
+  var interruptedEvent = await iteratorEnd;
+  assert.strictEqual(interruptedEvent.done, false,
+    "the provider interruption event is delivered before the stream closes");
+  assert.strictEqual(interruptedEvent.value.yokeType, "interrupted");
+  var resultEvent = await iterator.next();
+  assert.strictEqual(resultEvent.done, false,
+    "the provider result event is delivered before the stream closes");
+  assert.strictEqual(resultEvent.value.yokeType, "result");
+  assert.strictEqual((await iterator.next()).done, true,
+    "the visible query iterator ends after the provider-side turn terminates");
   await drain;
 
   assert.strictEqual(unsubscribeCount, 1);

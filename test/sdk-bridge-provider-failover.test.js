@@ -349,6 +349,68 @@ test("a Codex adapter connectivity error retries once instead of queueing a fail
   providerHealth._reset();
 });
 
+test("a busy Codex resume retries without degrading provider health", async function () {
+  var providerHealth = require("../lib/provider-health");
+  providerHealth._reset();
+  var resumeBusy = "cannot resume thread abc with history while it is already running";
+  var session = makeStreamSession(resumeBusy);
+  session.providerRouteId = "codex-openai";
+  session.model = "gpt-5.6-sol";
+  var stream = makeTransientStreamHarness(session);
+
+  await stream.processQueryStream(session);
+
+  assert.strictEqual(session._scheduled.length, 1, "the session-local collision retries once");
+  assert.strictEqual(session._failovers.length, 0, "the collision must not queue provider failover");
+  assert.strictEqual(providerHealth.getRouteHealth(
+    "codex", "codex-openai", "gpt-5.6-sol").state, "healthy",
+  "one busy thread must not degrade the shared Codex route");
+  providerHealth._reset();
+});
+
+test("an exhausted busy Codex resume never degrades provider health", async function () {
+  var providerHealth = require("../lib/provider-health");
+  providerHealth._reset();
+  var resumeBusy = "cannot resume thread abc with history while it is already running";
+  var session = makeStreamSession(resumeBusy);
+  session.providerRouteId = "codex-openai";
+  session.model = "gpt-5.6-sol";
+  session._transientRetryUsed = true;
+  var stream = makeTransientStreamHarness(session);
+
+  await stream.processQueryStream(session);
+
+  assert.strictEqual(session._scheduled.length, 0, "the spent one-shot retry is not repeated");
+  assert.strictEqual(session._failovers.length, 0, "the collision must not queue provider failover");
+  assert.strictEqual(providerHealth.getRouteHealth(
+    "codex", "codex-openai", "gpt-5.6-sol").state, "healthy",
+  "a terminal session-local collision must not degrade the shared Codex route");
+  providerHealth._reset();
+});
+
+test("Codex remote compaction overflow pauses only the affected session", async function () {
+  var providerHealth = require("../lib/provider-health");
+  providerHealth._reset();
+  var compactOverflow = "Error running remote compact task: Codex ran out of room in the model's "
+    + "context window. Start a new thread or clear earlier history before retrying.";
+  var session = makeStreamSession(compactOverflow);
+  session.providerRouteId = "codex-openai";
+  session.model = "gpt-5.6-sol";
+  var stream = makeTransientStreamHarness(session);
+
+  await stream.processQueryStream(session);
+
+  assert.strictEqual(session._scheduled.length, 0, "context exhaustion cannot be retried in-place");
+  assert.strictEqual(session._failovers.length, 0, "context exhaustion is not a provider outage");
+  assert.ok(session._sent.some(function(item) {
+    return item.type === "context_overflow";
+  }), "the client receives the actionable context-overflow event");
+  assert.strictEqual(providerHealth.getRouteHealth(
+    "codex", "codex-openai", "gpt-5.6-sol").state, "healthy",
+  "one full conversation must not degrade the shared Codex route");
+  providerHealth._reset();
+});
+
 test("an additional provider quota error queues immediate same-chat failover", async function () {
   var providerHealth = require("../lib/provider-health");
   providerHealth._reset();
