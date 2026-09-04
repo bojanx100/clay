@@ -1,0 +1,189 @@
+// Tests for the Lead routing brain (CTO orchestrator Phase 1).
+// The module is pure: classification and routing must be deterministic and
+// replayable — these tests ARE the routing policy's spec.
+var test = require("node:test");
+var assert = require("node:assert");
+
+var routing = require("../lib/lead-routing");
+
+test("model table tiers agree with model-capability", function () {
+  assert.strictEqual(routing.tableConsistent(), true);
+});
+
+test("classification: labels win over keywords", function () {
+  var c = routing.classifyWorkItem({ title: "Improve architecture docs", labels: ["bug"] });
+  assert.strictEqual(c.taskClass, "debugging");
+});
+
+test("classification: keyword inference covers the main classes", function () {
+  assert.strictEqual(routing.classifyWorkItem({ title: "Fix crash when session restarts" }).taskClass, "debugging");
+  assert.strictEqual(routing.classifyWorkItem({ title: "API design trade-off for the gate" }).taskClass, "design");
+  assert.strictEqual(routing.classifyWorkItem({ title: "Rename variable and fix typo" }).taskClass, "mechanical");
+  assert.strictEqual(routing.classifyWorkItem({ title: "Research options: compare mutation testing tools" }).taskClass, "research");
+  assert.strictEqual(routing.classifyWorkItem({ title: "Audit token handling for injection risk" }).taskClass, "security");
+  assert.strictEqual(routing.classifyWorkItem({ title: "Add CSV export to reports" }).taskClass, "implementation");
+});
+
+test("risk: migrations/auth/daemon are high; security is never low", function () {
+  assert.strictEqual(routing.classifyWorkItem({ title: "Add schema migration for users table" }).risk, "high");
+  var sec = routing.classifyWorkItem({ title: "Tighten xss escaping in tooltip" });
+  assert.strictEqual(sec.taskClass, "security");
+  assert.notStrictEqual(sec.risk, "low");
+});
+
+test("risk: restart is high only with nearby runtime context", function () {
+  assert.deepStrictEqual(
+    routing.classifyWorkItem({ title: "Fix crash in daemon restart path" }),
+    { taskClass: "debugging", risk: "high", effort: "medium" }
+  );
+  assert.deepStrictEqual(
+    routing.classifyWorkItem({ title: "Make tool-permission streams survive daemon restarts" }),
+    { taskClass: "implementation", risk: "high", effort: "medium" }
+  );
+  assert.deepStrictEqual(
+    routing.classifyWorkItem({ title: "Offer restart with same brief after a debate ends" }),
+    { taskClass: "implementation", risk: "low", effort: "medium" }
+  );
+});
+
+test("routing: cheapest capable — mechanical low-risk goes to tier 1", function () {
+  var c = routing.classifyWorkItem({ title: "Fix typo in README" });
+  var r = routing.routeWorkItem(c, {});
+  assert.strictEqual(r.tier, 1);
+  assert.strictEqual(r.verificationDepth, "light");
+});
+
+test("routing: design work is frontier-tier regardless of risk", function () {
+  var r = routing.routeWorkItem({ taskClass: "design", risk: "low", effort: "small" }, {});
+  assert.strictEqual(r.tier, 4);
+});
+
+test("routing: risk bumps tier and verification depth", function () {
+  var low = routing.routeWorkItem({ taskClass: "implementation", risk: "low" }, {});
+  var high = routing.routeWorkItem({ taskClass: "implementation", risk: "high" }, {});
+  assert.ok(high.tier > low.tier);
+  assert.strictEqual(high.verificationDepth, "full-gate");
+});
+
+test("routing: unhealthy preferred vendor falls over to the other", function () {
+  var c = { taskClass: "research", risk: "low" };
+  var healthy = routing.routeWorkItem(c, {});
+  assert.strictEqual(healthy.vendor, "codex");
+  var failedOver = routing.routeWorkItem(c, { health: { codex: "unhealthy" } });
+  assert.strictEqual(failedOver.vendor, "claude");
+  assert.ok(/unavailable/.test(failedOver.rationale));
+});
+
+test("routing: both vendors down returns null (caller decides)", function () {
+  var r = routing.routeWorkItem({ taskClass: "implementation", risk: "low" },
+    { health: { claude: "unhealthy", codex: "unhealthy" } });
+  assert.strictEqual(r, null);
+});
+
+test("routing: exact Fable quota fails frontier work to Sol without disabling Claude Opus", function () {
+  var health = {};
+  health["route:claude-anthropic|model:fable"] = "unhealthy";
+  var frontier = routing.routeWorkItem({ taskClass: "design", risk: "high" }, { health: health });
+  var strong = routing.routeWorkItem({ taskClass: "debugging", risk: "medium" }, { health: health });
+  assert.strictEqual(frontier.vendor, "codex");
+  assert.strictEqual(frontier.model, "gpt-5.6-sol");
+  assert.strictEqual(strong.vendor, "claude");
+  assert.strictEqual(strong.model, "opus");
+});
+
+test("routing: a concrete native Opus failure blocks the generic Lead Opus candidate", function () {
+  var health = {};
+  health["route:claude-anthropic|model:claude-opus-4-8"] = "unhealthy";
+  var route = routing.routeWorkItem({ taskClass: "debugging", risk: "medium" }, { health: health });
+  assert.strictEqual(route.vendor, "codex");
+  assert.strictEqual(route.model, routing.MODEL_TABLE.codex[3]);
+});
+
+test("routing: escalation bumps tier per failed attempt, capped at 4", function () {
+  var c = { taskClass: "implementation", risk: "low" };
+  assert.strictEqual(routing.routeWorkItem(c, {}).tier, 2);
+  assert.strictEqual(routing.routeWorkItem(c, { escalated: 1 }).tier, 3);
+  assert.strictEqual(routing.routeWorkItem(c, { escalated: 5 }).tier, 4);
+});
+
+test("routing: rationale is always present and human-readable", function () {
+  var r = routing.routeWorkItem(routing.classifyWorkItem({ title: "Fix flaky watchdog test" }), { escalated: 1 });
+  assert.ok(r.rationale.indexOf("->") !== -1);
+  assert.ok(/escalated/.test(r.rationale));
+});
+
+test("routing: budget pressure prefers the cheaper capable vendor at the same tier", function () {
+  var r = routing.routeWorkItem({ taskClass: "debugging", risk: "low" }, {
+    budgetPressure: {
+      active: true,
+      vendorCostRank: { codex: 1, claude: 2 },
+      cheaperVendor: "codex",
+    },
+  });
+  assert.strictEqual(r.vendor, "codex", "debugging normally prefers claude");
+  assert.strictEqual(r.model, routing.MODEL_TABLE.codex[2]);
+  assert.strictEqual(r.tier, 2, "budget pressure must not downgrade capability");
+  assert.ok(/cheaper capable vendor/.test(r.rationale));
+});
+
+test("routing: cheaper vendor must still be healthy and capable at the requested tier", function () {
+  var r = routing.routeWorkItem({ taskClass: "debugging", risk: "medium" }, {
+    health: { codex: "unhealthy" },
+    budgetPressure: { active: true, cheaperVendor: "codex" },
+  });
+  assert.strictEqual(r.vendor, "claude");
+  assert.strictEqual(r.tier, 3);
+  assert.strictEqual(r.model, routing.MODEL_TABLE.claude[3]);
+});
+
+test("routing: tier-4 staffing emits an approval signal under budget pressure", function () {
+  var pressured = routing.routeWorkItem({ taskClass: "design", risk: "low" }, {
+    budgetPressure: { active: true, vendorCostRank: { codex: 1, claude: 2 } },
+  });
+  assert.strictEqual(pressured.tier, 4);
+  assert.strictEqual(pressured.needsApproval, true);
+  assert.ok(/tier-4 staffing/.test(pressured.approvalReason));
+
+  var normal = routing.routeWorkItem({ taskClass: "design", risk: "low" }, {});
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(normal, "needsApproval"), false,
+    "default route shape stays backward compatible");
+});
+
+// --- Backtest calibration (f39716873c follow-up) ------------------------------
+// The title drives high risk; machine-generated bodies (stack traces, Sentry
+// dumps) that name-drop auth/security must not push a fix to tier 4.
+
+test("calibration: body-only high-risk match caps at medium", function () {
+  var c = routing.classifyWorkItem({
+    title: "Dropdown inconsistency",
+    body: "Stack trace mentions authentication middleware and security headers",
+  });
+  assert.strictEqual(c.risk, "medium");
+});
+
+test("calibration: high-risk keyword in the title still routes high", function () {
+  var c = routing.classifyWorkItem({ title: "Auth: stale session expiry epochs" });
+  assert.strictEqual(c.risk, "high");
+});
+
+test("calibration: title class wins over a different body class", function () {
+  var c = routing.classifyWorkItem({
+    title: "Review the audit trail export",
+    body: "There is a bug and a crash in the report generation",
+  });
+  // both match: title says review, body says debugging — title wins
+  assert.strictEqual(c.taskClass, "review");
+});
+
+test("calibration: body class is still the fallback for a classless title", function () {
+  var c = routing.classifyWorkItem({
+    title: "Left align column names",
+    body: "This causes a crash in the grid renderer",
+  });
+  assert.strictEqual(c.taskClass, "debugging");
+});
+
+test("calibration: clean item stays low risk", function () {
+  var c = routing.classifyWorkItem({ title: "Left align column names", body: "" });
+  assert.strictEqual(c.risk, "low");
+});

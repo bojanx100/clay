@@ -1,3 +1,174 @@
+# [2.47.0-beta.6](https://github.com/chadbyte/clay/compare/v2.47.0-beta.5...v2.47.0-beta.6) (2026-08-15)
+
+> **bojan fork integration:** The Kiro ACP adapter and generic `spawn_sessions`
+> tool are intentionally excluded. This fork retains its durable coordinator/
+> worker orchestration and Mate datastore, while integrating the compatible
+> vendor-registry, picker, worktree, dependency, and bug-fix changes.
+
+
+### Features
+
+* **ui:** present worktrees as branches inside their project ([2bb8915](https://github.com/chadbyte/clay/commit/2bb89153e7600baf464aab7692655a2fa5c3d001))
+
+# [2.47.0-beta.5](https://github.com/chadbyte/clay/compare/v2.47.0-beta.4...v2.47.0-beta.5) (2026-08-15)
+
+
+### Bug Fixes
+
+* **sessions:** use the shared session mapper for the connect-time list ([60642b1](https://github.com/chadbyte/clay/commit/60642b1fa30e4f8cfc45ac6ebac6cd2e388b9db7))
+
+
+### Features
+
+* **sidebar:** show which vendor each session ran on ([daa8437](https://github.com/chadbyte/clay/commit/daa84373c9f5b084dc324cd0c62d90a3797d9b1a))
+
+# [2.47.0-beta.4](https://github.com/chadbyte/clay/compare/v2.47.0-beta.3...v2.47.0-beta.4) (2026-08-15)
+
+
+### Features
+
+* **sessions:** inherit parent context in spawned sessions via fork ([cd18b49](https://github.com/chadbyte/clay/commit/cd18b49c37e0c03bfe7a1a138ec131bb45b26d12))
+* **sessions:** let an agent spawn sibling work sessions ([#358](https://github.com/chadbyte/clay/issues/358)) ([5fc36eb](https://github.com/chadbyte/clay/commit/5fc36eb2d2f1117428e5abfd1cddf20908f9c5f6))
+
+# [2.47.0-beta.3](https://github.com/chadbyte/clay/compare/v2.47.0-beta.2...v2.47.0-beta.3) (2026-08-15)
+
+
+### Features
+
+* **yoke:** add static vendor registry and extend capability map ([df18132](https://github.com/chadbyte/clay/commit/df1813253c1172cf7bf6e8b34062d841789b32f8))
+
+# [2.47.0-beta.2](https://github.com/chadbyte/clay/compare/v2.47.0-beta.1...v2.47.0-beta.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **ui:** bind new sessions to selected vendor ([9511f4c](https://github.com/chadbyte/clay/commit/9511f4c0d51906d04e106668b5c08017a3689551))
+* **yoke:** populate Kiro tool_result content from split ACP updates ([fb1d8b2](https://github.com/chadbyte/clay/commit/fb1d8b243da2686098053f30878952c3bb7a8ac0))
+* **yoke:** route Kiro ACP events per session ([9bffa51](https://github.com/chadbyte/clay/commit/9bffa5102cf23871c270a772f67b81d386c1e149))
+
+
+### Features
+
+* **sidebar:** replace vendor buttons with a New session picker ([5a1b34a](https://github.com/chadbyte/clay/commit/5a1b34a4bdc76502bb4fbf820a346f402b71b074))
+* **yoke:** add Kiro CLI adapter via Agent Client Protocol ([3d00286](https://github.com/chadbyte/clay/commit/3d002866de6ba2dc755232de60296e236df91d9e))
+* **yoke:** complete Kiro v3 adapter support ([bfa082a](https://github.com/chadbyte/clay/commit/bfa082a9e12460646baa942e0abe831da49b86a0))
+
+# [2.47.0-beta.1](https://github.com/chadbyte/clay/compare/v2.46.0...v2.47.0-beta.1) (2026-07-20)
+
+
+### Features
+
+* **codex:** add GPT-5.6 sol/terra/luna models ([#384](https://github.com/chadbyte/clay/issues/384)) ([cd56498](https://github.com/chadbyte/clay/commit/cd564984a467926e80e773bc400f3311172bc105))
+
+# [2.46.0](https://github.com/chadbyte/clay/compare/v2.45.0...v2.46.0) (2026-07-03)
+
+
+### Features
+
+* **deps:** bump claude-agent-sdk to 0.3.198 for Claude Fable 5 support ([#381](https://github.com/chadbyte/clay/issues/381)) ([fc9baab](https://github.com/chadbyte/clay/commit/fc9baab75b8fde8511840921c597ea3de7b6f5ae))
+
+# [2.46.0-beta.1](https://github.com/chadbyte/clay/compare/v2.45.0...v2.46.0-beta.1) (2026-07-02)
+
+
+### Features
+
+* **deps:** bump claude-agent-sdk to 0.3.198 for Claude Fable 5 support ([#381](https://github.com/chadbyte/clay/issues/381)) ([fc9baab](https://github.com/chadbyte/clay/commit/fc9baab75b8fde8511840921c597ea3de7b6f5ae))
+
+# [2.45.0](https://github.com/chadbyte/clay/compare/v2.44.0...v2.45.0) (2026-07-01)
+
+
+### Bug Fixes
+
+* **codex:** logged-out detection, login modal, and model listing ([#378](https://github.com/chadbyte/clay/issues/378)) ([a3314b0](https://github.com/chadbyte/clay/commit/a3314b041fada2ccbb6cadede8c37f4997d40922))
+* **model-picker:** show model picker for Claude GUI sessions ([#375](https://github.com/chadbyte/clay/issues/375)) ([6b6feb8](https://github.com/chadbyte/clay/commit/6b6feb86ba41cb880ca295055d8b4a2043c37523))
+* **os-users:** inherit supplementary groups in spawned sessions ([#371](https://github.com/chadbyte/clay/issues/371)) ([8c5aae0](https://github.com/chadbyte/clay/commit/8c5aae0a0c7eccdedfc862616da3223143cd171a)), closes [#367](https://github.com/chadbyte/clay/issues/367)
+* **os-users:** skip per-user Claude CLI install when already available ([#370](https://github.com/chadbyte/clay/issues/370)) ([761f6a5](https://github.com/chadbyte/clay/commit/761f6a5694a2d0ddb7a6eab4c73ba769f3160097)), closes [#368](https://github.com/chadbyte/clay/issues/368)
+
+
+### Features
+
+* **auth:** auto-open a modal login terminal when not logged in ([#376](https://github.com/chadbyte/clay/issues/376)) ([21136ec](https://github.com/chadbyte/clay/commit/21136ecdab262d16e9dfdfbe02f22ecb62c60ee9))
+* **mates:** default Mates off (opt-in) ([#374](https://github.com/chadbyte/clay/issues/374)) ([dc1736f](https://github.com/chadbyte/clay/commit/dc1736f64a3fa9f1a03af3e33895ff75ddbf70ae))
+* **whats-new:** add "GUI is back" and stop popping superseded entries ([#379](https://github.com/chadbyte/clay/issues/379)) ([e328b9f](https://github.com/chadbyte/clay/commit/e328b9fbc97f7d94697c1f0d022c0fea39c42126))
+
+# [2.45.0-beta.4](https://github.com/chadbyte/clay/compare/v2.45.0-beta.3...v2.45.0-beta.4) (2026-07-01)
+
+
+### Bug Fixes
+
+* **codex:** logged-out detection, login modal, and model listing ([#378](https://github.com/chadbyte/clay/issues/378)) ([a3314b0](https://github.com/chadbyte/clay/commit/a3314b041fada2ccbb6cadede8c37f4997d40922))
+
+
+### Features
+
+* **whats-new:** add "GUI is back" and stop popping superseded entries ([#379](https://github.com/chadbyte/clay/issues/379)) ([e328b9f](https://github.com/chadbyte/clay/commit/e328b9fbc97f7d94697c1f0d022c0fea39c42126))
+
+# [2.45.0-beta.4](https://github.com/chadbyte/clay/compare/v2.45.0-beta.3...v2.45.0-beta.4) (2026-07-01)
+
+
+### Bug Fixes
+
+* **codex:** logged-out detection, login modal, and model listing ([#378](https://github.com/chadbyte/clay/issues/378)) ([a3314b0](https://github.com/chadbyte/clay/commit/a3314b041fada2ccbb6cadede8c37f4997d40922))
+
+
+### Features
+
+* **whats-new:** add "GUI is back" and stop popping superseded entries ([#379](https://github.com/chadbyte/clay/issues/379)) ([e328b9f](https://github.com/chadbyte/clay/commit/e328b9fbc97f7d94697c1f0d022c0fea39c42126))
+
+# [2.45.0-beta.4](https://github.com/chadbyte/clay/compare/v2.45.0-beta.3...v2.45.0-beta.4) (2026-07-01)
+
+
+### Bug Fixes
+
+* **codex:** logged-out detection, login modal, and model listing ([#378](https://github.com/chadbyte/clay/issues/378)) ([a3314b0](https://github.com/chadbyte/clay/commit/a3314b041fada2ccbb6cadede8c37f4997d40922))
+
+
+### Features
+
+* **whats-new:** add "GUI is back" and stop popping superseded entries ([#379](https://github.com/chadbyte/clay/issues/379)) ([e328b9f](https://github.com/chadbyte/clay/commit/e328b9fbc97f7d94697c1f0d022c0fea39c42126))
+
+# [2.45.0-beta.4](https://github.com/chadbyte/clay/compare/v2.45.0-beta.3...v2.45.0-beta.4) (2026-07-01)
+
+
+### Bug Fixes
+
+* **codex:** logged-out detection, login modal, and model listing ([#378](https://github.com/chadbyte/clay/issues/378)) ([a3314b0](https://github.com/chadbyte/clay/commit/a3314b041fada2ccbb6cadede8c37f4997d40922))
+
+# [2.45.0-beta.3](https://github.com/chadbyte/clay/compare/v2.45.0-beta.2...v2.45.0-beta.3) (2026-07-01)
+
+
+### Features
+
+* **auth:** auto-open a modal login terminal when not logged in ([#376](https://github.com/chadbyte/clay/issues/376)) ([21136ec](https://github.com/chadbyte/clay/commit/21136ecdab262d16e9dfdfbe02f22ecb62c60ee9))
+
+# [2.45.0-beta.2](https://github.com/chadbyte/clay/compare/v2.45.0-beta.1...v2.45.0-beta.2) (2026-06-30)
+
+
+### Bug Fixes
+
+* **model-picker:** show model picker for Claude GUI sessions ([#375](https://github.com/chadbyte/clay/issues/375)) ([6b6feb8](https://github.com/chadbyte/clay/commit/6b6feb86ba41cb880ca295055d8b4a2043c37523))
+
+# [2.45.0-beta.1](https://github.com/chadbyte/clay/compare/v2.44.1-beta.2...v2.45.0-beta.1) (2026-06-30)
+
+
+### Features
+
+* **mates:** default Mates off (opt-in) ([#374](https://github.com/chadbyte/clay/issues/374)) ([dc1736f](https://github.com/chadbyte/clay/commit/dc1736f64a3fa9f1a03af3e33895ff75ddbf70ae))
+
+## [2.44.1-beta.2](https://github.com/chadbyte/clay/compare/v2.44.1-beta.1...v2.44.1-beta.2) (2026-06-30)
+
+
+### Bug Fixes
+
+* **os-users:** inherit supplementary groups in spawned sessions ([#371](https://github.com/chadbyte/clay/issues/371)) ([8c5aae0](https://github.com/chadbyte/clay/commit/8c5aae0a0c7eccdedfc862616da3223143cd171a)), closes [#367](https://github.com/chadbyte/clay/issues/367)
+
+## [2.44.1-beta.1](https://github.com/chadbyte/clay/compare/v2.44.0...v2.44.1-beta.1) (2026-06-30)
+
+
+### Bug Fixes
+
+* **os-users:** skip per-user Claude CLI install when already available ([#370](https://github.com/chadbyte/clay/issues/370)) ([761f6a5](https://github.com/chadbyte/clay/commit/761f6a5694a2d0ddb7a6eab4c73ba769f3160097)), closes [#368](https://github.com/chadbyte/clay/issues/368)
+
 # [2.44.0](https://github.com/chadbyte/clay/compare/v2.43.0...v2.44.0) (2026-06-18)
 
 

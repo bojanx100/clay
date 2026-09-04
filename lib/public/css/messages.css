@@ -169,9 +169,10 @@
 .msg-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
-  min-height: 28px;
+  gap: 3px;
+  min-height: 32px;
   padding-top: 2px;
+  margin-right: -3px;
 }
 
 .msg-action-time {
@@ -181,6 +182,7 @@
   opacity: 0;
   transition: opacity 0.15s;
   user-select: none;
+  pointer-events: none;
   font-variant-numeric: tabular-nums;
 }
 
@@ -194,8 +196,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   border: none;
   background: transparent;
   color: var(--text-dimmer);
@@ -203,30 +206,39 @@
   border-radius: 6px;
   padding: 0;
   opacity: 0;
+  touch-action: manipulation;
   transition: opacity 0.15s, color 0.15s, background 0.15s;
 }
 
-.msg-action-btn .lucide { width: 14px; height: 14px; }
+.msg-action-btn .lucide {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
 
 .msg-action-btn:hover {
   color: var(--text);
   background: rgba(var(--overlay-rgb), 0.08);
 }
 
-.msg-user:hover .msg-action-btn:not(.msg-action-hidden) { opacity: 1; }
+.msg-user:hover .msg-action-btn:not(.msg-action-hidden) {
+  opacity: 1;
+}
 
 /* Hidden actions (fork/rewind) — created but not shown */
 .msg-action-btn.msg-action-hidden { display: none; }
 
 @media (pointer: coarse) {
-  .msg-action-btn:not(.msg-action-hidden) { opacity: 1; }
+  .msg-action-btn:not(.msg-action-hidden) {
+    opacity: 1;
+  }
 }
 
 /* --- Assistant message --- */
 .msg-assistant {
   position: relative;
   max-width: var(--content-width);
-  margin: 0 auto 12px;
+  margin: 0 auto 28px;
   padding: 4px 20px;
   border-radius: 12px;
   transition: background 0.15s;
@@ -248,7 +260,7 @@
 .msg-copy-hint {
   position: absolute;
   bottom: -18px;
-  right: 20px;
+  right: 48px;
   font-size: 11px;
   color: var(--text-dimmer);
   font-weight: 500;
@@ -261,6 +273,71 @@
 .msg-assistant:hover .msg-copy-hint { opacity: 1; }
 .msg-assistant.copy-primed .msg-copy-hint { opacity: 1; color: var(--accent); }
 .msg-assistant.copy-done .msg-copy-hint { opacity: 1; color: var(--success); }
+
+.msg-assistant-actions {
+  position: absolute;
+  right: 16px;
+  bottom: -24px;
+  z-index: 1;
+}
+
+.msg-assistant-reply-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-dimmer);
+  cursor: pointer;
+  opacity: 0;
+  touch-action: manipulation;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.msg-assistant-reply-btn .lucide {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
+.msg-assistant:hover .msg-assistant-reply-btn,
+.msg-assistant-reply-btn:focus-visible {
+  opacity: 1;
+}
+
+.msg-assistant-reply-btn:hover {
+  color: var(--text);
+  background: rgba(var(--overlay-rgb), 0.08);
+}
+
+@media (pointer: coarse) {
+  .msg-assistant-reply-btn { opacity: 1; }
+}
+
+/* Date/time label for assistant messages (mirrors user message time) */
+.msg-assistant-time {
+  position: absolute;
+  bottom: -18px;
+  left: 20px;
+  font-size: 11px;
+  color: var(--text-dimmer);
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.msg-assistant:hover .msg-assistant-time { opacity: 1; }
+
+/* In DM/wide layouts the header already shows name + time, so skip the
+   bottom label to avoid duplicate timestamps. */
+body.mate-dm-active .msg-assistant-time,
+body.wide-view .msg-assistant-time { display: none; }
 
 /* ==========================================================================
    Markdown Content
@@ -553,6 +630,61 @@ pre.mermaid-error {
 }
 .image-modal-close:hover { background: rgba(var(--overlay-rgb), 0.2); }
 
+#image-modal-img.hidden, #image-modal-video.hidden { display: none; }
+
+#image-modal-video {
+  max-width: 92vw;
+  max-height: 90vh;
+  border-radius: 12px;
+  background: #000;
+  box-shadow: 0 24px 80px rgba(var(--shadow-rgb), 0.6);
+}
+
+/* "Open in new tab" — sits to the left of the close button, same chrome. */
+.image-modal-open {
+  position: fixed;
+  top: 16px;
+  right: 64px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--shadow-rgb), 0.5);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.image-modal-open:hover { background: rgba(var(--overlay-rgb), 0.2); }
+
+/* Shown when the asset can't load in-app (e.g. private GitHub media). */
+.image-modal-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 90vw;
+  padding: 32px 28px;
+  border-radius: 12px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-align: center;
+}
+.image-modal-fallback.hidden { display: none; }
+.image-modal-fallback p { margin: 0; font-weight: 600; }
+.image-modal-fallback-hint { color: var(--text-dim); font-size: 13px; }
+
+/* Mobile: respect the notch and give media more of the viewport. */
+@media (max-width: 768px) {
+  .image-modal-close { top: calc(var(--safe-top) + 12px); right: 12px; }
+  .image-modal-open { top: calc(var(--safe-top) + 12px); right: 60px; }
+  #image-modal-img, #image-modal-video { max-width: 96vw; max-height: 86vh; }
+}
+
 /* ==========================================================================
    Thinking
    ========================================================================== */
@@ -787,6 +919,23 @@ pre.mermaid-error {
 
 .tool-result-block.collapsed { display: none; }
 
+/* Live streaming command output (replaced by .tool-result-block on completion) */
+.tool-live-output {
+  margin: 4px 0 8px 12px;
+  padding: 12px 14px;
+  background: var(--code-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  font-family: "Roboto Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 .tool-result-block pre {
   padding: 12px 14px;
   font-family: "Roboto Mono", monospace;
@@ -1012,11 +1161,107 @@ pre.mermaid-error {
 }
 
 .subagent-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 2px 0 2px 24px;
   padding: 2px 12px;
   font-size: 11px;
   font-family: "Roboto Mono", monospace;
   color: var(--text-dimmer);
+}
+
+.subagent-progress-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-progress-eta {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.subagent-progress-eta:empty {
+  display: none;
+}
+
+/* Pulsing "alive" dot: makes it obvious the agent is still working. */
+.subagent-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent, var(--text-secondary));
+  animation: subagent-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes subagent-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/* Progress bar: determinate when we have an ETA baseline, indeterminate
+   shimmer on the very first run (no history to estimate from yet). */
+.subagent-progressbar {
+  height: 3px;
+  margin: 0 12px 4px 24px;
+  border-radius: 2px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.subagent-progressbar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: var(--accent, var(--text-secondary));
+  transition: width 0.9s linear;
+}
+
+.subagent-progressbar.indeterminate .subagent-progressbar-fill {
+  width: 40% !important;
+  transition: none;
+  animation: subagent-bar-indeterminate 1.4s ease-in-out infinite;
+}
+
+.subagent-progressbar.failed .subagent-progressbar-fill {
+  background: var(--error);
+  transition: none;
+}
+
+@keyframes subagent-bar-indeterminate {
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subagent-pulse {
+    animation: none;
+    opacity: 0.9;
+  }
+  .subagent-progressbar.indeterminate .subagent-progressbar-fill {
+    animation: none;
+    margin-left: 0;
+    width: 100% !important;
+    opacity: 0.5;
+  }
+  .subagent-progressbar-fill {
+    transition: none;
+  }
 }
 
 .subagent-summary {
@@ -1688,6 +1933,7 @@ pre.mermaid-error {
 /* DM mode: simplify input bar (no voice, no model config, no context, no slash menu) */
 #main-column.dm-mode #stt-btn,
 #main-column.dm-mode #config-chip-wrap,
+#main-column.dm-mode #auto-approval-wrap,
 #main-column.dm-mode #context-mini,
 #main-column.dm-mode #context-sources-btn-wrap,
 #main-column.dm-mode #slash-menu {
@@ -1898,3 +2144,230 @@ body.wide-view .turn-meta {
   body.wide-view:not(.mate-dm-active) .tool-group { max-width: var(--content-width); }
   body.wide-view:not(.mate-dm-active) .turn-meta { max-width: var(--content-width); }
 }
+
+/* --- Coop lens filtering ---------------------------------------------------
+   Main shows the conversation; All shows everything. Blocks are classified as
+   they are created and marked with data-coop-relevance, then filtered here.
+
+   Filtering rather than removing is deliberate. #messages children must stay a
+   flat, ordered list: addToMessages stamps clayTs/historyIndex and re-pins the
+   scheduled bubble, pre-thinking dots and activity indicator to the bottom;
+   renderVendorSwitchDivider walks messagesEl.children comparing clayTs to
+   insert itself in timestamp order; shouldGroupMessage reads lastElementChild;
+   prependOlderHistory renumbers every [data-turn]; app-cursors queries
+   [data-turn]. Dropping or wrapping blocks would break ordering, grouping and
+   pagination in ways that only surface after scrolling back.
+
+   It also makes lens switching instant and lossless: the same DOM is revealed
+   or hidden, so no block can be duplicated, dropped or reordered. */
+#messages[data-coop-lens="main"] > [data-coop-relevance="internal"] {
+  display: none;
+}
+
+/* --- Coop topic decision surface ---------------------------------------------
+   The contextual decision panel for the selected topic, rendered above the
+   conversation. This is the ONLY place consequential owner decisions render:
+   the sidebar index and topic rows are links into it. Compact by design; it
+   shares the conversation column so it works unchanged at 390px. */
+#coop-topic-decision { flex: 0 0 auto; }
+#coop-topic-decision[hidden] { display: none; }
+
+.coop-topic-decision {
+  margin: 10px auto 2px;
+  padding: 10px 12px;
+  max-width: 760px;
+  width: calc(100% - 24px);
+  box-sizing: border-box;
+  border: 1px solid var(--attention-border, var(--border-subtle));
+  border-radius: 10px;
+  background: var(--attention-bg, var(--sidebar-hover));
+}
+
+.coop-topic-decision-heading {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.coop-thread-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.coop-thread-state { padding: 4px 8px; border-radius: 999px; background: rgba(var(--accent-rgb), .12); color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.coop-thread-control { min-height: 30px; padding: 5px 9px; border: 1px solid var(--border-subtle); border-radius: 7px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 11px; }
+.coop-thread-control:hover { border-color: var(--accent); color: var(--text); }
+.coop-thread-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.coop-thread-dialog-overlay { position: fixed; z-index: 10020; inset: 0; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0, 0, 0, .48); }
+.coop-thread-dialog { width: min(440px, 100%); max-height: min(620px, calc(100vh - 36px)); overflow: auto; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); box-shadow: 0 18px 50px rgba(0, 0, 0, .28); }
+.coop-thread-dialog h2 { margin: 0 0 8px; color: var(--text); font-size: 16px; }
+.coop-thread-dialog p { margin: 0 0 14px; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+.coop-thread-dialog-actions, .coop-thread-target-list { display: flex; flex-direction: column; gap: 8px; }
+.coop-thread-dialog-button, .coop-thread-target { min-height: 38px; padding: 8px 11px; border: 1px solid var(--border-subtle); border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; font: inherit; text-align: left; }
+.coop-thread-dialog-button:hover, .coop-thread-target:hover { border-color: var(--accent); background: var(--sidebar-hover); }
+.coop-thread-dialog-button.destructive { color: var(--danger, #d45b5b); }
+.coop-thread-dialog-button.quiet { color: var(--text-dimmer); }
+.coop-thread-dialog-button:focus-visible, .coop-thread-target:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Task-scoped decision panel (worker result + verbs). */
+.coop-action-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px 0 2px;
+}
+.coop-action-detail + .coop-action-detail { border-top: 1px solid var(--border-subtle); }
+.coop-action-detail-meta { color: var(--text-dimmer); font-size: 11px; font-weight: 700; letter-spacing: .03em; overflow-wrap: anywhere; }
+.coop-action-detail-evidence,
+.coop-action-detail-asked { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.coop-action-detail-asked { color: var(--text); }
+.coop-action-detail-links { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.action-item-link { color: var(--text-dimmer); font-size: 12px; overflow-wrap: anywhere; }
+
+.coop-action-note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.coop-action-note:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.coop-action-detail-consequence { margin: 0; color: var(--text-dimmer); font-size: 11px; line-height: 1.4; }
+
+.coop-action-decisions { display: flex; flex-wrap: wrap; gap: 7px; }
+.coop-action-decide {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+.coop-action-decide:hover:not(:disabled) { background: var(--sidebar-hover); }
+.coop-action-decide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.coop-action-decide:disabled { opacity: .5; cursor: default; }
+.coop-action-decide-accept,
+.coop-action-decide-advance { border-color: var(--accent); color: var(--accent); }
+
+.coop-action-detail-state { margin: 0; font-size: 12px; line-height: 1.4; }
+.coop-action-state-pending { color: var(--text-dimmer); }
+.coop-action-state-error { color: var(--danger, #e5534b); }
+.coop-action-state-done { color: var(--success, #3fb950); }
+.coop-action-state-withheld { color: var(--text-dimmer); font-style: italic; }
+
+/* Topic-scoped disposition panel (provenance + verbs). */
+.coop-topic-review-panel { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px; }
+.coop-topic-review-provenance { color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.coop-topic-review-note-history { color: var(--text-dimmer); font-size: 12px; overflow-wrap: anywhere; }
+.coop-topic-review-error { color: var(--warning, #d99824); font-size: 12px; }
+.coop-topic-review-consequence { margin: 0; color: var(--text-dimmer); font-size: 11px; line-height: 1.4; }
+.coop-topic-review-note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.coop-topic-review-note:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.coop-topic-review-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.coop-topic-review-action {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+.coop-topic-review-action:hover:not(:disabled) { background: var(--sidebar-hover); }
+.coop-topic-review-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.coop-topic-review-action:disabled { opacity: .5; cursor: default; }
+.coop-topic-review-accept_done { border-color: var(--success, #3fb950); color: var(--success, #3fb950); }
+
+.coop-thread-route {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 5px;
+  overflow: hidden;
+  color: var(--text-dimmer);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Reply-anchor chip -------------------------------------------------------
+   Names the topic-lens message a bubble is a reply to, so it no longer reads
+   as unrelated general-chat tail content. Compact and muted -- the bubble
+   text is the point, not this label. Same transcript markup renders at 390px
+   as on desktop, so no mobile-only override is needed here. */
+.coop-reply-anchor {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-bottom: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--sidebar-hover);
+  color: var(--text-dimmer);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+  opacity: .85;
+}
+
+.coop-reply-anchor i,
+.coop-reply-anchor svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.coop-reply-anchor-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coop-reply-anchor[role="button"] {
+  cursor: pointer;
+}
+
+.coop-reply-anchor[role="button"]:hover {
+  background: rgba(var(--overlay-rgb), 0.1);
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+.coop-reply-anchor[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Naming the topic inside its own lens would be redundant noise, but that is
+   decided when the chip is built (coop-reply-anchor.js), NOT by a lens-scoped
+   `display: none` here. Exactly one lens rule in this file may hide anything,
+   and it is the Main internal-relevance rule above; a second one would erode
+   the guarantee that All is full fidelity. */

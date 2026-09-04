@@ -1,0 +1,36 @@
+#!/bin/sh
+#
+# Clay commit-message guard. Rejects a message that carries a Co-Authored-By
+# line or whose subject does not follow Conventional Commits, per CLAUDE.md.
+#
+# This directory is versioned, so it reaches every worktree and clone -- but git
+# will not run hooks from the tree on its own. Enable it once per clone with:
+#
+#   git config core.hooksPath .githooks
+#
+# That setting lives in .git/config, which linked worktrees share, so enabling
+# it in the main checkout covers every `git worktree add` from it too.
+#
+# Escape hatch: `git commit --no-verify`.
+
+set -e
+
+root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [ -z "$root" ]; then
+	root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+fi
+checker="$root/scripts/check-commit-message.js"
+
+if [ ! -f "$checker" ]; then
+	echo "commit-msg: $checker is missing, so the commit-message guard cannot run." >&2
+	echo "commit-msg: restore it, or bypass this commit with --no-verify." >&2
+	exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+	echo "commit-msg: node is not on PATH, so the commit-message guard cannot run." >&2
+	echo "commit-msg: install node, or bypass this commit with --no-verify." >&2
+	exit 1
+fi
+
+exec node "$checker" "$1"

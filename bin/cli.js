@@ -37,6 +37,7 @@ var { loadConfig, saveConfig, configPath, socketPath, logPath, ensureConfigDir, 
 var { sendIPCCommand } = require("../lib/ipc");
 var { generateAuthToken } = require("../lib/server");
 var { enableMultiUser, disableMultiUser, hasAdmin, isMultiUser, getSetupCode } = require("../lib/users");
+var { refreshBuiltinCertCache } = require("../lib/daemon-network");
 var clayStudioCert = require("../lib/clay-studio-cert");
 
 function openUrl(url) {
@@ -50,8 +51,71 @@ function openUrl(url) {
   } catch (e) {}
 }
 
+function printHelp() {
+  var command = path.basename(process.argv[1] || "clay-server");
+  if (command === "cli.js") {
+    command = "node bin/cli.js";
+  }
+  var lines = [
+    "",
+    "Usage:",
+    "  " + command + " [options]",
+    "  " + command + " --add <path>",
+    "  " + command + " --remove <path>",
+    "  " + command + " --list",
+    "",
+    "Common:",
+    "  -h, --help                  Show this help.",
+    "  -p, --port <port>           Port to listen on. Default: 2633, or 2635 with --dev.",
+    "  --host, --bind <address>    Address to bind to. Default: all interfaces.",
+    "  --dev                       Use the dev daemon/config, enable debug, and skip update checks.",
+    "  --debug                     Run with debug logging and show the debug panel in the web UI.",
+    "  --watch, -w                 Watch the daemon and restart it after crashes.",
+    "  --headless                  Start the daemon and exit immediately. Implies --yes.",
+    "  -y, --yes                   Skip interactive setup prompts and accept defaults.",
+    "",
+    "Security and access:",
+    "  --pin <pin>                 Set a 6-digit PIN during non-interactive setup.",
+    "  --multi-user                Start in multi-user mode.",
+    "  --os-users                  Enable OS-level user isolation on Linux. Requires --multi-user and root.",
+    "",
+    "HTTPS and certificates:",
+    "  --no-https                  Disable HTTPS.",
+    "  --local-cert                Prefer local mkcert certificates and suppress the migration notice.",
+    "  --builtin-cert              Use Clay's bundled certificate even when mkcert is installed.",
+    "",
+    "Automation:",
+    "  --dangerously-skip-permissions",
+    "                              Start Claude sessions with permission prompts bypassed.",
+    "  --full-auto                 Start all new sessions in full automation mode.",
+    "                              Implies --dangerously-skip-permissions.",
+    "                              Claude default: bypass permissions.",
+    "                              Codex defaults: approval=never, sandbox=danger-full-access.",
+    "",
+    "Project management:",
+    "  --add <path>                Add a project directory to the running daemon.",
+    "  --remove <path>             Remove a project directory from the running daemon.",
+    "  --list                      List projects registered in the running daemon.",
+    "",
+    "Daemon control:",
+    "  --status                    Show the running daemon status and exit.",
+    "  --shutdown                  Shut down the running daemon.",
+    "  --restart                   Restart the running daemon.",
+    "  --no-update, --skip-update  Skip the startup update check.",
+    "",
+    "Examples:",
+    "  " + command + " --dev -p 7292",
+    "  " + command + " --dev -p 7292 --full-auto",
+    "  " + command + " --headless --yes --pin 123456",
+    "  " + command + " --add .",
+    "",
+  ];
+  console.log(lines.join("\n"));
+}
+
 var args = process.argv.slice(2);
 var port = _isDev ? 2635 : 2633;
+var portWasSpecified = false;
 var useHttps = true;
 var forceMkcert = false;
 var forceBuiltin = false;
@@ -59,12 +123,14 @@ var skipUpdate = false;
 var debugMode = false;
 var autoYes = false;
 var cliPin = null;
+var statusMode = false;
 var shutdownMode = false;
 var restartMode = false;
 var addPath = null;
 var removePath = null;
 var listMode = false;
 var dangerouslySkipPermissions = false;
+var fullAutoMode = false;
 var headlessMode = false;
 var watchMode = false;
 var host = null;
@@ -78,6 +144,7 @@ for (var i = 0; i < args.length; i++) {
       console.error("Invalid port number");
       process.exit(1);
     }
+    portWasSpecified = true;
     i++;
   } else if (args[i] === "--host" || args[i] === "--bind") {
     host = args[i + 1] || null;
@@ -101,6 +168,8 @@ for (var i = 0; i < args.length; i++) {
   } else if (args[i] === "--pin") {
     cliPin = args[i + 1] || null;
     i++;
+  } else if (args[i] === "--status") {
+    statusMode = true;
   } else if (args[i] === "--shutdown") {
     shutdownMode = true;
   } else if (args[i] === "--restart") {
@@ -118,37 +187,20 @@ for (var i = 0; i < args.length; i++) {
     autoYes = true;
   } else if (args[i] === "--dangerously-skip-permissions") {
     dangerouslySkipPermissions = true;
+  } else if (args[i] === "--full-auto") {
+    fullAutoMode = true;
+    dangerouslySkipPermissions = true;
   } else if (args[i] === "--multi-user") {
     multiUserMode = true;
   } else if (args[i] === "--os-users") {
     osUsersMode = true;
   } else if (args[i] === "-h" || args[i] === "--help") {
-    console.log("Usage: clay-server [-p|--port <port>] [--host <address>] [--no-https] [--no-update] [--debug] [-y|--yes] [--pin <pin>] [--shutdown] [--restart]");
-    console.log("       clay-server --add <path>     Add a project to the running daemon");
-    console.log("       clay-server --remove <path>  Remove a project from the running daemon");
-    console.log("       clay-server --list            List registered projects");
-    console.log("");
-    console.log("Options:");
-    console.log("  -p, --port <port>  Port to listen on (default: 2633)");
-    console.log("  --host <address>   Address to bind to (default: 0.0.0.0)");
-    console.log("  --no-https         Disable HTTPS (enabled by default)");
-    console.log("  --local-cert       Use local certificate (mkcert), suppress migration notice");
-    console.log("  --builtin-cert    Use builtin certificate even if mkcert is installed");
-    console.log("  --no-update        Skip auto-update check on startup");
-    console.log("  --debug            Enable debug panel in the web UI");
-    console.log("  -y, --yes          Skip interactive prompts (accept defaults)");
-    console.log("  --pin <pin>        Set 6-digit PIN (use with --yes)");
-    console.log("  --shutdown         Shut down the running relay daemon");
-    console.log("  --restart          Restart the running relay daemon");
-    console.log("  --add <path>       Add a project directory (use '.' for current)");
-    console.log("  --remove <path>    Remove a project directory");
-    console.log("  --list             List all registered projects");
-    console.log("  --headless         Start daemon and exit immediately (implies --yes)");
-    console.log("  --multi-user       Start in multi-user mode (use with --yes for headless)");
-    console.log("  --os-users         Enable OS-level user isolation (Linux, requires root + --multi-user)");
-    console.log("  --dangerously-skip-permissions");
-    console.log("                     Bypass all permission prompts");
+    printHelp();
     process.exit(0);
+  } else {
+    console.error("Unknown option: " + args[i]);
+    console.error("Run with --help to see supported options.");
+    process.exit(1);
   }
 }
 
@@ -156,6 +208,37 @@ for (var i = 0; i < args.length; i++) {
 if (_isDev) {
   debugMode = true;
   skipUpdate = true;
+}
+
+// --- Handle --status before startup/takeover logic ---
+// An unknown --status flag used to fall through into the normal --dev path,
+// which stopped the running watcher and daemon before starting a replacement.
+// Status is read-only and must never mutate daemon lifecycle state.
+if (statusMode) {
+  var statusConfig = loadConfig();
+  isDaemonAliveAsync(statusConfig).then(function (alive) {
+    if (!alive) {
+      console.error("No running daemon found.");
+      process.exit(1);
+    }
+    sendIPCCommand(socketPath(), { cmd: "get_status" }).then(function (status) {
+      if (!status || status.ok !== true) {
+        console.error("Status failed: daemon did not return a valid response.");
+        process.exit(1);
+        return;
+      }
+      var protocol = status.tls ? "https" : "http";
+      console.log("Daemon running (PID " + status.pid + ")");
+      console.log("Listening on " + protocol + "://localhost:" + status.port);
+      console.log("Projects: " + ((status.projects && status.projects.length) || 0));
+      console.log("Uptime: " + Math.floor(status.uptime || 0) + "s");
+      process.exit(0);
+    }).catch(function (err) {
+      console.error("Status failed:", err.message);
+      process.exit(1);
+    });
+  });
+  return;
 }
 
 // --- Handle --shutdown before anything else ---
@@ -186,7 +269,12 @@ if (restartMode) {
       console.error("No running daemon found.");
       process.exit(1);
     }
-    sendIPCCommand(socketPath(), { cmd: "restart" }).then(function () {
+    sendIPCCommand(socketPath(), { cmd: "restart" }).then(function (result) {
+      if (!result || result.ok !== true) {
+        console.error("Restart failed:", result && result.error || "daemon refused restart");
+        process.exit(1);
+        return;
+      }
       console.log("Server restarted.");
       process.exit(0);
     }).catch(function (err) {
@@ -339,8 +427,16 @@ function clearUp(n) {
 // --- Daemon watcher ---
 // Polls daemon socket; if connection fails, the server is down.
 var _daemonWatcher = null;
+// In dev mode the daemon is supervised by the child-process exit handler in
+// devMode() (which understands exit code 120 = intentional update restart and
+// respawns). The socket-poll watcher below has no knowledge of intentional
+// restarts: during the brief gap while the daemon respawns it would call
+// onDaemonDied(), find no crash.json, conclude "intentional shutdown" and
+// process.exit(0) — killing the parent before the respawn runs. Suppress it.
+var _devWatcherActive = false;
 
 function startDaemonWatcher() {
+  if (_devWatcherActive) return;
   if (_daemonWatcher) return;
   _daemonWatcher = setInterval(function () {
     var client = net.connect(socketPath());
@@ -429,6 +525,11 @@ async function restartDaemonFromConfig() {
     log(a.red + "     No config found. Cannot restart." + a.reset);
     process.exit(1);
     return;
+  }
+
+  var refreshed = await refreshBuiltinCertCache(lastConfig, 5000);
+  if (refreshed) {
+    log(a.dim + "     Refreshed d.clay.studio certificate cache before restart." + a.reset);
   }
 
   clearStaleConfig();
@@ -610,6 +711,13 @@ function ensureCerts(ip) {
     return null;
   }
 
+  // Default to the browser-trusted *.d.clay.studio certificate. mkcert remains
+  // available through --local-cert for users who explicitly want local CA certs.
+  if (!forceMkcert) {
+    var defaultBuiltin = getBuiltinCert();
+    if (defaultBuiltin) return defaultBuiltin;
+  }
+
   var certDir = path.join(process.env.CLAY_HOME || path.join(REAL_HOME, ".clay"), "certs");
   var keyPath = path.join(certDir, "key.pem");
   var certPath = path.join(certDir, "cert.pem");
@@ -682,12 +790,6 @@ function ensureCerts(ip) {
     }
   }
 
-  // Fallback: builtin cert (unless --local-cert forces mkcert-only)
-  if (!forceMkcert) {
-    var builtin = getBuiltinCert();
-    if (builtin) return builtin;
-  }
-
   return null;
 }
 
@@ -738,6 +840,11 @@ function printLogo() {
 
 // --- Interactive prompts ---
 function promptToggle(title, desc, defaultValue, callback) {
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
+    log(sym.end + "  Interactive input required (stdin is not a TTY).");
+    process.exit(1);
+    return;
+  }
   var value = defaultValue || false;
 
   function renderToggle() {
@@ -791,6 +898,11 @@ function promptToggle(title, desc, defaultValue, callback) {
 }
 
 function promptPin(callback) {
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
+    log(sym.end + "  Interactive input required (stdin is not a TTY).");
+    process.exit(1);
+    return;
+  }
   log(sym.pointer + "  " + a.bold + "PIN protection" + a.reset);
   log(sym.bar + "  " + a.dim + "Require a 6-digit PIN to access the web UI. Enter to skip." + a.reset);
   process.stdout.write("  " + sym.bar + "  ");
@@ -847,6 +959,16 @@ function promptPin(callback) {
  * Tab completes directory paths.
  */
 function promptText(title, placeholder, callback, opts) {
+  // Headless guard (F-4): setRawMode does not exist when stdin is not a
+  // TTY — an automated restart that reaches an interactive prompt used to
+  // die with a TypeError and leave the daemon down. Fail with an
+  // actionable message instead.
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
+    log(sym.end + "  Interactive input required (stdin is not a TTY).");
+    log(sym.end + "  Run clay from a terminal to complete setup.");
+    process.exit(1);
+    return;
+  }
   var prefix = "  " + sym.bar + "  ";
   var hintLine = "";
   var lineCount = 2;
@@ -1359,21 +1481,13 @@ function setup(callback) {
           }
           port = p;
           log(sym.bar);
-          askMode();
+          // No "single vs multi" question anymore: every deploy runs in the
+          // (general) multi-user model. Solo users get an auto-provisioned
+          // default admin with no PIN and no login wall. OS-level user
+          // isolation stays an opt-in, offered here on Linux and toggleable
+          // later; everything else is just multi-user.
+          askOsUsers("multi");
         });
-      });
-    }
-
-    function askMode() {
-      promptSelect("How will you use Clay?", [
-        { label: "Just me (single user)", value: "single" },
-        { label: "Multiple users", value: "multi" },
-      ], function (mode) {
-        if (mode === "single") {
-          finishSetup(mode, false);
-        } else {
-          askOsUsers(mode);
-        }
       });
     }
 
@@ -1425,6 +1539,7 @@ function setup(callback) {
             existingCfg.osUsers = true;
             existingCfg.setupCompleted = true;
             if (dangerouslySkipPermissions) existingCfg.dangerouslySkipPermissions = true;
+            if (fullAutoMode) existingCfg.fullAutoMode = true;
             saveConfig(existingCfg);
             log(sym.bar);
             log(sym.warn + "  " + a.yellow + "OS user isolation requires root." + a.reset);
@@ -1553,8 +1668,9 @@ async function forkDaemon(mode, keepAwake, extraProjects, addCwd, wantOsUsers) {
     headless: headlessMode,
     keepAwake: keepAwake,
     dangerouslySkipPermissions: dangerouslySkipPermissions,
+    fullAutoMode: fullAutoMode,
     osUsers: wantOsUsers || osUsersMode,
-    mode: mode || "single",
+    mode: mode || "multi",
     setupCompleted: true,
     projects: allProjects,
   });
@@ -1647,6 +1763,10 @@ async function forkDaemon(mode, keepAwake, extraProjects, addCwd, wantOsUsers) {
 // Dev mode — foreground daemon with file watching
 // ==============================
 async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
+  // The child-process exit handler below is the authoritative daemon supervisor
+  // in dev mode. Mark dev-watcher active so the socket-poll watcher (started by
+  // showMainMenu) never runs and races the intentional code-120 restart.
+  _devWatcherActive = true;
   var ip = getLocalIP();
   var hasTls = false;
   var hasBuiltinCert = false;
@@ -1729,7 +1849,8 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
     debug: true,
     keepAwake: keepAwake || false,
     dangerouslySkipPermissions: dangerouslySkipPermissions,
-    mode: mode || "single",
+    fullAutoMode: fullAutoMode,
+    mode: mode || "multi",
     setupCompleted: true,
     projects: allProjects,
     osUsers: wantOsUsers || (prevDevConfig ? (prevDevConfig.osUsers || false) : false),
@@ -1754,16 +1875,68 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
   var intentionalKill = false;
   var debounceTimer = null;
 
+  // The dev watcher used to give the daemon inherited stdio, so its output went
+  // only to this terminal's scrollback and logPath() was never written. Anything
+  // the daemon reported with console.error — including startup migrations that
+  // fail closed — was therefore lost, and the CLI's own "logs" viewer showed a
+  // stale file. Tee instead: keep the live terminal view the watcher exists for,
+  // and also make the output durable and greppable after the fact.
+  var DAEMON_LOG_MAX_BYTES = 16 * 1024 * 1024;
+  var daemonLogStream = null;
+
+  function trimDaemonLogIfTooLarge(filePath) {
+    // Same bounded-file approach as lib/recovery-log.js: keep the recent half.
+    try {
+      if (fs.statSync(filePath).size <= DAEMON_LOG_MAX_BYTES) return;
+      var lines = fs.readFileSync(filePath, "utf8").split("\n");
+      fs.writeFileSync(filePath, lines.slice(Math.floor(lines.length / 2)).join("\n"));
+    } catch (e) {
+      // No file yet — nothing to trim.
+    }
+  }
+
+  function closeDaemonLogStream() {
+    if (!daemonLogStream) return;
+    try { daemonLogStream.end(); } catch (e) { /* best effort */ }
+    daemonLogStream = null;
+  }
+
   function spawnDaemon() {
+    closeDaemonLogStream();
+    var daemonLogFile = logPath();
+    trimDaemonLogIfTooLarge(daemonLogFile);
+    try {
+      ensureConfigDir();
+      daemonLogStream = fs.createWriteStream(daemonLogFile, { flags: "a" });
+      daemonLogStream.on("error", function () { daemonLogStream = null; });
+    } catch (e) {
+      daemonLogStream = null;
+    }
+
     child = spawn(process.execPath, [daemonScript], {
-      stdio: ["ignore", "inherit", "inherit"],
+      stdio: ["ignore", daemonLogStream ? "pipe" : "inherit",
+        daemonLogStream ? "pipe" : "inherit"],
       env: Object.assign({}, process.env, {
         CLAY_CONFIG: configPath(),
+        // Signals to the daemon that it runs under this dev watcher, which
+        // respawns it on exit code 120. Restart/update can therefore just exit
+        // 120 instead of self-spawning a replacement. NOT set in plain --debug
+        // mode (in-process require, no watcher), where the daemon must self-spawn.
+        CLAY_DEV_WATCHER: "1",
       }),
     });
 
+    if (daemonLogStream) {
+      // end: false so a daemon restart never closes this process's own streams.
+      child.stdout.pipe(process.stdout, { end: false });
+      child.stdout.pipe(daemonLogStream, { end: false });
+      child.stderr.pipe(process.stderr, { end: false });
+      child.stderr.pipe(daemonLogStream, { end: false });
+    }
+
     child.on("exit", function (code) {
       child = null;
+      closeDaemonLogStream();
       if (intentionalKill) {
         intentionalKill = false;
         return;
@@ -1809,17 +1982,21 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
 
   // Wait for daemon to be ready, then show CLI menu
   config.pid = child ? child.pid : null;
+  // Record the watcher itself, not just its daemon. A later `--dev` takeover has
+  // to stop this process too: shutting down only the daemon leaves this watcher
+  // to respawn it, and the two daemons then SIGTERM each other over the port
+  // forever (see the takeover in the dev entry path).
+  config.devWatcherPid = process.pid;
   saveConfig(config);
 
-  var daemonReady = false;
-  for (var da = 0; da < 10; da++) {
-    await new Promise(function (resolve) { setTimeout(resolve, 500); });
-    daemonReady = await isDaemonAliveAsync(config);
-    if (daemonReady) break;
-  }
-  if (daemonReady) {
-    showServerStarted(config, ip);
-  }
+  await devWatcherTakeover.waitForDaemonReady(function () {
+    return isDaemonAliveAsync(config);
+  }, {
+    onSlow: function () {
+      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Startup is still restoring projects; waiting for Clay to be ready...");
+    },
+  });
+  showServerStarted(config, ip);
 
   // Watch lib/ for server-side file changes (only with --watch)
   var watcher = null;
@@ -1843,7 +2020,7 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
 
   // Clean exit on Ctrl+C
   var shuttingDown = false;
-  process.on("SIGINT", function () {
+  function shutdownWatcher() {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log("\n\x1b[38;2;0;183;133m[dev]\x1b[0m Shutting down...");
@@ -1862,7 +2039,15 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
       clearStaleConfig();
       process.exit(0);
     }
-  });
+  }
+
+  // SIGTERM as well as SIGINT: a takeover, a kill, or a supervising script all
+  // send SIGTERM, and without a handler this process died instantly and left its
+  // daemon running as an orphan -- still holding the port and still being
+  // SIGTERMed by, and SIGTERMing, whichever daemon started next.
+  process.on("SIGINT", shutdownWatcher);
+  process.on("SIGTERM", shutdownWatcher);
+  process.on("SIGHUP", shutdownWatcher);
 }
 
 // ==============================
@@ -2639,6 +2824,7 @@ function showSettingsMenu(config, ip) {
 // Main entry: daemon alive?
 // ==============================
 var { checkAndUpdate } = require("../lib/updater");
+var devWatcherTakeover = require("../lib/dev-watcher-takeover");
 var currentVersion = require("../package.json").version;
 
 (async function () {
@@ -2648,17 +2834,45 @@ var currentVersion = require("../package.json").version;
   // Dev mode — foreground daemon with file watching
   if (_isDev) {
     var devConfig = loadConfig();
-    var devAlive = devConfig ? await isDaemonAliveAsync(devConfig) : false;
+    var takeover = await devWatcherTakeover.takeOverExistingDev(devConfig, {
+      currentPid: process.pid,
+      reuseHealthyExisting: true,
+      isDaemonAlive: function () {
+        return devConfig ? isDaemonAliveAsync(devConfig) : Promise.resolve(false);
+      },
+      shutdownDaemon: function () {
+        console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Shutting down existing daemon...");
+        return sendIPCCommand(socketPath(), { cmd: "shutdown" });
+      },
+      onStopWatcher: function (priorWatcher) {
+        // Stop the previous watcher FIRST. It respawns its daemon on any
+        // unexpected exit, so shutting down only the daemon resurrects it.
+        console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Stopping existing dev watcher (PID " +
+          priorWatcher + ")...");
+      },
+    });
+    if (takeover.reusedExisting) {
+      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Clay is already running (watcher PID " +
+        takeover.priorWatcherPid + ", daemon PID " + devConfig.pid + ").");
+      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Reusing it. Run with --dev --restart to restart the daemon.");
+      return;
+    }
+    var devAlive = takeover.wasDaemonAlive;
     if (devAlive) {
-      console.log("\x1b[38;2;0;183;133m[dev]\x1b[0m Shutting down existing daemon...");
-      await sendIPCCommand(socketPath(), { cmd: "shutdown" });
       clearStaleConfig();
       await new Promise(function (resolve) { setTimeout(resolve, 500); });
     }
-    // No running daemon — clear config so setup runs fresh
+    // No running daemon: interactively we clear the config so setup runs
+    // fresh, but a HEADLESS invocation (automated restart, no TTY) must
+    // reuse the existing config — dropping into interactive setup without
+    // a TTY crashed the restart and left the daemon down (F-4).
     if (!devAlive && devConfig) {
-      if (devConfig.pid) clearStaleConfig();
-      devConfig = null;
+      if (process.stdin.isTTY) {
+        if (devConfig.pid) clearStaleConfig();
+        devConfig = null;
+      } else {
+        console.log("[dev] Headless restart: reusing existing config.");
+      }
     }
     // No config — go through setup (disclaimer, port, mode, etc.)
     if (!devConfig) {
@@ -2667,7 +2881,8 @@ var currentVersion = require("../package.json").version;
       });
     } else {
       // Reuse existing config (repeat run)
-      await devMode(devConfig.mode || "single", devConfig.keepAwake || false, devConfig.pinHash || null, devConfig.osUsers || false);
+      port = devWatcherTakeover.resolveDevLaunchPort(port, portWasSpecified, devConfig);
+      await devMode(devConfig.mode || "multi", devConfig.keepAwake || false, devConfig.pinHash || null, devConfig.osUsers || false);
     }
     return;
   }
@@ -2767,7 +2982,7 @@ var currentVersion = require("../package.json").version;
 
     if (isRepeatRun || autoYes) {
       // Repeat run or --yes: skip wizard, reuse saved config
-      var savedMode = (savedConfig && savedConfig.mode) || "single";
+      var savedMode = (savedConfig && savedConfig.mode) || "multi";
       var savedKeepAwake = (savedConfig && savedConfig.keepAwake) || false;
       var savedOsUsers = (savedConfig && savedConfig.osUsers) || false;
 
@@ -2797,10 +3012,14 @@ var currentVersion = require("../package.json").version;
       if (savedConfig && savedConfig.port) port = savedConfig.port;
       if (savedConfig && savedConfig.host) host = savedConfig.host;
       if (savedConfig && savedConfig.dangerouslySkipPermissions) dangerouslySkipPermissions = true;
+      if (fullAutoMode) dangerouslySkipPermissions = true;
 
       if (autoYes) {
         console.log("  " + sym.done + "  Auto-accepted disclaimer");
         console.log("  " + sym.done + "  Mode: " + savedMode);
+        if (fullAutoMode) {
+          console.log("  " + sym.warn + "  " + a.yellow + "Full auto mode enabled" + a.reset);
+        }
         if (dangerouslySkipPermissions) {
           console.log("  " + sym.warn + "  " + a.yellow + "Skip permissions mode enabled" + a.reset);
         }

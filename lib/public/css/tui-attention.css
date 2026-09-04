@@ -49,69 +49,10 @@ body.tui-suspended #tui-resume-bar {
   .tui-resume-hint { display: none; }
 }
 
-/* Policy notice that sits above the embedded xterm in fullscreen TUI
-   sessions, explaining why this mode exists (post-2026-06-15 Agent SDK
-   billing split). Thin so it doesn't eat terminal real estate. */
-.tui-policy-notice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  padding: 6px 10px;
-  margin-bottom: 4px;
-  border-radius: 6px;
-  background: rgba(80, 250, 123, 0.06);
-  border: 1px solid rgba(80, 250, 123, 0.15);
-  color: #b8b8b8;
-  font-size: 11px;
-  line-height: 1.3;
-  font-family: "Roboto Mono", Menlo, Monaco, monospace;
-}
-.tui-policy-icon {
-  color: #50fa7b;
-  font-size: 9px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.tui-policy-text {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.tui-policy-learn-more {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border: 1px solid rgba(80, 250, 123, 0.3);
-  border-radius: 4px;
-  background: transparent;
-  color: #50fa7b;
-  font: inherit;
-  font-size: 10px;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.tui-policy-learn-more:hover {
-  background: rgba(80, 250, 123, 0.1);
-  border-color: rgba(80, 250, 123, 0.5);
-}
-.tui-policy-dismiss {
-  flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: #888;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-.tui-policy-dismiss:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #ddd;
-}
-
-/* Policy info modal. Themed via CSS vars so it follows light/dark. */
+/* Policy info modal. Themed via CSS vars so it follows light/dark.
+   The modal itself is gone; .tui-policy-modal-* rules stay because
+   What's New article bodies (lib/whats-new-content.js) still use the
+   -links class for their footer links. */
 .tui-policy-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -348,6 +289,12 @@ body.tui-suspended #tui-resume-bar {
   flex-direction: column;
   border: 1px solid var(--border);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+}
+/* Compact variant for short content (e.g. login wizard): smaller box so the
+   terminal hugs the content instead of leaving a tall empty area below. */
+.tui-modal.tui-modal-compact {
+  width: min(720px, 96%);
+  height: min(480px, 90%);
 }
 .tui-modal-header {
   display: flex;

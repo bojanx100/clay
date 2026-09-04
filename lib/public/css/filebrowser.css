@@ -419,6 +419,104 @@
   margin: -8px 0 20px;
 }
 
+/* Automation section: match the padded card look used elsewhere */
+#project-settings .settings-card-body {
+  padding: 14px 16px;
+}
+#project-settings .settings-card-body > .settings-label:first-child {
+  margin-bottom: 6px;
+}
+/* The config card wraps .settings-field rows that already self-pad (like the
+   Profile/Instructions sections), so don't double-inset them. */
+#project-settings #ps-auto-launch-config {
+  padding: 0;
+}
+#project-settings #ps-auto-launch-config .ps-textarea-actions {
+  margin-top: 0;
+}
+.ps-save-status.error { color: var(--error); }
+
+/* Automation section: agent-split slider + setup checklist */
+#project-settings .us-range-input {
+  width: 100%;
+  margin: 6px 0 2px;
+  accent-color: var(--accent, #6c8cff);
+  cursor: pointer;
+}
+
+#project-settings #ps-auto-launch-vendor-label {
+  font-weight: 600;
+  color: var(--text-dim, var(--text));
+}
+
+.ps-recipe-desc:empty { display: none; }
+.ps-recipe-desc {
+  margin-top: 6px;
+  color: var(--text);
+  font-style: italic;
+}
+
+.ps-section-checklist {
+  margin: 10px 0 4px;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.ps-section-checklist li { margin-bottom: 8px; }
+.ps-section-checklist li:last-child { margin-bottom: 0; }
+.ps-section-checklist code {
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bg-alt, rgba(127, 127, 127, 0.12));
+}
+
+.ps-vendor-tabs {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.ps-vendor-tab {
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+
+.ps-vendor-tab:last-child {
+  border-right: 0;
+}
+
+.ps-vendor-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ps-vendor-panel {
+  display: none;
+}
+
+.ps-vendor-panel.active {
+  display: block;
+}
+
+.settings-model-item.disabled,
+.settings-btn-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 /* MCP Servers Modal */
 #mcp-modal { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; }
 #mcp-modal.hidden { display: none; }
@@ -877,6 +975,111 @@
   display: block;
 }
 
+.ps-dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ps-dashboard-header .settings-btn-sm,
+.ps-dashboard-command-actions .settings-btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ps-dashboard-header .lucide,
+.ps-dashboard-command-actions .lucide {
+  width: 14px;
+  height: 14px;
+}
+
+.ps-dashboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 16px;
+}
+
+.ps-dashboard-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.ps-dashboard-title-row {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ps-dashboard-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ps-dashboard-command {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+}
+
+.ps-dashboard-command + .ps-dashboard-command {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ps-dashboard-command-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.ps-dashboard-command-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.ps-dashboard-command-line {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre;
+}
+
+.ps-dashboard-command-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ps-dashboard-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ps-dashboard-toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 @media (max-width: 1023px) {
   #project-settings {
     position: fixed;
@@ -949,6 +1152,15 @@
 
   .project-settings-close-col .server-settings-close-btn span {
     display: none;
+  }
+
+  .ps-dashboard-command {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ps-dashboard-command-actions {
+    justify-content: space-between;
   }
 }
 

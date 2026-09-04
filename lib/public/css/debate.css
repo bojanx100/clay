@@ -1607,3 +1607,35 @@
 }
 .debate-brief-resolved-label .lucide { width: 14px; height: 14px; }
 .debate-brief-resolved-label.debate-brief-cancelled { color: var(--text-secondary); }
+
+/* --- Debate Workflow v2: pause control + conclusion card --- */
+.debate-bottom-pause {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.debate-bottom-pause:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.debate-bottom-pause.paused {
+  background: var(--accent);
+  color: var(--bg, #fff);
+}
+.debate-bottom-stop {
+  opacity: 0.75;
+  font-size: 12px;
+}
+.debate-conclusion-card { border-left: 3px solid var(--accent); }
+.debate-conclusion-text {
+  margin-top: 10px;
+  line-height: 1.5;
+  white-space: normal;
+}
+.debate-conclusion-text strong { display: inline-block; margin-top: 8px; }

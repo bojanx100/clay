@@ -18,18 +18,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
-<!-- Monospace web fonts used by the TUI font picker in the title bar.
-     SF Mono is Apple-system-only (no Google Fonts entry) and
-     ui-monospace is a system keyword - both rely on the user's OS. -->
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Fira+Code:wght@400;500;700&family=Cascadia+Code:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;700&family=Source+Code+Pro:wght@400;500;700&display=swap" rel="stylesheet">
-<!-- D2 Coding isn't on Google Fonts and its CJK woff2 is ~1.4MB, so it
-     is lazy-loaded by terminal-prefs.js the first time the user selects
-     it (or boots with it already saved). See ensureD2CodingWebfont(). -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.min.css">
+<!-- Optional terminal fonts and xterm assets are loaded on demand. -->
 <script>
 (function(){try{var k="clay-theme-vars",v=localStorage.getItem(k),r=document.documentElement;if(v){var o=JSON.parse(v),p;for(p in o)r.style.setProperty(p,o[p]);var vt=localStorage.getItem(k.replace("-vars","-variant"));if(vt==="light"){r.classList.add("light-theme");r.classList.remove("dark-theme")}else{r.classList.add("dark-theme");r.classList.remove("light-theme")}var m=document.querySelector('meta[name="theme-color"]');if(m&&o["--bg"])m.setAttribute("content",o["--bg"])}else{var sl=window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches;if(sl){r.classList.add("light-theme");r.classList.remove("dark-theme")}}}catch(e){}})();
 </script>
-<script>if(window.navigator.standalone||window.matchMedia("(display-mode:standalone)").matches){document.documentElement.classList.add("pwa-standalone")}</script>
+<script src="/standalone-launch.js"></script>
 <link rel="stylesheet" href="style.css?v=20260407">
 <style>
 @media(max-width:768px){
@@ -210,6 +203,12 @@
           <span class="title-bar-project-name" id="title-bar-project-name"></span>
           <i data-lucide="chevron-down" class="title-bar-chevron"></i>
         </button>
+        <button id="branch-chip" class="branch-chip hidden" type="button" aria-label="Switch branch" aria-expanded="false" aria-haspopup="menu">
+          <i data-lucide="git-branch"></i>
+          <span id="branch-chip-label"></span>
+          <i data-lucide="chevron-down" class="branch-chip-chevron"></i>
+        </button>
+        <div id="branch-chip-menu" class="branch-chip-menu hidden"></div>
         <span id="sidebar-presence" class="sidebar-presence"></span>
         <button id="sidebar-toggle-btn" class="sidebar-collapse-btn" title="Collapse sidebar"><i data-lucide="panel-left-close"></i></button>
       </div>
@@ -363,6 +362,7 @@
           </div>
           <button id="hamburger-btn" aria-label="Toggle sidebar" title="Toggle sidebar"><i data-lucide="menu"></i></button>
           <span class="header-title" id="header-title">Connecting...</span>
+          <button id="header-coordinator-badge" class="header-coordinator-badge hidden" type="button" title="Promote this session to coordinator"><i data-lucide="git-branch"></i><span>Promote</span></button>
           <button id="header-info-btn" type="button" title="Session info"><i data-lucide="info"></i></button>
           <button id="header-rename-btn" type="button" title="Rename session"><i data-lucide="pencil"></i></button>
           <button type="button" id="header-tui-close-btn" class="header-tui-close-btn hidden" title="Close terminal (keeps history, resume anytime)" aria-label="Close terminal"><i data-lucide="power"></i></button>
@@ -380,6 +380,7 @@
           </button>
           <button id="debate-pdf-btn" class="hidden" title="Export debate as PDF"><i data-lucide="download"></i></button>
           <button id="find-in-session-btn" title="Search in session (Ctrl+F)"><i data-lucide="search"></i></button>
+          <button id="workspace-toggle-btn" title="Workspace (issues, PR, dev server, work tracker)"><i data-lucide="panel-right"></i></button>
           <button id="terminal-toggle-btn" title="Terminal"><i data-lucide="square-terminal"></i><span id="terminal-count" class="hidden"></span></button>
         </div>
       </div>
@@ -518,18 +519,30 @@
                 <img id="active-vendor-icon" alt="">
               </div>
               <div id="config-chip-wrap" class="hidden">
-                <button id="config-chip" title="Model, mode, and effort settings">
+                <button id="config-chip" title="Current session agent settings">
                   <i class="config-chip-icon" data-lucide="sliders-horizontal"></i>
                   <span id="config-chip-label"></span>
                   <i data-lucide="chevron-down"></i>
                 </button>
                 <div id="config-popover" class="hidden">
+                  <div class="config-popover-header">
+                    <span class="config-popover-title">Settings</span>
+                    <div class="config-popover-actions">
+                      <button id="config-coop-restart-btn" type="button" class="config-switch-vendor-btn hidden" title="Restart Coop's model context without restarting Clay">Restart</button>
+                      <button id="config-switch-vendor-btn" type="button" class="config-switch-vendor-btn" title="Switch vendor for this session"></button>
+                    </div>
+                  </div>
+                  <div id="config-provider-route-menu" class="config-provider-route-menu hidden"></div>
                   <div class="config-section">
-                    <div class="config-section-label">MODEL</div>
+                    <div id="config-model-section-label" class="config-section-label">SESSION MODEL</div>
                     <div id="config-model-list" class="config-radio-list"></div>
                   </div>
-                  <div class="config-section">
-                    <div class="config-section-label">MODE</div>
+                  <div id="config-automation-section" class="config-section">
+                    <div class="config-section-label">AUTOMATION</div>
+                    <div id="config-automation-bar" class="config-segmented"></div>
+                  </div>
+                  <div id="config-mode-section" class="config-section">
+                    <div class="config-section-label">CLAUDE MODE</div>
                     <div id="config-mode-list" class="config-radio-list"></div>
                   </div>
                   <div id="config-effort-section" class="config-section">
@@ -537,7 +550,7 @@
                     <div id="config-effort-bar" class="config-segmented"></div>
                   </div>
                   <div id="config-thinking-section" class="config-section">
-                    <div class="config-section-label">THINKING</div>
+                    <div class="config-section-label">CLAUDE THINKING</div>
                     <div id="config-thinking-bar" class="config-segmented"></div>
                     <div id="config-thinking-budget-row" class="config-budget-row" style="display:none">
                       <label class="config-budget-label">Budget tokens</label>
@@ -546,7 +559,7 @@
                     </div>
                   </div>
                   <div id="config-beta-section" class="config-section" style="display:none">
-                    <div class="config-section-label">BETA</div>
+                    <div class="config-section-label">CLAUDE BETA</div>
                     <div class="config-toggle-row">
                       <span class="config-toggle-label">1M Context</span>
                       <button id="config-beta-1m" class="config-toggle-btn" role="switch" aria-checked="false">
@@ -555,20 +568,41 @@
                     </div>
                   </div>
                   <div id="config-approval-section" class="config-section" style="display:none">
-                    <div class="config-section-label">APPROVAL</div>
+                    <div class="config-section-label">CODEX APPROVAL</div>
                     <div id="config-approval-bar" class="config-segmented"></div>
                   </div>
                   <div id="config-sandbox-section" class="config-section" style="display:none">
-                    <div class="config-section-label">SANDBOX</div>
+                    <div class="config-section-label">CODEX SANDBOX</div>
                     <div id="config-sandbox-bar" class="config-segmented"></div>
                   </div>
                   <div id="config-websearch-section" class="config-section" style="display:none">
-                    <div class="config-section-label">WEB SEARCH</div>
+                    <div class="config-section-label">CODEX WEB SEARCH</div>
                     <div id="config-websearch-bar" class="config-segmented"></div>
                   </div>
                 </div>
               </div>
-              <button id="send-btn" disabled aria-label="Send"><i data-lucide="arrow-up"></i></button>
+              <div id="auto-approval-wrap" class="hidden">
+                <button id="auto-approval-chip" type="button" aria-haspopup="dialog" aria-expanded="false" title="Manage project automatic approvals">
+                  <i data-lucide="shield-check"></i>
+                  <span id="auto-approval-chip-label">Approvals</span>
+                </button>
+                <div id="auto-approval-popover" class="hidden" role="dialog" aria-labelledby="auto-approval-title">
+                  <div class="auto-approval-header">
+                    <div>
+                      <div id="auto-approval-title" class="auto-approval-title">Project approvals</div>
+                      <div id="auto-approval-summary" class="auto-approval-summary">Loading project approvals…</div>
+                    </div>
+                  </div>
+                  <div class="auto-approval-section">
+                    <div id="auto-approval-projects" class="auto-approval-projects" aria-live="polite"></div>
+                  </div>
+                  <p class="auto-approval-safety">Only eligible low-risk work can be approved automatically. Destructive and sensitive work still requires approval.</p>
+                </div>
+              </div>
+              <button id="task-btn" class="composer-task-btn" type="button" aria-label="Send as task" title="Send as task (Option/Alt+Enter)">
+                <i data-lucide="git-branch"></i><span>Task</span>
+              </button>
+              <button id="send-btn" disabled aria-label="Send chat" title="Send chat (Enter)"><i data-lucide="arrow-up"></i></button>
             </div>
           </div>
         </div>
@@ -610,7 +644,12 @@
       <div class="mobile-sheet-handle"></div>
       <div class="mobile-sheet-header">
         <span class="mobile-sheet-title"></span>
-        <button class="mobile-sheet-close"><i data-lucide="x"></i></button>
+        <!-- Mobile has no icon strip, so this is the only project switcher on
+             phones. It lives in static markup, not in a data-driven render, so
+             it survives reconnect, restart, and an empty projection. -->
+        <button class="mobile-sheet-projects" id="mobile-sheet-projects-btn" type="button" aria-label="Switch project" hidden><i data-lucide="layout-grid"></i><span class="mobile-sheet-projects-label">Projects</span></button>
+        <button class="mobile-sheet-back" id="mobile-sheet-back-btn" type="button" aria-label="Back to chat" hidden><i data-lucide="chevron-left"></i><span class="mobile-sheet-projects-label">Chat</span></button>
+        <button class="mobile-sheet-close" type="button" aria-label="Close"><i data-lucide="x"></i></button>
       </div>
       <div class="mobile-sheet-list"></div>
     </div>
@@ -679,21 +718,25 @@
           <select id="ps-nav-dropdown" class="settings-nav-dropdown">
             <optgroup label="General">
               <option value="profile" selected>Profile</option>
-              <option value="defaults">Model</option>
             </optgroup>
             <optgroup label="Config">
               <option value="instructions">Instructions</option>
               <option value="environment">Environment</option>
+              <option value="dashboards">Dashboards</option>
+              <option value="automation">Automation</option>
+              <option value="task-launchers">Task Launchers</option>
             </optgroup>
           </select>
           <div class="server-settings-nav-items">
             <div class="settings-nav-category">General</div>
             <button class="settings-nav-item active" data-section="profile"><span>Profile</span></button>
-            <button class="settings-nav-item" data-section="defaults"><span>Model</span></button>
             <div class="settings-nav-separator"></div>
             <div class="settings-nav-category">Config</div>
             <button class="settings-nav-item" data-section="instructions"><span>Instructions</span></button>
             <button class="settings-nav-item" data-section="environment"><span>Environment</span></button>
+            <button class="settings-nav-item" data-section="dashboards"><span>Dashboards</span></button>
+            <button class="settings-nav-item" data-section="automation"><span>Automation</span></button>
+            <button class="settings-nav-item" data-section="task-launchers"><span>Task Launchers</span></button>
           </div>
         </div>
       </div>
@@ -742,66 +785,34 @@
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-          <!-- Defaults -->
-          <div class="ps-section" data-section="defaults">
-            <h2>Model</h2>
-            <p class="ps-section-desc">Configure which model to use and how Claude behaves during sessions.</p>
-            <div class="settings-card">
-              <div class="settings-field">
-                <label class="settings-label">Model</label>
-                <div class="settings-hint">Choose the Claude model to use. Larger models are slower but more capable.</div>
-                <div id="ps-model-list" class="settings-model-list"></div>
+              <div class="settings-field" id="ps-git-account-field">
+                <label class="settings-label">GitHub account</label>
+                <div class="settings-hint">Which logged-in GitHub account git uses for push/pull in this project. "Default" follows the global setting.</div>
+                <select class="ps-select" id="ps-git-account-select"></select>
+                <span class="ps-save-status" id="ps-git-account-status"></span>
+                <div class="settings-hint" id="ps-git-account-resolved"></div>
               </div>
-            </div>
-            <div class="settings-card" id="ps-beta-card" style="display:none">
               <div class="settings-field">
-                <label class="settings-label">Extended Context (Beta)</label>
-                <div class="settings-hint">Enable 1M token context window for Sonnet models. Allows processing much larger codebases and files, but may increase latency.</div>
-                <label class="settings-toggle-row ps-beta-toggle-row">
+                <label class="settings-toggle-row">
                   <div>
-                    <span class="settings-label">1M Context</span>
+                    <span class="settings-label">Auto-continue with comparable model</span>
+                    <div class="settings-hint">When Auto-continue is enabled and this provider is exhausted, try an equivalent-or-stronger model on any healthy provider. If none is available, stay on this provider and continue after its reset.</div>
                   </div>
-                  <input type="checkbox" id="ps-beta-1m">
+                  <input type="checkbox" id="ps-auto-continue-comparable" checked>
                   <span class="toggle-track"><span class="toggle-thumb"></span></span>
                 </label>
-              </div>
-            </div>
-            <div class="settings-card">
-              <div class="settings-field">
-                <label class="settings-label">Mode</label>
-                <div class="settings-hint">Controls how Claude handles tool use and file edits.</div>
-                <div id="ps-mode-list" class="settings-model-list"></div>
-              </div>
-            </div>
-            <div class="settings-card" id="ps-effort-card">
-              <div class="settings-field">
-                <label class="settings-label">Effort</label>
-                <div class="settings-hint">Controls how much thinking effort Claude puts into responses. Higher effort means longer, more thorough responses.</div>
-                <div class="settings-btn-group" id="ps-effort-bar"></div>
-              </div>
-            </div>
-            <div class="settings-card" id="ps-thinking-card">
-              <div class="settings-field">
-                <label class="settings-label">Thinking</label>
-                <div class="settings-hint">Controls whether Claude shows its reasoning process. Budget mode lets you set a token limit.</div>
-                <div class="settings-btn-group" id="ps-thinking-bar"></div>
-                <div id="ps-thinking-budget-row" class="settings-budget-row" style="display:none">
-                  <label class="settings-budget-label">Budget tokens</label>
-                  <input id="ps-thinking-budget" type="number" class="settings-budget-input" min="1024" max="128000" step="1024" value="10000">
-                </div>
+                <span class="ps-save-status" id="ps-auto-continue-comparable-status"></span>
               </div>
             </div>
           </div>
           <!-- Instructions -->
           <div class="ps-section" data-section="instructions">
-            <h2>CLAUDE.md</h2>
-            <p class="ps-section-desc">Edit the CLAUDE.md file for this project. These instructions are passed to Claude at the start of every session.</p>
+            <h2>Instructions</h2>
+            <p class="ps-section-desc">Edit this project's instruction file. These instructions are passed to agent sessions for this project.</p>
             <div class="settings-card">
               <div class="settings-field">
                 <div id="ps-instructions-status" class="settings-hint"></div>
-                <textarea class="ps-textarea" id="ps-instructions-editor" rows="20" spellcheck="false" placeholder="# Project Instructions&#10;&#10;Write instructions for Claude here..."></textarea>
+                <textarea class="ps-textarea" id="ps-instructions-editor" rows="20" spellcheck="false" placeholder="# Project Instructions&#10;&#10;Write project instructions here..."></textarea>
                 <div class="ps-textarea-actions">
                   <button class="settings-btn-sm" id="ps-instructions-save">Save</button>
                   <span class="ps-save-status" id="ps-instructions-save-status"></span>
@@ -837,6 +848,226 @@
               </div>
               <div class="ps-env-list" id="ps-shared-env-list">
                 <!-- rows rendered by JS -->
+              </div>
+            </div>
+          </div>
+          <!-- Dashboards -->
+          <div class="ps-section" data-section="dashboards">
+            <h2>Dashboards</h2>
+            <p class="ps-section-desc">View and run project-configured dashboard commands. Clay only runs these commands; the project owns what they do.</p>
+            <div class="settings-card">
+              <div class="ps-dashboard-header">
+                <span class="ps-save-status" id="ps-dashboard-status"></span>
+                <button class="settings-btn-sm" id="ps-dashboard-refresh-btn"><i data-lucide="refresh-cw"></i> Refresh</button>
+              </div>
+              <div class="ps-dashboard-list" id="ps-dashboard-list">
+                <div class="settings-hint">Loading...</div>
+              </div>
+            </div>
+          </div>
+          <!-- Automation -->
+          <div class="ps-section" data-section="automation">
+            <h2>Automation</h2>
+            <p class="ps-section-desc">Automatically start a Clay session for new GitHub issues assigned to you in this project. The agent reads each issue, works it autonomously when it is confident, and pings you (in‑app + mobile push) only when it needs input.</p>
+            <div class="settings-card">
+              <label class="settings-toggle-row">
+                <div>
+                  <span class="settings-label">Auto-start assigned issues</span>
+                  <div class="settings-hint">Polls on the schedule below and starts a session per matching issue (deduped, so each issue starts once).</div>
+                </div>
+                <input type="checkbox" id="ps-auto-launch">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+              <div class="settings-card-body" id="ps-auto-launch-config">
+                <div class="settings-field">
+                  <label class="settings-label" for="ps-auto-launch-recipe">Recipe</label>
+                  <select id="ps-auto-launch-recipe" class="settings-select"></select>
+                  <div class="settings-hint ps-recipe-desc" id="ps-auto-launch-recipe-desc"></div>
+                  <div class="settings-hint">Defines which issues qualify and the prompt each session runs. Recipes live in <code>.clay/tasks/*.json</code> in this project.</div>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-toggle settings-toggle-inline">
+                    <input type="checkbox" id="ps-auto-launch-pr-fix">
+                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    <span class="settings-label">Also auto-fix my PRs (CI + reviews)</span>
+                  </label>
+                  <div class="settings-hint">On each poll, also picks up open PRs you authored or committed to that have failing CI or new review feedback (including Copilot). A session triages each finding, fixes the worthwhile ones, drives CI green, and replies on the rest — then closes.</div>
+                  <div class="ps-pr-fix-passes" id="ps-auto-launch-pr-fix-passes">
+                    <label class="settings-label" for="ps-auto-launch-max-passes">Max passes per PR</label>
+                    <input type="number" id="ps-auto-launch-max-passes" class="ps-text-input" min="1" max="10" step="1" value="2" style="width:72px;">
+                    <div class="settings-hint">Caps auto-fix rounds so it won't ping-pong with the reviewer forever. A new commit you push resets the budget.</div>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="ps-auto-launch-cron">Poll schedule (cron)</label>
+                  <input type="text" id="ps-auto-launch-cron" class="ps-text-input" spellcheck="false" placeholder="*/5 * * * *">
+                  <div class="settings-hint">5-field cron. Examples: <code>*/5 * * * *</code> (every 5 min), <code>*/15 * * * *</code> (every 15 min), <code>0 * * * *</code> (hourly).</div>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="ps-auto-launch-vendor">Agent split <span id="ps-auto-launch-vendor-label">60% Claude · 40% Codex</span></label>
+                  <input type="range" id="ps-auto-launch-vendor" class="us-range-input" min="0" max="100" step="10" value="60">
+                  <div class="settings-hint">Alternates the coding agent across auto-started sessions. Left = all Codex, right = all Claude.</div>
+                </div>
+                <div class="settings-field">
+                  <div class="ps-textarea-actions">
+                    <button type="button" class="settings-btn-sm" id="ps-auto-launch-save">Save</button>
+                    <span class="ps-save-status" id="ps-auto-launch-status"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="settings-card">
+              <div class="settings-card-body">
+                <div class="settings-label">What you need for this to work</div>
+                <ol class="ps-section-checklist">
+                  <li><b>A recipe exists</b> in <code>.clay/tasks/</code> (this project ships <code>assigned-to-me</code>). It sets the repo, the filter (e.g. open bugs assigned to you, not yet In&nbsp;Progress), and the prompt template.</li>
+                  <li><b>The right GitHub account is set</b> — issues are fetched as this project's <b>GitHub account</b> (Profile tab). Set it to the account assigned the issues; otherwise Clay falls back to whichever <code>gh</code> account is active.</li>
+                  <li><b>Turn the toggle on and Save.</b> Changes apply live; on server restart the schedule is restored from <code>.clay/tasks/config.json</code>.</li>
+                </ol>
+                <div class="settings-hint">When confidence is below the recipe's threshold the session pauses with questions and notifies you; otherwise it completes and closes on its own.</div>
+              </div>
+            </div>
+          </div>
+          <!-- Task Launchers -->
+          <div class="ps-section" data-section="task-launchers">
+            <h2>Task Launchers</h2>
+            <p class="ps-section-desc">The GitHub issue recipe, auto-launch schedule, triage instructions, and the launch API for an "outstanding issues" dashboard. A new project is set up with a guided wizard; a configured project shows its current settings here so you can edit them.</p>
+            <!-- Loading from GitHub -->
+            <div class="settings-card hidden" id="tsw-loading">
+              <div class="settings-card-body">
+                <div class="tsw-loading-row"><span class="tsw-spinner"></span> Loading settings from GitHub…</div>
+              </div>
+            </div>
+            <!-- New project: guided wizard entry -->
+            <div class="settings-card hidden" id="tsw-setup-prompt">
+              <div class="settings-card-body">
+                <div class="settings-label">Guided setup</div>
+                <div class="settings-hint">No task launcher is configured for this project yet. The wizard discovers your project board automatically and writes every file for you — recipes, <code>config.json</code>, <code>localAIConfig/TRIAGE.local.md</code>, and a ready prompt to build your dashboard website.</div>
+                <div class="ps-textarea-actions">
+                  <button type="button" class="settings-btn-sm" id="ps-task-launcher-create"><i data-lucide="wand-2"></i> Set up task launcher</button>
+                </div>
+              </div>
+            </div>
+            <!-- Configured project: inline editable settings -->
+            <div class="settings-card hidden" id="tsw-inline">
+              <div class="settings-card-body">
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-recipe">Recipe</label>
+                  <select id="tsi-recipe" class="settings-select"></select>
+                  <div class="settings-hint">The launcher to edit. Each is a file at <code>.clay/tasks/&lt;id&gt;.json</code>. Choose “➕ Create new launcher…” to set up another.</div>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-recipe-name">Display name</label>
+                  <input type="text" id="tsi-recipe-name" class="ps-text-input" spellcheck="false" placeholder="Auto-start issues assigned to me">
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-account">GitHub account</label>
+                  <select id="tsi-account" class="settings-select"></select>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-repo">Repo</label>
+                  <select id="tsi-repo" class="settings-select"></select>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-type">Issue type</label>
+                  <select id="tsi-type" class="settings-select">
+                    <option value="">Any</option>
+                    <option value="bug">Bug</option>
+                    <option value="feature">Feature</option>
+                    <option value="legacy">Legacy</option>
+                  </select>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-assigned">Assignee</label>
+                  <select id="tsi-assigned" class="settings-select">
+                    <option value="me">Assigned to me</option>
+                    <option value="any">Anyone</option>
+                  </select>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-board">Project board</label>
+                  <select id="tsi-board" class="settings-select"></select>
+                  <div class="settings-hint">Tick the board columns that mean "done" — issues in them are skipped.</div>
+                  <div id="tsi-status-list" class="tsw-checkbox-list"></div>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label">Exclude labels</label>
+                  <div class="settings-hint">Issues with any ticked label are skipped.</div>
+                  <div id="tsi-label-list" class="tsw-checkbox-list"></div>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-title-prefixes">Exclude title prefixes (comma-separated)</label>
+                  <input type="text" id="tsi-title-prefixes" class="ps-text-input" spellcheck="false" placeholder="BE:">
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-vendor">Agent split <span id="tsi-vendor-label">70% Claude · 30% Codex</span></label>
+                  <input type="range" id="tsi-vendor" class="us-range-input" min="0" max="100" step="10" value="70">
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-cron">Poll schedule (cron)</label>
+                  <input type="text" id="tsi-cron" class="ps-text-input" spellcheck="false" placeholder="*/5 * * * *">
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-confidence">Confidence threshold (%)</label>
+                  <input type="number" id="tsi-confidence" class="ps-text-input" min="0" max="100" value="80">
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-dash-port">Dashboard port</label>
+                  <input type="number" id="tsi-dash-port" class="ps-text-input" value="8765">
+                </div>
+                <label class="tsw-check-row"><input type="checkbox" id="tsi-enabled"> Auto-launch enabled</label>
+                <label class="tsw-check-row"><input type="checkbox" id="tsi-create-manual"> Keep a manual <code>/launch</code> recipe</label>
+                <div class="ps-textarea-actions">
+                  <button type="button" class="settings-btn-sm" id="tsi-save">Save changes</button>
+                  <span class="ps-save-status" id="tsi-status"></span>
+                </div>
+                <div class="settings-hint">Editing here updates the recipe and <code>config.json</code> only — it never overwrites <code>TRIAGE.local.md</code> or your prompt templates. Use the wizard to rebuild from scratch.</div>
+              </div>
+            </div>
+            <!-- Triage cookbook (the per-project workflow doc injected into sessions) -->
+            <div class="settings-card hidden" id="tsi-cookbook">
+              <div class="settings-card-body">
+                <div class="settings-label">Triage cookbook</div>
+                <div class="settings-hint">The workflow + conventions these launchers follow — branching, worktree rules, draft-PR / "mark as done" steps, board IDs. These docs are injected into the sessions this project's recipes start. Edits apply to the next session that runs.</div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-cookbook-file">File</label>
+                  <select id="tsi-cookbook-file" class="settings-select">
+                    <option value="localAIConfig/TRIAGE.local.md">localAIConfig/TRIAGE.local.md — triage workflow</option>
+                    <option value="localAIConfig/AGENTS.local.md">localAIConfig/AGENTS.local.md — agent conventions</option>
+                  </select>
+                </div>
+                <textarea id="tsi-cookbook-editor" class="ps-textarea" rows="20" spellcheck="false" placeholder="Loading…"></textarea>
+                <div class="ps-textarea-actions">
+                  <button type="button" class="settings-btn-sm" id="tsi-cookbook-save">Save cookbook</button>
+                  <span class="ps-save-status" id="tsi-cookbook-status"></span>
+                </div>
+              </div>
+            </div>
+            <!-- Dashboard / website connection -->
+            <div class="settings-card hidden" id="tsi-dashboard">
+              <div class="settings-card-body">
+                <div class="settings-label">Dashboard / website connection</div>
+                <div class="settings-hint">Wire an "outstanding issues" website to launch issues into Clay. Each issue card POSTs <code>{ token, recipe, issue, vendor }</code> to the launch API below.</div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-launch-url">Launch API URL</label>
+                  <div class="tsi-copy-row">
+                    <input type="text" id="tsi-launch-url" class="ps-text-input" readonly spellcheck="false">
+                    <button type="button" class="settings-btn-sm" id="tsi-copy-url">Copy</button>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <label class="settings-label" for="tsi-launch-token">Token</label>
+                  <div class="tsi-copy-row">
+                    <input type="password" id="tsi-launch-token" class="ps-text-input" readonly spellcheck="false">
+                    <button type="button" class="settings-btn-sm" id="tsi-reveal-token">Show</button>
+                    <button type="button" class="settings-btn-sm" id="tsi-copy-token">Copy</button>
+                  </div>
+                  <div class="settings-hint">Recipe to launch: <code id="tsi-launch-recipe">assigned-to-me</code>. Keep the token only in the local dashboard file — don't commit it.</div>
+                </div>
+                <div class="ps-textarea-actions">
+                  <button type="button" class="settings-btn-sm" id="tsi-copy-prompt"><i data-lucide="copy"></i> Copy website build prompt</button>
+                  <span class="ps-save-status" id="tsi-dashboard-status"></span>
+                </div>
               </div>
             </div>
           </div>
@@ -876,6 +1107,16 @@
     </div>
     <div id="terminal-body"></div>
   </div>
+  <div id="workspace-panel" class="hidden">
+    <div class="terminal-header">
+      <div class="ws-panel-title"><i data-lucide="panel-right"></i> Workspace</div>
+      <div class="terminal-header-actions">
+        <button class="file-viewer-btn" id="workspace-refresh-btn" title="Refresh"><i data-lucide="refresh-cw"></i></button>
+        <button class="file-viewer-btn" id="workspace-close-btn" title="Hide panel"><i data-lucide="minus"></i></button>
+      </div>
+    </div>
+    <div id="workspace-body" class="ws-body"></div>
+  </div>
   </div><!-- /main-panels -->
   </div><!-- /main-column -->
   </div><!-- /main-area -->
@@ -907,29 +1148,6 @@
   </div>
 </div>
 
-<!-- Hidden notification toggles (synced by server-settings) -->
-<div id="notif-menu-wrap" style="display:none">
-  <button id="notif-btn"></button>
-  <div id="notif-menu">
-    <label class="notif-option" id="notif-push-row">
-      <span>Push notifications</span>
-      <input type="checkbox" id="notif-toggle-push">
-      <span class="toggle-track"><span class="toggle-thumb"></span></span>
-    </label>
-    <label class="notif-option">
-      <span>Browser alerts</span>
-      <input type="checkbox" id="notif-toggle-alert">
-      <span class="toggle-track"><span class="toggle-thumb"></span></span>
-    </label>
-    <div id="notif-blocked-hint" class="hidden">Blocked by browser. <a href="#" id="notif-learn-more">Learn more</a></div>
-    <label class="notif-option">
-      <span>Sound</span>
-      <input type="checkbox" id="notif-toggle-sound">
-      <span class="toggle-track"><span class="toggle-thumb"></span></span>
-    </label>
-  </div>
-</div>
-
 <!-- === User Settings (modal dialog) === -->
 <div id="user-settings" class="hidden">
   <div class="confirm-backdrop" id="user-settings-backdrop"></div>
@@ -944,6 +1162,7 @@
           <option value="us-account" selected>Account</option>
           <option value="us-appearance">Appearance</option>
           <option value="us-chat">Chat</option>
+          <option value="us-notifications">Notifications</option>
           <option value="us-mates">Mates</option>
           <option value="us-email">Email</option>
         </select>
@@ -951,6 +1170,7 @@
           <button class="us-nav-item active" data-section="us-account"><span>Account</span></button>
           <button class="us-nav-item" data-section="us-appearance"><span>Appearance</span></button>
           <button class="us-nav-item" data-section="us-chat"><span>Chat</span></button>
+          <button class="us-nav-item" data-section="us-notifications"><span>Notifications</span></button>
           <button class="us-nav-item" data-section="us-mates"><span>Mates</span></button>
           <button class="us-nav-item" data-section="us-email"><span>Email</span></button>
           <div class="us-nav-separator"></div>
@@ -1005,6 +1225,16 @@
                 <button class="settings-btn-sm settings-btn-ghost" id="us-pin-cancel">Cancel</button>
               </div>
               <div class="settings-hint settings-pin-error hidden" id="us-pin-msg"></div>
+            </div>
+          </div>
+          <h3>Clay · Coop</h3>
+          <div class="settings-card" id="us-coop-lead-status" aria-labelledby="us-coop-lead-heading">
+            <div class="settings-field-row">
+              <div>
+                <div class="settings-label" id="us-coop-lead-heading">Lead mode</div>
+                <div class="settings-hint">A shared Clay setting. Only the designated Clay owner can change it in Clay Settings → Coop.</div>
+              </div>
+              <output class="us-shared-setting-value" id="us-coop-lead-mode-value" aria-live="polite">Loading…</output>
             </div>
           </div>
         </div>
@@ -1067,7 +1297,7 @@
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
           </div>
-          <div class="settings-card">
+          <div class="settings-card settings-allow-card">
             <div class="settings-card-body">
               <div class="settings-label">Auto-approved commands</div>
               <div class="settings-hint">Extra patterns Clay should pre-approve in your <code>~/.claude/settings.json</code> so TUI sessions don't prompt for them. One per line. Examples: <code>Bash(npm test:*)</code>, <code>Read</code>, <code>mcp__myserver__*</code>. Clay's safe defaults (read-only tools, common git/ls/grep) are always applied on top and shown below for reference.</div>
@@ -1081,6 +1311,36 @@
                 <div id="us-claude-allow-managed" class="settings-allow-managed"></div>
               </details>
             </div>
+          </div>
+        </div>
+
+        <!-- Personal notification delivery section -->
+        <div class="us-section" data-section="us-notifications">
+          <h2>Notifications</h2>
+          <p class="settings-hint">Choose how this browser and device alert you when work is ready.</p>
+          <div class="settings-card" id="us-notifications">
+            <div id="notif-menu-wrap">
+              <button id="notif-btn" type="button" aria-hidden="true" tabindex="-1"></button>
+              <div id="notif-menu">
+                <label class="notif-option" id="notif-push-row">
+                  <span>Push notifications</span>
+                  <input type="checkbox" id="notif-toggle-push" aria-describedby="us-notifications-description">
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+                <label class="notif-option">
+                  <span>Browser alerts</span>
+                  <input type="checkbox" id="notif-toggle-alert" aria-describedby="us-notifications-description">
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+                <div id="notif-blocked-hint" class="hidden">Blocked by browser. <a href="#" id="notif-learn-more">Learn more</a></div>
+                <label class="notif-option">
+                  <span>Sound</span>
+                  <input type="checkbox" id="notif-toggle-sound" aria-describedby="us-notifications-description">
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+            <div class="settings-hint" id="us-notifications-description">These delivery preferences stay local to this browser or device.</div>
           </div>
         </div>
 
@@ -1133,13 +1393,11 @@
         <select id="settings-nav-dropdown" class="settings-nav-dropdown">
           <optgroup label="General">
             <option value="overview" selected>Status</option>
-            <option value="notifications">Notifications</option>
-            <option value="security">Security</option>
-          </optgroup>
-          <optgroup label="Defaults">
-            <option value="models">Model</option>
+            <option value="vendors">AI Providers</option>
+            <option value="coop">Coop</option>
           </optgroup>
           <optgroup label="Config">
+            <option value="defaults">Defaults</option>
             <option value="claudemd">Instructions</option>
             <option value="environment">Environment</option>
           </optgroup>
@@ -1151,6 +1409,7 @@
           </optgroup>
           <optgroup label="Server">
             <option value="keep-awake" class="hidden" id="settings-keep-awake-opt">Keep Awake</option>
+            <option value="inherit-groups" class="hidden" id="settings-inherit-groups-opt">User Groups</option>
             <option value="restart">Restart</option>
             <option value="shutdown">Shutdown</option>
           </optgroup>
@@ -1158,13 +1417,11 @@
         <div class="server-settings-nav-items">
           <div class="settings-nav-category">General</div>
           <button class="settings-nav-item active" data-section="overview"><span>Status</span></button>
-          <button class="settings-nav-item" data-section="notifications"><span>Notifications</span></button>
-          <button class="settings-nav-item" data-section="security"><span>Security</span></button>
-          <div class="settings-nav-separator"></div>
-          <div class="settings-nav-category">Defaults</div>
-          <button class="settings-nav-item" data-section="models"><span>Model</span></button>
+          <button class="settings-nav-item" data-section="vendors"><span>AI Providers</span></button>
+          <button class="settings-nav-item" data-section="coop"><span>Coop</span></button>
           <div class="settings-nav-separator"></div>
           <div class="settings-nav-category">Config</div>
+          <button class="settings-nav-item" data-section="defaults"><span>Defaults</span></button>
           <button class="settings-nav-item" data-section="claudemd"><span>Instructions</span></button>
           <button class="settings-nav-item" data-section="environment"><span>Environment</span></button>
           <button class="settings-nav-item" data-section="storage"><span>Storage</span></button>
@@ -1177,6 +1434,7 @@
           <div class="settings-nav-separator"></div>
           <div class="settings-nav-category">Server</div>
           <button class="settings-nav-item hidden" data-section="keep-awake" id="settings-keep-awake-nav"><span>Keep Awake</span></button>
+          <button class="settings-nav-item hidden settings-admin-only" data-section="inherit-groups" id="settings-inherit-groups-nav"><span>User Groups</span></button>
           <button class="settings-nav-item" data-section="restart"><span>Restart</span></button>
           <button class="settings-nav-item settings-nav-danger" data-section="shutdown"><span>Shutdown</span></button>
         </div>
@@ -1212,13 +1470,6 @@
             <div class="settings-field-row">
               <label class="settings-label">HTTPS</label>
               <span class="settings-value settings-badge" id="settings-tls">-</span>
-            </div>
-            <div class="settings-field-row">
-              <div>
-                <label class="settings-label">Skip Permissions</label>
-                <div class="settings-hint">Auto-approves all tool executions. Restart with <code style="font-size:12px">--dangerously-skip-permissions</code> to enable.</div>
-              </div>
-              <span class="settings-value settings-badge" id="settings-skip-perms">Disabled</span>
             </div>
             <div class="settings-field-row">
               <label class="settings-label">Debug</label>
@@ -1259,122 +1510,120 @@
             </div>
           </div>
         </div>
-        <div class="server-settings-section" data-section="models">
-          <h2>Model</h2>
-          <p class="settings-hint" style="margin-bottom: 20px;">Configure which model to use and how Claude behaves during sessions.</p>
-          <div class="settings-card">
-            <div class="settings-field">
-              <label class="settings-label">Model</label>
-              <div class="settings-hint">Choose the Claude model to use. Larger models are slower but more capable.</div>
-              <div id="ss-model-list" class="settings-model-list"></div>
+        <div class="server-settings-section" data-section="vendors">
+          <div class="provider-hub-header">
+            <div>
+              <h2>AI Providers</h2>
+              <p class="ps-section-desc">Install, connect, and verify the command-line agents Clay can route work through. Credentials remain with each provider CLI.</p>
             </div>
+            <button class="settings-btn-sm provider-refresh-all" id="settings-providers-refresh"><i data-lucide="refresh-cw"></i> Verify all</button>
           </div>
-          <div class="settings-card" id="ss-beta-card" style="display:none">
-            <div class="settings-field">
-              <label class="settings-label">Extended Context (Beta)</label>
-              <div class="settings-hint">Enable 1M token context window for Sonnet models. Allows processing much larger codebases and files, but may increase latency.</div>
-              <label class="settings-toggle-row ss-beta-toggle-row">
+          <div id="settings-provider-summary" class="provider-summary" aria-live="polite"></div>
+          <section class="provider-routing-panel" aria-labelledby="provider-routing-title">
+            <div class="provider-routing-copy">
+              <span class="provider-eyebrow">Automatic switching</span>
+              <h3 id="provider-routing-title">Choose what Clay optimizes for</h3>
+              <p>Only routes that pass Clay's runtime and model checks enter automatic selection.</p>
+            </div>
+            <div id="settings-provider-routing" class="provider-profile-list"></div>
+          </section>
+          <div class="provider-truth-note"><i data-lucide="info"></i><span>“Ready” means Clay completed the provider handshake and discovered a usable model catalog. Prices, free quotas, and plan limits remain the provider's responsibility and are confirmed during real work.</span></div>
+          <div id="settings-provider-list" class="provider-grid"></div>
+        </div>
+        <div class="server-settings-section" data-section="coop">
+          <h2>Coop</h2>
+          <div class="settings-card">
+            <label class="settings-toggle-row" for="settings-lead-mode">
+              <div>
+                <span class="settings-label">Lead mode</span>
+                <div class="settings-hint" id="settings-lead-mode-hint">Loading server setting…</div>
+              </div>
+              <input type="checkbox" id="settings-lead-mode" aria-describedby="settings-lead-mode-hint">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+        </div>
+        <div class="server-settings-section" data-section="defaults">
+          <h2>Defaults</h2>
+          <p class="ps-section-desc">Choose the defaults used when starting new sessions on this Clay server.</p>
+          <div class="ps-vendor-tabs">
+            <button class="ps-vendor-tab active" data-vendor="claude">Claude</button>
+            <button class="ps-vendor-tab" data-vendor="codex">Codex</button>
+          </div>
+          <div class="ps-vendor-panel active" data-vendor-panel="claude">
+            <div class="settings-card">
+              <div class="settings-field">
+                <label class="settings-label">Model</label>
+                <div class="settings-hint">New Claude sessions start with this model unless a project overrides it.</div>
+                <div id="ss-claude-model-list" class="settings-model-list"></div>
+              </div>
+            </div>
+            <div class="settings-card" id="ss-claude-beta-card" style="display:none">
+              <label class="settings-toggle-row">
                 <div>
                   <span class="settings-label">1M Context</span>
+                  <div class="settings-hint">Use the larger context window for Sonnet models when available.</div>
                 </div>
-                <input type="checkbox" id="ss-beta-1m">
+                <input type="checkbox" id="ss-claude-beta-1m">
                 <span class="toggle-track"><span class="toggle-thumb"></span></span>
               </label>
             </div>
-          </div>
-          <div class="settings-card">
-            <div class="settings-field">
-              <label class="settings-label">Mode</label>
-              <div class="settings-hint">Controls how Claude handles tool use and file edits.</div>
-              <div id="ss-mode-list" class="settings-model-list"></div>
+            <div class="settings-card">
+              <div class="settings-field">
+                <label class="settings-label">Permissions</label>
+                <div class="settings-hint">Controls whether new Claude sessions ask before editing files or running commands.</div>
+                <div id="ss-mode-list" class="settings-model-list"></div>
+              </div>
             </div>
-          </div>
-          <div class="settings-card" id="ss-effort-card">
-            <div class="settings-field">
-              <label class="settings-label">Effort</label>
-              <div class="settings-hint">Controls how much thinking effort Claude puts into responses. Higher effort means longer, more thorough responses.</div>
-              <div class="settings-btn-group" id="ss-effort-bar"></div>
-            </div>
-          </div>
-          <div class="settings-card" id="ss-thinking-card">
-            <div class="settings-field">
-              <label class="settings-label">Thinking</label>
-              <div class="settings-hint">Controls whether Claude shows its reasoning process. Budget mode lets you set a token limit.</div>
-              <div class="settings-btn-group" id="ss-thinking-bar"></div>
-              <div id="ss-thinking-budget-row" class="settings-budget-row" style="display:none">
-                <label class="settings-budget-label">Budget tokens</label>
-                <input id="ss-thinking-budget" type="number" class="settings-budget-input" min="1024" max="128000" step="1024" value="10000">
+            <div class="settings-card">
+              <div class="settings-field">
+                <label class="settings-label">Effort</label>
+                <div class="settings-hint">Higher effort spends more time and tokens on harder tasks.</div>
+                <div class="settings-btn-group" id="ss-effort-bar"></div>
               </div>
             </div>
           </div>
-        </div>
-        <div class="server-settings-section" data-section="security">
-          <h2>Security</h2>
-          <div class="settings-card">
-            <div class="settings-field-row">
-              <div>
-                <label class="settings-label">PIN Status</label>
-                <div class="settings-hint">Require a 6-digit PIN to access the web UI.</div>
-              </div>
-              <span class="settings-value settings-badge" id="settings-pin-status">-</span>
-            </div>
-            <div class="settings-field-row" id="settings-pin-actions">
-              <div>
-                <label class="settings-label" id="settings-pin-action-label">Set PIN</label>
-                <div class="settings-hint">Protect access to the web interface with a PIN code.</div>
-              </div>
-              <div class="settings-pin-btns">
-                <button class="settings-btn-sm" id="settings-pin-set-btn">Set PIN</button>
-                <button class="settings-btn-sm settings-btn-danger hidden" id="settings-pin-remove-btn">Remove</button>
+          <div class="ps-vendor-panel" data-vendor-panel="codex">
+            <div class="settings-card">
+              <div class="settings-field">
+                <label class="settings-label">Model</label>
+                <div class="settings-hint">New Codex sessions start with this model unless a project overrides it.</div>
+                <div id="ss-codex-model-list" class="settings-model-list"></div>
               </div>
             </div>
-            <div class="settings-field hidden" id="settings-pin-form">
-              <label class="settings-label">Enter 6-digit PIN</label>
-              <div class="settings-pin-input-row">
-                <input type="text" id="settings-pin-input" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="000000" autocomplete="off" spellcheck="false">
-                <button class="settings-btn-sm" id="settings-pin-save-btn">Save</button>
-                <button class="settings-btn-sm settings-btn-ghost" id="settings-pin-cancel-btn">Cancel</button>
+            <div class="settings-card">
+              <div class="settings-field">
+                <label class="settings-label">Approval</label>
+                <div class="settings-hint">Controls when Codex asks before taking an action.</div>
+                <div id="ss-codex-approval-list" class="settings-model-list"></div>
               </div>
-              <div class="settings-hint settings-pin-error hidden" id="settings-pin-error">PIN must be exactly 6 digits.</div>
+              <div class="settings-field">
+                <label class="settings-label">Sandbox</label>
+                <div class="settings-hint">Controls filesystem access for new Codex sessions.</div>
+                <div id="ss-codex-sandbox-list" class="settings-model-list"></div>
+              </div>
+              <div class="settings-field">
+                <label class="settings-label">Web Search</label>
+                <div class="settings-hint">Controls web search behavior for new Codex sessions.</div>
+                <div id="ss-codex-websearch-list" class="settings-model-list"></div>
+              </div>
             </div>
-          </div>
-        </div>
-        <div class="server-settings-section" data-section="notifications">
-          <h2>Notifications</h2>
-          <div class="settings-card">
-            <label class="settings-toggle-row">
-              <div>
-                <span class="settings-label">Push Notifications</span>
-                <div class="settings-hint">Receive push notifications when tasks complete.</div>
+            <div class="settings-card">
+              <div class="settings-field">
+                <label class="settings-label">Effort</label>
+                <div class="settings-hint">Higher effort spends more time and tokens on harder tasks.</div>
+                <div class="settings-btn-group" id="ss-codex-effort-bar"></div>
               </div>
-              <input type="checkbox" id="settings-notif-push">
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            </label>
-            <label class="settings-toggle-row">
-              <div>
-                <span class="settings-label">Browser Alerts</span>
-                <div class="settings-hint">Show browser notification alerts when tasks finish.</div>
-              </div>
-              <input type="checkbox" id="settings-notif-alert">
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            </label>
-            <label class="settings-toggle-row">
-              <div>
-                <span class="settings-label">Sound</span>
-                <div class="settings-hint">Play a sound when tasks are completed.</div>
-              </div>
-              <input type="checkbox" id="settings-notif-sound">
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            </label>
+            </div>
           </div>
         </div>
         <div class="server-settings-section" data-section="claudemd">
-          <h2>CLAUDE.md</h2>
-          <p class="ps-section-desc">Edit the global CLAUDE.md file. These instructions apply to all projects and sessions on this server.</p>
+          <h2>Global Instructions</h2>
+          <p class="ps-section-desc">Edit the global instruction file. These instructions apply to all projects and sessions on this server.</p>
           <div class="settings-card">
             <div class="settings-field">
               <div id="ss-claudemd-status" class="settings-hint"></div>
-              <textarea class="ps-textarea" id="ss-claudemd-editor" rows="20" spellcheck="false" placeholder="# Global Instructions&#10;&#10;Write instructions for Claude here..."></textarea>
+              <textarea class="ps-textarea" id="ss-claudemd-editor" rows="20" spellcheck="false" placeholder="# Global Instructions&#10;&#10;Write global instructions here..."></textarea>
               <div class="ps-textarea-actions">
                 <button class="settings-btn-sm" id="ss-claudemd-save">Save</button>
                 <span class="ps-save-status" id="ss-claudemd-save-status"></span>
@@ -1383,7 +1632,7 @@
           </div>
           <div class="settings-hint" style="margin-top: 8px;">
             <i data-lucide="info" style="width: 14px; height: 14px; vertical-align: -2px;"></i>
-            This file is stored at <code>~/.claude/CLAUDE.md</code>. Project-level CLAUDE.md files take precedence over this global file.
+            This file is stored at <code>~/.claude/CLAUDE.md</code>. Project-level instruction files take precedence over this global file.
           </div>
         </div>
         <div class="server-settings-section" data-section="environment">
@@ -1426,6 +1675,19 @@
                 <div class="settings-hint">Prevent the system from sleeping while the server is running (macOS only).</div>
               </div>
               <input type="checkbox" id="settings-keep-awake">
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+        </div>
+        <div class="server-settings-section hidden settings-admin-only" data-section="inherit-groups" id="settings-inherit-groups-section">
+          <h2>User Groups</h2>
+          <div class="settings-card">
+            <label class="settings-toggle-row">
+              <div>
+                <span class="settings-label">Inherit supplementary groups</span>
+                <div class="settings-hint">Give each session the user's full group membership (docker, video, etc.), matching a normal login. Disable to run sessions with only the primary group. Requires <code>setpriv</code> (util-linux). Applies to new sessions.</div>
+              </div>
+              <input type="checkbox" id="settings-inherit-groups">
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
           </div>
@@ -1512,9 +1774,16 @@
 
 <div id="image-modal" class="hidden">
   <div class="confirm-backdrop"></div>
+  <a class="image-modal-open" id="image-modal-open" href="#" target="_blank" rel="noopener" title="Open in new tab"><i data-lucide="external-link" style="width:18px;height:18px"></i></a>
+  <button class="image-modal-close"><i data-lucide="x" style="width:18px;height:18px"></i></button>
   <div class="image-modal-dialog">
     <img id="image-modal-img" src="" alt="">
-    <button class="image-modal-close"><i data-lucide="x" style="width:18px;height:18px"></i></button>
+    <video id="image-modal-video" class="hidden" controls playsinline preload="metadata"></video>
+    <div id="image-modal-fallback" class="image-modal-fallback hidden">
+      <i data-lucide="file-warning" style="width:32px;height:32px"></i>
+      <p>This media can't be previewed here.</p>
+      <span class="image-modal-fallback-hint">Use "Open in new tab" above to view it.</span>
+    </div>
   </div>
 </div>
 
@@ -1574,9 +1843,10 @@
   </div>
 </div>
 
-<div id="confirm-modal" class="hidden">
+<div id="confirm-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-text">
   <div class="confirm-backdrop"></div>
   <div class="confirm-dialog">
+    <div class="confirm-title" id="confirm-title">Confirm action</div>
     <div class="confirm-text" id="confirm-text"></div>
     <div class="confirm-actions">
       <button class="confirm-btn confirm-cancel" id="confirm-cancel">Cancel</button>
@@ -1610,15 +1880,14 @@
       <button class="add-project-mode-btn" data-mode="clone">Clone from GitHub</button>
     </div>
     <div class="add-project-body">
-      <div class="add-project-panel active" data-panel="existing">
+      <div class="add-project-panel active" data-panel="path">
+        <label class="add-project-field-label" id="add-project-path-label" for="add-project-input">Existing project folder</label>
         <div class="add-project-input-wrap">
           <span id="add-project-prefix" class="add-project-prefix hidden"></span>
-          <input type="text" id="add-project-input" placeholder="/" autocomplete="off" spellcheck="false">
+          <input type="text" id="add-project-input" placeholder="/path/to/project" autocomplete="off" spellcheck="false">
           <div id="add-project-suggestions" class="hidden"></div>
         </div>
-      </div>
-      <div class="add-project-panel" data-panel="create">
-        <input type="text" id="add-project-create-input" placeholder="Project name" autocomplete="off" spellcheck="false">
+        <div class="add-project-field-hint" id="add-project-path-hint">Select the folder that already contains your project.</div>
       </div>
       <div class="add-project-panel" data-panel="clone">
         <input type="text" id="add-project-clone-input" placeholder="https://github.com/user/repo" autocomplete="off" spellcheck="false">
@@ -1837,6 +2106,103 @@
       <div>
         <button id="ralph-wizard-skip" class="ralph-btn tertiary">Skip</button>
         <button id="ralph-wizard-next" class="ralph-btn primary">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Task Launcher Setup Wizard (reuses ralph-wizard styling) -->
+<div id="task-setup-wizard" class="hidden">
+  <div class="ralph-wizard-backdrop"></div>
+  <div class="ralph-wizard-card">
+    <div class="ralph-wizard-header">
+      <span>Set up task launcher</span>
+      <button id="tsw-close">&times;</button>
+    </div>
+    <div class="ralph-wizard-progress">
+      <span class="ralph-dot active" data-step="1"></span>
+      <span class="ralph-dot" data-step="2"></span>
+      <span class="ralph-dot" data-step="3"></span>
+      <span class="ralph-dot" data-step="4"></span>
+      <span class="ralph-dot" data-step="5"></span>
+    </div>
+    <div class="ralph-wizard-steps">
+      <!-- Step 1: repo + account -->
+      <div class="ralph-step active" data-step="1">
+        <h3>Repository &amp; GitHub account</h3>
+        <p class="ralph-hint">Issues are fetched as this account via the <code>gh</code> CLI.</p>
+        <label class="ralph-field-label" for="tsw-account">GitHub account</label>
+        <select id="tsw-account" class="settings-select"></select>
+        <label class="ralph-field-label" for="tsw-repo" style="margin-top:8px;">Repo <span class="ralph-field-req">*</span></label>
+        <select id="tsw-repo" class="settings-select"></select>
+        <div class="ralph-hint" id="tsw-discover-status" style="margin-top:8px;"></div>
+      </div>
+      <!-- Step 2: board + filters -->
+      <div class="ralph-step" data-step="2">
+        <h3>Board &amp; filters</h3>
+        <label class="ralph-field-label" for="tsw-board">Project board</label>
+        <select id="tsw-board" class="settings-select"></select>
+        <p class="ralph-hint" style="margin-top:8px;">Tick the statuses that mean "done-ish" — issues in these columns are skipped (treated as not outstanding).</p>
+        <div id="tsw-status-list" class="tsw-checkbox-list"></div>
+        <label class="ralph-field-label" for="tsw-type" style="margin-top:8px;">Issue type</label>
+        <select id="tsw-type" class="settings-select">
+          <option value="">Any</option>
+          <option value="bug" selected>Bug</option>
+          <option value="feature">Feature</option>
+          <option value="legacy">Legacy</option>
+        </select>
+        <label class="ralph-field-label" for="tsw-assigned" style="margin-top:8px;">Assignee</label>
+        <select id="tsw-assigned" class="settings-select">
+          <option value="me" selected>Assigned to me</option>
+          <option value="any">Anyone</option>
+        </select>
+        <label class="ralph-field-label" style="margin-top:8px;">Exclude labels</label>
+        <p class="ralph-hint" style="margin:0 0 6px;">Issues with any ticked label are skipped.</p>
+        <div id="tsw-label-list" class="tsw-checkbox-list"></div>
+        <label class="ralph-field-label" for="tsw-title-prefixes" style="margin-top:8px;">Exclude title prefixes (comma-separated)</label>
+        <input type="text" id="tsw-title-prefixes" class="ps-text-input" spellcheck="false" placeholder="BE:">
+      </div>
+      <!-- Step 3: automation -->
+      <div class="ralph-step" data-step="3">
+        <h3>Automation</h3>
+        <label class="ralph-field-label" for="tsw-recipe-name">Recipe name</label>
+        <input type="text" id="tsw-recipe-name" class="ps-text-input" spellcheck="false" placeholder="Auto-start issues assigned to me">
+        <p class="ralph-hint" style="margin:4px 0 0;">A human-readable name for this launcher.</p>
+        <label class="ralph-field-label" for="tsw-recipe-id" style="margin-top:8px;">Recipe id</label>
+        <input type="text" id="tsw-recipe-id" class="ps-text-input" spellcheck="false" placeholder="assigned-to-me" value="assigned-to-me">
+        <p class="ralph-hint" style="margin:4px 0 0;">Internal id for this launcher's files (<code>.clay/tasks/&lt;id&gt;.json</code>). The default is fine — change it only if you want more than one launcher in this project.</p>
+        <label class="ralph-field-label" for="tsw-vendor" style="margin-top:8px;">Agent split <span id="tsw-vendor-label">70% Claude · 30% Codex</span></label>
+        <input type="range" id="tsw-vendor" class="us-range-input" min="0" max="100" step="10" value="70">
+        <label class="ralph-field-label" for="tsw-cron" style="margin-top:8px;">Poll schedule (cron)</label>
+        <input type="text" id="tsw-cron" class="ps-text-input" spellcheck="false" placeholder="*/5 * * * *" value="*/5 * * * *">
+        <label class="ralph-field-label" for="tsw-confidence" style="margin-top:8px;">Confidence threshold (%)</label>
+        <input type="number" id="tsw-confidence" class="ps-text-input" min="0" max="100" value="80">
+        <label class="ralph-field-label" for="tsw-dash-port" style="margin-top:8px;">Dashboard port</label>
+        <input type="number" id="tsw-dash-port" class="ps-text-input" value="8765">
+        <label class="tsw-check-row" style="margin-top:10px;"><input type="checkbox" id="tsw-enabled" checked> Enable auto-launch now</label>
+        <label class="tsw-check-row"><input type="checkbox" id="tsw-create-manual" checked> Also create a manual <code>/launch</code> recipe</label>
+        <label class="tsw-check-row"><input type="checkbox" id="tsw-overwrite-triage"> Overwrite existing TRIAGE.local.md</label>
+      </div>
+      <!-- Step 4: review -->
+      <div class="ralph-step" data-step="4">
+        <h3>Review</h3>
+        <div id="tsw-review" class="tsw-review"></div>
+      </div>
+      <!-- Step 5: done -->
+      <div class="ralph-step" data-step="5">
+        <h3>Done</h3>
+        <div id="tsw-result"></div>
+        <label class="ralph-field-label" for="tsw-website-prompt" style="margin-top:8px;">Paste this to an AI to build your dashboard website</label>
+        <textarea id="tsw-website-prompt" rows="8" spellcheck="false" readonly></textarea>
+        <div class="ps-textarea-actions">
+          <button type="button" class="ralph-btn secondary" id="tsw-copy-prompt"><i data-lucide="copy"></i> Copy prompt</button>
+        </div>
+      </div>
+    </div>
+    <div class="ralph-wizard-footer">
+      <button id="tsw-back" class="ralph-btn secondary">Back</button>
+      <div>
+        <button id="tsw-next" class="ralph-btn primary">Next</button>
       </div>
     </div>
   </div>
@@ -2294,12 +2660,7 @@
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/twemoji@14.0.2/dist/twemoji.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0/lib/addon-fit.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0/lib/addon-web-links.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0/lib/addon-webgl.min.js"></script>
 <script type="module" src="app.js"></script>
 <div id="pwa-install-modal" class="pwa-modal hidden">
   <div class="pwa-modal-backdrop"></div>

@@ -48,6 +48,25 @@ This makes **interactive approval impossible**. Every approval request (command 
 
 Do not go back to the SDK exec mode. It is a one-shot pipe wrapper, not a real SDK.
 
+## Credential identity and device login
+
+Codex stores device-login credentials below the executing user's `HOME`. Clay
+therefore runs one app-server per credential home, not one shared process for
+every user in a project. The login terminal, `codex login status` check, fresh
+thread, resumed thread, and restart auto-recovery must all receive the same
+`linuxUser` identity. In OS-user mode this means the child process gets that
+user's minimal environment and UID/GID; it must never inherit the daemon's
+`HOME` as a fallback.
+
+After an explicit device login finishes, `refresh_vendors` invalidates the
+auth check and reclaims only the matching *idle* Codex app-server. The next
+turn starts a new process from the updated credential. A concurrent active
+turn is not interrupted. Auth signals are UI actions only: session-history
+replay and notifications must never run a login command automatically.
+
+Do not print, persist, or add credential values to diagnostics. It is safe to
+log only boolean auth outcomes and a non-sensitive process lifecycle event.
+
 ---
 
 ## Key Files
@@ -55,6 +74,7 @@ Do not go back to the SDK exec mode. It is a one-shot pipe wrapper, not a real S
 | File | Purpose |
 |------|---------|
 | `lib/yoke/adapters/codex.js` | YOKE adapter. Init, createQuery, event flattening, approval routing, skill injection. |
+| `lib/yoke/adapters/codex-workspace-dependencies.js` | Validates the primary artifact runtime and implements `load_workspace_dependencies`. |
 | `lib/yoke/codex-app-server.js` | Child process manager. Spawn, stdin/stdout JSON-RPC, request ID tracking, pending callbacks. |
 | `lib/yoke/mcp-bridge-server.js` | Stdio MCP server spawned by Codex. Proxies tool list/call to Clay via HTTP. |
 | `lib/server.js` (`/api/mcp-bridge`) | Global HTTP endpoint. Aggregates MCP servers from all project contexts. |
@@ -181,7 +201,28 @@ _send({ type: "slash_commands", commands: _vendorCmds, vendor: _sessionVendor })
 
 Do not go back to a single shared `sm.slashCommands`.
 
-### 12. Sandbox and approval defaults
+### 12. Workspace dependency dynamic tool
+
+Artifact skills discover through `skills/list`, but their runtime loader is a
+separate app-hosted dynamic tool. When the `workspace_dependencies` Codex
+feature is enabled and Clay validates the primary runtime, the adapter adds
+`load_workspace_dependencies` to `dynamicTools` on `thread/start` and
+`thread/resume`. App-server calls it through an `item/tool/call` server request;
+Clay must answer with `{ contentItems, success }`.
+
+This is not an MCP tool. Moving it into the MCP bridge changes its model-facing
+name and breaks the bundled artifact skills' exact contract. Always send an
+empty `dynamicTools` array while resuming a thread when support becomes
+unavailable, so app-server cannot restore a stale persisted loader.
+
+The runtime defaults to
+`~/.cache/codex-runtimes/codex-primary-runtime`. An administrator can override
+the root with `CLAY_CODEX_RUNTIME_ROOT`. Clay validates `runtime.json`, host
+platform and architecture, executables, package directories, and
+`@oai/artifact-tool` before exposing the tool. Never derive paths without that
+validation.
+
+### 13. Sandbox and approval defaults
 
 Stored in `lib/codex-defaults.js`. Do not scatter defaults across multiple files. Server is the single source of truth, clients receive them via `codex_config` message.
 
@@ -220,16 +261,22 @@ When changing Codex adapter code:
 
 - [ ] Text response streams in real time (`item/agentMessage/delta`)
 - [ ] Thinking indicator shows and clears
-- [ ] Bash command with `approval: on-failure` shows approval UI, responds correctly to Sure/Always/No
+- [ ] Bash command with `approval: on-request` shows approval UI, responds correctly to Sure/Always/No
 - [ ] File change outside workspace shows approval UI
-- [ ] MCP tool (filesystem) with `approval: on-failure` shows approval UI, executes after approval
+- [ ] MCP tool (filesystem) with `approval: on-request` shows approval UI, executes after approval
 - [ ] Multi-turn conversation works (2nd message sends to same thread)
 - [ ] Session resume works after server restart
 - [ ] Switching between Codex and Claude sessions shows correct slash commands for each
 - [ ] `$<skill-name>` references inject skill input items
+- [ ] `load_workspace_dependencies` is present only with an enabled feature and validated runtime
+- [ ] A resumed thread receives current `dynamicTools` (including an empty array when unavailable)
 - [ ] Stop button during generation: typing clears, "interrupted" message appears, send button restored
 - [ ] Server restart does not break MCP (extension state resends)
 - [ ] Second project using Codex routes through global `/api/mcp-bridge` (not per-slug)
+- [ ] Device login is followed by a fresh, resumed, concurrent, and
+      restart-recovered Codex turn using the same session owner
+- [ ] Auth status and spawned app-server use the same credential home; logs
+      contain no credential values
 
 ---
 

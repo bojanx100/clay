@@ -1,6 +1,6 @@
 {
   "name": "clay-server",
-  "version": "2.44.0",
+  "version": "2.47.0-beta.6",
   "description": "Self-hosted team workspace for Claude Code and Codex. Multi-user, browser-based, with persistent AI mates.",
   "bin": {
     "clay-server": "./bin/cli.js",
@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "node bin/cli.js --dev",
+    "test": "node scripts/run-tests.js",
     "prepack": "npm pkg delete bin.clay-dev",
     "postpack": "npm pkg set bin.clay-dev=./bin/cli.js",
     "semantic-release": "semantic-release"
@@ -49,14 +50,14 @@
   "homepage": "https://github.com/chadbyte/clay#readme",
   "author": "Chad",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.132",
-    "@lydell/node-pty": "^1.2.0-beta.3",
-    "@openai/codex": "^0.124.0",
-    "imapflow": "^1.3.1",
-    "nodemailer": "^6.10.1",
+    "@agentclientprotocol/sdk": "^1.2.1",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.233",
+    "@lydell/node-pty": "^1.2.0-beta.12",
+    "imapflow": "^1.4.7",
+    "nodemailer": "^9.0.3",
     "qrcode-terminal": "^0.12.0",
     "web-push": "^3.6.7",
-    "ws": "^8.18.0"
+    "ws": "^8.21.1"
   },
   "license": "MIT",
   "engines": {
@@ -66,6 +67,11 @@
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
-    "semantic-release": "^25.0.3"
+    "c8": "^12.0.0",
+    "eslint": "^10.8.0",
+    "semantic-release": "^25.0.8"
+  },
+  "optionalDependencies": {
+    "@openai/codex": "0.150.1"
   }
 }

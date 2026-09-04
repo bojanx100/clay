@@ -1,0 +1,1579 @@
+var test = require("node:test");
+var assert = require("node:assert");
+var fs = require("fs");
+var os = require("os");
+var path = require("path");
+
+function clearSessionModuleCache() {
+  delete require.cache[require.resolve("../lib/config")];
+  delete require.cache[require.resolve("../lib/tombstones")];
+  delete require.cache[require.resolve("../lib/sessions")];
+}
+
+function makeSessionHarness(managerOverrides) {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+  clearSessionModuleCache();
+
+  var utils = require("../lib/utils");
+  var sessionsDir = path.join(tmpHome, "sessions", utils.encodeCwd(projectDir));
+  var managerOptions = Object.assign({
+    cwd: projectDir,
+    send: function () {},
+  }, managerOverrides || {});
+  var sm = require("../lib/sessions").createSessionManager(managerOptions);
+
+  return {
+    tmpHome: tmpHome,
+    projectDir: projectDir,
+    oldClayHome: oldClayHome,
+    sessionsDir: sessionsDir,
+    sm: sm,
+    cleanup: function () {
+      if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+      else delete process.env.CLAY_HOME;
+      clearSessionModuleCache();
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    },
+  };
+}
+
+test("adopted CLI provenance survives a daemon restart", async function () {
+  var h = makeSessionHarness();
+  try {
+    var session = [...h.sm.sessions.values()][0];
+    session.storageId = "adopted-cli-session";
+    session.cliSessionId = "adopted-cli-session";
+    session.vendor = "claude";
+    session.mode = "tui";
+    session.adopted = true;
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(readSessionMeta(h, "adopted-cli-session").adopted, true);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = [...restored.sessions.values()].find(function (candidate) {
+      return candidate.storageId === "adopted-cli-session";
+    });
+    assert.ok(restoredSession);
+    assert.strictEqual(restoredSession.adopted, true);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("Lead sessions keep exactly one durable, protected Coop home", async function () {
+  var h = makeSessionHarness({ isLead: true });
+  try {
+    var home = [...h.sm.sessions.values()].find(function (session) { return session.coopHome; });
+    assert.ok(home, "initial Lead session is the Coop home");
+    assert.strictEqual(h.sm.activeSessionId, home.localId);
+
+    home.storageId = "coop-home";
+    home.title = "Coop";
+    h.sm.saveSessionFile(home);
+    assert.strictEqual(readSessionMeta(h, "coop-home").coopHome, true);
+
+    h.sm.hideSession(home.localId, null);
+    assert.notStrictEqual(home.hidden, true);
+    h.sm.deleteSession(home.localId, null);
+    assert.strictEqual(h.sm.sessions.get(home.localId), home);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var restoredHomes = [...restored.sessions.values()].filter(function (session) { return session.coopHome; });
+    assert.strictEqual(restoredHomes.length, 1);
+    assert.strictEqual(restoredHomes[0].storageId, "coop-home");
+    assert.strictEqual(restored.activeSessionId, restoredHomes[0].localId);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("hiding a session stamps closedAt exactly once and persists it (does not fall back to file mtime)", async function () {
+  var h = makeSessionHarness();
+  try {
+    var session = [...h.sm.sessions.values()][0];
+    session.storageId = "closed-once";
+    session.cliSessionId = "closed-once";
+    session.title = "Some closed session";
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(readSessionMeta(h, "closed-once").closedAt, undefined,
+      "closedAt is not written while the session is still open");
+
+    h.sm.hideSession(session.localId, null);
+    var firstClosedAt = readSessionMeta(h, "closed-once").closedAt;
+    assert.strictEqual(typeof firstClosedAt, "number", "hiding stamps a numeric closedAt");
+
+    // A later unrelated save (e.g. an orchestrator update, coop channel
+    // change, or any other saveSessionFile call after the session is
+    // already hidden) must not bump closedAt — retries/re-saves of an
+    // already-closed session are idempotent.
+    await wait(5);
+    session.title = "Some closed session (edited by unrelated code path)";
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(readSessionMeta(h, "closed-once").closedAt, firstClosedAt,
+      "closedAt is stable across unrelated re-saves of an already-hidden session");
+
+    // Simulate a Clay restart: reload from disk and confirm the persisted
+    // lastActivity (not the storage file's OS mtime) is restored, so
+    // unrelated bulk rewrites of the storage file cannot corrupt it.
+    var persistedLastActivity = readSessionMeta(h, "closed-once").lastActivity;
+    assert.strictEqual(typeof persistedLastActivity, "number", "lastActivity is persisted explicitly");
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = [...restored.sessions.values()].find(function (s) {
+      return s.storageId === "closed-once";
+    });
+    assert.ok(restoredSession, "hidden session survives reload");
+    assert.strictEqual(restoredSession.closedAt, firstClosedAt);
+    assert.strictEqual(restoredSession.lastActivity, persistedLastActivity,
+      "restored lastActivity comes from the persisted value, not file mtime");
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("two unrelated sessions closed at different times keep distinct closedAt after a shared bulk rewrite", async function () {
+  var h = makeSessionHarness();
+  try {
+    var sessions = [...h.sm.sessions.values()];
+    var a = sessions[0];
+    a.storageId = "closed-a";
+    a.cliSessionId = "closed-a";
+    a.title = "First closed session";
+    h.sm.saveSessionFile(a);
+    h.sm.hideSession(a.localId, null);
+    var closedAtA = a.closedAt;
+    var lastActivityA = readSessionMeta(h, "closed-a").lastActivity;
+
+    await wait(10);
+
+    var b = h.sm.createSessionRaw({});
+    b.storageId = "closed-b";
+    b.cliSessionId = "closed-b";
+    b.title = "Second closed session, closed later";
+    h.sm.sessions.set(b.localId, b);
+    h.sm.saveSessionFile(b);
+    h.sm.hideSession(b.localId, null);
+    var closedAtB = b.closedAt;
+    var lastActivityB = readSessionMeta(h, "closed-b").lastActivity;
+
+    assert.notStrictEqual(closedAtA, closedAtB,
+      "two unrelated sessions closed at different times must not collapse to one timestamp");
+
+    // Simulate an unrelated bulk rewrite that touches both files' OS mtime
+    // at the same instant (the exact corruption reported by the owner).
+    fs.utimesSync(sessionFile(h, "closed-a"), new Date(), new Date());
+    fs.utimesSync(sessionFile(h, "closed-b"), new Date(), new Date());
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredA = [...restored.sessions.values()].find(function (s) { return s.storageId === "closed-a"; });
+    var restoredB = [...restored.sessions.values()].find(function (s) { return s.storageId === "closed-b"; });
+    assert.strictEqual(restoredA.lastActivity, lastActivityA);
+    assert.strictEqual(restoredB.lastActivity, lastActivityB);
+    assert.notStrictEqual(restoredA.lastActivity, restoredB.lastActivity,
+      "bulk mtime rewrite must not corrupt distinct closed sessions into one timestamp");
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("Lead upgrade promotes the most recently viewed ordinary root session", async function () {
+  var h = makeSessionHarness();
+  try {
+    var older = [...h.sm.sessions.values()][0];
+    older.storageId = "older-root";
+    older.title = "Older root";
+    older.lastViewedAt = 10;
+    h.sm.saveSessionFile(older);
+
+    var current = h.sm.createSessionRaw({ storageId: "current-root" });
+    current.title = "Current root";
+    current.lastViewedAt = 20;
+    h.sm.saveSessionFile(current);
+
+    var worker = h.sm.createSessionRaw({ storageId: "worker-root" });
+    worker.title = "Worker";
+    worker.lastViewedAt = 30;
+    worker.orchestrationParent = { taskId: "task-1", sessionId: current.localId };
+    h.sm.saveSessionFile(worker);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var homes = [...restored.sessions.values()].filter(function (session) { return session.coopHome; });
+    assert.strictEqual(homes.length, 1);
+    assert.strictEqual(homes[0].storageId, "current-root");
+    assert.strictEqual(restored.activeSessionId, homes[0].localId);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("project-scoped Coop channels persist separately from Coop home", async function () {
+  var h = makeSessionHarness({ isLead: true });
+  try {
+    var channel = h.sm.createSessionRaw({
+      storageId: "coop-webapp-channel",
+      coopChannel: {
+        projectSlug: "webapp",
+        projectTitle: "Web App",
+        projectPath: "/repos/webapp",
+      },
+    });
+    channel.title = "Web App";
+    h.sm.saveSessionFile(channel);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var homes = [...restored.sessions.values()].filter(function (session) { return session.coopHome; });
+    var channels = [...restored.sessions.values()].filter(function (session) { return session.coopChannel; });
+    assert.strictEqual(homes.length, 1);
+    assert.strictEqual(channels.length, 1);
+    assert.strictEqual(channels[0].storageId, "coop-webapp-channel");
+    assert.strictEqual(channels[0].coopChannel.projectPath, "/repos/webapp");
+    assert.notStrictEqual(homes[0].localId, channels[0].localId);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("Coop ingress recovery state persists without creating a second conversation", async function () {
+  var h = makeSessionHarness({ isLead: true });
+  try {
+    var home = [...h.sm.sessions.values()].find(function (session) { return session.coopHome; });
+    home.storageId = "coop-ingress-home";
+    home.coopConversationIngress = {
+      nextSequence: 5,
+      activeIngressId: null,
+      recent: [{ key: "input:voice-4", ingressId: "coop:coop-ingress-home:4", sequence: 4 }],
+    };
+    home.pendingCoopIngress = [{
+      ingressId: "coop:coop-ingress-home:4",
+      ingressSequence: 4,
+      finalText: "resume owner input",
+      displayText: "resume owner input",
+      intent: "chat",
+    }];
+    h.sm.saveSessionFile(home);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var restoredHome = [...restored.sessions.values()].find(function (session) { return session.coopHome; });
+    assert.strictEqual([...restored.sessions.values()].filter(function (session) { return session.coopHome; }).length, 1);
+    assert.strictEqual(restoredHome.coopConversationIngress.nextSequence, 5);
+    assert.strictEqual(restoredHome.pendingCoopIngress.length, 1);
+    assert.strictEqual(restoredHome.pendingCoopIngress[0].ingressId, "coop:coop-ingress-home:4");
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("Coop incarnation and project hierarchy references survive restart", async function () {
+  var h = makeSessionHarness({ isLead: true });
+  try {
+    var home = [...h.sm.sessions.values()].find(function (session) { return session.coopHome; });
+    home.storageId = "coop-incarnation-home";
+    home.coopIncarnation = {
+      version: 1,
+      incarnationId: "coop-incarnation-persisted",
+      epoch: 7,
+      vendor: "codex",
+      providerRouteId: "codex-openai",
+      model: "gpt-5.6-sol",
+      updatedAt: 100,
+    };
+    var child = h.sm.createSessionRaw({ storageId: "persisted-task-coordinator" });
+    child.coordinationMode = true;
+    child.coordinationRole = "task_coordinator";
+    child.projectCoordinatorRef = {
+      projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e",
+      sessionStorageId: "durable-project-root",
+    };
+    h.sm.saveSessionFile(home, { durable: true });
+    h.sm.saveSessionFile(child, { durable: true });
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      isLead: true,
+      send: function () {},
+    });
+    var restoredHome = [...restored.sessions.values()].find(function (session) {
+      return session.storageId === "coop-incarnation-home";
+    });
+    assert.deepStrictEqual(restoredHome.coopIncarnation, home.coopIncarnation);
+    var restoredChild = [...restored.sessions.values()].find(function (session) {
+      return session.storageId === "persisted-task-coordinator";
+    });
+    assert.strictEqual(restoredChild.coordinationRole, "task_coordinator");
+    assert.deepStrictEqual(restoredChild.projectCoordinatorRef, child.projectCoordinatorRef);
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+test("Live UI worker cards persist with their coordinator session", async function () {
+  var h = makeSessionHarness();
+  try {
+    var session = [...h.sm.sessions.values()][0];
+    session.storageId = "live-ui-coordinator";
+    session.liveUiReports = [{
+      reportId: "report-1",
+      taskId: "task-1",
+      title: "Fix the clock",
+      status: "working",
+      message: "Being worked on.",
+      selection: null,
+      workerSessionId: 17,
+      workerColor: "#55A7FF",
+    }];
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(readSessionMeta(h, "live-ui-coordinator").liveUiReports.length, 1);
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = [...restored.sessions.values()].find(function (candidate) {
+      return candidate.storageId === "live-ui-coordinator";
+    });
+    assert.strictEqual(restoredSession.liveUiReports[0].reportId, "report-1");
+    assert.strictEqual(restoredSession.liveUiReports[0].taskId, "task-1");
+  } finally {
+    await wait(20);
+    h.cleanup();
+  }
+});
+
+function sessionFile(h, storageId) {
+  return path.join(h.sessionsDir, storageId + ".jsonl");
+}
+
+function readSessionMeta(h, storageId) {
+  return JSON.parse(fs.readFileSync(sessionFile(h, storageId), "utf8").split("\n")[0]);
+}
+
+function countSessionTempWrites(h, storageId) {
+  var originalRenameSync = fs.renameSync;
+  var writes = [];
+  var targetPrefix = path.join(h.sessionsDir, storageId + ".jsonl.tmp.");
+  fs.renameSync = function (oldPath, newPath) {
+    var fileName = String(oldPath);
+    if (fileName.indexOf(targetPrefix) === 0) {
+      writes.push({ file: fileName });
+    }
+    return originalRenameSync.apply(fs, arguments);
+  };
+  return {
+    writes: writes,
+    restore: function () {
+      fs.renameSync = originalRenameSync;
+    },
+  };
+}
+
+function wait(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+test("loads missing handoff context for GitHub Copilot sessions", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(tmpHome, "sessions", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    var storageId = "claude-before-handoff";
+    var lines = [
+      JSON.stringify({
+        type: "meta",
+        localId: 1,
+        cliSessionId: "copilot-runtime-1",
+        storageId: storageId,
+        title: "Vendor handoff",
+        createdAt: Date.now(),
+        vendor: "github-copilot",
+      }),
+      JSON.stringify({ type: "user_message", text: "Original Claude-side context", _ts: Date.now() }),
+      JSON.stringify({ type: "delta", text: "Work completed before switching", _ts: Date.now() }),
+      JSON.stringify({ type: "vendor_switched", fromVendor: "claude", toVendor: "github-copilot", _ts: Date.now() }),
+      JSON.stringify({ type: "user_message", text: "Continue with Copilot", _ts: Date.now() }),
+      JSON.stringify({ type: "session_id", cliSessionId: "copilot-runtime-1", _ts: Date.now() }),
+    ];
+    fs.writeFileSync(path.join(sessionsDir, storageId + ".jsonl"), lines.join("\n") + "\n");
+
+    var createSessionManager = require("../lib/sessions").createSessionManager;
+    var sm = createSessionManager({
+      cwd: projectDir,
+      send: function () {},
+    });
+    var session = sm.sessions.get(1);
+
+    assert.strictEqual(session.vendor, "github-copilot");
+    assert.ok(session.handoffContext, "handoff context should be recovered for Copilot");
+    assert.ok(session.handoffContext.indexOf("Original Claude-side context") !== -1);
+    assert.ok(session.handoffContext.indexOf("Continue with Copilot") === -1);
+    assert.strictEqual(session.handoffContextTurnsRemaining, 1);
+
+    var savedMeta = JSON.parse(fs.readFileSync(path.join(sessionsDir, storageId + ".jsonl"), "utf8").split("\n")[0]);
+    assert.strictEqual(savedMeta.handoffContextRecovered, true);
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime session id changes keep a stable storage id", function () {
+  var saved = 0;
+  var recorded = [];
+  var sm = {
+    saveSessionFile: function () {
+      saved++;
+    },
+    sendAndRecord: function (session, obj) {
+      recorded.push(obj);
+    },
+    sendToSession: function () {},
+    modelsByVendor: {},
+    availableModels: [],
+  };
+  var processor = require("../lib/sdk-message-processor").attachMessageProcessor({
+    sm: sm,
+    send: function () {},
+    slug: "test",
+    isMate: false,
+    mateDisplayName: "",
+    pushModule: null,
+    getNotificationsModule: function () { return null; },
+    getSDK: function () { return null; },
+    adapter: { vendor: "github-copilot" },
+    cwd: process.cwd(),
+    onProcessingChanged: function () {},
+    onTurnDone: function () {},
+    onAutoTitle: function () {},
+    opts: {},
+    discoverSkillDirs: function () { return []; },
+    mergeSkills: function () { return []; },
+  });
+  var session = {
+    localId: 1,
+    vendor: "github-copilot",
+    history: [],
+    cliSessionId: "runtime-1",
+    storageId: null,
+  };
+
+  processor.processSDKMessage(session, { sessionId: "runtime-2" });
+
+  assert.strictEqual(session.storageId, "runtime-1");
+  assert.strictEqual(session.cliSessionId, "runtime-2");
+  assert.strictEqual(saved, 1);
+  assert.deepStrictEqual(recorded, []);
+});
+
+test("persists GitHub Copilot handoff native reset marker", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(tmpHome, "sessions", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    var storageId = "copilot-handoff-reset";
+    var lines = [
+      JSON.stringify({
+        type: "meta",
+        localId: 1,
+        cliSessionId: "copilot-runtime-1",
+        storageId: storageId,
+        title: "Vendor handoff",
+        createdAt: Date.now(),
+        vendor: "github-copilot",
+        handoffContextConsumed: true,
+        copilotHandoffNativeReset: true,
+      }),
+      JSON.stringify({ type: "user_message", text: "Continue after reset", _ts: Date.now() }),
+    ];
+    fs.writeFileSync(path.join(sessionsDir, storageId + ".jsonl"), lines.join("\n") + "\n");
+
+    var createSessionManager = require("../lib/sessions").createSessionManager;
+    var sm = createSessionManager({
+      cwd: projectDir,
+      send: function () {},
+    });
+    var session = sm.sessions.get(1);
+
+    assert.strictEqual(session.copilotHandoffNativeReset, true);
+    sm.saveSessionFile(session);
+
+    var savedMeta = JSON.parse(fs.readFileSync(path.join(sessionsDir, storageId + ".jsonl"), "utf8").split("\n")[0]);
+    assert.strictEqual(savedMeta.copilotHandoffNativeReset, true);
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("closes completed auto-launched sessions on load without close flags", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(tmpHome, "sessions", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    var storageId = "completed-task";
+    var lines = [
+      JSON.stringify({
+        type: "meta",
+        cliSessionId: storageId,
+        storageId: storageId,
+        title: "Completed task",
+        createdAt: Date.now(),
+        vendor: "claude",
+        taskLauncher: {
+          recipeId: "assigned-to-me",
+          itemNumber: 123,
+          completion: {
+            marker: "CLAY_TASK_COMPLETE",
+          },
+          autoLaunch: true,
+          autoKind: "issue",
+          workflowCompleted: true,
+        },
+      }),
+      JSON.stringify({ type: "delta", text: "CLAY_TASK_COMPLETE", _ts: Date.now() }),
+      JSON.stringify({ type: "done", code: 0, _ts: Date.now() }),
+    ];
+    fs.writeFileSync(path.join(sessionsDir, storageId + ".jsonl"), lines.join("\n") + "\n");
+
+    var createSessionManager = require("../lib/sessions").createSessionManager;
+    var sm = createSessionManager({
+      cwd: projectDir,
+      send: function () {},
+    });
+    var session = sm.sessions.get(1);
+
+    assert.strictEqual(session.hidden, true);
+    var savedMeta = JSON.parse(fs.readFileSync(path.join(sessionsDir, storageId + ".jsonl"), "utf8").split("\n")[0]);
+    assert.strictEqual(savedMeta.hidden, true);
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("saved session metadata omits volatile local id", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var createSessionManager = require("../lib/sessions").createSessionManager;
+    var sm = createSessionManager({
+      cwd: projectDir,
+      send: function () {},
+    });
+    var session = sm.createSessionRaw({
+      vendor: "codex",
+      storageId: "stable-storage-id",
+    });
+    session.title = "Task launched session";
+    sm.saveSessionFile(session);
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var metaPath = path.join(tmpHome, "sessions", encoded, "stable-storage-id.jsonl");
+    var meta = JSON.parse(fs.readFileSync(metaPath, "utf8").split("\n")[0]);
+
+    assert.strictEqual(meta.storageId, "stable-storage-id");
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(meta, "localId"), false);
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("persisted restart interruption does not auto-resume again", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(tmpHome, "sessions", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    var storageId = "interrupted-session";
+    var ts = Date.now() - 1000;
+    var lines = [
+      JSON.stringify({
+        type: "meta",
+        cliSessionId: storageId,
+        storageId: storageId,
+        title: "Interrupted once",
+        createdAt: ts,
+        vendor: "codex",
+      }),
+      JSON.stringify({ type: "user_message", text: "do work", _ts: ts }),
+      JSON.stringify({ type: "thinking_start", _ts: ts + 1 }),
+      JSON.stringify({
+        type: "info",
+        text: "Session was interrupted by a Clay restart. Clay will continue it when you reopen this session.",
+        _ts: ts + 2,
+      }),
+      JSON.stringify({ type: "done", code: 1, _ts: ts + 3 }),
+      JSON.stringify({ type: "thinking_stop", _ts: ts + 4 }),
+    ];
+    fs.writeFileSync(path.join(sessionsDir, storageId + ".jsonl"), lines.join("\n") + "\n");
+
+    var createSessionManager = require("../lib/sessions").createSessionManager;
+    var sm = createSessionManager({
+      cwd: projectDir,
+      send: function () {},
+    });
+    var session = sm.sessions.get(1);
+
+    assert.strictEqual(session.interruptedByRestart, true);
+    assert.strictEqual(session.restartResumeEligible, false);
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("persisted restart interruption does not rewrite the session on every load", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  var originalWriteFileSync = fs.writeFileSync;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    clearSessionModuleCache();
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(tmpHome, "sessions", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    var storageId = "persisted-interrupted-session";
+    var sessionPath = path.join(sessionsDir, storageId + ".jsonl");
+    var ts = Date.now() - 1000;
+    var lines = [
+      JSON.stringify({
+        type: "meta",
+        cliSessionId: storageId,
+        storageId: storageId,
+        title: "Already interrupted",
+        createdAt: ts,
+        vendor: "codex",
+        interruptedByRestart: true,
+      }),
+      JSON.stringify({ type: "user_message", text: "do work", _ts: ts }),
+      JSON.stringify({
+        type: "info",
+        text: "Session was interrupted by a Clay restart. Clay will continue it when you reopen this session.",
+        _ts: ts + 1,
+      }),
+      JSON.stringify({ type: "done", code: 1, _ts: ts + 2 }),
+    ];
+    fs.writeFileSync(sessionPath, lines.join("\n") + "\n");
+
+    var sessionWrites = 0;
+    fs.writeFileSync = function (filePath) {
+      if (String(filePath).indexOf(sessionPath + ".tmp.") === 0) sessionWrites++;
+      return originalWriteFileSync.apply(fs, arguments);
+    };
+
+    require("../lib/sessions").createSessionManager({
+      cwd: projectDir,
+      send: function () {},
+    });
+
+    assert.strictEqual(sessionWrites, 0);
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    clearSessionModuleCache();
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("persisted queued messages are restored before any client reconnects", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(tmpHome, "sessions", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    var storageId = "queued-restart-session";
+    var ts = Date.now() - 1000;
+    var lines = [
+      JSON.stringify({
+        type: "meta",
+        cliSessionId: storageId,
+        storageId: storageId,
+        title: "Queued restart",
+        createdAt: ts,
+        vendor: "codex",
+      }),
+      JSON.stringify({
+        type: "user_message",
+        text: "finish this after restart",
+        queueId: "q-restart",
+        queuedPending: true,
+        _ts: ts,
+      }),
+    ];
+    fs.writeFileSync(path.join(sessionsDir, storageId + ".jsonl"), lines.join("\n") + "\n");
+
+    var createSessionManager = require("../lib/sessions").createSessionManager;
+    var sm = createSessionManager({
+      cwd: projectDir,
+      send: function () {},
+    });
+    var session = sm.sessions.get(1);
+
+    assert.deepEqual(session.pendingUserMessageQueue.map(function (item) {
+      return item.queueId;
+    }), ["q-restart"]);
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("stale interrupted turn anchors recency to stall time, not load time", function () {
+  // Regression: a session whose turn was left open long ago must not look
+  // "freshly interrupted" on every daemon restart. restartInterruptedAt should
+  // reflect when work actually stalled (last event), so the auto-resume recency
+  // window can reject it — otherwise it auto-continues a stale turn forever.
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(tmpHome, "sessions", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    var storageId = "stale-open-turn";
+    var staleTs = Date.now() - (2 * 24 * 60 * 60 * 1000); // two days ago
+    var lines = [
+      JSON.stringify({ type: "meta", cliSessionId: storageId, storageId: storageId, title: "Stale", createdAt: staleTs, vendor: "codex" }),
+      JSON.stringify({ type: "user_message", text: "do work", _ts: staleTs }),
+      JSON.stringify({ type: "thinking_start", _ts: staleTs + 1 }),
+      JSON.stringify({ type: "tool_start", _ts: staleTs + 2 }),
+      // No terminal "done": the turn was left open when work stalled days ago.
+    ];
+    fs.writeFileSync(path.join(sessionsDir, storageId + ".jsonl"), lines.join("\n") + "\n");
+
+    var createSessionManager = require("../lib/sessions").createSessionManager;
+    var sm = createSessionManager({ cwd: projectDir, send: function () {} });
+    var session = sm.sessions.get(1);
+
+    // It is a genuinely open turn (so structurally eligible)...
+    assert.strictEqual(session.restartResumeEligible, true);
+    // ...but the recency stamp is anchored to the stall point days ago, far
+    // outside any sane auto-resume window — so autoResumeRestartSession declines.
+    assert.ok(Date.now() - session.restartInterruptedAt >= 10 * 60 * 1000,
+      "restartInterruptedAt should reflect stall time (days ago), not load time");
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("task launch result reports stable session id separately from local router id", function () {
+  var launcher = require("../lib/project-task-launcher").attachTaskLauncher({
+    cwd: process.cwd(),
+    sm: {},
+    sdk: {},
+    sendTo: function () {},
+    usersModule: {},
+    getSessionForWs: function () { return null; },
+    ensureProjectAccessForSession: function () { return null; },
+    onProcessingChanged: function () {},
+  });
+  var result = launcher.taskLaunchResult({
+    localId: 42,
+    storageId: "stable-storage-id",
+    cliSessionId: null,
+    title: "Error Message when auto logged out",
+  });
+
+  assert.strictEqual(result.sessionId, "stable-storage-id");
+  assert.strictEqual(result.localSessionId, 42);
+  assert.strictEqual(result.claySessionId, 42);
+  assert.strictEqual(result.storageId, "stable-storage-id");
+  assert.strictEqual(result.cliSessionId, null);
+});
+
+test("auto-resume turns do not bump lastActivity, genuine input does", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  process.env.CLAY_HOME = tmpHome;
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var sessionsDir = path.join(tmpHome, "sessions", utils.encodeCwd(projectDir));
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    var lines = [
+      JSON.stringify({ type: "meta", cliSessionId: "sess-1", storageId: "sess-1", title: "Session", createdAt: 1000, vendor: "claude", mode: "gui" }),
+      JSON.stringify({ type: "user_message", text: "hi", _ts: 1000 }),
+    ];
+    fs.writeFileSync(path.join(sessionsDir, "sess-1.jsonl"), lines.join("\n") + "\n");
+
+    var sm = require("../lib/sessions").createSessionManager({ cwd: projectDir, send: function () {} });
+    var session = sm.sessions.get(1);
+    var baseline = session.lastActivity;
+
+    // A synthetic auto-resume turn marks the session; its appends must NOT move
+    // the session up the recency-sorted list (the "sessions keep jumping" bug).
+    session._suppressActivityBump = true;
+    sm.appendToSessionFile(session, { type: "user_message", text: "↻ Resuming the interrupted response", _ts: Date.now() });
+    sm.appendToSessionFile(session, { type: "delta", text: "resumed work", _ts: Date.now() });
+    assert.strictEqual(session.lastActivity, baseline, "auto-resume appends must not bump lastActivity");
+
+    // Genuine user input clears the flag, restoring normal recency bumping.
+    session._suppressActivityBump = false;
+    sm.appendToSessionFile(session, { type: "user_message", text: "real message", _ts: Date.now() });
+    assert.ok(session.lastActivity > baseline, "genuine input must bump lastActivity");
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("hidden Claude sessions remain importable when CLI descriptor parsing fails", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  var originalHomedir = os.homedir;
+  process.env.CLAY_HOME = path.join(tmpHome, ".clay");
+  os.homedir = function () { return tmpHome; };
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(process.env.CLAY_HOME, "sessions", encoded);
+    var claudeDir = path.join(tmpHome, ".claude", "projects", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.mkdirSync(claudeDir, { recursive: true });
+
+    var sessionId = "991ad98d-18a4-499c-bd8a-3287a81c36b1";
+    var createdAt = 1760000000000;
+    var title = "Screenshot-backed hidden session";
+    var lines = [
+      JSON.stringify({
+        type: "meta",
+        cliSessionId: sessionId,
+        storageId: sessionId,
+        title: title,
+        createdAt: createdAt,
+        vendor: "claude",
+        hidden: true,
+      }),
+      JSON.stringify({ type: "user_message", text: title, _ts: createdAt }),
+    ];
+    fs.writeFileSync(path.join(sessionsDir, sessionId + ".jsonl"), lines.join("\n") + "\n");
+
+    var largeLine = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"data\":\"" + "x".repeat(70 * 1024) + "\"}}]}}\n";
+    fs.writeFileSync(path.join(claudeDir, sessionId + ".jsonl"), largeLine);
+
+    var sm = require("../lib/sessions").createSessionManager({ cwd: projectDir, send: function () {} });
+    var importable = sm.listAdoptableCliSessions("claude");
+    var found = importable.filter(function (item) { return item.cliSessionId === sessionId; })[0];
+
+    assert.ok(found, "hidden session should still be listed for import");
+    assert.strictEqual(found.hidden, true);
+    assert.strictEqual(found.title, title);
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    os.homedir = originalHomedir;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("historical provider session ids block orphan CLI re-adoption", function () {
+  var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+  var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+  var oldClayHome = process.env.CLAY_HOME;
+  var originalHomedir = os.homedir;
+  process.env.CLAY_HOME = path.join(tmpHome, ".clay");
+  os.homedir = function () { return tmpHome; };
+
+  try {
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/tombstones")];
+    delete require.cache[require.resolve("../lib/sessions")];
+
+    var utils = require("../lib/utils");
+    var encoded = utils.encodeCwd(projectDir);
+    var sessionsDir = path.join(process.env.CLAY_HOME, "sessions", encoded);
+    var claudeDir = path.join(tmpHome, ".claude", "projects", encoded);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.mkdirSync(claudeDir, { recursive: true });
+
+    var oldClaudeId = "040c3bf9-03bb-47bc-9913-52b8c45c9773";
+    var handoffStorageId = "6cace36b-1990-4bfa-9f59-e2f87ec86e0a";
+    var copilotRuntimeId = "23a7aa61-79b0-4497-a689-3b0e80831bc9";
+    var createdAt = 1760000000000;
+
+    var clayLines = [
+      JSON.stringify({
+        type: "meta",
+        cliSessionId: copilotRuntimeId,
+        storageId: handoffStorageId,
+        title: "Hidden handoff session",
+        createdAt: createdAt,
+        vendor: "github-copilot",
+        hidden: true,
+      }),
+      JSON.stringify({ type: "user_message", text: "Original Claude work", _ts: createdAt }),
+      JSON.stringify({ type: "session_id", cliSessionId: oldClaudeId, _ts: createdAt + 1 }),
+      JSON.stringify({ type: "vendor_switched", fromVendor: "claude", toVendor: "github-copilot", _ts: createdAt + 2 }),
+      JSON.stringify({ type: "session_id", cliSessionId: copilotRuntimeId, _ts: createdAt + 3 }),
+    ];
+    fs.writeFileSync(path.join(sessionsDir, handoffStorageId + ".jsonl"), clayLines.join("\n") + "\n");
+
+    var nativeLines = [
+      JSON.stringify({ type: "user", timestamp: "2026-06-18T11:40:00.000Z", message: { role: "user", content: "Repo: old Claude task" } }),
+      JSON.stringify({ type: "assistant", timestamp: "2026-06-18T11:40:01.000Z", message: { role: "assistant", content: [{ type: "text", text: "Working" }] } }),
+    ];
+    fs.writeFileSync(path.join(claudeDir, oldClaudeId + ".jsonl"), nativeLines.join("\n") + "\n");
+
+    var sm = require("../lib/sessions").createSessionManager({ cwd: projectDir, send: function () {} });
+    var matchingSessions = [];
+    sm.sessions.forEach(function (session) {
+      if (session.cliSessionId === oldClaudeId || session.storageId === oldClaudeId) {
+        matchingSessions.push(session);
+      }
+    });
+    var importable = sm.listAdoptableCliSessions("claude").filter(function (item) {
+      return item.cliSessionId === oldClaudeId;
+    });
+
+    assert.strictEqual(sm.sessions.size, 1);
+    assert.strictEqual(matchingSessions.length, 0);
+    assert.strictEqual(importable.length, 0);
+  } finally {
+    if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+    else delete process.env.CLAY_HOME;
+    os.homedir = originalHomedir;
+    delete require.cache[require.resolve("../lib/config")];
+    delete require.cache[require.resolve("../lib/tombstones")];
+    delete require.cache[require.resolve("../lib/sessions")];
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("light session saves write immediately each time", function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h, "light-save");
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "light-save" });
+    session.title = "First title";
+    h.sm.saveSessionFile(session);
+    session.title = "Second title";
+    h.sm.saveSessionFile(session);
+
+    assert.strictEqual(counter.writes.length, 2);
+    assert.strictEqual(readSessionMeta(h, "light-save").title, "Second title");
+  } finally {
+    counter.restore();
+    h.cleanup();
+  }
+});
+
+test("append-only activity saves avoid a full rewrite and recover on restart", async function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h, "append-only-save");
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "append-only-save" });
+    session.title = "Append-only session";
+    h.sm.saveSessionFile(session, { durable: true });
+    var savedActivity = readSessionMeta(h, "append-only-save").lastActivity;
+
+    await wait(10);
+    var event = { type: "user_message", text: "already appended" };
+    h.sm.sendAndRecord(session, event);
+    assert.ok(event._ts > savedActivity, "the appended event is newer than line-one metadata");
+
+    assert.strictEqual(h.sm.saveSessionFile(session, { durable: true }), true);
+    assert.strictEqual(counter.writes.length, 1,
+      "the save must reuse the already-appended transcript rather than rewrite it");
+    assert.strictEqual(readSessionMeta(h, "append-only-save").lastActivity, savedActivity,
+      "only append-driven activity changed, so line-one metadata was not rewritten");
+
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredSession = [...restored.sessions.values()].find(function (candidate) {
+      return candidate.storageId === "append-only-save";
+    });
+    assert.ok(restoredSession, "the session is still discoverable after restart");
+    assert.ok(restoredSession.history.some(function (item) {
+      return item && item.text === "already appended";
+    }), "the appended event survived without a rewrite");
+    assert.ok(restoredSession.lastActivity >= event._ts,
+      "restart takes the newer durable event timestamp over stale line-one activity");
+  } finally {
+    counter.restore();
+    h.cleanup();
+  }
+});
+
+test("assistant history survives a transient append failure through a durable rewrite", function () {
+  var h = makeSessionHarness();
+  var originalAppendFileSync = fs.appendFileSync;
+  var originalError = console.error;
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "assistant-append-repair" });
+    h.sm.saveSessionFile(session, { durable: true });
+    var target = sessionFile(h, "assistant-append-repair");
+    var failed = false;
+    fs.appendFileSync = function (file) {
+      if (!failed && path.resolve(String(file)) === path.resolve(target)) {
+        failed = true;
+        var error = new Error("injected transient append failure");
+        error.code = "EIO";
+        throw error;
+      }
+      return originalAppendFileSync.apply(fs, arguments);
+    };
+    console.error = function () {};
+
+    var event = { type: "delta", text: "assistant output that must survive" };
+    assert.strictEqual(h.sm.sendAndRecord(session, event), true);
+
+    var records = fs.readFileSync(target, "utf8").trimEnd().split("\n").slice(1).map(JSON.parse);
+    assert.ok(records.some(function (record) {
+      return record.type === "delta" && record.text === event.text;
+    }), "the durable fallback rewrite includes the event whose append failed");
+  } finally {
+    fs.appendFileSync = originalAppendFileSync;
+    console.error = originalError;
+    h.cleanup();
+  }
+});
+
+test("large session saves write bounded chunks instead of one whole-history payload", function () {
+  var h = makeSessionHarness();
+  var originalWriteFileSync = fs.writeFileSync;
+  var originalWriteSync = fs.writeSync;
+  var maxChunkBytes = 0;
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "bounded-large-save" });
+    // Deliberately not deltas: a contiguous run of them is coalesced into one
+    // line on the way to disk, which would collapse this fixture to a single
+    // entry and stop it exercising chunked writing at all.
+    for (var i = 0; i < 24; i++) {
+      session.history.push({
+        type: "tool_result",
+        id: "bounded-" + i,
+        content: String(i) + ":" + "x".repeat(128 * 1024),
+        _ts: Date.now() + i,
+      });
+    }
+
+    fs.writeFileSync = function (filePath, data) {
+      var fileName = String(filePath);
+      var size = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(String(data));
+      if (fileName.indexOf(sessionFile(h, "bounded-large-save") + ".tmp.") === 0 &&
+          size > 512 * 1024) {
+        throw new Error("whole-history payload reached writeFileSync");
+      }
+      return originalWriteFileSync.apply(fs, arguments);
+    };
+    fs.writeSync = function (fd, data) {
+      var size = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(String(data));
+      if (size > maxChunkBytes) maxChunkBytes = size;
+      return originalWriteSync.apply(fs, arguments);
+    };
+
+    h.sm.saveSessionFile(session, { durable: true });
+
+    var savedLines = fs.readFileSync(sessionFile(h, "bounded-large-save"), "utf8")
+      .trimEnd().split("\n");
+    assert.strictEqual(savedLines.length, session.history.length + 1);
+    assert.ok(maxChunkBytes > 0);
+    assert.ok(maxChunkBytes <= 512 * 1024);
+    assert.deepStrictEqual(JSON.parse(savedLines[savedLines.length - 1]),
+      session.history[session.history.length - 1]);
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+    fs.writeSync = originalWriteSync;
+    h.cleanup();
+  }
+});
+
+test("orchestration ownership and pending messages survive a session-manager restart", function () {
+  var h = makeSessionHarness();
+  try {
+    var parent = h.sm.createSessionRaw({ storageId: "coordinator-stable" });
+    var worker = h.sm.createSessionRaw({ storageId: "worker-stable" });
+    parent.coordinationMode = true;
+    parent.orchestrationGraphId = "graph-stable";
+    parent.orchestrationPolicy = { maxParallel: 4 };
+    parent.orchestrationEvents = [{
+      eventId: "event-stable",
+      graphId: "graph-stable",
+      taskId: "task-stable",
+      type: "task_created",
+      at: 5,
+      data: {},
+    }];
+    parent.orchestrationTasks = [{
+      taskId: "task-stable",
+      title: "Durable task",
+      status: "running",
+      workerSessionId: worker.localId,
+      workerStorageId: "worker-stable",
+    }];
+    parent.orchestrationReconciliation = {
+      lastDigest: "task-stable:running",
+      noProgressTurns: 2,
+      stalled: false,
+    };
+    parent.orchestrationProjectCompletion = {
+      status: "completed",
+      completionRevision: 3,
+      graphDigest: "terminal-graph",
+      summary: "Integrated project outcome",
+      verification: "project suite passed",
+      integrationVerification: "yes",
+      escalationRequired: "no",
+      portfolioTaskId: "portfolio-stable",
+      bindingRevision: 2,
+      completedAt: 6,
+      revokedAt: null,
+      revocationReason: "",
+    };
+    parent.pendingCoordinatorUpdates = [{ text: "Result waiting", queuedAt: 10 }];
+    parent.history.push({
+      type: "user_message",
+      text: "[Clay coordinator mode]",
+      synthetic: true,
+      origin: { kind: "task-notification" },
+    });
+    worker.orchestrationParent = {
+      taskId: "task-stable",
+      sessionId: parent.localId,
+      sessionStorageId: "coordinator-stable",
+    };
+    worker.orchestrationAdoption = {
+      status: "adopted",
+      coordinatorStorageId: "coordinator-stable",
+      taskId: "task-stable",
+    };
+    worker.pendingCoordinatorMessages = ["New acceptance criterion"];
+    h.sm.saveSessionFile(parent);
+    h.sm.saveSessionFile(worker);
+
+    clearSessionModuleCache();
+    var restoredManager = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restoredParent = null;
+    var restoredWorker = null;
+    restoredManager.sessions.forEach(function (session) {
+      if (session.storageId === "coordinator-stable") restoredParent = session;
+      if (session.storageId === "worker-stable") restoredWorker = session;
+    });
+
+    assert.ok(restoredParent);
+    assert.ok(restoredWorker);
+    assert.strictEqual(restoredParent.coordinationMode, true);
+    assert.strictEqual(restoredParent.orchestrationGraphId, "graph-stable");
+    assert.strictEqual(restoredParent.orchestrationPolicy.maxParallel, 4);
+    assert.strictEqual(restoredParent.orchestrationEvents[0].eventId, "event-stable");
+    assert.strictEqual(restoredParent.orchestrationTasks[0].workerStorageId, "worker-stable");
+    assert.strictEqual(restoredParent.orchestrationReconciliation.noProgressTurns, 2);
+    assert.strictEqual(restoredParent.orchestrationProjectCompletion.status, "completed");
+    assert.strictEqual(restoredParent.orchestrationProjectCompletion.graphDigest, "terminal-graph");
+    assert.strictEqual(restoredParent.orchestrationProjectCompletion.portfolioTaskId, "portfolio-stable");
+    assert.strictEqual(restoredParent.pendingCoordinatorUpdates[0].text, "Result waiting");
+    assert.strictEqual(restoredParent.history[0].internalOnly, true);
+    assert.strictEqual(restoredWorker.orchestrationParent.sessionStorageId, "coordinator-stable");
+    assert.strictEqual(restoredWorker.orchestrationAdoption.status, "adopted");
+    assert.deepStrictEqual(restoredWorker.pendingCoordinatorMessages, ["New acceptance criterion"]);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("legacy project completion events hydrate and persist without replay", function () {
+  var h = makeSessionHarness();
+  try {
+    var coordinator = h.sm.createSessionRaw({ storageId: "legacy-project-completion" });
+    coordinator.coordinationMode = true;
+    coordinator.orchestrationGraphId = "legacy-completion-graph";
+    coordinator.orchestrationTasks = [];
+    coordinator.orchestrationPolicy = {
+      portfolioExecution: {
+        portfolioTaskId: "portfolio-legacy-completion",
+        bindingRevision: 1,
+        mode: "project_coordinator",
+      },
+    };
+    coordinator.orchestrationEvents = [{
+      eventId: "event-legacy-completion",
+      graphId: "legacy-completion-graph",
+      taskId: null,
+      type: "project_completed",
+      at: 7,
+      data: {
+        completionRevision: 1,
+        graphDigest: "legacy-terminal-graph",
+        summary: "Legacy completion",
+        verification: "legacy suite passed",
+        integrationVerification: "yes",
+        escalationRequired: "no",
+        portfolioTaskId: "portfolio-legacy-completion",
+        bindingRevision: 1,
+      },
+    }];
+    h.sm.saveSessionFile(coordinator);
+    assert.strictEqual(readSessionMeta(h, "legacy-project-completion")
+      .orchestrationProjectCompletion, undefined);
+
+    clearSessionModuleCache();
+    var restoredManager = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      send: function () {},
+    });
+    var restored = [...restoredManager.sessions.values()].find(function (session) {
+      return session.storageId === "legacy-project-completion";
+    });
+
+    assert.strictEqual(restored.orchestrationProjectCompletion.status, "completed");
+    assert.strictEqual(restored.orchestrationProjectCompletion.graphDigest,
+      "legacy-terminal-graph");
+    assert.strictEqual(readSessionMeta(h, "legacy-project-completion")
+      .orchestrationProjectCompletion.portfolioTaskId, "portfolio-legacy-completion");
+    assert.strictEqual(restored.orchestrationEvents.filter(function (event) {
+      return event.type === "project_completed";
+    }).length, 1);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("a SessionRef resolves the same persisted session after local IDs are reassigned", function () {
+  var projectId = "d57aab03-8a7a-53d1-8d77-7c90bf6de291";
+  var h = makeSessionHarness({ projectId: projectId });
+  try {
+    var original = h.sm.createSessionRaw({ storageId: "restart-safe-session" });
+    original.title = "Restart safe";
+    original.history.push({ type: "user_message", text: "keep this history", _ts: 1000 });
+    original.history.push({ type: "done", code: 0, _ts: 1001 });
+    h.sm.saveSessionFile(original);
+    var ref = h.sm.getSessionRef(original);
+    assert.deepStrictEqual(ref, {
+      projectId: projectId,
+      sessionStorageId: "restart-safe-session",
+    });
+    assert.strictEqual(original.localId, 2);
+
+    clearSessionModuleCache();
+    var restoredManager = require("../lib/sessions").createSessionManager({
+      cwd: h.projectDir,
+      projectId: projectId,
+      send: function () {},
+    });
+    var restored = restoredManager.resolveSessionRef(ref);
+    assert.ok(restored);
+    assert.strictEqual(restored.localId, 1);
+    assert.strictEqual(restored.storageId, ref.sessionStorageId);
+    assert.deepStrictEqual(restored.history, original.history);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("heavy session save bursts write immediately once and coalesce trailing metadata", async function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h, "heavy-save");
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "heavy-save" });
+    session.title = "Initial heavy title";
+    session.history.push({ type: "delta", text: "x".repeat(600 * 1024), _ts: Date.now() });
+
+    h.sm.saveSessionFile(session);
+    session.title = "Middle heavy title";
+    h.sm.saveSessionFile(session);
+    session.title = "Final heavy title";
+    h.sm.saveSessionFile(session);
+
+    assert.strictEqual(counter.writes.length, 1);
+    assert.strictEqual(readSessionMeta(h, "heavy-save").title, "Initial heavy title");
+
+    await wait(210);
+
+    assert.strictEqual(counter.writes.length, 2);
+    assert.strictEqual(readSessionMeta(h, "heavy-save").title, "Final heavy title");
+  } finally {
+    counter.restore();
+    h.cleanup();
+  }
+});
+
+test("a rewrite that crosses the coalesce window still coalesces its trailing save", async function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h, "slow-heavy-save");
+  var originalWriteSync = fs.writeSync;
+  var delayNextWrite = true;
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "slow-heavy-save" });
+    session.title = "Initial slow title";
+    session.history.push({ type: "tool_result", content: "slow rewrite", _ts: Date.now() });
+
+    // Reproduce the production shape: the first synchronous rewrite itself
+    // takes longer than SAVE_COALESCE_MS. The follow-up save is issued
+    // immediately after it returns.
+    fs.writeSync = function (fd, data) {
+      if (delayNextWrite) {
+        delayNextWrite = false;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 175);
+      }
+      return originalWriteSync.apply(fs, arguments);
+    };
+    h.sm.saveSessionFile(session);
+    fs.writeSync = originalWriteSync;
+
+    session.title = "Trailing slow title";
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(counter.writes.length, 1,
+      "the trailing update joins the burst after the slow write completes");
+
+    await wait(210);
+    assert.strictEqual(counter.writes.length, 2);
+    assert.strictEqual(readSessionMeta(h, "slow-heavy-save").title, "Trailing slow title");
+  } finally {
+    fs.writeSync = originalWriteSync;
+    counter.restore();
+    h.cleanup();
+  }
+});
+
+test("deleteSession cancels pending heavy save so the file is not resurrected", async function () {
+  var h = makeSessionHarness();
+  var counter = countSessionTempWrites(h, "delete-heavy-save");
+  try {
+    var session = h.sm.createSessionRaw({ storageId: "delete-heavy-save" });
+    session.title = "Delete me";
+    session.history.push({ type: "delta", text: "y".repeat(600 * 1024), _ts: Date.now() });
+
+    h.sm.saveSessionFile(session);
+    session.title = "Should not persist";
+    h.sm.saveSessionFile(session);
+    assert.strictEqual(counter.writes.length, 1);
+    assert.strictEqual(fs.existsSync(sessionFile(h, "delete-heavy-save")), true);
+
+    h.sm.deleteSession(session.localId, null);
+    assert.strictEqual(fs.existsSync(sessionFile(h, "delete-heavy-save")), false);
+
+    await wait(210);
+
+    assert.strictEqual(counter.writes.length, 1);
+    assert.strictEqual(fs.existsSync(sessionFile(h, "delete-heavy-save")), false);
+  } finally {
+    counter.restore();
+    h.cleanup();
+  }
+});
+
+test("session list broadcasts coalesce bursty calls", function () {
+  return new Promise(function (resolve, reject) {
+    var tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "clay-session-"));
+    var projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-"));
+    var oldClayHome = process.env.CLAY_HOME;
+    process.env.CLAY_HOME = tmpHome;
+
+    try {
+      delete require.cache[require.resolve("../lib/config")];
+      delete require.cache[require.resolve("../lib/sessions")];
+
+      var clients = [
+        { readyState: 1, sent: [], send: function (payload) { this.sent.push(payload); } },
+        { readyState: 1, sent: [], send: function (payload) { this.sent.push(payload); } },
+      ];
+      var sm = require("../lib/sessions").createSessionManager({
+        cwd: projectDir,
+        send: function () {},
+        sendEach: function (fn) {
+          for (var i = 0; i < clients.length; i++) fn(clients[i], null);
+        },
+      });
+      sm.sessions.clear();
+      sm.createSessionRaw({ storageId: "one" }).title = "One";
+      sm.createSessionRaw({ storageId: "two" }).title = "Two";
+
+      sm.broadcastSessionList();
+      sm.broadcastSessionList();
+      sm.broadcastSessionList();
+
+      setTimeout(function () {
+        try {
+          assert.strictEqual(clients[0].sent.length, 1);
+          assert.strictEqual(clients[1].sent.length, 1);
+          var payload = JSON.parse(clients[0].sent[0]);
+          assert.strictEqual(payload.type, "session_list");
+          assert.strictEqual(payload.sessions.length, 2);
+          resolve();
+        } catch (e) {
+          reject(e);
+        } finally {
+          if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+          else delete process.env.CLAY_HOME;
+          delete require.cache[require.resolve("../lib/config")];
+          delete require.cache[require.resolve("../lib/sessions")];
+          fs.rmSync(tmpHome, { recursive: true, force: true });
+          fs.rmSync(projectDir, { recursive: true, force: true });
+        }
+      }, 90);
+    } catch (e) {
+      if (typeof oldClayHome === "string") process.env.CLAY_HOME = oldClayHome;
+      else delete process.env.CLAY_HOME;
+      delete require.cache[require.resolve("../lib/config")];
+      delete require.cache[require.resolve("../lib/sessions")];
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+      fs.rmSync(projectDir, { recursive: true, force: true });
+      reject(e);
+    }
+  });
+});

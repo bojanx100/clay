@@ -1,0 +1,438 @@
+/* AI provider onboarding — operational, evidence-first, and intentionally
+   contained inside the existing Server Settings visual language. */
+
+.provider-hub-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.provider-hub-header h2 {
+  margin-bottom: 6px;
+}
+
+.provider-refresh-all {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.provider-refresh-all svg {
+  width: 14px;
+  height: 14px;
+}
+
+.provider-refresh-all:disabled svg,
+.provider-action:disabled .lucide-loader-circle,
+.provider-empty svg {
+  animation: provider-spin 1s linear infinite;
+}
+
+@keyframes provider-spin {
+  to { transform: rotate(360deg); }
+}
+
+.provider-summary {
+  display: flex;
+  gap: 22px;
+  margin: 18px 0 20px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.provider-summary strong {
+  margin-right: 4px;
+  color: var(--text);
+  font-family: "Roboto Mono", monospace;
+  font-size: 15px;
+}
+
+.provider-routing-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.72fr) minmax(360px, 1.4fr);
+  gap: 28px;
+  margin-bottom: 14px;
+  padding: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-alt);
+}
+
+.provider-eyebrow {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provider-routing-copy h3 {
+  margin: 6px 0;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.provider-routing-copy p {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.provider-profile-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.provider-profile {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.provider-profile:hover {
+  border-color: var(--border);
+}
+
+.provider-profile.is-active {
+  border-color: var(--accent);
+  background: var(--accent-8);
+  box-shadow: inset 0 0 0 1px var(--accent-12);
+}
+
+.provider-profile span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.provider-profile small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.provider-truth-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 2px 18px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.provider-truth-note svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.provider-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-alt);
+}
+
+.provider-card-top {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.provider-avatar {
+  width: 36px;
+  height: 36px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg);
+  object-fit: contain;
+}
+
+.provider-identity h3 {
+  margin: 0 0 3px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.provider-identity p {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.provider-state {
+  align-self: start;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.provider-state-ready {
+  border-color: var(--success-25);
+  background: var(--success-8);
+  color: var(--success);
+}
+
+.provider-state-checking,
+.provider-state-neutral {
+  border-color: var(--accent2-25);
+  background: var(--accent2-8);
+  color: var(--accent2);
+}
+
+.provider-state-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.provider-state-danger {
+  background: var(--error-8);
+  color: var(--error);
+}
+
+.provider-state-muted {
+  background: rgba(var(--overlay-rgb), 0.05);
+  color: var(--text-muted);
+}
+
+.provider-readiness {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 14px 0 11px;
+  padding: 0;
+  list-style: none;
+}
+
+.provider-step {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-dimmer);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.provider-step:not(:last-child)::after {
+  position: absolute;
+  right: 5px;
+  width: calc(100% - 44px);
+  height: 1px;
+  background: var(--border);
+  content: "";
+}
+
+.provider-step svg {
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  background: var(--bg-alt);
+}
+
+.provider-step.is-complete {
+  color: var(--success);
+}
+
+.provider-step.is-current {
+  color: var(--accent);
+}
+
+.provider-evidence {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.provider-evidence > code {
+  color: var(--text-secondary);
+  font-family: "Roboto Mono", monospace;
+  font-size: 10px;
+}
+
+.provider-route-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.provider-route-note svg {
+  width: 11px;
+  height: 11px;
+}
+
+.provider-status-detail {
+  min-height: 34px;
+  margin: 8px 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.provider-models {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 9px;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.provider-models code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: "Roboto Mono", monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.provider-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.provider-action:hover {
+  border-color: var(--border);
+  background: rgba(var(--overlay-rgb), 0.04);
+  color: var(--text);
+}
+
+.provider-action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.provider-action-primary {
+  border-color: var(--accent-25);
+  background: var(--accent-8);
+  color: var(--accent);
+}
+
+.provider-action svg {
+  width: 12px;
+  height: 12px;
+}
+
+.provider-empty {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 160px;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.provider-empty svg {
+  width: 16px;
+  height: 16px;
+}
+
+.provider-profile:focus-visible,
+.provider-action:focus-visible,
+.provider-refresh-all:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .provider-routing-panel {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .provider-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .provider-hub-header {
+    display: block;
+  }
+
+  .provider-refresh-all {
+    margin: 10px 0 0;
+  }
+
+  .provider-summary {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+
+  .provider-profile-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provider-refresh-all:disabled svg,
+  .provider-action:disabled .lucide-loader-circle,
+  .provider-empty svg {
+    animation: none;
+  }
+}

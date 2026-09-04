@@ -23,6 +23,40 @@
   white-space: nowrap;
 }
 
+.header-coordinator-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.header-coordinator-badge .lucide {
+  width: 13px;
+  height: 13px;
+}
+
+.header-coordinator-badge.coordinator {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.header-coordinator-badge.worker {
+  cursor: default;
+  opacity: 0.8;
+}
+
+.header-coordinator-badge.hidden {
+  display: none;
+}
+
 #header-rename-btn {
   display: flex;
   align-items: center;
@@ -183,6 +217,7 @@
 #terminal-toggle-btn .lucide { width: 15px; height: 15px; }
 #footer-status:hover,
 #terminal-toggle-btn:hover { color: var(--text-secondary); background: rgba(var(--overlay-rgb),0.04); border-color: var(--border); }
+#terminal-toggle-btn.active { color: var(--text); background: rgba(var(--overlay-rgb),0.06); border-color: var(--border); }
 #terminal-toggle-btn { position: relative; }
 #terminal-count {
   position: absolute;
@@ -497,6 +532,13 @@
 
 #config-chip .lucide { width: 10px; height: 10px; }
 #config-chip .config-chip-icon { display: none; }
+#config-chip-label {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
 
 @media (max-width: 1000px) {
   #config-chip .config-chip-icon { display: inline-flex; width: 16px; height: 16px; }
@@ -507,6 +549,102 @@
 #config-chip:hover { color: var(--text-secondary); background: rgba(var(--overlay-rgb),0.06); }
 #config-chip.active { color: var(--text-secondary); background: rgba(var(--overlay-rgb),0.06); }
 
+/* Canonical Coop owns project approval controls. */
+#auto-approval-wrap { position: relative; }
+#auto-approval-wrap.hidden { display: none; }
+#auto-approval-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#auto-approval-chip .lucide { width: 14px; height: 14px; }
+#auto-approval-chip:hover, #auto-approval-chip[aria-expanded="true"] {
+  color: var(--text-secondary);
+  background: rgba(var(--overlay-rgb), 0.06);
+}
+#auto-approval-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 201;
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - 120px));
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-alt);
+  box-shadow: 0 4px 16px rgba(var(--shadow-rgb), 0.4);
+}
+#auto-approval-popover.hidden { display: none; }
+.auto-approval-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.auto-approval-title { color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.3; }
+.auto-approval-summary { margin-top: 4px; color: var(--text-secondary); font-size: 12px; line-height: 1.35; }
+.auto-approval-section { padding-top: 12px; }
+.auto-approval-projects { display: grid; gap: 8px; }
+.auto-approval-project {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 10px;
+  background: rgba(var(--overlay-rgb), 0.025);
+}
+.auto-approval-project-copy { display: grid; min-width: 0; gap: 2px; }
+.auto-approval-project-name { min-width: 0; overflow-wrap: anywhere; color: var(--text); font-size: 13px; line-height: 1.25; }
+.auto-approval-project-toggle {
+  min-height: 44px;
+  min-width: 52px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+.auto-approval-project-toggle[aria-checked="true"], .auto-approval-project-toggle:hover {
+  border-color: var(--accent, #4fa879);
+  color: var(--accent, #4fa879);
+}
+.auto-approval-project-toggle:disabled { opacity: .55; cursor: not-allowed; }
+.auto-approval-projects-empty { margin: 0; padding: 12px; border: 1px dashed var(--border); border-radius: 9px; color: var(--text-muted); font-size: 12px; line-height: 1.4; }
+.auto-approval-safety { margin: 12px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+#auto-approval-chip:focus-visible, .auto-approval-project-toggle:focus-visible { outline: 2px solid var(--accent, #4fa879); outline-offset: 2px; }
+
+@media (max-width: 768px) {
+  #auto-approval-popover {
+    position: fixed;
+    right: 12px;
+    bottom: calc(var(--safe-bottom, 0px) + 128px);
+    left: 12px;
+    width: auto;
+    max-height: min(420px, calc(100dvh - var(--safe-bottom, 0px) - 196px));
+    box-sizing: border-box;
+    padding: 14px;
+    border-radius: 14px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .auto-approval-project { gap: 10px; }
+}
+
 #config-popover {
   position: absolute;
   bottom: calc(100% + 4px);
@@ -515,7 +653,8 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 4px 0;
-  min-width: 220px;
+  width: min(360px, calc(100vw - 24px));
+  min-width: 300px;
   max-height: min(600px, calc(100vh - 120px));
   overflow-y: auto;
   box-shadow: 0 4px 16px rgba(var(--shadow-rgb), 0.4);
@@ -523,6 +662,103 @@
 }
 
 #config-popover.hidden { display: none; }
+
+.config-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.config-popover-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.config-popover-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.config-switch-vendor-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.config-switch-vendor-btn:hover {
+  background: var(--sidebar-hover);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.config-provider-route-menu {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.config-provider-route-menu.hidden {
+  display: none;
+}
+
+.config-provider-route-item {
+  display: block;
+  width: 100%;
+  padding: 8px 9px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.config-provider-route-item:hover {
+  background: rgba(var(--overlay-rgb),0.05);
+  color: var(--text);
+}
+
+.config-provider-route-item.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.config-provider-route-item.disabled:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.config-provider-route-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.config-provider-route-desc {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-dimmer);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.config-provider-route-status {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 
 .config-section {
   padding: 6px 0 2px;
@@ -547,6 +783,13 @@
   flex-direction: column;
 }
 
+.config-model-loading {
+  padding: 8px 14px;
+  color: var(--text-dimmer);
+  font-size: 12px;
+  font-style: italic;
+}
+
 .config-radio-item {
   display: flex;
   align-items: center;
@@ -566,6 +809,29 @@
 
 .config-radio-item:hover { background: rgba(var(--overlay-rgb),0.05); color: var(--text); }
 .config-radio-item.active { color: var(--accent); font-weight: 600; }
+.config-radio-item.has-desc {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  white-space: normal;
+  line-height: 1.25;
+}
+.config-radio-name {
+  font-size: 13px;
+  width: 100%;
+  text-align: left;
+}
+.config-radio-desc {
+  color: var(--text-dimmer);
+  font-size: 11px;
+  font-weight: 400;
+  width: 100%;
+  text-align: left;
+}
+.config-radio-item.active .config-radio-desc {
+  color: var(--text-muted);
+}
 
 /* Locked picker items (Codex GUI sessions after the first message: model
    is bound to the thread, picks would be silently ignored). Active model
@@ -616,6 +882,16 @@
 .config-segment-btn:hover {
   color: var(--text-secondary);
   background: rgba(var(--overlay-rgb),0.04);
+}
+
+.config-segment-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.config-segment-btn:disabled:hover {
+  color: var(--text-muted);
+  background: none;
 }
 
 .config-segment-btn.active {
@@ -893,9 +1169,40 @@
     max-height: 60vh;
   }
 
+  #config-popover {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--safe-bottom, 0px) + 56px + 64px);
+    min-width: 0;
+    width: auto;
+    max-height: min(600px, calc(100vh - var(--safe-bottom, 0px) - 200px));
+  }
+
+  .session-info-popover {
+    left: 12px !important;
+    right: 12px;
+    width: auto;
+    min-width: 0;
+    max-width: calc(100vw - 24px);
+    box-sizing: border-box;
+    padding: 10px 12px;
+  }
+
+  .session-info-popover .info-row {
+    align-items: flex-start;
+  }
+
+  .session-info-popover .info-label {
+    min-width: 64px;
+  }
+
+  .session-info-popover .info-value {
+    min-width: 0;
+    flex: 1;
+  }
+
   /* Config chip: icon-only on mobile */
   #config-chip .config-chip-icon { display: inline; width: 14px; height: 14px; }
   #config-chip-label { display: none; }
 }
-
-

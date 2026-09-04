@@ -37,14 +37,38 @@
 .pill-warning { background: color-mix(in srgb, var(--warning) 12%, transparent); color: var(--warning); }
 .pill-dim     { background: color-mix(in srgb, var(--text-dimmer) 8%, transparent); color: var(--text-dimmer); }
 
-/* Usage check link in top bar */
+/* Usage check link in top bar — now a container with one segment per vendor */
 .usage-check-link {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+  cursor: default;
+}
+.usage-check-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   text-decoration: none;
+  color: inherit;
   cursor: pointer;
+  border-radius: 5px;
+  padding: 1px 4px;
+  margin: -1px -2px;
   transition: background 0.15s;
 }
-.usage-check-link:hover {
+.usage-check-seg > span {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 5px;
+  white-space: nowrap;
+}
+.usage-check-seg:hover {
   background: color-mix(in srgb, var(--text-dimmer) 16%, transparent);
+}
+.usage-check-sep {
+  opacity: 0.4;
 }
 .usage-check-vendor-icon {
   width: 14px;
@@ -53,11 +77,66 @@
   object-fit: cover;
   flex: 0 0 auto;
 }
+.usage-window-label {
+  flex: 0 0 auto;
+}
+.usage-progress {
+  display: inline-block;
+  width: 38px;
+  height: 5px;
+  overflow: hidden;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-dimmer) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-dimmer) 10%, transparent);
+}
+.usage-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+.usage-progress-fill.low {
+  background: var(--success);
+}
+.usage-progress-fill.medium {
+  background: var(--warning);
+}
+.usage-progress-fill.high {
+  background: var(--error);
+}
+.usage-progress-fill.exhausted {
+  background: #15171c;
+  box-shadow: inset 0 0 0 1px var(--error);
+}
+.usage-progress-fill.unknown {
+  background: transparent;
+}
+.usage-progress-value {
+  min-width: 25px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-progress-value.low {
+  color: var(--success);
+}
+.usage-progress-value.medium {
+  color: var(--warning);
+}
+.usage-progress-value.high {
+  color: var(--error);
+}
+.usage-progress-value.exhausted {
+  min-width: auto;
+  padding: 1px 3px;
+  border-radius: 4px;
+  color: #fff;
+  background: #15171c;
+  box-shadow: inset 0 0 0 1px var(--error);
+}
 .usage-check-link .lucide {
   width: 12px;
   height: 12px;
 }
-.usage-check-link .lucide:last-child {
+.usage-check-seg .lucide:last-child {
   opacity: 0.5;
   width: 10px;
   height: 10px;
@@ -580,6 +659,13 @@ button.top-bar-pill.pill-accent:hover { background: color-mix(in srgb, var(--acc
   box-shadow: 0 8px 32px rgba(var(--shadow-rgb), 0.5);
 }
 
+.confirm-title {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
 .confirm-text {
   font-size: 14px;
   color: var(--text);
@@ -1002,6 +1088,21 @@ button.top-bar-pill.pill-accent:hover { background: color-mix(in srgb, var(--acc
 
 .add-project-body { margin-bottom: 16px; }
 
+.add-project-field-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.add-project-field-hint {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .add-project-input-wrap { position: relative; display: flex; align-items: center; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; transition: border-color 0.2s; }
 .add-project-input-wrap:focus-within { border-color: var(--text-dimmer); }
 
@@ -1192,7 +1293,6 @@ button.top-bar-pill.pill-accent:hover { background: color-mix(in srgb, var(--acc
   line-height: 1.3;
 }
 
-#add-project-create-input,
 #add-project-clone-input {
   width: 100%;
   background: var(--input-bg);
@@ -1206,10 +1306,8 @@ button.top-bar-pill.pill-accent:hover { background: color-mix(in srgb, var(--acc
   transition: border-color 0.2s;
 }
 
-#add-project-create-input:focus,
 #add-project-clone-input:focus { border-color: var(--text-dimmer); }
 
-#add-project-create-input::placeholder,
 #add-project-clone-input::placeholder {
   color: var(--text-muted);
   font-family: "Pretendard", system-ui, sans-serif;
