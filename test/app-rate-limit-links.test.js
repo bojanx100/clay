@@ -107,6 +107,39 @@ test("missing Codex utilization renders an em dash instead of a false 0%", funct
   }
 });
 
+// The other direction of the false-zero fix: a genuine 0% must still render as
+// "0%". Fixing the missing-data case by turning every zero into "unknown" would
+// just swap one wrong reading for another.
+test("a genuine zero Codex utilization still renders as 0%, not unknown", function () {
+  var codexAdapter = require("../lib/yoke/adapters/codex");
+  var state = codexAdapter.contractTestKit.createEventState("gpt-5.6-terra");
+  var events = codexAdapter.contractTestKit.normalizeEvent({
+    method: "account/rateLimits/updated",
+    params: {
+      rateLimits: {
+        limitId: "codex",
+        primary: {
+          usedPercent: 0,
+          windowDurationMins: 300,
+          resetsAt: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    },
+  }, state);
+  var info = events[0].rateLimitInfo;
+  assert.strictEqual(info.utilization, 0,
+    "a reported 0% must survive the adapter as 0, not become null");
+
+  var ui = loadRateLimitUi("codex");
+  try {
+    ui.api.updateRateLimitUsage(Object.assign({ vendor: "codex" }, info));
+    assert.match(ui.inserted().innerHTML, /usage-progress-value low">0%<\/span>/);
+    assert.doesNotMatch(ui.inserted().innerHTML, /—/);
+  } finally {
+    ui.api.stopUsageTick();
+  }
+});
+
 test("normal in-process Claude query handles expose current plan usage", async function () {
   var rawQuery = {
     close: function () {},

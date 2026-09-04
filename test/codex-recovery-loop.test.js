@@ -247,6 +247,83 @@ test("Codex app-server restarts after an unexpected child exit", async function(
 
   assert.ok(server.proc.pid !== firstPid, "the replacement app-server must have a new PID");
   assert.strictEqual(server.started, true);
+  assert.strictEqual(server.restartState().terminal, false,
+    "a recovered app-server must not be left in the terminal state");
+});
+
+// The other half of the restart contract: automatic recovery must be BOUNDED.
+// start() resolves as soon as spawn() succeeds, so a binary that spawns and
+// dies immediately looks like a healthy start on every pass. Without a cap that
+// becomes a tight spawn storm against a genuinely broken binary, which is worse
+// than staying down. Attempts must stop at the cap and report a clear terminal
+// state rather than looping forever.
+test("Codex app-server bounds restart attempts and reports a terminal state at the cap", async function(t) {
+  var appServerDir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-codex-app-server-bounded-"));
+  var counterFile = path.join(appServerDir, "starts");
+  var appServerScript = path.join(appServerDir, "app-server");
+  // A permanently broken app-server: every spawn exits immediately.
+  fs.writeFileSync(appServerScript,
+    "var fs = require('fs');\n" +
+    "var counter = " + JSON.stringify(counterFile) + ";\n" +
+    "var starts = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) : 0;\n" +
+    "fs.writeFileSync(counter, String(starts + 1));\n" +
+    "process.exit(23);\n");
+
+  var maxAttempts = 3;
+  var server = new CodexAppServer(process.execPath, {
+    cwd: appServerDir,
+    restartMaxAttempts: maxAttempts,
+    restartBaseDelayMs: 10,
+    restartMaxDelayMs: 20,
+    restartStableMs: 5000,
+  });
+  var terminalEvents = [];
+  server.subscribe(function(msg) {
+    if (msg && msg.params && msg.params.error &&
+        msg.params.error.codexErrorInfo === "app_server_restart_exhausted") {
+      terminalEvents.push(msg);
+    }
+  });
+
+  t.after(function() {
+    server.stop();
+    fs.rmSync(appServerDir, { recursive: true, force: true });
+  });
+
+  function starts() {
+    return fs.existsSync(counterFile) ? Number(fs.readFileSync(counterFile, "utf8")) : 0;
+  }
+
+  await server.start();
+  // Settle on either the terminal state (bounded) or the first spawn past the
+  // cap (unbounded), so an unbounded implementation fails on the spawn-count
+  // assertion below instead of just timing out.
+  await waitForCondition(function() {
+    var isTerminal = typeof server.restartState === "function" && server.restartState().terminal;
+    return isTerminal || starts() > maxAttempts + 1;
+  }, 3000);
+
+  // Initial spawn plus exactly maxAttempts recovery spawns, then it gives up.
+  assert.strictEqual(starts(), maxAttempts + 1,
+    "a broken binary must be spawned at most (cap + 1) = " + (maxAttempts + 1) +
+    " times, but it was spawned " + starts() + " times (unbounded restart loop)");
+  assert.strictEqual(server.restartState().terminal, true,
+    "reaching the cap must surface a terminal state");
+  assert.strictEqual(server.restartState().attempts, maxAttempts + 1,
+    "the attempt counter must stop one past the cap, not keep climbing");
+  assert.strictEqual(server.started, false);
+  assert.strictEqual(terminalEvents.length, 1,
+    "the terminal state must be surfaced to subscribers exactly once");
+  assert.match(terminalEvents[0].params.error.message, /will not be restarted automatically/);
+
+  // Requests after the cap fail with the terminal reason, not a generic message.
+  await assert.rejects(function() { return server.send("thread/start", {}); },
+    /exhausting automatic restarts/);
+
+  // And the loop stays dead: no further spawns after the terminal state.
+  var settled = starts();
+  await new Promise(function(resolve) { setTimeout(resolve, 150); });
+  assert.strictEqual(starts(), settled, "no spawns may occur after the terminal state");
 });
 
 test("workspace discovery keeps expected non-repository Git failures off stderr", function(t) {
