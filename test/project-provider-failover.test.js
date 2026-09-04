@@ -121,6 +121,38 @@ test("credit exhaustion switches to an available healthy provider and continues"
   providerHealth._reset();
 });
 
+test("legacy Claude sessions cannot fail over to the same Anthropic route", function () {
+  providerHealth._reset();
+  var sm = makeSm(["claude", "codex"]);
+  sm.modelsByVendor.claude = ["claude-opus-5", "claude-fable-5"];
+  sm.modelsByVendor.codex = ["gpt-5.6-sol"];
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", {
+    model: "claude-opus-5",
+    immediate: true,
+  });
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+  session.providerRouteId = null;
+  session.model = "claude-opus-5";
+  session.requestedModel = "claude-opus-5";
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    model: "claude-opus-5",
+    reason: "usage-credits-exhausted",
+  });
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(session.vendor, "codex");
+  assert.strictEqual(session.providerRouteId, "codex-openai");
+  assert.strictEqual(continued.length, 1);
+  assert.strictEqual(session.history.filter(function (entry) {
+    return entry.type === "vendor_switched" && entry.toVendor === "claude";
+  }).length, 0, "missing legacy route metadata must not create a Claude-to-Claude switch");
+  providerHealth._reset();
+});
+
 test("GitHub Copilot quota exhaustion fails a verified GPT session over to OpenAI", function () {
   providerHealth._reset();
   var sm = makeSm(["github-copilot", "codex"]);
