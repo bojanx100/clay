@@ -120,7 +120,7 @@ test("the bundled Codex runtime reads the migrated fresh legacy cache entry", as
   fs.writeFileSync(cachePath, JSON.stringify({
     fetched_at: new Date().toISOString(),
     etag: "clay-regression-fixture",
-    client_version: "0.150.1",
+    client_version: "0.152.1",
     models: [nativeModelFixture()],
   }));
   assert.strictEqual(JSON.parse(fs.readFileSync(cachePath, "utf8")).models[0].supports_parallel_tool_calls,

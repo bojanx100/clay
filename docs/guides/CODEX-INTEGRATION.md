@@ -228,6 +228,29 @@ Stored in `lib/codex-defaults.js`. Do not scatter defaults across multiple files
 
 `danger-full-access` + `approval_policy: "never"` is a combination the user chose explicitly. Do not auto-upgrade to it from code. It completely disables the sandbox.
 
+### 14. Choosing a different Codex binary
+
+`findCodexPath()` honors `CLAY_CODEX_PATH`: if it points to an existing file,
+that binary is used; otherwise resolution falls back to the bundled
+`@openai/codex` platform package. Bundled remains the default. Use the override
+for a local build or a deliberately pinned release.
+
+### 15. Thinking requires reasoning summaries
+
+The adapter maps Codex reasoning notifications to Clay thinking blocks, but
+ChatGPT-authenticated models expose readable text through summaries rather than
+raw reasoning. `lib/codex-defaults.js` therefore supplies these app-server
+defaults:
+
+```toml
+model_reasoning_summary = "detailed"
+model_supports_reasoning_summaries = true
+```
+
+User-supplied `adapterOptions.CODEX.config` keys override these defaults.
+`show_raw_agent_reasoning` remains a user opt-in. These are app-server settings,
+so they apply to every thread on that process.
+
 ---
 
 ## Common Gotchas
