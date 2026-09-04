@@ -1,8 +1,12 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var fs = require("fs");
+var os = require("os");
+var path = require("path");
 
 var policyModule = require("../lib/project-automation-policy");
 var qualification = require("../lib/project-automation-qualification");
+var { attachAutoLaunch } = require("../lib/project-auto-launch");
 
 var PROJECT = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
 
@@ -110,6 +114,67 @@ test("qualification fails closed when any required issue or board fact is absent
     var result = qualification.receiptFor(cases[i].input);
     assert.equal(result.ok, false, cases[i].name);
     assert.equal(result.reason, cases[i].reason, cases[i].name);
+  }
+});
+
+test("launch-time requalification rejects post-development and reassigned issues", function () {
+  var movedToDevComplete = qualification.requalifyAtLaunch(input({
+    item: issue({ projectItems: [{ id: "PVT_item_dev_complete", status: { name: "Dev Complete" } }] }),
+  }));
+  assert.equal(movedToDevComplete.ok, false);
+  assert.equal(movedToDevComplete.reason, "qualification_board_status_ineligible");
+
+  var reassigned = qualification.requalifyAtLaunch(input({ assignedToOwner: false }));
+  assert.equal(reassigned.ok, false);
+  assert.equal(reassigned.reason, "qualification_assignment_required");
+});
+
+test("auto-launch re-reads board status before starting an issue", async function () {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-launch-qualification-"));
+  var tasksDir = path.join(cwd, ".clay", "tasks");
+  fs.mkdirSync(tasksDir, { recursive: true });
+  fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+    autoLaunch: { enabled: true, recipeId: "assigned-to-me", recipes: ["assigned-to-me"] },
+  }));
+  var source = recipe();
+  var launchCount = 0;
+  var fetchCount = 0;
+  var launcher = {
+    loadRecipe: function () { return source; },
+    findExistingSessionForItem: function () { return null; },
+    findAnyLiveSessionForItem: function () { return null; },
+    findAnyVisibleSessionForItem: function () { return null; },
+    startSessionForItem: function () {
+      launchCount++;
+      return { localId: 1 };
+    },
+  };
+  var autoLaunch = attachAutoLaunch({
+    cwd: cwd,
+    sm: { sessions: new Map(), broadcastSessionList: function () {} },
+    getLeadMode: function () { return false; },
+    getTaskLauncher: function () { return launcher; },
+    automationGate: {
+      refresh: function () { return { ok: true, policy: policy() }; },
+      evaluateLaunch: function () { return { decision: "execute" }; },
+    },
+    fetchItems: function () {
+      fetchCount++;
+      var current = issue(fetchCount === 1 ? {} : {
+        projectItems: [{ id: "PVT_item_dev_complete", status: { name: "Dev Complete" } }],
+      });
+      current.assignedToOwner = true;
+      return [current];
+    },
+  });
+
+  try {
+    var result = await autoLaunch.launchScheduled("assigned-to-me");
+    assert.equal(fetchCount, 2, "the launch boundary must use a fresh issue read");
+    assert.equal(launchCount, 0, "a current Dev Complete status must block launch");
+    assert.equal(result.skipped.length, 1);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
 
