@@ -1,6 +1,7 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var controlModule = require("../lib/coop-incarnation-control");
+var providerHealth = require("../lib/provider-health");
 
 function harness(options) {
   var opts = options || {};
@@ -105,25 +106,72 @@ test("Restart creates a fresh fenced Coop incarnation without losing durable con
   assert.equal(ctx.sent.at(-1).action, "restart");
 });
 
-test("Switch model and Switch provider use the exact selected route and model", function () {
+test("Restart leaves a degraded top-tier route instead of reusing it", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("codex", "transient Sol failure", {
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+  });
   var ctx = harness();
-  ctx.api.handleMessage({}, { type: "set_model", model: "gpt-5.5", requestId: "model-1" });
+
+  ctx.api.handleMessage({}, {
+    type: "coop_incarnation_restart",
+    requestId: "restart-degraded",
+  });
+
+  assert.equal(ctx.switches.length, 1);
+  assert.equal(ctx.switches[0].targetVendor, "claude");
+  assert.equal(ctx.switches[0].targetRouteId, "claude-anthropic");
+  assert.equal(ctx.switches[0].targetModel, "fable");
+  assert.equal(ctx.sent.at(-1).ok, true);
+  providerHealth._reset();
+});
+
+test("Restart reports a typed unavailable state when both top-tier routes are unhealthy", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("codex", "Sol unavailable", {
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    immediate: true,
+  });
+  providerHealth.recordFailure("claude", "Fable unavailable", {
+    providerRouteId: "claude-anthropic",
+    model: "fable",
+    immediate: true,
+  });
+  var ctx = harness();
+
+  ctx.api.handleMessage({}, {
+    type: "coop_incarnation_restart",
+    requestId: "restart-unavailable",
+  });
+
+  assert.equal(ctx.switches.length, 0);
+  assert.equal(ctx.sent.at(-1).ok, false);
+  assert.equal(ctx.sent.at(-1).code, "coop_top_tier_unavailable");
+  assert.match(ctx.sent.at(-1).message, /will not fall back/i);
+  providerHealth._reset();
+});
+
+test("Switch model and Switch provider preserve the exact approved top-tier choice", function () {
+  var ctx = harness();
+  ctx.api.handleMessage({}, { type: "set_model", model: "gpt-5.6-sol", requestId: "model-1" });
   assert.equal(ctx.switches[0].targetRouteId, "codex-openai");
-  assert.equal(ctx.switches[0].targetModel, "gpt-5.5");
-  assert.equal(ctx.session.model, "gpt-5.5");
+  assert.equal(ctx.switches[0].targetModel, "gpt-5.6-sol");
+  assert.equal(ctx.session.model, "gpt-5.6-sol");
 
   ctx.api.handleMessage({}, {
     type: "handoff_session",
     targetVendor: "claude",
     targetRouteId: "claude-anthropic",
-    targetModel: "claude-sonnet-4-6",
+    targetModel: "fable",
     requestId: "provider-1",
   });
   assert.equal(ctx.switches[1].targetVendor, "claude");
   assert.equal(ctx.switches[1].targetRouteId, "claude-anthropic");
-  assert.equal(ctx.switches[1].targetModel, "claude-sonnet-4-6");
+  assert.equal(ctx.switches[1].targetModel, "fable");
   assert.equal(ctx.session.vendor, "claude");
-  assert.equal(ctx.session.model, "claude-sonnet-4-6");
+  assert.equal(ctx.session.model, "fable");
 });
 
 test("an explicit other-session handoff bypasses Coop and reaches its target", function () {

@@ -80,7 +80,7 @@ test("a Coop session on a sentinel model still resolves a target model", functio
     var suggestion = switcher.suggestionForRoute(route, session);
     assert.ok(suggestion.model,
       "sentinel model " + JSON.stringify(sentinels[i]) + " must still yield a target model");
-    assert.equal(suggestion.match, "default");
+    assert.equal(suggestion.match, "top-tier-policy");
     // The sentinel must not be handed through as if it were a real model: the
     // switch postcondition compares session.model to the exact target model.
     assert.notEqual(suggestion.model, "default");
@@ -140,7 +140,7 @@ function coopHarness(suggestion) {
 }
 
 test("Coop switches provider on the real UI payload that omits targetModel", function () {
-  var ctx = coopHarness({ model: "claude-opus-4.8", match: "default" });
+  var ctx = coopHarness({ model: "fable", match: "top-tier-policy" });
 
   ctx.api.handleMessage({}, {
     type: "handoff_session",
@@ -152,11 +152,11 @@ test("Coop switches provider on the real UI payload that omits targetModel", fun
   var reply = ctx.sent.at(-1);
   assert.equal(reply.ok, true, "switch must succeed without an explicit targetModel");
   assert.equal(ctx.session.vendor, "claude");
-  assert.equal(ctx.session.model, "claude-opus-4.8");
+  assert.equal(ctx.session.model, "fable");
 });
 
 test("Coop switches provider from the vendor button that sends only a vendor", function () {
-  var ctx = coopHarness({ model: "claude-opus-4.8", match: "default" });
+  var ctx = coopHarness({ model: "fable", match: "top-tier-policy" });
 
   ctx.api.handleMessage({}, { type: "set_vendor", vendor: "claude", requestId: "vendor-1" });
 

@@ -257,6 +257,71 @@ test("Fable fails over directly to GPT-5.6 Sol without confirmation", function (
   providerHealth._reset();
 });
 
+test("canonical Coop fails closed when Sol is degraded and Fable is unhealthy", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "Fable quota exhausted", {
+    providerRouteId: "claude-anthropic",
+    model: "fable",
+    immediate: true,
+  });
+  providerHealth.recordFailure("codex", "transient Sol failure", {
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+  });
+  var sm = makeSm(["claude", "codex"]);
+  sm.modelsByVendor.claude = ["fable"];
+  sm.modelsByVendor.codex = ["gpt-5.6-sol", "gpt-5.6-terra"];
+  var continued = [];
+  var failover = makeFailover(sm, continued);
+  var session = makeSession();
+  session.coopHome = true;
+  session.model = "fable";
+  session.requestedModel = "fable";
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    providerRouteId: "claude-anthropic",
+    model: "fable",
+    reason: "Fable quota exhausted",
+  });
+
+  assert.equal(handled, false);
+  assert.equal(session.vendor, "claude");
+  assert.equal(continued.length, 0);
+  var unavailable = sm.recorded.find(function (item) {
+    return item.type === "coop_route_unavailable";
+  });
+  assert.ok(unavailable);
+  assert.equal(unavailable.code, "coop_top_tier_unavailable");
+  assert.match(unavailable.text, /will not fall back/i);
+  providerHealth._reset();
+});
+
+test("a fresh canonical Coop session binds to Sol before its first provider turn", function () {
+  providerHealth._reset();
+  var sm = makeSm(["claude", "codex"]);
+  sm.modelsByVendor.claude = ["fable"];
+  sm.modelsByVendor.codex = ["gpt-5.6-sol"];
+  var failover = makeFailover(sm, []);
+  var session = {
+    localId: 45,
+    storageId: "new-coop",
+    coopHome: true,
+    vendor: null,
+    providerRouteId: null,
+    model: null,
+    history: [{ type: "user_message", text: "Implement the approved task" }],
+    isProcessing: true,
+  };
+
+  var decision = failover.ensureCoopTopTierRoute(session);
+  assert.equal(decision.ok, true);
+  assert.equal(session.vendor, "codex");
+  assert.equal(session.providerRouteId, "codex-openai");
+  assert.equal(session.model, "gpt-5.6-sol");
+  providerHealth._reset();
+});
+
 test("Fable schedules the original provider reset instead of downgrading to Copilot Opus", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
@@ -515,7 +580,7 @@ test("resets the failover hop budget after a quiet window", function () {
   providerHealth._reset();
 });
 
-test("non-frontier failover demotes through the cheapest eligible verified ladder", function () {
+test("a project worker still demotes through the cheapest eligible verified ladder", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "rate-limit-rejected", {
     providerRouteId: "claude-anthropic",
@@ -527,6 +592,7 @@ test("non-frontier failover demotes through the cheapest eligible verified ladde
   var continued = [];
   var failover = makeFailover(sm, continued);
   var session = makeSession();
+  session.orchestrationParent = { taskId: "project-worker-1" };
 
   assert.strictEqual(failover.failoverAndContinue(session, {
     vendor: "claude",

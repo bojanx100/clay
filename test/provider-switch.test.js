@@ -120,10 +120,11 @@ test("a forced fresh restart keeps the exact current route and model even if its
   assert.strictEqual(session.cliSessionId, null);
 });
 
-test("same vendor+route can reconcile to a different verified model", function () {
+test("a project coordinator can still switch to a verified lower-tier model", function () {
   var sm = makeSm({ modelsByVendor: { claude: ["claude-opus-4.8"], codex: ["gpt-5.5", "gpt-5.6-luna"] } });
   var switcher = makeSwitcher(sm);
   var session = makeSession({
+    coordinationMode: true,
     vendor: "codex",
     providerRouteId: "codex-openai",
     model: "gpt-5.5",
@@ -141,6 +142,85 @@ test("same vendor+route can reconcile to a different verified model", function (
   assert.strictEqual(session.model, "gpt-5.6-luna");
   assert.strictEqual(lastEntryOfType(session, "vendor_switched").fromVendor, "codex");
   assert.strictEqual(lastEntryOfType(session, "vendor_switched").targetModel, "gpt-5.6-luna");
+});
+
+test("canonical Coop switches only to healthy designated top-tier targets", function () {
+  var providerHealth = require("../lib/provider-health");
+  providerHealth._reset();
+  var sm = makeSm({
+    modelsByVendor: {
+      claude: ["fable"],
+      codex: ["gpt-5.6-sol", "gpt-5.6-terra"],
+    },
+  });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({
+    coopHome: true,
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    requestedModel: "gpt-5.6-sol",
+  });
+
+  var lower = switcher.executeProviderSwitch({
+    session: session,
+    targetVendor: "codex",
+    targetRouteId: "codex-openai",
+    targetModel: "gpt-5.6-terra",
+    forceFresh: true,
+  });
+  assert.equal(lower.ok, false);
+  assert.equal(lower.code, "coop_top_tier_required");
+  assert.equal(session.model, "gpt-5.6-sol");
+
+  providerHealth.recordFailure("claude", "transient Fable failure", {
+    providerRouteId: "claude-anthropic",
+    model: "fable",
+  });
+  var degraded = switcher.executeProviderSwitch({
+    session: session,
+    targetVendor: "claude",
+    targetRouteId: "claude-anthropic",
+    targetModel: "fable",
+  });
+  assert.equal(degraded.ok, false);
+  assert.equal(degraded.code, "coop_top_tier_unavailable");
+  assert.match(degraded.message, /will not fall back/i);
+  assert.equal(session.vendor, "codex");
+  providerHealth._reset();
+});
+
+test("canonical Coop resolves the governed Fable alias to a verified concrete Fable model", function () {
+  var providerHealth = require("../lib/provider-health");
+  providerHealth._reset();
+  var sm = makeSm({
+    modelsByVendor: {
+      claude: ["claude-fable-5"],
+      codex: ["gpt-5.6-sol"],
+    },
+  });
+  var switcher = makeSwitcher(sm);
+  var session = makeSession({
+    coopHome: true,
+    vendor: "codex",
+    providerRouteId: "codex-openai",
+    model: "gpt-5.6-sol",
+    requestedModel: "gpt-5.6-sol",
+  });
+
+  var result = switcher.executeProviderSwitch({
+    session: session,
+    targetVendor: "claude",
+    targetRouteId: "claude-anthropic",
+    targetModel: "fable",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(session.vendor, "claude");
+  assert.equal(session.model, "claude-fable-5");
+  assert.equal(lastEntryOfType(session, "vendor_switched").targetModel,
+    "claude-fable-5");
+  providerHealth._reset();
 });
 
 test("refuses while processing unless allowWhileProcessing is set", function () {
