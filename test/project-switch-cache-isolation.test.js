@@ -33,7 +33,8 @@ test("all plain Lead entry points route to canonical Coop home and preserve exac
   assert.match(app, /if \(newSlug === "lead" && !urlRef\) \{\s+syncCoopLensFromUrl\(_connSendUserAction\);\s+renderSessionList\(null\);\s+_projRestoreCanonicalLeadHome\(\);/);
   assert.match(connection, /initialSessionReference\(\{/);
   assert.match(connectionPolicy, /options\.currentSlug === "lead" && !options\.urlSessionRef/);
-  assert.match(projects, /connect\(\{ preferProjectDefault: !\(options && options\.sessionRef\) \}\)/);
+  assert.doesNotMatch(projects, /preferProjectDefault/);
+  assert.doesNotMatch(connection, /preferProjectDefault/);
   assert.match(messages, /store\.set\(\{ coopHomeSessionId: coopHome \? coopHome\.id : null \}\)/);
   assert.match(messages, /if \(currentSlug === "lead" && msg\.coopHome\) forgetTabSession\(currentSlug\);/);
   assert.match(desktop, /renderCoopTopicSections/);
@@ -41,15 +42,14 @@ test("all plain Lead entry points route to canonical Coop home and preserve exac
   assert.match(projects, /options\.sessionRef\.sessionStorageId/);
 });
 
-test("selecting the already-current project revalidates its default session", function () {
+test("selecting the already-current project reconnects to its remembered session", function () {
   var projects = source("modules/app-projects.js");
   var sameProject = projects.slice(
     projects.indexOf("if (slug === store.get('currentSlug'))"),
     projects.indexOf("resetFileBrowser();")
   );
 
-  assert.match(sameProject, /activeSessionId: null[\s\S]*?resetClientState\(\);\s+connect\(\{ preferProjectDefault: true \}\);\s+return;/);
-  assert.doesNotMatch(projects, /isHomeHubVisible\(\)[\s\S]{0,180}preferProjectDefault\)\) return/);
+  assert.match(sameProject, /activeSessionId: null[\s\S]*?resetClientState\(\);\s+connect\(\);\s+return;/);
 });
 
 test("Back and Forward use the same target-keyed session cache reset", function () {

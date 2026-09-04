@@ -51,25 +51,34 @@ test("shouldProcessSocketMessage: only the currently-active socket may render", 
   assert.strictEqual(shouldProcessSocketMessage(null, null), false);
 });
 
-test("initialSessionReference: plain project navigation lets the server choose the current default", async function () {
+test("initialSessionReference: project navigation restores the last visited session except for Coop", async function () {
   var policy = await loadPolicy();
   var ordinaryProjectClick = policy.initialSessionReference({
     currentSlug: "clay",
     urlSessionRef: null,
-    tabSessionId: "stale-tab-session",
+    tabSessionId: "last-visited-session",
     activeSessionProjectSlug: "webapp",
     activeSessionId: 14,
     cliSessionId: "active-webapp-session",
+    // Retain the removed override in the regression input so restoring its old
+    // early return makes this test fail instead of silently changing behavior.
     preferProjectDefault: true,
   });
-  assert.strictEqual(ordinaryProjectClick, null);
+  assert.strictEqual(ordinaryProjectClick, "last-visited-session");
+
+  var coopProjectClick = policy.initialSessionReference({
+    currentSlug: "lead",
+    urlSessionRef: null,
+    tabSessionId: "previous-coop-topic",
+    activeSessionProjectSlug: "clay",
+  });
+  assert.strictEqual(coopProjectClick, null, "Coop always opens its canonical main session");
 
   var exactReference = policy.initialSessionReference({
     currentSlug: "clay",
     urlSessionRef: { projectId: "project-id", sessionStorageId: "exact-session" },
     tabSessionId: "exact-session",
     activeSessionProjectSlug: "webapp",
-    preferProjectDefault: true,
   });
   assert.strictEqual(exactReference, "exact-session", "explicit conversation links remain exact");
 
@@ -80,7 +89,6 @@ test("initialSessionReference: plain project navigation lets the server choose t
     activeSessionProjectSlug: "clay",
     activeSessionId: 14,
     cliSessionId: "current-cli-session",
-    preferProjectDefault: false,
   });
   assert.strictEqual(reconnect, "current-tab-session", "ordinary reconnects preserve the open conversation");
 });
