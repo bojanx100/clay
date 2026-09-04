@@ -190,14 +190,17 @@ test("canonical Coop switches only to healthy designated top-tier targets", func
   providerHealth._reset();
 });
 
-test("canonical Coop resolves the governed Fable alias to a verified concrete Fable model", function () {
+test("canonical Coop resolves Fable from a mixed Anthropic catalog instead of using its default", function () {
   var providerHealth = require("../lib/provider-health");
   providerHealth._reset();
   var sm = makeSm({
     modelsByVendor: {
-      claude: ["claude-fable-5"],
+      claude: [
+        "opus[1m]", "claude-fable-5[1m]", "sonnet", "haiku", "claude-opus-5",
+      ],
       codex: ["gpt-5.6-sol"],
     },
+    serverDefaultModelsByVendor: { claude: "claude-opus-5" },
   });
   var switcher = makeSwitcher(sm);
   var session = makeSession({
@@ -217,9 +220,9 @@ test("canonical Coop resolves the governed Fable alias to a verified concrete Fa
 
   assert.equal(result.ok, true);
   assert.equal(session.vendor, "claude");
-  assert.equal(session.model, "claude-fable-5");
+  assert.equal(session.model, "claude-fable-5[1m]");
   assert.equal(lastEntryOfType(session, "vendor_switched").targetModel,
-    "claude-fable-5");
+    "claude-fable-5[1m]");
   providerHealth._reset();
 });
 
