@@ -417,7 +417,7 @@ test("restart CLI reports a typed IPC checkpoint refusal as failure", async func
   }
 });
 
-availableTest("abrupt restart without a complete checkpoint stays explicit and fail-closed", function () {
+availableTest("abrupt restart quarantines only the checkpoint-missing execution", function () {
   var h = harness();
   try {
     var active = h.addExecution({ taskId: "abrupt-coordinator", projectId: PROJECT_A,
@@ -427,13 +427,12 @@ availableTest("abrupt restart without a complete checkpoint stays explicit and f
     var startup = startupModule.createStartupRecovery({ enabled: true, store: h.store,
       executionControl: h.control, handoffControl: handoff });
 
-    assert.throws(function () { startup.recover({}); }, function (error) {
-      return error && error.code === "COOP_CONTROL_RESTART_RECOVERY_REQUIRED";
-    });
-    assert.equal(startup.state(), "recovery_required");
-    assert.equal(h.control.inspect(active.token.executionId).execution.status, "running");
-    assert.equal(h.control.inspect(active.token.executionId).current.failureCode, null);
-    assert.equal(h.control.inspect(active.token.executionId).leases.length, 1);
+    var result = startup.recover({});
+    assert.equal(result.recoveredExecutions, 1);
+    assert.equal(startup.state(), "open");
+    assert.equal(h.control.inspect(active.token.executionId).execution.status, "failed");
+    assert.equal(h.control.inspect(active.token.executionId).current.failureCode, "restart_recovery");
+    assert.equal(h.control.inspect(active.token.executionId).leases.length, 0);
     startup.close();
   } finally {
     h.cleanup();

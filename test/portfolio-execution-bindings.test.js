@@ -845,6 +845,38 @@ test("a terminal failure keeps its provenance instead of erasing it", function (
   assert.equal(reloaded.get("portfolio-task", 1).failureCode, "restart_recovery");
 });
 
+test("an ordinary coordinator owner question remains resumable needs-input work", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-needs-input-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 10; } });
+
+  store.reserve(request(1, "project_coordinator"));
+  store.commit("portfolio-task", 1, {
+    projectId: PROJECT_ID, sessionStorageId: "ordinary-needs-input",
+  });
+  var waiting = store.complete("portfolio-task", 1, {
+    eventId: "owner-question-1",
+    executionMode: "project_coordinator",
+    terminalStatus: "needs_input",
+    ownerNotification: true,
+  });
+
+  assert.equal(waiting.ok, true);
+  assert.equal(waiting.binding.status, "needs_input");
+  assert.equal(waiting.binding.completionOwnerNotification, true);
+  assert.equal(waiting.binding.failureCode, "unspecified");
+  assert.equal(store.get("portfolio-task", 1).status, "needs_input",
+    "the owner reply must still be able to address the waiting binding");
+  assert.equal(store.markProjectCoordinatorAvailable("portfolio-task", 1, {
+    projectId: PROJECT_ID, sessionStorageId: "wrong-coordinator",
+  }).reason, "invalid_project_coordinator_reactivation");
+  var resumed = store.markProjectCoordinatorAvailable("portfolio-task", 1, {
+    projectId: PROJECT_ID, sessionStorageId: "ordinary-needs-input",
+  });
+  assert.equal(resumed.ok, true);
+  assert.equal(resumed.binding.status, "active");
+});
+
 test("a failure with no supplied code is still marked, and success stays clean", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-"));
   var file = path.join(dir, "bindings.json");

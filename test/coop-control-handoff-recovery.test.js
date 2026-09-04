@@ -412,19 +412,63 @@ availableTest("startup recovery keeps its barrier closed until post-cutover repl
   }
 });
 
-availableTest("startup recovery refuses non-handoff incarnations without stamping restart_recovery", function () {
+availableTest("startup recovery quarantines a non-handoff incarnation with restart_recovery", function () {
   var h = harness();
   try {
     var predecessor = started(h.control);
     var startup = startupModule.createStartupRecovery({ enabled: true, store: h.store,
       executionControl: h.control, handoffControl: h.handoff });
-    assert.throws(function () { startup.recover({}); }, function (error) {
-      return error && error.code === "COOP_CONTROL_RESTART_RECOVERY_REQUIRED";
-    });
-    assert.equal(startup.state(), "recovery_required");
-    assert.equal(h.control.inspect(predecessor.executionId).execution.status, "running");
-    assert.equal(h.control.inspect(predecessor.executionId).current.failureCode, null);
-    assert.equal(h.control.assertCapability(predecessor, "callback"), true);
+    var result = startup.recover({});
+    assert.equal(result.recoveredExecutions, 1);
+    assert.equal(startup.state(), "open");
+    assert.equal(h.control.inspect(predecessor.executionId).execution.status, "failed");
+    assert.equal(h.control.inspect(predecessor.executionId).current.failureCode, "restart_recovery");
+    assert.equal(h.control.inspect(predecessor.executionId).leases.length, 0);
+    assert.throws(function () {
+      h.control.assertCapability(predecessor, "callback");
+    }, function (error) { return error && error.code === "COOP_CONTROL_FENCE_REJECTED"; });
+  } finally {
+    h.cleanup();
+  }
+});
+
+availableTest("a checkpoint-missing execution cannot block an independent restart delivery", function () {
+  var h = harness();
+  try {
+    var stranded = started(h.control);
+    var deliverableRequest = {
+      portfolioTaskId: "task-independent-recovery", bindingRevision: 1,
+      idempotencyKey: "task-independent-recovery-r1", mode: "project_coordinator",
+      targetProject: { projectId: PROJECT_A }, source: SOURCE,
+    };
+    var deliverable = h.control.reserveStart(deliverableRequest);
+    h.control.bindStart(deliverable, NEW);
+    h.control.openStartBarrier(deliverable);
+    h.control.markProviderStarted(deliverable);
+    var delivery = deliveryModule.createDeliveryControl({ enabled: true, store: h.store });
+    delivery.enqueue({ messageId: "message-independent-recovery", sender: SOURCE,
+      recipient: NEW, kind: "execution_event", referenceId: "independent-recovery",
+      payloadDigest: "a".repeat(64) });
+    var startup = startupModule.createStartupRecovery({ enabled: true, store: h.store,
+      executionControl: h.control, handoffControl: h.handoff, deliveryControl: delivery });
+    var delivered = [];
+
+    var result = startup.recover({ send: function (envelope) {
+      delivered.push(envelope.messageId);
+      return { accepted: true };
+    } });
+
+    assert.equal(startup.isReady(), true);
+    assert.equal(result.recoveredExecutions, 1);
+    assert.deepEqual(delivered, ["message-independent-recovery"]);
+    assert.equal(delivery.inspectOutbox("message-independent-recovery").state, "acked");
+    assert.equal(h.control.inspect(stranded.executionId).execution.status, "failed");
+    assert.equal(h.control.inspect(stranded.executionId).current.failureCode, "restart_recovery");
+    assert.equal(h.control.inspect(stranded.executionId).leases.length, 0);
+    assert.equal(h.control.inspect(deliverable.executionId).execution.status, "pending");
+    assert.equal(h.control.inspect(deliverable.executionId).current.epoch, deliverable.epoch + 1);
+    assert.equal(h.control.inspect(deliverable.executionId).current.startState, "ready");
+    assert.equal(h.control.inspect(deliverable.executionId).leases.length, 1);
   } finally {
     h.cleanup();
   }
