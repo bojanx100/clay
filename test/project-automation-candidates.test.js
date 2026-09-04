@@ -104,3 +104,46 @@ test("latest typed binding revision wins and non-completing terminal states do n
     ok: true, eligible: false, reason: "already_completed_or_in_flight",
   });
 });
+
+// --- Naming the refusal (2026-09-04) --------------------------------------------
+//
+// Every rejection in normalize() used to collapse into "invalid_candidate",
+// which asserts the CALLER sent a malformed candidate. The gate passes an
+// explicit `qualificationReceipt: null` for any non-issue recipe, because
+// receiptFor can only build a receipt for an issue — a deliberate "there is no
+// receipt for this recipe kind", not a malformed one.
+//
+// Live effect: the pr-review recipe logged "could not hand candidate ... to Coop
+// (invalid_candidate)" 16 times per tick, and two separate investigations went
+// looking for a corrupt candidate that never existed. Absent evidence and
+// malformed evidence are different failures and must say so.
+test("an absent qualification receipt is refused by name, not as a malformed candidate", function () {
+  var store = candidates.createCandidateStore({
+    file: "/tmp/clay-candidates-reason-" + process.pid + ".json",
+    now: function () { return 1; },
+  });
+  var base = {
+    candidateKey: "launch:trialview/v2#2819",
+    itemKey: "trialview/v2#2819",
+    itemClass: "pr_review",
+    admission: "owner_approval",
+    projectRef: WEBAPP_REF,
+  };
+
+  assert.strictEqual(store.upsert(Object.assign({}, base,
+    { qualificationReceipt: null })).reason, "qualification_receipt_required");
+  assert.strictEqual(store.upsert(Object.assign({}, base,
+    { qualificationReceipt: undefined })).reason, "qualification_receipt_required");
+
+  // A receipt that WAS supplied but does not verify is a different failure.
+  assert.strictEqual(store.upsert(Object.assign({}, base,
+    { qualificationReceipt: { schema: "nope" } })).reason, "qualification_receipt_malformed");
+
+  // A genuinely malformed candidate still reports as one.
+  assert.strictEqual(store.upsert({
+    candidateKey: "k", itemKey: "i", projectRef: { projectId: "not-a-ref" },
+  }).reason, "invalid_candidate");
+
+  // Either way it stays fail-closed: none of them are persisted.
+  assert.strictEqual(store.list().length, 0);
+});
