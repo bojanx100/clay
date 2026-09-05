@@ -309,3 +309,29 @@ mode. Restored orchestrator, external execution, and control-plane suites: 114 /
 both tool handlers and the compatibility entry, verify no graph/session mutation
 on refusal, and drive restart scheduling of old local rows. This is a project
 execution boundary, not proof of caller authentication across provider MCP bridges.
+
+
+### 15. Preserve the calling session for Codex control tools
+
+Explicitly session-scoped MCP descriptors now travel through Codex's per-query
+dynamic tools to the SDK's captured session/fence callback. The shared native
+project bridge cannot identify a session and therefore neither advertises nor
+calls scoped servers. Remembered scope revokes cached anonymous handlers; remote
+definitions cannot override a local scoped server. Calls require the exact active
+thread and turn. Resume replaces tool definitions, and removed tools fail closed.
+Ordinary MCP tools retain their existing transport.
+
+Proof: the two regression suites pass 13 / 13; reverting the three production
+integration files gives 3 pass / 10 fail. Reverting only the completed-turn guard
+gives 6 pass / 1 fail. Restored related suites pass 52 / 52 default and 6 / 6
+controlled. The tests drive the real Codex core adapter, descriptor extraction,
+MCP handler dispatch and HTTP bridge against a fake provider process; concurrent
+queries, warm/resumed turns, malformed/stale/anonymous calls, missing callbacks,
+old-server capability refusal, and cache revocation are covered. User-cache
+migration is stubbed and Clay state is temporary. No real provider was contacted.
+
+Independent in-host review found no blocking transport defect. Its test review
+was summary-only. Future acceptance registration must reserve its server name
+even for anonymous discovery, and must recheck the actual resident caller and
+assignment authority at mutation time. No acceptance tool is registered yet;
+this change does not authorize assignments or repair existing public MCP tools.

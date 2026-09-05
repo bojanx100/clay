@@ -58,6 +58,13 @@ and invoke a private server dispatch continuation. No caller-supplied skip-intak
 or authority flag is acceptable. The existing execution admission and completion
 transport remain authoritative.
 
+Iteration 15 supplies the Codex per-query tool transport. Register acceptance in
+a separate session-scoped server, with a non-executable scoped placeholder when
+no actual calling session is available. This reserves the name against remote
+substitution and anonymous cached handlers. The callback captures the session;
+the handler still rechecks its current registration, role, task and authority
+immediately before dispatch. Transport identity alone is not authorization.
+
 The SDK role context now reads canonical project rules for fresh, resumed, and warm
 turns. It conveys knowledge only; it is not a security boundary. Read-only admission
 and provider/MCP capability enforcement remain separate unfinished work.

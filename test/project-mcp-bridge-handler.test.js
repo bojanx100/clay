@@ -1,5 +1,6 @@
 var test = require("node:test");
 var assert = require("node:assert");
+require("./helpers/isolated-clay-home");
 var createMcpBridgeHandlerFactory =
   require("../lib/project-mcp-bridge-handler").createMcpBridgeHandlerFactory;
 
@@ -72,4 +73,38 @@ test("does not call a local tool that was never advertised", async function () {
     getHandler().callTool("clay-browser", "browser_list_tabs", {}),
     /Tool not found: clay-browser\/browser_list_tabs/
   );
+});
+
+["local", "remote"].forEach(function (location) {
+  test("shared HTTP bridge neither advertises nor invokes " + location + " session-scoped tools", async function () {
+    var calls = 0;
+    var server = createServer({ accept: { handler: function () { calls++; return { content: [] }; } } });
+    server.sessionScoped = true;
+    var servers = { "clay-control": server };
+    var getHandler = createMcpBridgeHandlerFactory({
+      getLocalMcpServers: function () { return location === "local" ? servers : null; },
+      getRemoteMcpServers: function () { return location === "remote" ? servers : null; },
+    });
+    assert.deepStrictEqual(await getHandler().listTools(), []);
+    await assert.rejects(getHandler().callTool("clay-control", "accept", { coordinatorId: "claimed-caller" }), /requires a calling session/);
+    servers = null;
+    await assert.rejects(getHandler().callTool("clay-control", "accept", {}), /requires a calling session/);
+    assert.strictEqual(calls, 0, "no cached callback can revive the scoped tool");
+  });
+});
+
+test("scoping an advertised server revokes its anonymous cached handlers", async function () {
+  var calls = 0;
+  var server = createServer({ accept: { handler: function () { calls++; return { content: [] }; } } });
+  var servers = { control: server };
+  var getHandler = createMcpBridgeHandlerFactory({
+    getLocalMcpServers: function () { return servers; },
+    getRemoteMcpServers: function () { return null; },
+  });
+  assert.strictEqual((await getHandler().listTools()).length, 1);
+  server.sessionScoped = true;
+  assert.deepStrictEqual(await getHandler().listTools(), []);
+  servers = null;
+  await assert.rejects(getHandler().callTool("control", "accept", {}), /requires a calling session/);
+  assert.strictEqual(calls, 0);
 });
