@@ -79,6 +79,22 @@ test("classifies full history without turning failed work into owner approval", 
   }), false);
 });
 
+test("structured pending owner acceptance is approval-gated without prose hints", function () {
+  var pending = record("structured-approval", "needs_input", "needs_input", "needs_input");
+  pending.portfolioBinding.ownerAcceptanceRequired = true;
+  pending.portfolioBinding.ownerAcceptance = {
+    status: "pending",
+    source: "project_local_instructions",
+  };
+
+  var result = ledger.classifyHistoricalLedger([pending]);
+
+  assert.strictEqual(result.records[0].classification, "approval_gated");
+  assert.strictEqual(result.records[0].needsOwnerDecision, true);
+  assert.strictEqual(result.counts.approval_gated, 1);
+  assert.strictEqual(result.counts.needs_input, 0);
+});
+
 test("the state reader scans persisted history before the Lead can idle", function () {
   withDir(function (dir) {
     var file = path.join(dir, "coop-session-ledger.json");

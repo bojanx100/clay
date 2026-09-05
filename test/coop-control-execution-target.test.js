@@ -411,6 +411,188 @@ availableTest("verified project-coordinator completion durably completes and rel
   }
 });
 
+availableTest("owner-acceptance wait stays needs-input across restart recovery", function () {
+  var h = harness();
+  var restoreFlags = enableExecutionFlags();
+  try {
+    var timeline = [];
+    var control = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var runtime = target(control, timeline);
+    var root = {
+      localId: 99,
+      storageId: "owner-acceptance-restart-coordinator",
+      coordinationMode: true,
+      orchestrationPolicy: {},
+      orchestrationTasks: [],
+      orchestrationEvents: [],
+      history: [],
+      pendingPermissions: {},
+      pendingAskUser: {},
+      allowedTools: {},
+    };
+    runtime.sessions.set(root.localId, root);
+    runtime.attached.handleEnvelope(coordinatorEnvelope(620, root.storageId));
+    var session = controlledSession(runtime);
+    var execution = session.orchestrationPolicy.portfolioExecution;
+    execution.ownerAcceptanceRequired = true;
+    execution.ownerAcceptance = {
+      status: "pending",
+      source: "project_local_instructions",
+    };
+    var executionId = execution.control.executionId;
+    session.isProcessing = false;
+    session.history.push({ type: "delta", text: "PROJECT_COMPLETED: yes\n" +
+      "SUMMARY: Implementation verified.\nVERIFICATION: suite passed\n" +
+      "INTEGRATION_VERIFIED: yes\nESCALATION_REQUIRED: no" });
+    var gate = attachCompletionGate({
+      sm: runtime.sm,
+      flushCoordinatorUpdates: function () { return false; },
+      queueCoordinatorUpdate: function () {},
+      sendState: function () {},
+      finishControlledExecution: function (targetSession, status) {
+        return finishControlledExecution(targetSession, status, { control: control });
+      },
+    });
+
+    gate.handleTurnDone(session);
+
+    assert.equal(execution.status, "needs_input");
+    var durable = control.inspect(executionId);
+    assert.equal(durable.execution.status, "failed",
+      "waiting for owner acceptance must not leave a running lease for restart recovery to kill");
+    assert.equal(durable.current.failureCode, "needs_input");
+    assert.equal(durable.leases.length, 0);
+    control.close();
+
+    delete session._coopExecutionFence;
+    var recoveredControl = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    assert.equal(recoveredControl.recoverIncomplete([]), 0,
+      "a settled owner wait is not an incomplete execution");
+    var recoveredTarget = require("../lib/coop-control-execution-target").createTargetExecutionControl({
+      coopExecutionControl: recoveredControl,
+      projectId: function () { return PROJECT_A; },
+    });
+    assert.equal(recoveredTarget.reconcileSession(session, execution), false);
+    assert.equal(execution.status, "needs_input");
+    assert.equal(execution.reason, "awaiting_owner_acceptance");
+    var delivery = deliveryModule.createDeliveryControl({
+      enabled: true,
+      store: recoveredControl.getStore(),
+    });
+    var recoveredRuntime = target(recoveredControl, [], {
+      deliveryControl: delivery,
+      sessions: runtime.sessions,
+      startupRecovery: { assertReady: function () { return true; } },
+    });
+    var resumed = recoveredRuntime.attached.handleEnvelope(
+      messageEnvelope(621, "The owner accepted this exact completed implementation."));
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
+    assert.equal(session.orchestrationPolicy.portfolioExecution.status, "running");
+    durable = recoveredControl.inspect(executionId);
+    assert.equal(durable.execution.currentEpoch, 2,
+      "the settled wait renews one incarnation when the owner decision arrives");
+    assert.equal(durable.current.startState, "started");
+    delivery.close();
+    recoveredControl.close();
+  } finally {
+    restoreFlags();
+    h.cleanup();
+  }
+});
+
+availableTest("restart reconciliation repairs a legacy owner-acceptance wait", function () {
+  var h = harness();
+  var restoreFlags = enableExecutionFlags();
+  try {
+    var timeline = [];
+    var control = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var runtime = target(control, timeline);
+    var root = {
+      localId: 99,
+      storageId: "legacy-owner-acceptance-restart-coordinator",
+      coordinationMode: true,
+      orchestrationPolicy: {},
+      orchestrationTasks: [],
+      orchestrationEvents: [],
+      history: [],
+      pendingPermissions: {},
+      pendingAskUser: {},
+      allowedTools: {},
+    };
+    runtime.sessions.set(root.localId, root);
+    runtime.attached.handleEnvelope(coordinatorEnvelope(622, root.storageId));
+    var session = controlledSession(runtime);
+    var execution = session.orchestrationPolicy.portfolioExecution;
+    var completedAt = 1788544355336;
+    session.orchestrationProjectCompletion = {
+      status: "completed",
+      completionRevision: 1,
+      graphDigest: "#events:0::",
+      integrationVerification: "yes",
+      escalationRequired: "no",
+      portfolioTaskId: execution.portfolioTaskId,
+      bindingRevision: execution.bindingRevision,
+      completedAt: completedAt,
+    };
+    execution.ownerAcceptanceRequired = true;
+    execution.ownerAcceptance = {
+      status: "pending",
+      source: "project_local_instructions",
+    };
+    execution.implementationCompletedAt = completedAt;
+    execution.implementationCompletionRevision = 1;
+    execution.implementationGraphDigest = "#events:0::";
+    var executionId = execution.control.executionId;
+    control.close();
+
+    delete session._coopExecutionFence;
+    var recoveredControl = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    assert.equal(recoveredControl.recoverIncomplete([]), 1);
+    var durable = recoveredControl.inspect(executionId);
+    assert.equal(durable.current.failureCode, "restart_recovery");
+    execution.status = "failed";
+    execution.reason = "restart_recovery";
+    execution.terminalAt = durable.execution.finishedAt;
+    var recoveredTarget = require("../lib/coop-control-execution-target").createTargetExecutionControl({
+      coopExecutionControl: recoveredControl,
+      projectId: function () { return PROJECT_A; },
+    });
+    var nearMiss = JSON.parse(JSON.stringify(session));
+    nearMiss.orchestrationPolicy.portfolioExecution.implementationGraphDigest = "different";
+    assert.equal(recoveredTarget.reconcileSession(nearMiss,
+      nearMiss.orchestrationPolicy.portfolioExecution), false,
+    "mismatched completion evidence must stay failed");
+    assert.equal(nearMiss.orchestrationPolicy.portfolioExecution.status, "failed");
+
+    assert.equal(recoveredTarget.reconcileSession(session, execution), true);
+    assert.equal(execution.status, "needs_input");
+    assert.equal(execution.reason, "awaiting_owner_acceptance");
+    assert.equal(execution.terminalAt, undefined);
+    assert.equal(execution.failureCode, undefined);
+    var delivery = deliveryModule.createDeliveryControl({
+      enabled: true,
+      store: recoveredControl.getStore(),
+    });
+    var recoveredRuntime = target(recoveredControl, [], {
+      deliveryControl: delivery,
+      sessions: runtime.sessions,
+      startupRecovery: { assertReady: function () { return true; } },
+    });
+    var resumed = recoveredRuntime.attached.handleEnvelope(
+      messageEnvelope(623, "Reconcile this exact owner-acceptance wait."));
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
+    assert.equal(session.orchestrationPolicy.portfolioExecution.status, "running");
+    durable = recoveredControl.inspect(executionId);
+    assert.equal(durable.execution.currentEpoch, 2);
+    assert.equal(durable.current.startState, "started");
+    delivery.close();
+    recoveredControl.close();
+  } finally {
+    restoreFlags();
+    h.cleanup();
+  }
+});
+
 availableTest("terminal review attention durably releases its controlled execution lease", function () {
   var h = harness();
   try {
