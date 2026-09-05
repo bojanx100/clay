@@ -1,3 +1,4 @@
+var taskGraph = require("../lib/orchestration-task-graph");
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var fs = require("fs");
@@ -861,6 +862,84 @@ availableTest("restart hydrates a coordinator projection after durable completio
     restoreFlags();
     h.cleanup();
   }
+});
+
+[true, false].forEach(function (persisted) {
+availableTest("restart defers " + (persisted ? "a saved" : "a transcript") +
+  " completion while its controlled execution awaits recovery", function () {
+  var h = harness();
+  var restoreFlags = enableExecutionFlags();
+  try {
+    var timeline = [];
+    var firstControl = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var runtime = target(firstControl, timeline);
+    var session = {
+      localId: 99,
+      storageId: "restart-completing-coordinator",
+      coordinationMode: true,
+      orchestrationPolicy: {},
+      orchestrationTasks: [],
+      orchestrationEvents: [],
+      history: [],
+      pendingPermissions: {},
+      pendingAskUser: {},
+      allowedTools: {},
+    };
+    runtime.sessions.set(session.localId, session);
+    runtime.attached.handleEnvelope(coordinatorEnvelope(63, session.storageId));
+    session = controlledSession(runtime);
+    var metadata = session.orchestrationPolicy.portfolioExecution.control;
+    session.history.push({ type: "delta", text: "PROJECT_COMPLETED: yes\n" +
+      "SUMMARY: Integrated.\nVERIFICATION: suite passed\n" +
+      "INTEGRATION_VERIFIED: yes\nESCALATION_REQUIRED: no" });
+    if (persisted) taskGraph.completeProject(session, {
+      summary: "Integrated.", verification: "suite passed",
+      integrationVerification: "yes", escalationRequired: "no",
+      integrationVerified: true, escalationVerified: true,
+    });
+    if (persisted) assert.equal(session.orchestrationProjectCompletion.status, "completed");
+    delete session._coopExecutionFence;
+    assert.equal(session.orchestrationPolicy.portfolioExecution.status, "running");
+    firstControl.close();
+
+    var recoveredControl = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var gate = attachCompletionGate({
+      sm: runtime.sm,
+      flushCoordinatorUpdates: function () { return false; },
+      queueCoordinatorUpdate: function () {},
+      sendState: function () {},
+      finishControlledExecution: function (targetSession, status) {
+        return finishControlledExecution(targetSession, status, { control: recoveredControl });
+      },
+    });
+
+    assert.doesNotThrow(function () { gate.restore(session); });
+    var durable = recoveredControl.inspect(metadata.executionId);
+    assert.equal(session.orchestrationPolicy.portfolioExecution.status, "running");
+    assert.equal(durable.execution.status, "running");
+    assert.equal(durable.leases.length, 1);
+    assert.throws(function () { gate.handleTurnDone(session); },
+      function (cause) { return cause.code === "COOP_CONTROL_FENCE_MISSING"; });
+    var token = recoveredControl.recoverTarget({
+      projectId: PROJECT_A, sessionStorageId: session.storageId,
+    });
+    session.orchestrationPolicy.portfolioExecution.control =
+      executionFence.attachFence(session, recoveredControl.createFence(token));
+    session._coopExecutionFence.markProviderStarted();
+    var currentIncarnation = session.orchestrationPolicy.portfolioExecution.control.incarnationId;
+    session.orchestrationPolicy.portfolioExecution.control.incarnationId = "inc:stale";
+    assert.throws(function () { gate.restore(session); },
+      function (cause) { return cause.code === "COOP_CONTROL_FENCE_MISSING"; });
+    session.orchestrationPolicy.portfolioExecution.control.incarnationId = currentIncarnation;
+    assert.doesNotThrow(function () { gate.restore(session); });
+    assert.equal(session.orchestrationPolicy.portfolioExecution.status, "completed");
+    assert.equal(recoveredControl.inspect(metadata.executionId).execution.status, "completed");
+    recoveredControl.close();
+  } finally {
+    restoreFlags();
+    h.cleanup();
+  }
+});
 });
 
 availableTest("restart completion replay rejects mismatched durable metadata", function () {
