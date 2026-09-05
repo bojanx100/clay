@@ -228,3 +228,18 @@ The regression drives real project teardown, a temporary SQLite delivery store,
 and startup's manager lookup for the replacement, surviving worktree, and another
 project. It does not prove cancellation of a recovery callback already in flight
 or validate production canaries after activation.
+
+
+### 11. Isolate Lead workspace state
+
+Lead workspace discovery now uses the configured Clay state directory, including
+CLAY_HOME and CLAY_CONFIG overrides, instead of always choosing the user's real
+~/.clay directory. The default production path is unchanged. This prevents an
+isolated runtime's workspace registration from targeting the real identity file.
+
+Proof: the directory-discovery regression is 1 / 1 green, 0 pass / 1 fail with
+the old implementation, then 8 / 8 with the related Lead suite restored. The
+reverted run performs discovery only and never creates or edits a workspace.
+Earlier full-suite isolation was incomplete: its existing Lead-workspace test
+called ensureLeadWorkspace against the real home. Those passing runs do not prove
+absence of live-state side effects. No live-state repair was performed here.
