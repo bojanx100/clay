@@ -30,7 +30,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Make multi-batch owner response linking durable and idempotent.
 - [ ] Drive durable delivery retries and recover or explicitly account for sequence gaps.
 - [ ] Make normal completion and late attention transitions idempotent.
-- [ ] Preserve execution links and concurrent changes during Thread undo.
+- [x] Preserve execution links and concurrent changes during Thread undo.
 - [ ] Enforce read-only authority at admission and execution boundaries.
 - [ ] Define and implement ON adoption / OFF ownership handover.
 - [ ] Give persistent project coordinators explicit role, project context, intake,
@@ -102,3 +102,16 @@ Proof: six real-topic-index ingress regressions all fail with the change removed
 restored validation is 101 / 101 default and 48 / 48 controlled across six related
 suites. Checks include punctuation, conjunctions, duplicate names, unknown projects,
 full constraint preservation, and absence of an implementation grant on ambiguity.
+
+
+### 4. Conflict-safe Thread undo
+
+Lifecycle, correction undo, and correction redo restore only fields changed by
+that action. Concurrent changes to those fields reject the whole operation before
+any Thread is changed. Later execution links, unrelated titles, and conversation
+updates survive. A handed-off Thread cannot be reverted by an older park action.
+
+Proof: lifecycle tests were 11 total, 7 pass / 4 fail with the old implementation;
+restored related suites are 76 / 76 default and 48 / 48 controlled. Tests use the
+real persisted index, exercise undo/redo after linking work, and verify atomic
+rejection of a conflicting two-Thread correction.

@@ -288,3 +288,85 @@ function legacyRecord(topicId, title) {
     createdAt: 1, updatedAt: 1, eventRefs: [], turnRefs: [], relatedExecutions: [],
   };
 }
+
+test("lifecycle undo cannot erase an execution linked after the action", function () {
+  var h = harness();
+  try {
+    h.index.load().topics.alpha = legacyRecord("alpha", "Alpha");
+    h.index.save();
+    assert.equal(h.index.setThreadState({ threadId: "alpha" }, "parked").ok, true);
+    assert.equal(h.index.linkExecution({ threadId: "alpha" }, {
+      sessionRef: { projectId: CLAY, sessionStorageId: "running-worker" },
+    }).ok, true);
+    var before = JSON.stringify(h.index.resolve({ threadId: "alpha" }, true).thread);
+    assert.equal(h.index.undoLastLifecycleAction({ threadId: "alpha" }).code, "thread_undo_conflict");
+    assert.equal(JSON.stringify(h.index.resolve({ threadId: "alpha" }, true).thread), before);
+  } finally { h.cleanup(); }
+});
+
+test("lifecycle undo preserves unrelated conversation updates", function () {
+  var h = harness();
+  try {
+    h.index.load().topics.alpha = legacyRecord("alpha", "Alpha");
+    h.index.save();
+    assert.equal(h.index.setThreadState({ threadId: "alpha" }, "parked").ok, true);
+    var current = h.index.load().topics.alpha;
+    current.title = "New owner title";
+    current.eventRefs.push({ sessionStorageId: "canonical-coop-threads", eventIndex: 20 });
+    h.index.save();
+    assert.equal(h.index.undoLastLifecycleAction({ threadId: "alpha" }).ok, true);
+    var after = h.index.resolve({ threadId: "alpha" }, true).thread;
+    assert.equal(after.threadState, "exploring");
+    assert.equal(after.title, "New owner title");
+    assert.equal(after.eventRefs.length, 1);
+  } finally { h.cleanup(); }
+});
+
+test("correction undo and redo retain subsequently linked execution", function () {
+  var h = harness();
+  try {
+    var canonical = session();
+    h.index.ensureRetro(canonical, { clayProjectRef: { projectId: CLAY }, projects: [] });
+    var rows = durableThreads(h.index);
+    var source = threadForTurn(rows, 2);
+    var target = threadForTurn(rows, 0);
+    var turn = { projectId: "system-lead", sessionStorageId: canonical.storageId,
+      startEventIndex: 2, endEventIndex: 3 };
+    assert.equal(h.index.reassignTurn(source.threadRef, target.threadRef, turn).ok, true);
+    var correction = h.index.lastCorrection();
+    assert.equal(h.index.linkExecution(target.threadRef, {
+      sessionRef: { projectId: CLAY, sessionStorageId: "running-worker" },
+    }).ok, true);
+    assert.equal(h.index.undoLastCorrection().ok, true);
+    var after = h.index.resolve(target.threadRef, true).thread;
+    assert.equal(after.threadState, "handed_off");
+    assert.equal(after.relatedExecutions.length, 1);
+    assert.equal(h.index.redoCorrection(correction.correctionId).ok, true);
+    after = h.index.resolve(target.threadRef, true).thread;
+    assert.equal(after.threadState, "handed_off");
+    assert.equal(after.relatedExecutions.length, 1);
+  } finally { h.cleanup(); }
+});
+
+test("a conflicting correction undo changes neither Thread", function () {
+  var h = harness();
+  try {
+    var canonical = session();
+    h.index.ensureRetro(canonical, { clayProjectRef: { projectId: CLAY }, projects: [] });
+    var rows = durableThreads(h.index);
+    var source = threadForTurn(rows, 2);
+    var target = threadForTurn(rows, 0);
+    var turn = { projectId: "system-lead", sessionStorageId: canonical.storageId,
+      startEventIndex: 2, endEventIndex: 3 };
+    assert.equal(h.index.reassignTurn(source.threadRef, target.threadRef, turn).ok, true);
+    h.index.load().topics[target.threadRef.threadId].turnRefs.push({
+      projectId: "system-lead", sessionStorageId: canonical.storageId,
+      startEventIndex: 10, endEventIndex: 11,
+    });
+    h.index.save();
+    var before = JSON.stringify(h.index.load().topics);
+    assert.equal(h.index.undoLastCorrection().code, "thread_undo_conflict");
+    assert.equal(JSON.stringify(h.index.load().topics), before);
+    assert.equal(h.index.lastCorrection().undoneAt, null);
+  } finally { h.cleanup(); }
+});
