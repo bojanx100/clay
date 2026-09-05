@@ -275,3 +275,18 @@ instruction loading, SDK bridge, and provider message boundary with a fake provi
 They verify rule refresh on warm turns and workspace migration replay. They do not
 prove model compliance, runtime capability enforcement, or the complete management
 lifecycle. No production workspace was updated.
+
+
+### 13. Keep pending cross-project assignments out of the local scheduler
+
+The local worker scheduler no longer treats an external task-coordinator row as
+a local launch candidate. Restart already skipped external rows while restoring
+worker watchers, but then scheduled the same queued rows through the unfiltered
+graph. A project assignment could therefore create a worker in Lead's workspace.
+
+Proof: removing the scheduler guard yields 73 tests, 72 pass / 1 fail in each
+mode. Restored related graph, orchestrator, and control-plane suites pass. The
+regression creates the assignment through the real control-plane function, reloads
+its JSON metadata, and attaches the real orchestrator against a fake provider.
+Ordinary local scheduling remains covered by the existing orchestrator suite.
+This repairs the restart prerequisite; it does not implement assignment intake.

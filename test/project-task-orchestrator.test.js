@@ -128,6 +128,33 @@ function webappWorkflowDir() {
   return dir;
 }
 
+test("restored project control assignments cannot launch replacement workers in Lead", function (t) {
+  var controlPlane = require("../lib/coop-control-plane");
+  var ctx = testContext(null, { slug: "lead", projectId: "system-lead" });
+  var coop = coordinator(ctx);
+  coop.coopHome = true;
+  var root = controlPlane.ensureProjectCoordinator(ctx.sm,
+    { projectId: "11111111-1111-5111-8111-111111111111" }, "Target",
+    { projectId: "system-lead", sessionStorageId: coop.storageId });
+  var task = controlPlane.prepareTask(ctx.sm, root, {
+    portfolioTaskId: "pending-assignment", bindingRevision: 1,
+    targetProject: { projectId: "11111111-1111-5111-8111-111111111111" },
+  }, { title: "Inspect target rules", objective: "Inspect the project's existing rules.",
+    ownedPaths: "read-only: AGENTS.md" });
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-control-restore-"));
+  t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+  var file = path.join(dir, "sessions.json");
+  fs.writeFileSync(file, JSON.stringify(Array.from(ctx.sessions.entries())));
+  var restored = testContext(new Map(JSON.parse(fs.readFileSync(file, "utf8"))),
+    { slug: "lead", projectId: "system-lead" });
+  assert.equal(restored.starts.length, 0, "the local scheduler cannot execute a cross-project assignment");
+  assert.equal(restored.sessions.size, 2);
+  var restoredTask = restored.sessions.get(root.localId).orchestrationTasks[0];
+  assert.equal(restoredTask.taskId, task.taskId);
+  assert.equal(restoredTask.workerStorageId || null, null);
+  assert.notEqual(restoredTask.status, "failed", "waiting for typed dispatch is not a failed worker");
+});
+
 test("coordinates a queued request in a new owned worker without interrupting the parent", function () {
   var ctx = testContext();
   var parent = coordinator(ctx);
