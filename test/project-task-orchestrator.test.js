@@ -3780,3 +3780,46 @@ test("reports a non-resumable interrupted worker as needing input", function () 
   assert.equal(ctx.starts[0].session, parent);
   assert.match(ctx.starts[0].prompt, /not eligible for automatic resume/);
 });
+
+test("resident project coordinators cannot bypass typed scope through local delegation or graph planning", function () {
+  var controlPlane = require("../lib/coop-control-plane");
+  var ctx = testContext(null, { slug: "lead", projectId: "system-lead" });
+  var coop = coordinator(ctx);
+  coop.coopHome = true;
+  var root = controlPlane.ensureProjectCoordinator(ctx.sm,
+    { projectId: "11111111-1111-5111-8111-111111111111" }, "Target",
+    { projectId: "system-lead", sessionStorageId: coop.storageId });
+  var original = JSON.stringify(root);
+  var input = brief(root);
+  var delegated = ctx.api.delegateFromTool(input);
+  assert.equal(delegated.isError, true);
+  assert.match(delegated.content[0].text, /project_coordinator_scope_required/);
+  var planned = ctx.api.planFromTool({ coordinatorSessionId: root.storageId,
+    maxParallel: 9, tasks: [{ title: "Inspect target", objective: "Inspect the target project rules." }] });
+  assert.equal(planned.isError, true);
+  var coordinated = ctx.api.coordinateExternalTask(input);
+  assert.equal(coordinated.ok, false);
+  assert.match(coordinated.error, /project_coordinator_scope_required/);
+  assert.equal(JSON.stringify(root), original, "a rejected local route does not mutate the coordinator or graph");
+  assert.equal(ctx.starts.length, 0);
+  assert.equal(ctx.sessions.size, 2);
+});
+
+test("legacy local rows on a resident coordinator surface scope attention instead of launching at restart", function () {
+  var controlPlane = require("../lib/coop-control-plane");
+  var graph = require("../lib/orchestration-task-graph");
+  var ctx = testContext(null, { slug: "lead", projectId: "system-lead" });
+  var coop = coordinator(ctx);
+  coop.coopHome = true;
+  var root = controlPlane.ensureProjectCoordinator(ctx.sm,
+    { projectId: "11111111-1111-5111-8111-111111111111" }, "Target",
+    { projectId: "system-lead", sessionStorageId: coop.storageId });
+  graph.createTask(root, { title: "Legacy local task", objective: "Inspect project files." });
+  var restored = testContext(new Map(JSON.parse(JSON.stringify(Array.from(ctx.sessions.entries())))),
+    { slug: "lead", projectId: "system-lead" });
+  assert.equal(restored.starts.length, 0);
+  var task = restored.sessions.get(root.localId).orchestrationTasks[0];
+  assert.equal(task.status, "needs_input");
+  assert.equal(task.currentActivity, "Needs typed project dispatch");
+  assert.match(task.resultSummary, /project_coordinator_scope_required/);
+});

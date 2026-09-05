@@ -285,8 +285,27 @@ worker watchers, but then scheduled the same queued rows through the unfiltered
 graph. A project assignment could therefore create a worker in Lead's workspace.
 
 Proof: removing the scheduler guard yields 73 tests, 72 pass / 1 fail in each
-mode. Restored related graph, orchestrator, and control-plane suites pass. The
+mode. Restored related graph, orchestrator, and control-plane suites: 95 / 95 default
+and 80 / 80 controlled. The
 regression creates the assignment through the real control-plane function, reloads
 its JSON metadata, and attaches the real orchestrator against a fake provider.
 Ordinary local scheduling remains covered by the existing orchestrator suite.
 This repairs the restart prerequisite; it does not implement assignment intake.
+
+The next intake change is specified in [COOP_V2_INTAKE.md](COOP_V2_INTAKE.md).
+
+
+### 14. Enforce the resident coordinator's local delegation boundary
+
+Generic local delegation and graph planning now refuse resident project
+coordinators before creating tasks or changing policy. The external-delegation
+compatibility entry enforces the same boundary. At restart, legacy local rows on
+a resident coordinator become visible scope attention instead of creating a
+Lead-local worker. Ordinary project/task coordinators retain local scheduling.
+
+Proof: removing the implementation yields 75 tests, 73 pass / 2 fail in each
+mode. Restored orchestrator, external execution, and control-plane suites: 114 /
+114 default and 114 / 114 controlled. Tests create real resident roles, exercise
+both tool handlers and the compatibility entry, verify no graph/session mutation
+on refusal, and drive restart scheduling of old local rows. This is a project
+execution boundary, not proof of caller authentication across provider MCP bridges.
