@@ -8,8 +8,8 @@ test("turn accounting measures queue, model, overlapping tools, verification and
   performance.begin(session,100);
   performance.configure(session,{model:"gpt-5.6-terra",effort:"medium"});
   performance.observe(session,{yokeType:"thinking_delta",text:"never persist private content"},120);
-  performance.observe(session,{yokeType:"tool_start",toolId:"a",toolName:"Bash",input:{command:"rg value lib"}},140);
-  performance.observe(session,{yokeType:"tool_start",toolId:"b",toolName:"Bash",input:{command:"node --test test/example.test.js"}},150);
+  performance.observe(session,{yokeType:"tool_executing",toolId:"a",toolName:"Bash",input:{command:"rg value lib"}},140);
+  performance.observe(session,{yokeType:"tool_executing",toolId:"b",toolName:"Bash",input:{command:"node --test test/example.test.js"}},150);
   performance.observe(session,{yokeType:"tool_result",toolId:"a"},160);
   performance.observe(session,{yokeType:"tool_result",toolId:"b"},190);
   performance.observe(session,{yokeType:"text_delta"},200);
@@ -94,4 +94,61 @@ test("the real watchdog, provider stream and persisted done path feed the timing
     assert.equal(captured[0].outcome,"completed");
     assert.notEqual(captured[0].firstTextMs,null);
   }finally{fs.appendFile=original;}
+});
+
+test("Claude argument streaming and message-wrapped results use real recorded execution boundaries", function () {
+  var flatten = require("../lib/yoke/adapters/claude-events").flattenEvent;
+  var clock = Date.now;
+  var now = 100;
+  Date.now = function () { return now; };
+  try {
+    var session = { localId: 8, storageId: "claude-phases", history: [], blocks: {},
+      sentToolResults: {}, pendingPermissions: {}, responsePreview: "", messageUUIDs: [] };
+    performance.begin(session, now);
+    performance.configure(session, { model: "claude-opus-5", effort: "medium" }, "claude");
+    var io = require("../lib/sessions-io").attachSessionIo({
+      send: function () {}, sendEach: function () {}, appendToSessionFile: function () { return true; },
+      isMeaninglessUnknownError: function () { return false; }, onSessionDone: function () {}
+    });
+    var processor = require("../lib/sdk-message-processor").attachMessageProcessor({
+      sm: { sendAndRecord: io.sendAndRecord, sendToSession: function () {} },
+      send: function () {}, adapter: { vendor: "claude" }, cwd: process.cwd(), opts: {}
+    });
+    function emit(at, raw) {
+      now = at;
+      var event = flatten(raw);
+      performance.observe(session, event, at);
+      processor.processSDKMessage(session, event);
+    }
+    emit(120, { type: "stream_event", event: { type: "content_block_start", index: 0,
+      content_block: { type: "tool_use", id: "check", name: "Bash" } } });
+    emit(180, { type: "stream_event", event: { type: "content_block_delta", index: 0,
+      delta: { type: "input_json_delta", partial_json: '{"command":"node --test test/example.test.js"}' } } });
+    emit(200, { type: "stream_event", event: { type: "content_block_stop", index: 0 } });
+    emit(220, { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "check", content: "passed" }] } });
+    now = 250;
+    processor.processSDKMessage(session, { yokeType: "plan_updated", turnId: "plan", plan: [] });
+    var row = performance.finish(session, "completed", 300, function () {});
+    assert.equal(row.providerWaitMs, 20);
+    assert.equal(row.verificationMs, 20);
+    assert.equal(row.modelAndTransportMs, 160);
+    assert.equal(row.toolMs, 0);
+    assert.equal(row.toolCalls, 1);
+    assert.equal(row.vendor, "claude");
+    assert.equal(row.phaseVersion, 2);
+    assert.equal(row.totalMs, 200);
+  } finally { Date.now = clock; }
+});
+
+test("reports keep old total durations but reject inaccurate legacy phase accounting", function () {
+  var common = { schema: "clay.turn_performance.v1", at: 2000, startedAt: 1000,
+    totalMs: 1000, outcome: "completed", vendor: "claude", model: "opus", effort: "medium" };
+  var legacy = Object.assign({}, common, { turnId: "legacy", toolMs: 900, modelAndTransportMs: 100 });
+  var corrected = Object.assign({}, common, { turnId: "corrected", phaseVersion: 2, toolMs: 10, modelAndTransportMs: 990 });
+  var before = report.buildReport([legacy], [], { now: 3000, hours: 1 });
+  assert.equal(before.current.timing.totalMs.median, 1000);
+  assert.equal(before.current.timing.toolMs.median, null);
+  var after = report.buildReport([legacy, corrected], [], { now: 3000, hours: 1 });
+  assert.equal(after.current.timing.toolMs.median, 10);
+  assert.equal(after.current.timing.modelAndTransportMs.median, 990);
 });

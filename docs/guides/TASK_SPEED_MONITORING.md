@@ -5,7 +5,13 @@ content-free measurement when a turn finishes. Writes are asynchronous. Rows
 contain the requested model/effort, stable session/turn references, outcome,
 queue delay when known, provider time before first activity, model/transport
 time, tool time, identifiable verification-tool time, and user-input wait.
-Overlapping tools count wall time once. A completed turn is not evidence that
+~~The first accounting version measured provider-neutral tool phases.~~
+**Retracted (2026-09-06):** the scheduled smoke run showed that version 1 counted
+Claude argument streaming as execution and missed message-wrapped results.
+Version 2 starts tool time at execution, observes normalized persisted results,
+and excludes synthetic plan updates. Reports retain older total durations but
+suppress their inaccurate tool/model phase breakdowns. Overlapping tools count
+wall time once. A completed turn is not evidence that
 the work was correct. Model/transport time includes unexposed reasoning; no
 provider exposes enough events to claim a precise reasoning-only duration.
 
