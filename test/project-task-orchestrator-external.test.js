@@ -6,7 +6,13 @@ var path = require("path");
 
 var externalOrchestration = require("../lib/project-task-orchestrator-external");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
-var createExternalTaskCoordinator = externalOrchestration.createExternalTaskCoordinator;
+// These fixtures exercise owner-derived routes with no independent standing
+// grant. The owner's shipped switch must not change their authority model.
+function createExternalTaskCoordinator(options) {
+  return externalOrchestration.createExternalTaskCoordinator(Object.assign({
+    autonomyPolicyFile: path.join(__dirname, "fixtures", "absent-autonomy-policy.json"),
+  }, options || {}));
+}
 var attachPortfolioExecutionTarget = externalOrchestration.attachPortfolioExecutionTarget;
 var terminalStatusForTurn =
   require("../lib/project-task-orchestrator-direct-leaf-status").terminalStatusForTurn;

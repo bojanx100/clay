@@ -1,3 +1,4 @@
+var installHtmlFragment = require("./helpers/dom-html-fragment").installHtmlFragment;
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var fs = require("node:fs");
@@ -75,10 +76,6 @@ function element(tag) {
     value: "",
     disabled: false,
   };
-  Object.defineProperty(node, "innerHTML", {
-    get: function () { return node._innerHTML || ""; },
-    set: function (value) { node._innerHTML = String(value); node.children = []; },
-  });
   node.appendChild = function (child) {
     child.parentNode = node;
     child.parentElement = node;
@@ -100,7 +97,7 @@ function element(tag) {
   node.querySelectorAll = function () { return []; };
   node.focus = function () {};
   node.setSelectionRange = function () {};
-  return node;
+  return installHtmlFragment(node, element);
 }
 
 function descendants(node) {

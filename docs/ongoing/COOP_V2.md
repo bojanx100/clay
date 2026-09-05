@@ -42,7 +42,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [ ] Verify recovery isolation boundaries and scoped historical reconciliation.
 - [ ] Establish supervised maintenance activation/rollback without a worker stopping
       its own supporting daemon.
-- [ ] Resolve the known test baseline failures and run the full suite.
+- [x] Resolve the known test baseline failures and run the full suite.
 - [ ] Prove the complete owner-to-work-to-owner lifecycle, including retries,
       a second valid automation pass, restart, Thread undo, and Lead toggles.
 
@@ -195,3 +195,21 @@ outbox slots, exact payload preservation, and rejection-vs-application evidence.
 Independent review found the saturated predecessor case and its regression now
 passes. These runs use temporary state and fake destination callbacks. Production
 canary validation is pending activation; no live delivery file was modified.
+
+
+### 9. Restore a meaningful green baseline
+
+Owner-route test fixtures now explicitly disable independent standing autonomy;
+the orchestrator passes through the existing policy-file seam so its tests and
+admission use the intended authority model. The UI fixtures now parse real HTML
+fragments and expose firstChild, matching the mounting operation the production
+tabs use. Their existing selectors remain fixture stubs; this is not browser QA.
+The already-locked parse5 parser is declared as a direct development dependency.
+No expected outcome assertions were weakened.
+
+Proof: restoring the old fixture/wiring code reproduces all seven baseline
+failures: 140 default tests, 133 pass / 7 fail; 104 controlled tests, 101 pass /
+3 fail. After restoration, the entire suite passes: 4,114 / 4,114 default across
+412 files and 591 / 591 controlled across 41 files. This validates the exercised
+code paths in isolated state; provider behavior, live canaries after activation,
+and the remaining product contract have not yet been validated.

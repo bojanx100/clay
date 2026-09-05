@@ -1,3 +1,4 @@
+var installHtmlFragment = require("./helpers/dom-html-fragment").installHtmlFragment;
 var test = require("node:test");
 var assert = require("node:assert/strict");
 var fs = require("node:fs");
@@ -518,7 +519,7 @@ function element(tag) {
     var handlers = node.listeners.click || [];
     for (var i = 0; i < handlers.length; i++) handlers[i]({ preventDefault: function () {}, stopPropagation: function () {} });
   };
-  return node;
+  return installHtmlFragment(node, element);
 }
 
 function descendants(node) {

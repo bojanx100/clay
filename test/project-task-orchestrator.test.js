@@ -41,6 +41,7 @@ function testContext(existingSessions, options) {
   };
   if (options.smState) Object.assign(sm, options.smState);
   var api = attachTaskOrchestrator({
+    autonomyPolicyFile: options.autonomyPolicyFile || path.join(process.env.CLAY_HOME, "absent-autonomy-policy.json"),
     cwd: options.cwd,
     crossProject: options.crossProject || null,
     slug: options.slug || "clay",
