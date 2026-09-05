@@ -240,8 +240,14 @@ RequestRefs: `system-lead/3749f35b-8700-493a-ab37-892d219cddaf/673`,
 `5332aafc-31e7-5cb1-ba96-c8d90e78260e/09f3356d-00af-494e-ba6f-74f193c9861c`.
 Task/binding: `clay-remove-owner-acceptance-for-pr-auto-launch-20260905` r2
 completed; result `project-coordinator-ebbee906-4e14-470b-8698-e82b60834fa2`.
-Outcome: revert proof is 31/31 restored versus 29/31 reverted. Unintegrated r1
-`dc34add24c` is history, not an open duplicate. Next: none.
+Outcome: the implementation is integrated as `030b7a2d93`; revert proof is
+31/31 restored versus 29/31 reverted. The earlier missing-integration finding
+is stale. The loose item remains pending full-suite verification because three
+unrelated orchestration tests fail. Next: finish that separately staged fixture
+verification and reconcile this item without repeating implementation.
+
+Retracted at coordinator review: "Next: none" omitted the current verification
+hold. The prior outcome is retained in the JSON appendix.
 
 ### 20. Auto-approve ordinary Clay and Coop work when Clay is On
 
@@ -264,7 +270,9 @@ RequestRefs: `system-lead/8616398d-7644-4ca4-8ec1-f6dbb6117883/48`,
 Task/binding: `clay-make-coop-proactive-by-default-20260905` r1 completed;
 result `project-coordinator-d616015c-64ac-47bd-9958-73dadc51cba2`. Outcome:
 qualified completion (41/41 focused, 49/49 cross-project, 18/19 revert proof),
-but an unrelated full-suite baseline is not clean. Next: keep qualified.
+with `e538fe370c` integrated. Three unrelated orchestration failures remain in
+the current clean full runner. Live activation was not separately checked by
+this audit. Next: keep the existing verification hold; do not repeat the fix.
 
 ### 22. Fix compact, readable Triage and Council sidebar cards
 
@@ -284,21 +292,39 @@ RequestRefs: `system-lead/8616398d-7644-4ca4-8ec1-f6dbb6117883/218`,
 `system-lead`, `5332aafc-31e7-5cb1-ba96-c8d90e78260e`. SessionRefs:
 `5332aafc-31e7-5cb1-ba96-c8d90e78260e/72a88022-8953-40ed-bd44-c51e1576b482`,
 `5332aafc-31e7-5cb1-ba96-c8d90e78260e/ef8e3dd7-c179-4698-8ae7-0119d99a9aba`.
-Task/binding: `clay-workspace-all-tasks-tab-20260905` r6 superseded; r2/r3/r5
-completed, r4 needs input, r6 stopped on native active-writer lock. Outcome:
-implementation evidence is 12/12, 22/22, 2/2, but typed source provenance and
-live activation are unresolved. Next: thread provenance and activate without
-the native lock.
+Task/binding: `clay-workspace-all-tasks-tab-20260905` r6 remains superseded in
+immutable native-attempt history. Later coordinator resolution is authoritative
+for the delivered outcome: ledger seq 1875 records the pushed `aab6d6e740`
+status correction, mobile 390x844 Tasks selection, truthful binding statuses,
+and initially collapsed Completed group. Ledger seq 1880 closes the loose
+entry. The later `bdf56cd73b` UI fixture repair passes 36 UI and six Tasks checks.
+
+Next: do not repeat activation. Perform a bounded read-only check of meaningful,
+contextual task labels, as the original owner requested. This audit did not
+re-exercise that acceptance path and does not infer a new source-provenance
+implementation requirement from the missing proof.
+
+Retracted at coordinator review: "typed source provenance and live activation
+are unresolved" and "activate without the native lock" ignored the later
+recorded delivery. The superseded attempt remains visible in the appendix.
 
 ### 24. Deliver this two-week owner-request outcome audit
 
 RequestRef: `system-lead/8616398d-7644-4ca4-8ec1-f6dbb6117883/227`. ProjectRefs:
 `system-lead`, `5332aafc-31e7-5cb1-ba96-c8d90e78260e`. SessionRef:
 `5332aafc-31e7-5cb1-ba96-c8d90e78260e/f630ef22-42db-4e40-89ca-32511e53fdf5`.
-Task/binding: `clay-audit-two-weeks-unhandled-owner-requests-20260905` r4
-active; source session `system-lead/d800641e-af4b-4dde-a7a2-66eeeafe989f`.
-Outcome: r1 failed `restart_recovery`, r2 was incomplete, r3 was superseded for
-UUID corruption; r4 is this corrected delivery. Next: validate, commit, push.
+Task/binding: `clay-audit-two-weeks-unhandled-owner-requests-20260905` r4;
+initiating Coop session `system-lead/d800641e-af4b-4dde-a7a2-66eeeafe989f`. The current
+binding status is copied from the live store into the appendix.
+Outcome: `000e829c0a` delivered the report and appendix. The coordinator verified
+the references and reconciled stale outcomes in place; the containing Git commit
+and final task receipt record this correction's integration. The audit's
+unresolved rows remain separate work. Next: close the exact audit task after
+this correction is pushed, then advance those rows.
+
+Retracted at coordinator review: the prior "validate, commit, push" next action
+described the now-delivered initial artifact. Its earlier state is retained in
+the appendix rather than presented as outstanding implementation.
 
 ## Validation contract
 
