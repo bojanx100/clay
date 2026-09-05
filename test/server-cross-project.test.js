@@ -388,12 +388,22 @@ test("target registration replays a legacy source-cursor dead letter", function 
       createdAt: 513,
       payload: { type: "coordinator_update", text: "worker needs input" },
     };
-    assert.equal(beforeRestart.deliverEnvelope(blocked).deadLettered, true);
-
     // This is the exact legacy persistence shape: capacity failures had no
     // outbox row, so a later resolver registration was unable to replay them.
     var persisted = beforeRestart.getDeliveryState();
-    delete persisted.outbox[blocked.eventId];
+    persisted.deadLetters.push({
+      eventId: blocked.eventId,
+      envelope: blocked,
+      source: blocked.source,
+      destination: blocked.destination,
+      bindingRevision: blocked.bindingRevision,
+      reason: "delivery_error",
+      attempts: 0,
+      createdAt: blocked.createdAt,
+      failedAt: clock,
+      nextRetryAt: clock,
+      lastError: "source cursor capacity reached",
+    });
     fs.writeFileSync(transportFile, JSON.stringify(persisted));
 
     var replayed = [];

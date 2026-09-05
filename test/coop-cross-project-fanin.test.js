@@ -151,7 +151,7 @@ test("fan-in uses a durable typed envelope when project identities are available
   }
 });
 
-test("fan-in retains a retryable source-cursor dead letter until the typed router reconciles capacity", function () {
+test("fan-in delivers immediately when acknowledged source cursors can be reclaimed", function () {
   var scratch = createScratchDir("typed-cross-project-fanin-cursor-capacity");
   var clock = 1000;
   try {
@@ -200,16 +200,14 @@ test("fan-in retains a retryable source-cursor dead letter until the typed route
     };
 
     var first = fanIn.deliverEvent(event);
-    assert.equal(first.pending, true);
-    assert.equal(fanIn.hasDelivered(event.eventId), false);
-    assert.deepEqual(fanIn.getPendingEventIds(), [event.eventId]);
-    assert.equal(received.includes(event.eventId), false);
-
-    clock += 1000;
-    assert.deepEqual(fanIn.retryPending(), [event.eventId]);
+    assert.equal(first.delivered, true);
     assert.equal(fanIn.hasDelivered(event.eventId), true);
     assert.deepEqual(fanIn.getPendingEventIds(), []);
     assert.equal(received.includes(event.eventId), true);
+    assert.deepEqual(crossProject.getDeadLetters(), []);
+    clock += 60000;
+    assert.deepEqual(fanIn.retryPending(), []);
+    assert.equal(received.filter(function (id) { return id === event.eventId; }).length, 1);
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }

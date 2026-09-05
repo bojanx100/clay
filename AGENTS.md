@@ -6,6 +6,7 @@ hook that now enforces it has never been violated. Prose is the fallback, not th
 
 ## Verifying your work
 
+- **Match the workflow to the task.** Answer simple questions and status requests directly. Use a skill when explicitly requested or when its workflow materially helps; keywords alone do not warrant a full pipeline. Keep the selected session model for routine work and avoid unnecessary delegation or model-switch suggestions. Run the checks needed for the change, then proceed to completion; repeat them only after changes, failures, or a specific unresolved concern. Resume interrupted work from the conversation and existing worktree without a new confirmation step.
 - **Prove a fix by breaking it.** A bug fix must ship with a test that fails when the fix is reverted — revert it, run the test, report the pass/fail counts both ways, then restore. A test that only passes with the fix in place has not been shown to test the fix.
 - **Never verify a lookup by supplying the answer it is meant to find.** Hand-feeding the code under test the value it is supposed to discover proves the downstream path works and nothing else. Drive the real predicate against real data and observe the real result.
 - **Check whether the work is already done before starting it.** Read the current status of the item, task, or file first. Re-running finished work burns a session and can create duplicate live records.
