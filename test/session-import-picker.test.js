@@ -143,27 +143,27 @@ function listRequests(sent) {
   return sent.filter(function (msg) { return msg.type === "list_cli_sessions"; });
 }
 
-test("the import picker asks for Coop-managed sessions only when the owner opts in", async function () {
+test("the import picker includes every recoverable closed session by default", async function () {
   var h = await harness();
   h.picker.openImportSessionPicker("");
 
   var opening = listRequests(h.sent);
   assert.strictEqual(opening.length, 1, "opening the picker requests the list once");
-  assert.strictEqual(opening[0].includeCoopManaged, false,
-    "the picker opens on the clean list, not the full Coop-managed one");
+  assert.strictEqual(opening[0].includeCoopManaged, true,
+    "the picker must not silently omit recoverable Coop-managed sessions");
 
   var overlay = h.body.children[h.body.children.length - 1];
   var toggle = overlay.querySelector(".import-session-coop-toggle");
-  assert.ok(toggle, "the picker exposes an opt-in toggle");
-  assert.strictEqual(toggle.checked, false);
+  assert.ok(toggle, "the picker exposes a Coop-managed filter");
+  assert.strictEqual(toggle.checked, true);
 
-  toggle.checked = true;
+  toggle.checked = false;
   toggle.dispatch("change");
 
   var afterToggle = listRequests(h.sent);
   assert.strictEqual(afterToggle.length, 2, "flipping the toggle re-requests the list");
-  assert.strictEqual(afterToggle[1].includeCoopManaged, true,
-    "the opt-in must reach the server, otherwise the rows can never appear");
+  assert.strictEqual(afterToggle[1].includeCoopManaged, false,
+    "owners can still hide Coop-managed rows when they want a shorter list");
 });
 
 test("a Coop-managed row says importing it hands the session back", async function () {
@@ -208,13 +208,13 @@ test("the empty picker points at the toggle instead of dead-ending", async funct
 
   h.picker.handleCliSessionList([], "");
   var listBody = overlay.querySelector(".import-session-body");
-  assert.match(listBody.textContent, /tick the box above/,
-    "an owner hunting a closed Coop-owned session must be told where it went");
+  assert.doesNotMatch(listBody.textContent, /tick the box above/,
+    "the default request already includes Coop-managed sessions");
 
   var toggle = overlay.querySelector(".import-session-coop-toggle");
-  toggle.checked = true;
+  toggle.checked = false;
   toggle.dispatch("change");
   h.picker.handleCliSessionList([], "");
-  assert.doesNotMatch(listBody.textContent, /tick the box above/,
-    "once opted in there is nothing left to suggest");
+  assert.match(listBody.textContent, /tick the box above/,
+    "an owner who opts out must be told where the remaining sessions went");
 });
