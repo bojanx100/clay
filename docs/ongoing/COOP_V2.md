@@ -213,3 +213,18 @@ failures: 140 default tests, 133 pass / 7 fail; 104 controlled tests, 101 pass /
 412 files and 591 / 591 controlled across 41 files. This validates the exercised
 code paths in isolated state; provider behavior, live canaries after activation,
 and the remaining product contract have not yet been validated.
+
+
+### 10. Release destroyed recovery managers
+
+Project teardown unregisters its exact SessionManager from process-wide recovery
+before stopping its runtime. Other worktrees with the same ProjectRef and other
+projects remain registered. Reopening the project can recover the same durable
+session through its replacement manager without two managers claiming ownership.
+
+Proof: removing the implementation yields 35 default tests, 34 pass / 1 fail;
+28 / 28 controlled remain green. Restored: 35 / 35 default and 28 / 28 controlled.
+The regression drives real project teardown, a temporary SQLite delivery store,
+and startup's manager lookup for the replacement, surviving worktree, and another
+project. It does not prove cancellation of a recovery callback already in flight
+or validate production canaries after activation.

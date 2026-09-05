@@ -187,3 +187,45 @@ test("removing a project from the registry (post-destroy) makes cross-project de
     fs.rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+test("destroyed recovery managers cannot compete with their replacement or remove other worktrees", async function (t) {
+  var runtime = require("../lib/coop-control-runtime");
+  runtime.closeExecutionControl();
+  var dir = createScratchDir("recovery-unregister");
+  t.after(function () {
+    runtime.closeExecutionControl();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  var options = { enabled: true, dbPath: path.join(dir, "control.sqlite") };
+  var delivery = runtime.getDeliveryControl(options);
+  var project = "11111111-1111-5111-8111-111111111111";
+  var otherProject = "22222222-2222-5222-8222-222222222222";
+  var applied = [];
+  function register(projectId, storageId, name) {
+    var manager = { sessions: new Map([[1, { localId: 1, storageId: storageId }]]) };
+    runtime.registerRecoveryTarget({ projectRef: { projectId: projectId }, sessionManager: manager,
+      recoveryHandlers: {
+        applyEffect: function (effect) { applied.push(name); return { receiptId: "receipt-" + effect.effectId }; },
+        send: function () { return { accepted: true }; },
+      },
+    });
+    return manager;
+  }
+  var old = register(project, "canonical", "destroyed");
+  register(project, "worktree", "worktree");
+  register(otherProject, "other", "other");
+  await createProjectDestroy(minimalDestroyCtx({ sm: old }))();
+  register(project, "canonical", "replacement");
+  [[project, "canonical"], [project, "worktree"], [otherProject, "other"]].forEach(function (item, index) {
+    var target = { projectId: item[0], sessionStorageId: item[1] };
+    delivery.receive({ messageId: "manager-effect-" + index,
+      sender: { projectId: "system-lead", sessionStorageId: "coop" }, recipient: target,
+      kind: "rehydration", referenceId: "checkpoint-" + index, payloadDigest: "a".repeat(64),
+    }, { kind: "rehydrate", target: target });
+  });
+  var recovered = await runtime.recoverStartup(options);
+  assert.equal(recovered.reconciledEffects, 3);
+  assert.deepEqual(applied.sort(), ["other", "replacement", "worktree"]);
+  assert.equal(delivery.listPendingEffects().length, 0);
+  assert.equal(runtime.unregisterRecoveryTarget(old), false, "teardown already removed this manager");
+});
