@@ -26,7 +26,14 @@ test("provider-health tests write recovery evidence only inside an isolated Clay
     immediate: true,
   });
 
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "rate-limit-rejected", {
+    providerRouteId: "claude-anthropic",
+    model: "claude-fable-5[1m]",
+    immediate: true,
+  });
+
   assert.equal(fs.existsSync(isolatedRecoveryPath), true);
-  assert.match(fs.readFileSync(isolatedRecoveryPath, "utf8"), /"kind":"provider_health"/);
+  assert.equal(fs.readFileSync(isolatedRecoveryPath, "utf8").trim().split("\n").length, 2);
   assert.equal(fs.existsSync(recoveryPath) ? fs.readFileSync(recoveryPath, "utf8") : null, productionBefore);
 });
