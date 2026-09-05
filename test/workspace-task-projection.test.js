@@ -39,3 +39,21 @@ test("Workspace tasks retain unstarted backlog and truthful blocked/failed execu
     ["blocked", "started", "blocked"], ["broken", "started", "failed"], ["later", "waiting", "pending"],
   ]);
 });
+
+test("Workspace tasks replace bare assent titles with the linked objective", function () {
+  var rows = projectTasks({ projectId: "project-a", bindings: [binding("audit", 1, "active")], sessions: [{
+    storageId: "coordinator", orchestrationTasks: [{ taskId: "audit",
+      clientRef: "portfolio:audit:1", title: "do it", objective: "Audit the Workspace task projection",
+      status: "running", updatedAt: 100 }],
+  }] });
+  assert.equal(rows[0].title, "Audit the Workspace task projection");
+  assert.doesNotMatch(rows[0].title, /^(?:do it|yes now|continue)$/i);
+});
+
+test("Workspace tasks disclose missing context instead of inventing a task from assent", function () {
+  var rows = projectTasks({ projectId: "project-a", bindings: [], sessions: [{
+    storageId: "coordinator", orchestrationTasks: [{ taskId: "unknown",
+      title: "yes now", objective: "continue", context: "", status: "pending", updatedAt: 100 }],
+  }] });
+  assert.equal(rows[0].title, "Unresolved task context for unknown");
+});
