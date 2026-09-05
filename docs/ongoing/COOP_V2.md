@@ -39,7 +39,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Supply current role and canonical project instructions on every control turn.
 - [x] Commission durable project assignments and accept their exact scope through the resident coordinator.
 - [x] Keep pending assignments visible and cancellable, with bounded notification and durable attention.
-- [ ] Correct plain-array transcript saves that can be incorrectly skipped by the unloaded-history optimization.
+- [x] Correct plain-array transcript saves that can be incorrectly skipped by the unloaded-history optimization.
 - [ ] Consolidate owner-request/task/attempt outcome provenance.
 - [ ] Remove recovery mutations from projections, drive them through daemon events,
       and release removed managers from the recovery registry.
@@ -391,4 +391,21 @@ Additional general review finding: the unloaded-history fast path in
 `sessions-persistence.js` also treats a normal in-memory array as unloaded. A
 plain `history.push(...)` followed only by `saveSessionFile` can be skipped while
 reporting success. The intake fixture now drives the production owner-ingress
-append path; that fixture correction does not repair this separate save defect.
+append path; that fixture correction did not repair this separate save defect.
+Iteration 17 below addresses it independently.
+
+
+### 17. Preserve changed plain-array transcripts on save
+
+The unloaded-history shortcut now requires an actual lazy history store. A new
+session's ordinary array must reach the existing length/dirty-state checks, so
+adding or removing events cannot be skipped merely because metadata is unchanged.
+This also fixes coalesced saves flushed at shutdown. Unloaded lazy histories keep
+their existing fast path.
+
+Proof: actual new session managers, durable JSONL reads, restart loading and the
+shutdown flush pass 2 / 2. Restoring the previous persistence file gives 0 pass /
+2 fail, then restoring the fix gives 66 / 66 across five persistence/lazy-history
+suites. These tests cover length changes and existing dirty-state behavior; they
+do not add automatic detection of same-length in-place edits. No live transcript
+was rewritten. The latest full repository run remains iteration 16's result.
