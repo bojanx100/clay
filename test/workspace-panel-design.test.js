@@ -60,3 +60,13 @@ test("Workspace Tasks tab uses accessible sections and keeps completed work coll
   assert.match(css, /\.ws-task-row/);
   assert.match(css, /\.ws-task-status-blocked/);
 });
+
+test("Owner Workspace keeps Tasks reachable through the Coop ledger renderer", function () {
+  var panel = read("lib/public/modules/workspace-panel.js");
+  var owner = read("lib/public/modules/workspace-coop-owner.js");
+  assert.match(panel, /onTabSelect/);
+  assert.match(panel, /workspace_tasks_get/);
+  assert.match(owner, /workspaceTabsHtml\(selectedTab\)/);
+  assert.match(owner, /workspaceTasksHtml\(input\.tasks \|\| ownerTasks\)/);
+  assert.match(owner, /wireWorkspaceTaskLinks\(tabPanel/);
+});
