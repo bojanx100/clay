@@ -2162,6 +2162,11 @@ async function restartDaemonWithTLS(config, callback) {
 // Show server started info
 // ==============================
 function showServerStarted(config, ip, setupCode) {
+  // A background dev watcher must keep supervising without opening a TTY menu.
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
+    console.log("Clay is running on port " + config.port + ".");
+    return;
+  }
   showMainMenu(config, ip, setupCode);
 }
 
