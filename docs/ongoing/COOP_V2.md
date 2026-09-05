@@ -101,7 +101,10 @@ explains the unresolved target and survives through the existing history storage
 Proof: six real-topic-index ingress regressions all fail with the change removed;
 restored validation is 101 / 101 default and 48 / 48 controlled across six related
 suites. Checks include punctuation, conjunctions, duplicate names, unknown projects,
-full constraint preservation, and absence of an implementation grant on ambiguity.
+full constraint preservation, and absence of an implementation grant at ingress.
+Retracted broader claim: this did not prove that downstream consumers preserved
+the refusal. Independent review found text fallback and preclassified-ledger paths
+that could recreate authority. Iteration 6 closes those paths.
 
 
 ### 4. Conflict-safe Thread undo
@@ -128,3 +131,27 @@ Proof: removed implementation yields 56 default tests, 54 pass / 2 fail, plus
 0 pass / 1 fail controlled. Restored router/control-plane/automation suites are
 112 / 112 default and 8 / 8 controlled. The new test runs the real completion
 transport, durable delivery, binding store, router, and destination handler.
+
+
+### 6. Preserve unresolved-project refusals through dispatch and restart
+
+History-based implementation parsing now honors the canonical routing attention
+marker. Routing and backfill cannot regenerate a decision from its text or an old
+transcript decision. Admission independently checks the canonical ingress before
+any owner-ledger write, including already classified entries. Separately authorized
+standing autonomy retains its own admission checks.
+
+Proof: removed implementation yields 97 default tests, 91 pass / 6 fail, and
+52 controlled tests, 48 pass / 4 fail. Restored related suites: 133 / 133 default,
+88 / 88 controlled. Tests drive real ingress and topic inventory resolution,
+recordPrepared and owner-request stores, backfill, routing, and admission; provider
+execution remains stubbed. They include old classified decisions and Main-to-Thread
+classification, and verify refusal leaves the ledger unchanged.
+
+Full-suite checkpoint before iteration 6: 4,097 default tests, 4,090 pass / 7 fail;
+587 controlled tests, 584 pass / 3 fail. All failures match the reviewed baseline.
+
+Deployment limitation retained for later recovery work: existing sessions whose
+old code already consumed completionCallbackInvoked may still have a deferred
+owner-workflow notification stranded. New executions are fixed; historical state
+has not been repaired or used as proof of the new behavior.

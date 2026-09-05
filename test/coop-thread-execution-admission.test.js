@@ -2586,3 +2586,49 @@ test("Clay On does not make another project available",
     assert.equal(result.ok, false);
     assert.equal(result.reason, "project_unavailable");
   });
+
+[false, true].forEach(function (classifiedThread) {
+  [false, true].forEach(function (storedDecision) {
+    test("unresolved project authority is refused at admission before ledger writes: " +
+        classifiedThread + "/" + storedDecision, function (t) {
+      var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-unresolved-admission-"));
+      t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
+      var index = createTopicIndex({ file: path.join(dir, "topics.json") });
+      var session = { coopHome: true, storageId: "canonical-coop", history: [] };
+      var message = { text: "Fix the sidebar in Clay. Do not push.", coopComposerScope: "main" };
+      var userMessage = require("../lib/project-user-message");
+      assert.equal(require("../lib/coop-topic-ingress").prepareIngress({
+        validateCoopTopicIngress: function (current, msg, ws) {
+          return userMessage.validateCoopTopicIngress({
+            topicIndexFor: function () { return index; },
+            getProjectList: function () { return []; },
+          }, current, msg, ws);
+        },
+      }, {}, message, session), true);
+      session.history.push({ type: "user_message", text: message.text,
+        coopIngressId: INGRESS, coopIngressSequence: 7 });
+      var ledger = require("../lib/coop-owner-requests").attachCoopOwnerRequests({
+        file: path.join(dir, "requests.json") });
+      var foreground = require("../lib/project-user-message-coop").attachCoopForegroundIngress({
+        coopOwnerRequests: ledger, sm: { saveSessionFile: function () { return true; } },
+      });
+      assert.equal(foreground.recordPrepared(session, {
+        coopIngress: { coop: true, ingressId: INGRESS, sequence: 7, kind: "text" },
+      }, message, message.text), true);
+      if (storedDecision || classifiedThread) ledger.classify(INGRESS, {
+        kind: classifiedThread ? "existing_topic" : "conversational",
+        topicRef: classifiedThread ? TOPIC : null, projectRefs: [],
+        implementationDecision: storedDecision ? { intent: "fix" } : null,
+      });
+      var before = ledger.get(INGRESS);
+      var delivered = [];
+      var h = executionRouter([], delivered, [], { dir: dir,
+        coopSession: session, ownerRequests: ledger });
+      assert.deepEqual(execute(h.router), {
+        ok: false, reason: "owner_project_clarification_required",
+      });
+      assert.equal(delivered.length, 0);
+      assert.deepEqual(ledger.get(INGRESS), before);
+    });
+  });
+});

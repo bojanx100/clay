@@ -22,6 +22,8 @@ function harness(t, projects) {
   };
   return {
     session: session,
+    index: index,
+    dir: dir,
     ctx: {
       validateCoopTopicIngress: function (current, msg, ws) {
         return userMessage.validateCoopTopicIngress(routeContext, current, msg, ws);
@@ -67,5 +69,41 @@ function harness(t, projects) {
       { coopIngress: { coop: true } }, message, text);
     assert.ok(prepared.includes(text));
     assert.match(prepared, /Clarify the intended project/);
+  });
+});
+
+[false, true].forEach(function (storedDecision) {
+  test("unresolved Main ingress cannot regain a route or backfilled authority: " + storedDecision, function (t) {
+    var h = harness(t, []);
+    var message = { text: "Fix the sidebar in Clay. Do not push.", coopComposerScope: "main" };
+    assert.equal(ingress.prepareIngress(h.ctx, {}, message, h.session), true);
+    var event = Object.assign({ type: "user_message", coopIngressId: "coop:" + COOP + ":1",
+      coopIngressSequence: 1, _ts: 1000 }, message);
+    // A prior backfill may already have copied a decision into the transcript.
+    if (storedDecision) event.coopImplementationDecision = { intent: "fix", projectName: "Clay" };
+    h.session.history.push(event);
+    var backfill = require("../lib/coop-owner-request-backfill");
+    var requests = require("../lib/coop-owner-requests").attachCoopOwnerRequests({
+      file: path.join(h.dir, "requests.json") });
+    assert.equal(backfill.auditOwnerRequests(h.session.history)[0].implementationDecision, null);
+    backfill.backfillOwnerRequests(requests, h.session, {});
+    assert.equal(requests.get(event.coopIngressId).expectsExecution, false);
+    var delivered;
+    var coordinator = require("../lib/project-task-orchestrator-external-delegation")
+      .createExternalTaskCoordinator({
+        sessionForInput: function () { return h.session; },
+        projectId: function () { return "system-lead"; },
+        ownerRequests: requests,
+        autonomyPolicyFile: path.join(h.dir, "absent-policy.json"),
+        readLeadEvents: function () { return []; },
+        ensureOwnerThread: function (input) { return h.index.ensureOwnerThread(input); },
+        createProjectExecution: function (input) { delivered = input; return { ok: true }; },
+      });
+    coordinator({ coordinatorSessionId: COOP, portfolioTaskId: "clay-sidebar",
+      bindingRevision: 1, idempotencyKey: "clay-sidebar-r1", mode: "project_coordinator",
+      targetProject: { projectId: CLAY }, objective: "Fix the Clay sidebar." });
+    assert.equal(delivered.coopIngressId, undefined);
+    assert.equal(delivered.coopTopicRef, undefined);
+    assert.equal(Object.keys(h.index.load().topics).length, 0);
   });
 });
