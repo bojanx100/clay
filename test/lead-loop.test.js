@@ -269,16 +269,18 @@ function unanswered(sequence, extra) {
   }, extra || {});
 }
 
-test("an unanswered owner request preempts staffing and standups", function () {
+test("an unanswered owner request leads while safe admitted work still advances", function () {
   var d = loop.leadTick({
     portfolio: { items: [pItem("a", 100)] },
     inFlight: [], now: NOW + 10 * DAY, lastStandupAt: NOW,
     unansweredRequests: [unanswered(182)],
   });
-  assert.strictEqual(d.length, 1);
   assert.strictEqual(d[0].action, "answer_owner");
   assert.strictEqual(d[0].requests.length, 1);
   assert.strictEqual(d[0].requests[0].ingressSequence, 182);
+  assert.deepStrictEqual(d.filter(function (item) { return item.action === "staff"; })
+    .map(function (item) { return item.item.id; }), ["a"],
+  "unanswered-owner bookkeeping must not strand unrelated admitted work");
 });
 
 test("the oldest unanswered owner request leads", function () {
