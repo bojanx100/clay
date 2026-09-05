@@ -1,0 +1,17 @@
+#!/bin/sh
+
+# All updates to the shared bojan branch must use the wrapper that also moves
+# the clean main checkout. Otherwise a successful worker push leaves the code
+# Clay restarts from behind origin/bojan.
+
+set -e
+
+while read local_ref local_sha remote_ref remote_sha; do
+	if [ "$remote_ref" = "refs/heads/bojan" ] && [ "$CLAY_BOJAN_PUSH_WRAPPER" != "1" ]; then
+		echo "pre-push: direct pushes to bojan are blocked." >&2
+		echo "pre-push: run node scripts/push-bojan.js from the completed worktree." >&2
+		exit 1
+	fi
+done
+
+exit 0

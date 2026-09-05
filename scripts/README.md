@@ -55,6 +55,23 @@ generate them -- but the `Co-Authored-By` rule still applies to them.
 To bypass the hook for a single commit: `git commit --no-verify`. The test
 backstop still catches it before the commit is pushed.
 
+## Shared `bojan` Branch Guard
+
+The main `bojan` checkout is the source used by the local Clay daemon. Worktree
+pushes used to advance `origin/bojan` without moving that checkout, so a restart
+could still execute older code. Two versioned hooks and one push wrapper keep
+the shared branch deterministic:
+
+- `.githooks/pre-commit` rejects direct commits on `bojan`;
+- `.githooks/pre-push` rejects direct updates to remote `bojan`;
+- `node scripts/push-bojan.js`, run from a clean dedicated worktree, fetches and
+  rebases onto the latest `origin/bojan`, pushes `HEAD:bojan`, and fast-forwards
+  the clean main `bojan` checkout to the exact pushed commit.
+
+If the main checkout has uncommitted changes, the wrapper preserves them and
+prints that synchronization was skipped. Resolve those changes, then rerun the
+wrapper from a dedicated worktree or fast-forward `bojan` explicitly.
+
 ## Session Storage Safety
 
 The session maintenance scripts read or edit the live Clay session store at:
