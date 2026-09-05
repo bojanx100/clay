@@ -310,6 +310,47 @@ test("switched on, a read-only diagnosis dispatch proceeds", function () {
     { autonomyPolicyFile: file }).ok, true);
 });
 
+test("read-only safety constraints do not request the forbidden actions they prohibit", function () {
+  var file = policyFile({ enabled: true });
+  var brief = dispatch({
+    title: "Reconcile archived wrong-auto-launch inventory",
+    objective: "Investigate and reconcile the archived read-only inventory.",
+    context: "Do not modify files, ask the owner, or mutate GitHub/board state.",
+    acceptanceCriteria: "No file, GitHub, board, daemon, or external-state mutations.",
+    ownedPaths: "read-only: Webapp session/portfolio/topic ledgers",
+  });
+  var scopedRequest = request({ targetProject: { projectId: WEBAPP_ID } });
+  var admitted = grant.standingAdmission(brief, scopedRequest,
+    { autonomyPolicyFile: file });
+
+  assert.equal(grant.forbiddenAction(brief), "issue_or_board_mutation",
+    "the default gate must remain mention-based for non-read-only admission paths");
+  assert.ok(admitted, "the explicit no-mutation boundary must not suppress read-only admission");
+  assert.equal(admitted.ok, true);
+  assert.equal(admitted.reviewOnly, true);
+  assert.equal(itemApproval.executionAdmission(brief, scopedRequest, null,
+    { autonomyPolicyFile: file }).ok, true,
+  "the live execution-admission seam must admit the same read-only brief");
+
+  assert.deepEqual(grant.standingAdmission(dispatch({
+    objective: "Investigate the backlog, then mutate the GitHub/board state.",
+  }), request({ targetProject: { projectId: WEBAPP_ID } }),
+  { autonomyPolicyFile: file }), {
+    ok: false, reason: "autonomy_grant_issue_or_board_mutation_gated",
+  }, "an actual board mutation in a read-only brief must stay gated");
+
+  [
+    "Do not inspect; move the card to Done.",
+    "Do not change board state, but update the board.",
+    "No file edits, git push the result.",
+  ].forEach(function (context) {
+    assert.ok(grant.standingAdmission(dispatch({ context: context }), request({
+      targetProject: { projectId: WEBAPP_ID },
+    }), { autonomyPolicyFile: file }).ok === false,
+    "a contrastive or unscoped action must fail closed: " + context);
+  });
+});
+
 test("switched on, an approved-at-earlier-revision re-dispatch proceeds", function () {
   // Both categories declared explicitly. The shipped file currently ships only
   // read_only_diagnosis, and inheriting that would make every assertion below
