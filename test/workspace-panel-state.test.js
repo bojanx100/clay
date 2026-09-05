@@ -60,6 +60,37 @@ function classList() {
   };
 }
 
+function parseHtml(parent, html) {
+  var stack = [parent];
+  var token = /<\/?([a-zA-Z][\w-]*)([^>]*)>|([^<]+)/g;
+  var match;
+  while ((match = token.exec(html))) {
+    if (match[3]) {
+      stack[stack.length - 1]._textContent = (stack[stack.length - 1]._textContent || "") + match[3];
+    } else if (match[0].slice(0, 2) === "</") {
+      stack.pop();
+    } else {
+      var child = element(match[1]);
+      var attributes = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+      var attribute;
+      while ((attribute = attributes.exec(match[2]))) {
+        child.setAttribute(attribute[1], attribute[2] || attribute[3] || attribute[4] || "");
+        if (attribute[1] === "class") child.className = child.getAttribute("class");
+      }
+      stack[stack.length - 1].appendChild(child);
+      if (!/^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/i.test(match[1])) stack.push(child);
+    }
+  }
+}
+
+function matchesSelector(node, selector) {
+  var attribute = selector.match(/^\[([^=\]]+)(?:=["']?([^"'\]]+)["']?)?\]$/);
+  if (attribute) return node.hasAttribute(attribute[1]) &&
+    (attribute[2] === undefined || node.getAttribute(attribute[1]) === attribute[2]);
+  if (selector.charAt(0) === ".") return node.className.split(/\s+/).indexOf(selector.slice(1)) !== -1;
+  return node.tagName === selector.toUpperCase();
+}
+
 function element(tag) {
   var node = {
     tagName: String(tag || "div").toUpperCase(),
@@ -75,9 +106,24 @@ function element(tag) {
     value: "",
     disabled: false,
   };
+  Object.defineProperty(node, "textContent", {
+    get: function () {
+      if (node._textContent !== undefined) return node._textContent;
+      return node.children.map(function (child) { return child.textContent || ""; }).join("");
+    },
+    set: function (value) { node._textContent = String(value); },
+  });
+  Object.defineProperty(node, "firstChild", {
+    get: function () { return node.children[0] || null; },
+  });
   Object.defineProperty(node, "innerHTML", {
     get: function () { return node._innerHTML || ""; },
-    set: function (value) { node._innerHTML = String(value); node.children = []; },
+    set: function (value) {
+      node._innerHTML = String(value);
+      node.children = [];
+      delete node._textContent;
+      parseHtml(node, node._innerHTML);
+    },
   });
   node.appendChild = function (child) {
     child.parentNode = node;
@@ -96,8 +142,8 @@ function element(tag) {
   node.removeAttribute = function (name) { delete node.attributes[name]; };
   node.getAttribute = function (name) { return node.attributes[name] || null; };
   node.hasAttribute = function (name) { return Object.prototype.hasOwnProperty.call(node.attributes, name); };
-  node.querySelector = function () { return null; };
-  node.querySelectorAll = function () { return []; };
+  node.querySelector = function (selector) { return node.querySelectorAll(selector)[0] || null; };
+  node.querySelectorAll = function (selector) { return descendants(node).filter(function (child) { return matchesSelector(child, selector); }); };
   node.focus = function () {};
   node.setSelectionRange = function () {};
   return node;

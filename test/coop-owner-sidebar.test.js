@@ -501,8 +501,39 @@ test("dynamic ActionQueue details fail closed when the canonical worker session 
   });
 });
 
+function parseHtml(parent, html) {
+  var stack = [parent];
+  var token = /<\/?([a-zA-Z][\w-]*)([^>]*)>|([^<]+)/g;
+  var match;
+  while ((match = token.exec(html))) {
+    if (match[3]) {
+      stack[stack.length - 1]._textContent = (stack[stack.length - 1]._textContent || "") + match[3];
+    } else if (match[0].slice(0, 2) === "</") {
+      stack.pop();
+    } else {
+      var child = element(match[1]);
+      var attributes = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+      var attribute;
+      while ((attribute = attributes.exec(match[2]))) {
+        child.setAttribute(attribute[1], attribute[2] || attribute[3] || attribute[4] || "");
+        if (attribute[1] === "class") child.className = child.getAttribute("class");
+      }
+      stack[stack.length - 1].appendChild(child);
+      if (!/^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/i.test(match[1])) stack.push(child);
+    }
+  }
+}
+
+function matchesSelector(node, selector) {
+  var attribute = selector.match(/^\[([^=\]]+)(?:=["']?([^"'\]]+)["']?)?\]$/);
+  if (attribute) return node.hasAttribute(attribute[1]) &&
+    (attribute[2] === undefined || node.getAttribute(attribute[1]) === attribute[2]);
+  if (selector.charAt(0) === ".") return node.className.split(/\s+/).indexOf(selector.slice(1)) !== -1;
+  return node.tagName === selector.toUpperCase();
+}
+
 function element(tag) {
-  var node = { tagName: String(tag).toUpperCase(), children: [], className: "", attributes: {}, listeners: {}, type: "", title: "", disabled: false };
+  var node = { tagName: String(tag).toUpperCase(), children: [], className: "", attributes: {}, listeners: {}, type: "", title: "", disabled: false, parentNode: null, parentElement: null };
   Object.defineProperty(node, "textContent", {
     get: function () {
       if (node._textContent !== undefined) return node._textContent;
@@ -510,9 +541,24 @@ function element(tag) {
     },
     set: function (value) { node._textContent = String(value); },
   });
-  node.appendChild = function (child) { child.parentNode = node; node.children.push(child); return child; };
+  Object.defineProperty(node, "firstChild", {
+    get: function () { return node.children[0] || null; },
+  });
+  Object.defineProperty(node, "innerHTML", {
+    get: function () { return node._innerHTML || ""; },
+    set: function (value) {
+      node._innerHTML = String(value);
+      node.children = [];
+      delete node._textContent;
+      parseHtml(node, node._innerHTML);
+    },
+  });
+  node.appendChild = function (child) { child.parentNode = node; child.parentElement = node; node.children.push(child); return child; };
   node.setAttribute = function (key, value) { node.attributes[key] = String(value); };
   node.getAttribute = function (key) { return node.attributes[key] || null; };
+  node.hasAttribute = function (key) { return Object.prototype.hasOwnProperty.call(node.attributes, key); };
+  node.querySelector = function (selector) { return node.querySelectorAll(selector)[0] || null; };
+  node.querySelectorAll = function (selector) { return descendants(node).filter(function (child) { return matchesSelector(child, selector); }); };
   node.addEventListener = function (type, handler) { node.listeners[type] = (node.listeners[type] || []).concat(handler); };
   node.click = function () {
     var handlers = node.listeners.click || [];
