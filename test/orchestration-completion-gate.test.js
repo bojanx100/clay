@@ -541,6 +541,58 @@ test("restart finalizes a persisted Coop completion without hiding visible desce
   assert.equal(h.session.orchestrationTasks[0].archivedAt, undefined);
 });
 
+test("restart defers an owner-acceptance completion until its runtime fence is restored", function () {
+  var finishCalls = 0;
+  var h = gateHarness([], {
+    finishControlledExecution: function () {
+      finishCalls++;
+      var cause = new Error("A Coop-controlled execution has no matching runtime capability.");
+      cause.code = "COOP_CONTROL_FENCE_MISSING";
+      throw cause;
+    },
+  });
+  h.session.coopControlledBy = { coopSessionStorageId: "coop-home", since: 1 };
+  h.session.orchestrationProjectCompletion = {
+    status: "completed",
+    portfolioTaskId: "portfolio-restart-owner-wait",
+    bindingRevision: 3,
+    completionRevision: 2,
+    graphDigest: "owner-wait-digest",
+    integrationVerification: "yes",
+    escalationRequired: "no",
+    completedAt: 10,
+  };
+  h.session.orchestrationPolicy = {
+    portfolioExecution: {
+      portfolioTaskId: "portfolio-restart-owner-wait",
+      bindingRevision: 3,
+      idempotencyKey: "restart-owner-wait-r3",
+      mode: "project_coordinator",
+      status: "failed",
+      reason: "restart_recovery",
+      ownerAcceptanceRequired: true,
+      ownerAcceptance: { status: "pending" },
+      implementationCompletedAt: 10,
+      implementationCompletionRevision: 2,
+      implementationGraphDigest: "owner-wait-digest",
+      control: {
+        executionId: "exec:restart-owner-wait",
+        incarnationId: "inc:restart-owner-wait",
+        epoch: 4,
+        role: "coordinator",
+        authorityId: "auth:restart-owner-wait",
+      },
+    },
+  };
+
+  assert.doesNotThrow(function () { h.gate.restore(h.session); });
+
+  assert.equal(finishCalls, 0,
+    "startup must wait for control recovery to restore the owner-acceptance state");
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.status, "failed");
+  assert.equal(h.session.orchestrationPolicy.portfolioExecution.reason, "restart_recovery");
+});
+
 test("restart repairs a persisted project-coordinator needs-input declaration", function () {
   var h = gateHarness([]);
   h.session.coopControlledBy = { coopSessionStorageId: "coop-home", since: 1 };
