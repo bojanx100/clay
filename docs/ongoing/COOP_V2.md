@@ -35,7 +35,8 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [ ] Define and implement ON adoption / OFF ownership handover.
 - [ ] Give persistent project coordinators explicit role, project context, intake,
       scoped delegation, and upward reporting.
-- [ ] Let Coop own high-level discussion while delegating substantial execution.
+- [x] Give Coop explicit high-level discussion instructions while delegating substantial execution.
+- [x] Supply current role and canonical project instructions on every control turn.
 - [ ] Consolidate owner-request/task/attempt outcome provenance.
 - [ ] Remove recovery mutations from projections, drive them through daemon events,
       and release removed managers from the recovery registry.
@@ -211,8 +212,10 @@ Proof: restoring the old fixture/wiring code reproduces all seven baseline
 failures: 140 default tests, 133 pass / 7 fail; 104 controlled tests, 101 pass /
 3 fail. After restoration, the entire suite passes: 4,114 / 4,114 default across
 412 files and 591 / 591 controlled across 41 files. This validates the exercised
-code paths in isolated state; provider behavior, live canaries after activation,
-and the remaining product contract have not yet been validated.
+code paths. Retracted blanket isolation claim: the existing Lead-workspace test
+bypassed CLAY_HOME and could reach the real identity file; iteration 11 repairs
+that path. Provider behavior, live canaries after activation, and the remaining
+product contract have not yet been validated.
 
 
 ### 10. Release destroyed recovery managers
@@ -243,3 +246,32 @@ reverted run performs discovery only and never creates or edits a workspace.
 Earlier full-suite isolation was incomplete: its existing Lead-workspace test
 called ensureLeadWorkspace against the real home. Those passing runs do not prove
 absence of live-state side effects. No live-state repair was performed here.
+
+
+### 12. Give resident control sessions their actual role and project rules
+
+The SDK now receives a registered session's distinct Coop, project-coordinator,
+Council, or Triage role. Project coordinators resolve their canonical checkout by
+ProjectRef and receive current AGENTS.md, CLAUDE.md, and required local staffing
+instructions, with content digests. Duplicate display names, competing worktrees,
+removed projects, incomplete instructions, and oversized instruction sets cannot
+supply a substitute or partial rule snapshot. Context accompanies initial,
+resumed, and warm provider messages; ordinary turns and owner history are preserved.
+The conversation retains its Lead workspace. Context supplies knowledge, not
+execution authority; coordinator intake and scoped delegation remain unfinished.
+
+Coop's foreground instructions now keep high-level planning, discussion, and
+outcome synthesis with Coop. The shared workspace identifies the distinct roles,
+migrates the conflicting old stock paragraph, and preserves owner-authored text.
+Independent review caught metadata-shaped project Coop channels; resolution now
+uses the shared canonical-Coop predicate, with a real channel creation regression.
+
+Proof: removing the wiring and identity update yields 8 default tests, 2 pass /
+6 fail, and 6 controlled tests, 1 pass / 5 fail. Reverting only the channel
+predicate yields 6 tests, 5 pass / 1 fail in each mode. Restored related suites:
+94 / 94 default across eight files and 28 / 28 controlled across three files.
+Tests drive the real router registry, control-plane session creation, filesystem
+instruction loading, SDK bridge, and provider message boundary with a fake provider.
+They verify rule refresh on warm turns and workspace migration replay. They do not
+prove model compliance, runtime capability enforcement, or the complete management
+lifecycle. No production workspace was updated.
