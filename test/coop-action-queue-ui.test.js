@@ -229,6 +229,45 @@ test("a genuinely active topic appears with the exact reason Working now", async
   assert.equal(textOf(row, "coop-action-item-reason"), "Working now");
 });
 
+test("Triage and Council cards use compact role labels while preserving full objectives", async function () {
+  var ctx = await harness();
+  var objective = "Clay · Perform a strictly read-only diagnosis of whether the running Clay runtime needs a restart before the already-repaired Webapp board auto-launch flow can process eligible BOUNCED rows";
+  var actionQueue = buildActionQueue([{
+    projectRef: { projectId: "clay" }, slug: "clay", title: "Clay",
+    sessions: [{ localId: 1, storageId: "control-coordinator", orchestrationTasks: [{
+      taskId: "triage-task", title: objective, controlRole: "triage", status: "needs_input",
+      coopTopicRef: { topicId: "triage-card" }, updatedAt: 1,
+    }, {
+      taskId: "council-task", title: objective, controlRole: "council", status: "failed",
+      coopTopicRef: { topicId: "council-card" }, updatedAt: 2,
+    }] }, {
+      localId: 2, storageId: "triage-session", orchestrationParent: { taskId: "triage-task" }, orchestrationTasks: [],
+    }, {
+      localId: 3, storageId: "council-session", orchestrationParent: { taskId: "council-task" }, orchestrationTasks: [],
+    }],
+  }], {});
+  var out = await renderedNow(ctx, {}, {
+    type: "global_coop_projection",
+    nowIndex: buildNowIndex([{
+      topicRef: { topicId: "triage-card" }, projectRef: { projectId: "clay" }, title: objective,
+      workState: "needs_input", stateSource: "task_attention", updatedAt: 1,
+    }, {
+      topicRef: { topicId: "council-card" }, projectRef: { projectId: "clay" }, title: objective,
+      workState: "needs_input", stateSource: "task_attention", updatedAt: 2,
+    }], actionQueue),
+  });
+  var rows = byClass(out.container, "coop-action-item");
+  assert.equal(textOf(rows[0], "coop-action-item-title"), "Triage review");
+  assert.equal(textOf(rows[1], "coop-action-item-title"), "Council review");
+  assert.equal(byClass(rows[0], "coop-action-item-title")[0].getAttribute("title"), objective);
+  assert.equal(rows[0].dataset.controlRole, "triage");
+  assert.equal(rows[1].dataset.controlRole, "council");
+  assert.equal(textOf(rows[0], "coop-action-item-meta"), "Clay · Needs input");
+  assert.equal(textOf(rows[1], "coop-action-item-meta"), "Clay · Failed");
+  assert.equal(rows[0].getAttribute("aria-label").indexOf(objective), 0,
+    "the full objective remains available to assistive technology");
+});
+
 test("a non-replayable Triage working topic opens its exact project session instead of LEAD", async function () {
   var ctx = await harness();
   var triageRef = {

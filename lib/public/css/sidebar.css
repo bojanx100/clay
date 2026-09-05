@@ -1119,7 +1119,8 @@
 }
 
 .coop-control-plane-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   width: calc(100% - 16px);
@@ -1138,8 +1139,26 @@
 .coop-control-plane-row:hover,
 .coop-control-plane-row:focus-visible { background: var(--sidebar-hover); color: var(--text); }
 .coop-control-plane-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.coop-control-plane-title { overflow: hidden; flex: 1 1 auto; text-overflow: ellipsis; white-space: nowrap; }
+.coop-control-plane-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .coop-control-plane-state { color: var(--text-dimmer); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.coop-control-plane-context {
+  grid-column: 2 / 4;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.coop-project-coordinator-status-running .coop-control-plane-state,
+.coop-project-coordinator-status-reviewing .coop-control-plane-state { color: var(--accent); }
+.coop-project-coordinator-status-needs_input .coop-control-plane-state,
+.coop-project-coordinator-status-waiting_user .coop-control-plane-state,
+.coop-project-coordinator-status-blocked .coop-control-plane-state,
+.coop-project-coordinator-status-failed .coop-control-plane-state { color: var(--warning, #d99824); }
+.coop-project-coordinator-status-completed .coop-control-plane-state { color: var(--success, #3fb950); }
 .coop-control-plane-row.processing .coop-project-coordinator-marker {
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.14);
   animation: vendor-dot-pulse 1.1s ease-in-out infinite;
@@ -1215,6 +1234,12 @@ button.coop-control-result:hover { color: var(--text-primary); }
   -webkit-line-clamp: 2;
 }
 
+/* Council and Triage names are deliberately one short line. Their complete
+   objective remains in the button tooltip and in the existing task session. */
+.coop-action-item[data-control-role] .coop-action-item-title {
+  -webkit-line-clamp: 1;
+}
+
 .coop-action-item-meta {
   display: block;
   overflow: hidden;
@@ -1227,6 +1252,7 @@ button.coop-control-result:hover { color: var(--text-primary); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.coop-action-item-meta-control { color: var(--text-muted); }
 
 .coop-action-item-reason {
   overflow: hidden;

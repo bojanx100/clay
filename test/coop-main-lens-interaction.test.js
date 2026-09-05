@@ -424,7 +424,10 @@ test("desktop and mobile sidebars retain only actionable control rows while keep
   assert.match(desktopControlRows[0].textContent, /Running/);
   assert.match(desktopControlRows[1].textContent, /Needs input/);
   assert.equal(byClass(desktop, "coop-control-plane-context")[0].textContent,
-    "Clay · What canonical identity should the owner see? · Comparing typed ingress and task links");
+    "Clay · Comparing typed ingress and task links");
+  assert.equal(byClass(desktop, "coop-control-plane-title")[0].textContent, "Council review");
+  assert.equal(byClass(desktop, "coop-control-plane-title")[0].attributes.title,
+    "Council: shape Threads V2", "the full control objective remains available on hover");
   assert.equal(byClass(desktop, "coop-control-result").length, 0,
     "terminal audit history does not flood the desktop sidebar");
   desktopControlRows[0].click();
@@ -449,7 +452,8 @@ test("desktop and mobile sidebars retain only actionable control rows while keep
   assert.equal(byClass(mobile, "mobile-coop-control-result").length, 0,
     "terminal audit history does not flood the mobile sidebar");
   assert.equal(byClass(mobile, "mobile-coop-control-plane-context")[0].textContent,
-    "Clay · What canonical identity should the owner see? · Comparing typed ingress and task links");
+    "Clay · Comparing typed ingress and task links");
+  assert.equal(byClass(mobile, "mobile-coop-control-plane-title")[0].textContent, "Council review");
   mobileControlRows[1].click();
   assert.deepEqual(sent.pop(), { type: "resolve_session_ref", sessionRef: triageRef });
   assert.equal(navigated, 1);
