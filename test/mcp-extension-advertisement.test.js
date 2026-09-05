@@ -404,10 +404,10 @@ test("browser open defaults to a background tab and reports the extension tabId"
   assert.match(result.content[0].text, /Opened tab 73/);
 });
 
-test("browser open still activates a tab when explicitly requested", async function () {
+test("browser open cannot activate a tab even when explicitly requested", async function () {
   var browserTools = getBrowserToolDefs(function (command, args) {
     assert.equal(command, "tab_open");
-    assert.deepEqual(args, { url: "https://example.com", active: true });
+    assert.deepEqual(args, { url: "https://example.com", active: false });
     return Promise.resolve({ tabId: 74 });
   }, function () { return []; });
   var open = browserTools.find(function (tool) {
@@ -416,6 +416,18 @@ test("browser open still activates a tab when explicitly requested", async funct
 
   var result = await open.handler({ url: "https://example.com", active: true });
   assert.match(result.content[0].text, /Opened tab 74/);
+});
+
+test("browser open rejects an extension grouping failure", async function () {
+  var browserTools = getBrowserToolDefs(function () {
+    return Promise.resolve({ error: "Failed to group MCP browser tab: denied" });
+  }, function () { return []; });
+  var open = browserTools.find(function (tool) {
+    return tool.name === "browser_open";
+  });
+
+  await assert.rejects(open.handler({ url: "https://example.com" }),
+    /Failed to group MCP browser tab: denied/);
 });
 
 test("browser screenshot preserves the extension failure reason", async function () {
