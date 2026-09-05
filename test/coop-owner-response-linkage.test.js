@@ -366,3 +366,35 @@ test("an anchor survives reload and an unusable one never invalidates the ref", 
   assert.deepEqual(reloaded.get(overlong.ingressId).response.responseRef,
     { projectId: LEAD, sessionStorageId: COOP, eventIndex: 4 });
 });
+
+
+test("a refused durable batch extension preserves the previously staged requests", async function (t) {
+  var h = harness();
+  t.after(function () { fs.rmSync(h.dir, { recursive: true, force: true }); });
+  var first = recordRequest(h.ledger, 292, 20);
+  var second = recordRequest(h.ledger, 293, 21);
+  var failSave = false;
+  var sm = {
+    sessions: new Map([[7, h.session]]),
+    getProjectId: function () { return LEAD; },
+    saveSessionFile: function (session, options) {
+      assert.equal(options.durable, true, "tool success must acknowledge durable staging");
+      return !failSave;
+    },
+  };
+  var definitions = require("../lib/coop-control-ledger-reconciliation-mcp-server")
+    .getToolDefs({ sm: sm, ownerRequests: h.ledger, topicIndex: {} });
+  var tool = definitions.find(function (definition) { return definition.name === "link_owner_response"; });
+  async function stage(links) {
+    return JSON.parse((await tool.handler({ sessionId: COOP, requests: links })).content[0].text);
+  }
+  assert.equal((await stage([first])).ok, true);
+  var before = JSON.stringify(h.session.coopConversationIngress.pendingOwnerResponse);
+  failSave = true;
+  assert.equal((await stage([second])).code, "session_persistence_failed");
+  assert.equal(JSON.stringify(h.session.coopConversationIngress.pendingOwnerResponse), before);
+  failSave = false;
+  assert.equal((await stage([first, second])).ok, true, "overlapping batches append only new requests");
+  assert.equal(responseLinkage.pendingOwnerResponse(h.session).requests.length, 2);
+  assert.equal((await stage([first])).duplicate, true);
+});

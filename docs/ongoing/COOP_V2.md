@@ -27,7 +27,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Preserve authenticated owner completion of unadopted project automation.
 - [x] Separate internal completion from local owner-accepted workflow completion.
 - [ ] Accept natural owner instructions and preserve their constraints at ingress.
-- [ ] Make multi-batch owner response linking durable and idempotent.
+- [x] Make multi-batch owner response linking durable and idempotent.
 - [ ] Drive durable delivery retries and recover or explicitly account for sequence gaps.
 - [ ] Make normal completion and late attention transitions idempotent.
 - [ ] Preserve execution links and concurrent changes during Thread undo.
@@ -75,3 +75,16 @@ automation, gate, admission, candidates, and task-launcher suites. Tests cover s
 eligible PR/issue attempts, subsequent duplicate scans, owner/member distinctions,
 and real router/binding completion with restart and delivery/save failures.
 Provider/GitHub boundaries are stubbed; full-suite validation remains pending.
+
+
+### 2. Durable multi-batch owner answers
+
+The per-call limit remains 16. Each automated answer now accumulates a durable,
+validated union across calls; overlap and replay add no duplicates. Version-1
+pending links remain readable. Staging acknowledges durable session persistence
+and rolls back the extension if saving fails.
+
+Proof: the three response/linkage/batching suites were 24 total, 19 pass / 5 fail
+with the fix removed, then 24 / 24 after restoration. The real MCP handler,
+owner ledger, and conversation finalizer handle 1, 16, 17, 20, 32, and 65 requests,
+including reload and replay after each batch. No real model turn was run.
