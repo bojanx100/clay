@@ -7,6 +7,9 @@ var createBindings =
   require("../lib/portfolio-execution-bindings").createPortfolioExecutionBindings;
 var readBindings =
   require("../lib/portfolio-execution-bindings").readPortfolioExecutionBindings;
+var automationAuthorization =
+  require("../lib/project-automation-execution-authorization");
+var sessionLifecycle = require("../lib/coop-session-lifecycle");
 
 var PROJECT_ID = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
 
@@ -18,6 +21,29 @@ function request(revision, mode, key) {
     bindingRevision: revision,
     idempotencyKey: key || "command-" + revision,
   };
+}
+
+function autoLaunchReviewRequest(revision) {
+  var value = request(revision, "project_coordinator", "auto-pr-command-" + revision);
+  value.portfolioTaskId = "auto-pr-review";
+  value.automationAuthorization = automationAuthorization.createAuthorization({
+    projectRef: value.targetProject,
+    candidateKey: "launch:trialview/v2#17",
+    digest: "candidate-digest",
+    itemKey: "trialview/v2#17",
+    itemClass: "pr_review",
+    policyDigest: "policy-digest",
+    eligibilityPass: "eligibility-pass",
+    eligibility: {
+      assignedToOwner: true,
+      recipeAllowsUnassigned: false,
+      reason: "pr_author",
+    },
+    recipeId: "pr-reviews",
+    intent: { autoKind: "pr-review" },
+  }, value, { kind: automationAuthorization.PRIMITIVE_KIND });
+  assert.ok(value.automationAuthorization, "fixture must carry typed primitive authority");
+  return value;
 }
 
 test("portfolio execution bindings persist one idempotent canonical SessionRef", function () {
@@ -169,6 +195,118 @@ test("typed direct-leaf completion is idempotent and removes closed work from cu
   assert.equal(restarted.get("portfolio-task", 1).status, "completed");
   assert.equal(restarted.listCurrent().length, 0);
   assert.equal(restarted.reserve(request(2)).ok, true);
+});
+
+test("auto-launched PR review completion is terminal without owner acceptance", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-auto-pr-completion-"));
+  var store = createBindings({ file: path.join(dir, "bindings.json"), now: function () { return 300; } });
+  var input = autoLaunchReviewRequest(1);
+  assert.equal(store.reserve(input).ok, true);
+  assert.equal(store.commit(input.portfolioTaskId, input.bindingRevision, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "auto-pr-session",
+  }).ok, true);
+
+  var completed = store.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "auto-pr-completed",
+    completedAt: 325,
+    terminalStatus: "completed",
+    executionMode: "project_coordinator",
+    ownerAcceptanceRequired: true,
+  });
+
+  assert.equal(completed.ok, true);
+  assert.equal(completed.binding.status, "completed");
+  assert.equal(completed.binding.ownerAcceptanceRequired, undefined,
+    "project-local Done rules cannot add a second owner gate to a typed PR primitive");
+  assert.equal(completed.binding.ownerAcceptance, undefined);
+  var session = { orchestrationPolicy: { portfolioExecution: {
+    portfolioTaskId: input.portfolioTaskId,
+    bindingRevision: input.bindingRevision,
+    status: "running",
+  } } };
+  var lifecycle = sessionLifecycle.lifecycleState(session, completed.binding, null,
+    "task_coordinator", [], [session]);
+  assert.equal(lifecycle, "completed");
+  assert.deepEqual(sessionLifecycle.terminalOutcome(lifecycle, "task_coordinator", {
+    binding: completed.binding,
+    execution: session.orchestrationPolicy.portfolioExecution,
+  }), { status: "completed", at: 325, summary: "" });
+  assert.equal(store.requireOwnerAcceptance(input.portfolioTaskId, input.bindingRevision, {
+    correctionEventId: "not-applicable-to-pr-primitive",
+    completionEventId: "auto-pr-completed",
+  }).reason, "owner_acceptance_not_applicable",
+  "a later repair must not reintroduce the gate on the exempt workflow");
+});
+
+test("explicit owner acceptance remains sticky for unrelated project work", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-owner-gated-completion-"));
+  var store = createBindings({ file: path.join(dir, "bindings.json"), now: function () { return 400; } });
+  var input = request(1, "project_coordinator", "owner-gated-command");
+  assert.equal(store.reserve(input).ok, true);
+  assert.equal(store.commit(input.portfolioTaskId, input.bindingRevision, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "owner-gated-session",
+  }).ok, true);
+
+  var completed = store.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "owner-gated-completed",
+    completedAt: 425,
+    terminalStatus: "completed",
+    executionMode: "project_coordinator",
+    ownerAcceptanceRequired: true,
+  });
+
+  assert.equal(completed.binding.ownerAcceptanceRequired, true);
+  assert.equal(completed.binding.ownerAcceptance.status, "pending");
+  assert.equal(sessionLifecycle.lifecycleState(null, completed.binding, null,
+    "task_coordinator", [], []), "needs_input");
+  assert.equal(sessionLifecycle.terminalOutcome("needs_input", "task_coordinator", {
+    binding: completed.binding,
+    execution: {},
+  }), null);
+});
+
+test("same-event replay removes a stale owner gate from a completed PR primitive", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-auto-pr-replay-"));
+  var file = path.join(dir, "bindings.json");
+  var input = autoLaunchReviewRequest(1);
+  var first = createBindings({ file: file, now: function () { return 500; } });
+  assert.equal(first.reserve(input).ok, true);
+  assert.equal(first.commit(input.portfolioTaskId, input.bindingRevision, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "auto-pr-replay-session",
+  }).ok, true);
+  assert.equal(first.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "auto-pr-replay-completed",
+    completedAt: 525,
+    terminalStatus: "completed",
+    executionMode: "project_coordinator",
+  }).ok, true);
+  var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
+  persisted.bindings[0].ownerAcceptanceRequired = true;
+  persisted.bindings[0].ownerAcceptance = {
+    status: "pending",
+    source: "project_local_instructions",
+  };
+  fs.writeFileSync(file, JSON.stringify(persisted, null, 2) + "\n");
+
+  var restarted = createBindings({ file: file, now: function () { return 550; },
+    reconcileOnLoad: false });
+  var replay = restarted.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "auto-pr-replay-completed",
+    completedAt: 525,
+    terminalStatus: "completed",
+    executionMode: "project_coordinator",
+  });
+
+  assert.equal(replay.ok, true);
+  assert.equal(replay.duplicate, true);
+  assert.equal(replay.binding.ownerAcceptanceRequired, undefined);
+  assert.equal(replay.binding.ownerAcceptance, undefined);
+  assert.equal(createBindings({ file: file, reconcileOnLoad: false })
+    .get(input.portfolioTaskId, input.bindingRevision).ownerAcceptanceRequired, undefined,
+  "the correction must be durable across another restart");
 });
 
 test("stranded direct leaves reconcile every terminal worker outcome", function () {
