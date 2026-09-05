@@ -323,3 +323,197 @@ test("delivery resolves the target by stable project id, not a changed slug", fu
     assert.equal(delivery.deliverEnvelope(envelope("stable-project-ref", 1)).ok, true);
   });
 });
+
+[false, true].forEach(function (legacyOutboxLoss) {
+  test("exhausted temporary delivery recovers in order across restart: legacy=" + legacyOutboxLoss, function () {
+    withTransport({}, function (scratch) {
+      var clock = 100;
+      var ready = false;
+      var applied = [];
+      var recovery = [];
+      var options = {
+        deliveryFile: scratch.file, now: function () { return clock; },
+        retryBaseMs: 5, retryMaxMs: 20, maxAttempts: 2,
+        recordRecoveryEvent: function (event) { recovery.push(event); },
+        getProjectContextById: function () {
+          return ready ? { deliverCrossProjectEnvelope: function (item) {
+            applied.push(item.eventId); return { ok: true };
+          } } : null;
+        },
+      };
+      var delivery = createDurableDelivery(options);
+      delivery.deliverEnvelope(envelope("exhausted-first", 1));
+      clock = 105;
+      delivery.retryPending();
+      assert.equal(recovery.length, 1);
+      if (legacyOutboxLoss) {
+        var oldState = delivery.getState();
+        delete oldState.outbox["exhausted-first"];
+        fs.writeFileSync(scratch.file, JSON.stringify(oldState));
+        delivery = createDurableDelivery(options);
+      } else {
+        assert.deepEqual(delivery.getPendingEventIds(), ["exhausted-first"]);
+      }
+      delivery.deliverEnvelope(envelope("exhausted-second", 2));
+      ready = true;
+      clock = 125;
+      delivery = createDurableDelivery(options);
+      delivery.retryPending();
+      assert.deepEqual(applied, ["exhausted-first", "exhausted-second"]);
+      assert.deepEqual(delivery.getPendingEventIds(), []);
+      assert.deepEqual(delivery.getDeadLetters(), []);
+      assert.equal(delivery.deliverEnvelope(envelope("exhausted-first", 1)).duplicate, true);
+      assert.equal(delivery.deliverEnvelope(envelope("exhausted-second", 2)).duplicate, true);
+      assert.equal(recovery.length, 1, "successful recovery adds no repeated canary");
+    });
+  });
+});
+
+test("conflicting and invalid event-id reuse preserves the pending original", function () {
+  withTransport({}, function (scratch) {
+    var clock = 100;
+    var applied = [];
+    var ready = false;
+    var delivery = createDurableDelivery({
+      deliveryFile: scratch.file, now: function () { return clock; }, retryBaseMs: 5,
+      getProjectContextById: function () { return ready ? {
+        deliverCrossProjectEnvelope: function (item) { applied.push(item); return { ok: true }; },
+      } : null; },
+    });
+    var original = envelope("pending-original", 1, "original");
+    delivery.deliverEnvelope(original);
+    assert.equal(delivery.deliverEnvelope(envelope("pending-original", 1, "tampered")).reason, "invalid_payload");
+    var invalid = envelope("pending-original", 1);
+    invalid.schemaVersion = 99;
+    assert.equal(delivery.deliverEnvelope(invalid).reason, "unsupported_schema");
+    assert.deepEqual(delivery.getState().outbox["pending-original"].envelope, original);
+    ready = true;
+    clock = 105;
+    delivery.retryPending();
+    assert.deepEqual(applied, [original]);
+  });
+});
+
+[false, true].forEach(function (legacyCursorGap) {
+  test("terminal refusal accounts for its sequence without reporting delivery: legacy=" + legacyCursorGap, function () {
+    withTransport({}, function (scratch) {
+      var applied = [];
+      var options = { deliveryFile: scratch.file,
+        canDeliverEnvelope: function (item) { return item.eventId !== "refused-first"; },
+        getProjectContextById: function () { return { deliverCrossProjectEnvelope: function (item) {
+          applied.push(item.eventId); return { ok: true };
+        } }; },
+      };
+      var delivery = createDurableDelivery(options);
+      var first = envelope("refused-first", 1);
+      var second = envelope("accepted-second", 2);
+      if (!legacyCursorGap) delivery.deliverEnvelope(second);
+      assert.equal(delivery.deliverEnvelope(first).reason, "access_denied");
+      if (legacyCursorGap) {
+        var oldState = delivery.getState();
+        var oldStream = oldState.inbox["system-target:target-session"].streams[
+          "system-source:source-session>system-target:target-session"];
+        oldStream.cursor = 0;
+        delete oldStream.lastRejection;
+        fs.writeFileSync(scratch.file, JSON.stringify(oldState));
+        delivery = createDurableDelivery(options);
+        delivery.deliverEnvelope(second);
+        delivery.retryPending();
+      }
+      assert.deepEqual(applied, ["accepted-second"]);
+      assert.deepEqual(delivery.getPendingEventIds(), []);
+      var inbox = delivery.getState().inbox["system-target:target-session"];
+      assert.deepEqual(inbox.applied.map(function (item) { return item.eventId; }), ["accepted-second"]);
+      assert.equal(inbox.streams["system-source:source-session>system-target:target-session"].lastRejection.reason, "access_denied");
+      delivery = createDurableDelivery(options);
+      assert.equal(delivery.deliverEnvelope(first).reason, "access_denied");
+      assert.equal(delivery.deliverEnvelope(second).duplicate, true);
+      assert.deepEqual(applied, ["accepted-second"]);
+    });
+  });
+});
+
+test("an unknown sequence gap stays pending until its actual predecessor arrives", function () {
+  withTransport({}, function (scratch) {
+    var applied = [];
+    var clock = 100;
+    var delivery = createDurableDelivery({ deliveryFile: scratch.file,
+      now: function () { return clock; }, retryBaseMs: 5, retryMaxMs: 10, maxAttempts: 2,
+      getProjectContextById: function () { return { deliverCrossProjectEnvelope: function (item) {
+        applied.push(item.eventId); return { ok: true };
+      } }; },
+    });
+    delivery.deliverEnvelope(envelope("waiting-second", 2));
+    clock = 105;
+    delivery.retryPending();
+    clock = 1000;
+    delivery.retryPending();
+    assert.deepEqual(applied, []);
+    assert.deepEqual(delivery.getPendingEventIds(), ["waiting-second"]);
+    assert.equal(delivery.getDeadLetters()[0].reason, "sequence_gap");
+    delivery.deliverEnvelope(envelope("real-first", 1));
+    assert.deepEqual(applied, ["real-first", "waiting-second"]);
+    assert.deepEqual(delivery.getPendingEventIds(), []);
+  });
+});
+
+test("a full sequence buffer retains overflow reports in the bounded outbox", function () {
+  withTransport({}, function (scratch) {
+    var clock = 100;
+    var applied = [];
+    var delivery = createDurableDelivery({ deliveryFile: scratch.file,
+      now: function () { return clock; }, retryBaseMs: 5,
+      getProjectContextById: function () { return { deliverCrossProjectEnvelope: function (item) {
+        applied.push(item.sourceSeq); return { ok: true };
+      } }; },
+    });
+    for (var sequence = 2; sequence <= 66; sequence++) {
+      delivery.deliverEnvelope(envelope("buffer-" + sequence, sequence));
+    }
+    assert.equal(delivery.getPendingEventIds().length, 65);
+    delivery.deliverEnvelope(envelope("buffer-1", 1));
+    clock = 105;
+    delivery.retryPending();
+    assert.deepEqual(applied, Array.from({ length: 66 }, function (_, index) { return index + 1; }));
+    assert.deepEqual(delivery.getPendingEventIds(), []);
+    assert.deepEqual(delivery.getDeadLetters(), []);
+  });
+});
+
+test("a saturated outbox recovers its retained predecessor without losing a successor", function () {
+  withTransport({}, function (scratch) {
+    var clock = 100;
+    var ready = false;
+    var applied = [];
+    var options = { deliveryFile: scratch.file,
+      now: function () { return clock; }, retryBaseMs: 5, retryMaxMs: 20, maxAttempts: 2,
+      getProjectContextById: function () { return ready ? { deliverCrossProjectEnvelope: function (item) {
+        applied.push(item.sourceSeq); return { ok: true };
+      } } : null; },
+    };
+    var delivery = createDurableDelivery(options);
+    delivery.deliverEnvelope(envelope("saturated-1", 1));
+    clock = 105;
+    delivery.retryPending();
+    var oldState = delivery.getState();
+    delete oldState.outbox["saturated-1"];
+    fs.writeFileSync(scratch.file, JSON.stringify(oldState));
+    delivery = createDurableDelivery(options);
+    for (var sequence = 2; sequence <= 257; sequence++) {
+      delivery.deliverEnvelope(envelope("saturated-" + sequence, sequence));
+    }
+    assert.equal(Object.keys(delivery.getState().outbox).length, 256);
+    clock = 125;
+    ready = true;
+    delivery.retryPending();
+    assert.deepEqual(applied, Array.from({ length: 256 }, function (_, index) { return index + 1; }));
+    assert.deepEqual(delivery.getPendingEventIds(), ["saturated-257"]);
+    // Restart between restoring the predecessor and releasing its displaced
+    // successor proves both sides of the slot exchange reached durable state.
+    delivery = createDurableDelivery(options);
+    delivery.retryPending();
+    assert.deepEqual(applied, Array.from({ length: 257 }, function (_, index) { return index + 1; }));
+    assert.deepEqual(delivery.getPendingEventIds(), []);
+    assert.deepEqual(delivery.getDeadLetters(), []);
+  });
+});

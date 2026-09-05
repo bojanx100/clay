@@ -28,7 +28,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Separate internal completion from local owner-accepted workflow completion.
 - [x] Accept natural owner instructions and preserve their constraints at ingress.
 - [x] Make multi-batch owner response linking durable and idempotent.
-- [ ] Drive durable delivery retries and recover or explicitly account for sequence gaps.
+- [x] Drive durable delivery retries and recover or explicitly account for sequence gaps.
 - [x] Make normal completion and late attention transitions idempotent.
 - [x] Preserve execution links and concurrent changes during Thread undo.
 - [ ] Enforce read-only authority at admission and execution boundaries.
@@ -169,3 +169,29 @@ Proof: with router wiring removed, the clock suite reports 3 tests, 1 pass / 2 f
 Restored delivery/router/graceful-restart suites: 73 / 73 default, 12 / 12 controlled.
 The new tests run real timers and durable delivery through the router, including
 recovery readiness and shutdown; they do not start the user's production daemon.
+
+
+### 8. Retain failed reports and recover ordered delivery
+
+Exhausted temporary failures retain their bounded outbox records and move to a
+capped retry interval with one diagnostic. Legacy retryable dead letters re-enter
+the outbox. If successors fill all 256 slots, the required predecessor exchanges
+its durable slot with a later report in the same stream; both survive restart.
+Deferred reports remain visible through pending-event inspection. Permanent
+refusals consume only their exact sequence with an explicit rejection record,
+including retained historical refusals, without claiming target application.
+Unknown gaps wait for their actual predecessor. Event-id collisions cannot delete
+the accepted pending original. Overflow of the 64-slot ordering buffer stays in
+the bounded outbox. No collection limit was increased.
+
+Wire format and cursor management were extracted into focused modules; public
+exports and envelope serialization remain compatible. The delivery core is now
+under 500 lines.
+
+Proof: old implementation yields 17 tests, 9 pass / 8 fail; restored delivery,
+router, envelope bridge, fan-in and auto-launch suites: 141 / 141. Regression
+cases exercise real durable state, restart, same-stream ordering, all 256 occupied
+outbox slots, exact payload preservation, and rejection-vs-application evidence.
+Independent review found the saturated predecessor case and its regression now
+passes. These runs use temporary state and fake destination callbacks. Production
+canary validation is pending activation; no live delivery file was modified.

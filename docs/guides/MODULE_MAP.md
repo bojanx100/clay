@@ -135,7 +135,10 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `server-cross-project.js` | Daemon cross-project router: non-authoritative legacy text notifications, typed durable delivery by stable ProjectRef/SessionRef, controlled legacy-to-project execution migration, and project-registration reconciliation of audited restart supersessions |
 | `server-cross-project-automation-admission.js` | Separate cross-project authorization boundary for policy-autonomous execution | Forbids owner-shaped ingress, validates current project-owned evidence through the target ProjectRef, and ensures the matching canonical automation Thread before binding delivery |
 | `cross-project-delivery-retry.js` | Daemon-owned delivery retry clock with readiness, shutdown, and error-reporting boundaries |
-| `cross-project-delivery.js` | Typed delivery envelopes, atomic bounded outbox/inbox/cursor persistence, acknowledgement, ordered replay/retry, and dead-letter state |
+| `cross-project-delivery.js` | Atomic bounded outbox/inbox persistence, acknowledgement, ordered retries, retained transient failures, and explicit terminal sequence disposition |
+| `cross-project-envelope.js` | Versioned bounded cross-project wire format, validation, and byte-stable replay identity |
+| `cross-project-delivery-cursors.js` | Bounded source/inbox cursor allocation and reclamation that preserves pending reports |
+| `cross-project-delivery-retention.js` | Atomic predecessor/successor slot exchange for recovery from a saturated legacy outbox |
 | `server-cross-project-control-plane-migration.js` | Canonical typed migration of one exact verified legacy project-coordinator binding revision onto Coop's resident control plane: fail-closed ref/prior/claim/owner-direct verification, byte-stable idempotent retries, immutable terminal history, and no duplicated coordinators, tasks, claims, sessions, or fan-in events |
 | `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
 | `project-live-ui-workspace.js` | Server-authoritative inspected-port ownership mapping across registered projects and git worktrees |
