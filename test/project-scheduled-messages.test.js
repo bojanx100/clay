@@ -218,6 +218,27 @@ test("a recovered provider turn cancels its queued restart fallback", function (
   assert.equal(ctx.pushed.length, 0);
 });
 
+test("an explicit reopen resumes an old restart interruption without enabling unattended startup", function () {
+  var ctx = harness();
+  var staleTimestamp = Date.now() - (2 * 60 * 60 * 1000);
+  var automatic = {
+    localId: 50,
+    history: [],
+    interruptedByRestart: true,
+    restartResumeEligible: true,
+    restartInterruptedAt: staleTimestamp,
+  };
+  var reopened = Object.assign({}, automatic, { localId: 51, history: [] });
+
+  ctx.messages.autoResumeRestartSession(automatic);
+  assert.equal(automatic.scheduledMessage, undefined);
+
+  ctx.messages.autoResumeRestartSession(reopened, { userInitiated: true });
+  assert.equal(reopened.history[0].type, "scheduled_message_queued");
+  assert.equal(reopened.history[0].text, "↻ Resuming after restart");
+  clearTimeout(reopened.scheduledMessage.timer);
+});
+
 test("a scheduled Coop send retains its captured scope without Main stale refs", function () {
   var ctx = harness();
   var session = { localId: 45, history: [], isProcessing: false, coopHome: true };

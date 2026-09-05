@@ -524,7 +524,7 @@ test("a completed turn supersedes stale restart-interruption metadata before cac
   }
 });
 
-test("a terminal restart interruption preserves its state through the startup cache", function () {
+test("a queued restart interruption preserves its state through the startup cache", function () {
   var storageId = "aaaaaaaa-0000-4000-8000-000000000014";
   var interruptionText = "Session was interrupted by a Clay restart. Clay will continue it when you reopen this session.";
   var h = harness(function (dir) {
@@ -536,6 +536,8 @@ test("a terminal restart interruption preserves its state through the startup ca
       { type: "user_message", text: "unfinished turn", _ts: 10 },
       { type: "info", text: interruptionText, _ts: 11 },
       { type: "done", code: 1, _ts: 12 },
+      { type: "scheduled_message_queued", text: "↻ Resuming after restart",
+        autoAction: true, resetsAt: 1000, _ts: 13 },
     ]);
   });
   var file = path.join(h.sessionsDir, storageId + ".jsonl");
@@ -544,7 +546,7 @@ test("a terminal restart interruption preserves its state through the startup ca
     var loaded = sessionByStorageId(h.sm, storageId);
     assert.equal(loaded.interruptedByRestart, true);
     assert.equal(loaded.restartResumeEligible, undefined,
-      "a durable terminal interruption is not queued for another automatic resume");
+      "a durable queued interruption is not queued for another automatic resume");
 
     clearSessionModuleCache();
     var transcriptReads = 0;

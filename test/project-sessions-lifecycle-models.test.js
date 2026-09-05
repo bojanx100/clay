@@ -128,6 +128,7 @@ test("explicit new-session vendors persist and reply per user and project", func
 function traceLifecycleHarness(session, store, canAccess) {
   var switched = [];
   var switchCalls = [];
+  var resumed = [];
   var sm = {
     sessions: new Map([[session.localId, session]]),
     modelsByVendor: {},
@@ -151,8 +152,11 @@ function traceLifecycleHarness(session, store, canAccess) {
     viewHandlers: { resolveSessionForView: function () {} }, tuiHandlers: {},
     email: { getEmailDefaults: function () { return []; } },
     coopHandoffTraceStore: store,
+    autoResumeRestartSession: function (target, options) {
+      resumed.push({ target: target, options: options });
+    },
   });
-  return { lifecycle: lifecycle, sm: sm, switched: switched, switchCalls: switchCalls };
+  return { lifecycle: lifecycle, sm: sm, switched: switched, switchCalls: switchCalls, resumed: resumed };
 }
 
 test("topic replay options are consumed only from server-private websocket state", function () {
@@ -167,6 +171,7 @@ test("topic replay options are consumed only from server-private websocket state
   harness.lifecycle.handleLifecycleMessage(ws, { type: "switch_session", id: 7, historyScope: "topic" });
 
   assert.deepStrictEqual(harness.switchCalls[0][3], replayOptions);
+  assert.deepStrictEqual(harness.resumed, [{ target: target, options: { userInitiated: true } }]);
   assert.equal(Object.hasOwn(ws, "_clayTopicReplayOptions"), false);
 });
 

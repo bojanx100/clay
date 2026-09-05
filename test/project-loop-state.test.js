@@ -58,6 +58,22 @@ test("persisted executing state requests a safe SDK resume", function () {
   }
 });
 
+test("finishing a loop session persists its interactive state", function () {
+  var saved = [];
+  var session = {
+    singleTurn: true,
+    loop: { active: true, role: "coder" },
+  };
+  var sm = {
+    saveSessionFile: function (value) { saved.push(value); },
+  };
+
+  assert.strictEqual(stateModule.finishSession(sm, session), true);
+  assert.strictEqual(session.singleTurn, false);
+  assert.strictEqual(session.loop.active, false);
+  assert.deepStrictEqual(saved, [session]);
+});
+
 test("crafting recovery moves ready files to approval and missing files to idle", function () {
   var cwd = tempDir();
   try {
