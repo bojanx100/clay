@@ -2192,22 +2192,26 @@ test("a review turn that DID cover this task still resolves after newer turns", 
     "under that turn's own Thread, which is the attribution the reorder gave up");
 });
 
-test("the standing grant route refuses work the policy does not cover", function (t) {
+test("the standing grant route admits ordinary Clay work and refuses work outside its scope", function (t) {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-grant-uncovered-"));
   t.after(function () { fs.rmSync(dir, { recursive: true, force: true }); });
   var onFile = grantPolicyFile(true);
 
-  // A writable dispatch is not read-only diagnosis, so no category covers it and
-  // no Thread is minted -- the same refusal as with the switch off.
+  // Clay On now covers ordinary internal Clay and Coop implementation, so a
+  // writable Clay dispatch needs neither a literal owner turn nor a revision
+  // confirmation. This drives the production coordinator rather than calling
+  // the policy helper directly.
   var writableDelivered = [];
   var writable = grantCoordinator(onFile, writableDelivered,
     createTopicIndex({ file: path.join(dir, "writable.json") }), dir)(grantDispatch({
       ownedPaths: "lib/provider-routes.js",
     }));
-  assert.equal(writable.ok, false);
-  assert.match(String(writable.error || writable.reason),
-    /owner_implementation_decision_required/);
-  assert.equal(writableDelivered.length, 0);
+  assert.equal(writable.ok, true, JSON.stringify(writable));
+  assert.equal(writableDelivered.length, 1);
+  assert.equal(writableDelivered[0].payload.standingGrant.category,
+    "ordinary_internal_clay_coop_work");
+  assert.equal(writableDelivered[0].payload.coopIngressId, undefined,
+    "ordinary Clay work must not fabricate an owner turn");
 
   // A read-only shape whose text names a permanently gated action stays gated,
   // even inside an allowlisted project.
@@ -2573,27 +2577,12 @@ test("owner assent is an allowlist, measured against the real transcript corpus"
     });
   });
 
-// A refusal that names no remedy leaves retrying the identical call as the only
-// strategy. Live on 2026-08-22 that produced nine confirmed retries of one
-// dispatch across four daemon restarts, each re-establishing the same true fact,
-// and a handoff document concluding the gate was broken when it was correct.
-// Same defect class as the bare `coordinator_ref_mismatch` string.
-test("the no-owner-turn refusal names every route that would authorize it",
+test("Clay On does not make another project available",
   function (t) {
     var h = answeredHarness(t, { tasks: [] });
-    var result = h.dispatch({ portfolioTaskId: "clay-needs-authorization-2026-08-22",
-      idempotencyKey: "clay-needs-authorization-2026-08-22-r1", bindingRevision: 4 });
+    var result = h.dispatch({ portfolioTaskId: "webapp-needs-authorization-2026-08-22",
+      idempotencyKey: "webapp-needs-authorization-2026-08-22-r1", bindingRevision: 4,
+      targetProject: { projectId: WEBAPP_PROJECT } });
     assert.equal(result.ok, false);
-    var text = String(result.error || result.reason);
-    assert.match(text, /owner_implementation_decision_required/);
-    // The three real routes, so the caller can pick one instead of guessing.
-    assert.match(text, /request_task_input/, "names the answered-question route");
-    assert.match(text, /clay-needs-authorization-2026-08-22/,
-      "names the exact task the question must cite");
-    assert.match(text, /revision 4/, "names the exact revision");
-    assert.match(text, /newest owner turn|as a decision/, "names the owner-turn route");
-    assert.match(text, /approval/, "names the named-approval route");
-    assert.match(text, /[Rr]ead-only diagnosis/, "says the grant covers read-only work");
-    assert.match(text, /Retrying this identical call cannot change the outcome/,
-      "says plainly that a retry is pointless");
+    assert.equal(result.reason, "project_unavailable");
   });

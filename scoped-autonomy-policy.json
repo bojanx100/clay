@@ -13,7 +13,8 @@
 
   "categories": [
     "read_only_diagnosis",
-    "approved_revision_bump"
+    "approved_revision_bump",
+    "ordinary_internal_clay_coop_work"
   ],
 
   "coopSelfRepair": {
@@ -26,6 +27,7 @@
   "_categories": {
     "read_only_diagnosis": "A dispatch whose EVERY owned-path segment is prefixed \"read-only:\" and whose title/objective reads as diagnosis, audit, investigation, review, triage, research or planning. It can read and report. It cannot edit a file.",
     "approved_revision_bump": "Re-dispatch of a task this owner already approved at a LOWER revision, where the project, Thread and task id are all identical and only the revision number changed. A retry of approved work, not new work.",
+    "ordinary_internal_clay_coop_work": "Ordinary internal implementation whose target is Clay and whose brief or task id identifies Clay or Coop work. It needs no prior owner turn or task-specific revision confirmation. External state changes, Lead self-modification, spend or budget exceptions, destructive/blocked work, and material scope expansion remain gated.",
     "coopSelfRepair": "A separately default-OFF exact control for one admitted Coop self-repair revision. It never widens approved_revision_bump: the project, task, revision, original owner scope, payload digest, and typed project-coordinator authority must all match."
   },
 

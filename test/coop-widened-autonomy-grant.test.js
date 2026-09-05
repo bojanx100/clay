@@ -310,6 +310,56 @@ test("switched on, a read-only diagnosis dispatch proceeds", function () {
     { autonomyPolicyFile: file }).ok, true);
 });
 
+test("Clay On admits newly named ordinary internal Clay and Coop implementations", function () {
+  var file = policyFile({ enabled: true });
+  [
+    ["clay-rebuild-session-search-2026-09-05", "Implement the Clay session-search result repair"],
+    ["coop-reconcile-visible-worker-status-2026-09-05", "Implement the Coop visible-worker status reconciliation"],
+  ].forEach(function (entry) {
+    var admitted = grant.standingAdmission(dispatch({
+      title: entry[1],
+      objective: "Make the internal implementation and verify it locally.",
+      ownedPaths: "lib/server-cross-project.js; test/server-cross-project.test.js",
+      coopStandingAutonomy: true,
+    }), request({ portfolioTaskId: entry[0], coopTopicRef: undefined }),
+    { autonomyPolicyFile: file });
+    assert.equal(admitted.ok, true, entry[0] + ": " + JSON.stringify(admitted));
+    assert.deepEqual(admitted.standingGrant, {
+      category: "ordinary_internal_clay_coop_work",
+      projectId: CLAY_ID,
+    });
+  });
+});
+
+test("Clay On keeps external state, Lead self-modification, and spend exceptions gated", function () {
+  var file = policyFile({ enabled: true });
+  [
+    ["external state", { externalStateChange: true }, "autonomy_grant_external_state_change_gated"],
+    ["Lead self-modification", { leadSelfModification: true },
+      "autonomy_grant_lead_self_modification_gated"],
+    ["spend exception", { budgetException: true },
+      "autonomy_grant_spend_or_budget_exception_gated"],
+  ].forEach(function (entry) {
+    var admitted = grant.standingAdmission(dispatch(Object.assign({
+      title: "Implement the Clay internal admission repair",
+      objective: "Make the internal Clay change.",
+      ownedPaths: "lib/server-cross-project.js",
+      coopStandingAutonomy: true,
+    }, entry[1])), request({ portfolioTaskId: "clay-internal-admission-repair",
+      coopTopicRef: undefined }),
+    { autonomyPolicyFile: file });
+    assert.deepEqual(admitted, { ok: false, reason: entry[2] }, entry[0]);
+  });
+
+  assert.equal(grant.standingAdmission(dispatch({
+    title: "Implement the Coop internal admission repair",
+    ownedPaths: "lib/server-cross-project.js",
+  }), request({ portfolioTaskId: "coop-internal-admission-repair",
+    targetProject: { projectId: OTHER_ID }, coopTopicRef: undefined }),
+  { autonomyPolicyFile: file }), null,
+  "the ordinary Clay scope must not widen another project");
+});
+
 test("read-only safety constraints do not request the forbidden actions they prohibit", function () {
   var file = policyFile({ enabled: true });
   var brief = dispatch({
