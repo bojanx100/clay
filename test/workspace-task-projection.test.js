@@ -57,3 +57,23 @@ test("Workspace tasks disclose missing context instead of inventing a task from 
   }] });
   assert.equal(rows[0].title, "Unresolved task context for unknown");
 });
+
+test("Workspace tasks do not attach an older execution revision to the current binding", function () {
+  var rows = projectTasks({ projectId: "project-a", bindings: [binding("deploy", 2, "active")], sessions: [{
+    storageId: "coordinator", orchestrationTasks: [{ taskId: "old-deploy",
+      clientRef: "portfolio:deploy:1", title: "Old revision title", status: "completed",
+      workerSessionId: 37, updatedAt: 100 }],
+  }] });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].title, "Task deploy");
+  assert.equal(rows[0].sessionId, null);
+  assert.equal(rows[0].status, "active");
+});
+
+test("Workspace tasks reject composite assent and use its concrete objective", function () {
+  var rows = projectTasks({ projectId: "project-a", bindings: [], sessions: [{
+    storageId: "coordinator", orchestrationTasks: [{ taskId: "ship",
+      title: "Yes, proceed", objective: "Ship the task panel", status: "pending", updatedAt: 100 }],
+  }] });
+  assert.equal(rows[0].title, "Ship the task panel");
+});
