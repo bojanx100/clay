@@ -46,3 +46,17 @@ test("Workspace group disclosure state uses server preferences, not browser stor
   assert.match(sections, /workspace-linked-work/);
   assert.match(panel, /workspace-session-screenshots/);
 });
+
+test("Workspace Tasks tab uses accessible sections and keeps completed work collapsed", function () {
+  var panel = read("lib/public/modules/workspace-panel.js");
+  var tasks = read("lib/public/modules/workspace-tasks-view.js");
+  var css = read("lib/public/css/workspace.css");
+  assert.match(panel, /workspaceTabsHtml/);
+  assert.match(tasks, /role="tablist"/);
+  assert.match(tasks, /role="tab"/);
+  assert.match(tasks, /<details class="ws-task-section ws-task-completed"/);
+  assert.match(tasks, /Waiting to be started/);
+  assert.match(tasks, /data-workspace-task-session/);
+  assert.match(css, /\.ws-task-row/);
+  assert.match(css, /\.ws-task-status-blocked/);
+});

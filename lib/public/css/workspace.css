@@ -89,6 +89,35 @@
 .ws-empty-sm { padding: 6px 0; color: var(--text-dim); font-size: 11px; }
 .ws-muted { color: var(--text-dim); font-size: 11px; }
 
+/* Workspace task tab: compact operational rows rather than another card grid. */
+.ws-tabs { display: flex; gap: 4px; margin: -2px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.ws-tab { border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); cursor: pointer; font: inherit; font-weight: 600; padding: 5px 8px; }
+.ws-tab:hover { background: var(--hover-bg, var(--bg-alt)); color: var(--text); }
+.ws-tab.active { background: var(--bg-alt); color: var(--text); }
+.ws-tab:focus-visible, .ws-task-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ws-task-sections { display: grid; gap: 11px; }
+.ws-task-section { background: color-mix(in srgb, var(--bg-alt) 86%, transparent); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.ws-task-heading, .ws-task-section summary { align-items: center; color: var(--text-dim); display: flex; font-size: 11px; font-weight: 650; justify-content: space-between; padding: 10px 11px; }
+.ws-task-section summary { cursor: pointer; list-style: none; }
+.ws-task-section summary::-webkit-details-marker { display: none; }
+.ws-task-heading > span:first-child, .ws-task-section summary > span:first-child { align-items: center; display: flex; gap: 6px; }
+.ws-task-heading .lucide, .ws-task-section summary .lucide { height: 13px; width: 13px; }
+.ws-task-count { background: var(--bg); border: 1px solid var(--border); border-radius: 999px; font-size: 10px; padding: 1px 6px; }
+.ws-task-list { border-top: 1px solid var(--border); }
+.ws-task-row { align-items: center; background: transparent; border: 0; border-bottom: 1px solid var(--border-subtle, var(--border)); color: var(--text); display: flex; font: inherit; gap: 8px; padding: 9px 11px; text-align: left; width: 100%; }
+.ws-task-row:last-child { border-bottom: 0; }
+button.ws-task-row { cursor: pointer; }
+button.ws-task-row:hover { background: var(--hover-bg, var(--bg-alt)); }
+.ws-task-main { flex: 1; min-width: 0; }
+.ws-task-title { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-task-project { color: var(--text-dim); display: block; font-size: 10px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-task-status { border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); flex: 0 0 auto; font-size: 10px; padding: 2px 6px; text-transform: capitalize; }
+.ws-task-status-running, .ws-task-status-active, .ws-task-status-reviewing { border-color: rgba(45, 164, 78, .4); color: #43b961; }
+.ws-task-status-blocked, .ws-task-status-needs_input, .ws-task-status-waiting_user { border-color: rgba(212, 167, 44, .5); color: #d4a72c; }
+.ws-task-status-failed, .ws-task-status-unavailable { border-color: rgba(207, 34, 46, .45); color: #cf222e; }
+.ws-task-status-completed { border-color: rgba(45, 164, 78, .4); color: #43b961; }
+.ws-task-empty { margin-top: 12px; }
+
 /* Informational note (e.g. "bound to this session's worktree"). */
 .ws-note {
   display: flex;
