@@ -1732,6 +1732,16 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     var completed = JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings[0];
     assert.strictEqual(completed.status, "completed");
     assert.strictEqual(roots[0].orchestrationTasks[0].status, "completed");
+    var terminalRoot = JSON.stringify(roots[0]);
+    var late = router.reportAutoLaunchExecution({
+      sessionRef: binding.coordinator, portfolioTaskId: binding.portfolioTaskId,
+      bindingRevision: binding.bindingRevision, status: "needs_input",
+      eventId: "late-attention", summary: "Obsolete question",
+    });
+    assert.strictEqual(late.ok, true);
+    assert.strictEqual(late.ignored, true);
+    assert.strictEqual(JSON.stringify(roots[0]), terminalRoot,
+      "late attention cannot contradict the completed binding");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

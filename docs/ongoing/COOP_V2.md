@@ -29,7 +29,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Accept natural owner instructions and preserve their constraints at ingress.
 - [x] Make multi-batch owner response linking durable and idempotent.
 - [ ] Drive durable delivery retries and recover or explicitly account for sequence gaps.
-- [ ] Make normal completion and late attention transitions idempotent.
+- [x] Make normal completion and late attention transitions idempotent.
 - [x] Preserve execution links and concurrent changes during Thread undo.
 - [ ] Enforce read-only authority at admission and execution boundaries.
 - [ ] Define and implement ON adoption / OFF ownership handover.
@@ -115,3 +115,16 @@ Proof: lifecycle tests were 11 total, 7 pass / 4 fail with the old implementatio
 restored related suites are 76 / 76 default and 48 / 48 controlled. Tests use the
 real persisted index, exercise undo/redo after linking work, and verify atomic
 rejection of a conflicting two-Thread correction.
+
+
+### 5. Idempotent terminal completion
+
+A binding-revision task records its terminal transition once. The destination's
+normal replay cannot duplicate history or writes, and a later attention event
+cannot reopen the completed attempt. The automation router explicitly acknowledges
+and ignores attention from terminal bindings.
+
+Proof: removed implementation yields 56 default tests, 54 pass / 2 fail, plus
+0 pass / 1 fail controlled. Restored router/control-plane/automation suites are
+112 / 112 default and 8 / 8 controlled. The new test runs the real completion
+transport, durable delivery, binding store, router, and destination handler.
