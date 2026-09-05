@@ -26,7 +26,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Preserve legitimate repeat automation with distinct binding attempts.
 - [x] Preserve authenticated owner completion of unadopted project automation.
 - [x] Separate internal completion from local owner-accepted workflow completion.
-- [ ] Accept natural owner instructions and preserve their constraints at ingress.
+- [x] Accept natural owner instructions and preserve their constraints at ingress.
 - [x] Make multi-batch owner response linking durable and idempotent.
 - [ ] Drive durable delivery retries and recover or explicitly account for sequence gaps.
 - [ ] Make normal completion and late attention transitions idempotent.
@@ -88,3 +88,17 @@ Proof: the three response/linkage/batching suites were 24 total, 19 pass / 5 fai
 with the fix removed, then 24 / 24 after restoration. The real MCP handler,
 owner ledger, and conversation finalizer handle 1, 16, 17, 20, 32, and 65 requests,
 including reload and replay after each batch. No real model turn was run.
+
+
+### 3. Preserve owner conversation and constraints at ingress
+
+Project-name hints stop before constraint/reporting clauses while the full owner
+message remains unchanged. Unknown or ambiguous names entered in Main now reach
+Coop for clarification without a project route or implementation decision. Explicit
+Thread/project selections retain their strict routing checks. The prepared prompt
+explains the unresolved target and survives through the existing history storage.
+
+Proof: six real-topic-index ingress regressions all fail with the change removed;
+restored validation is 101 / 101 default and 48 / 48 controlled across six related
+suites. Checks include punctuation, conjunctions, duplicate names, unknown projects,
+full constraint preservation, and absence of an implementation grant on ambiguity.

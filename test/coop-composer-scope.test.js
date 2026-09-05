@@ -206,7 +206,7 @@ test("a clear Main implementation request routes its owner ingress to the canoni
   });
 });
 
-test("a clear Main implementation request stays fail-closed when its project name is ambiguous", function () {
+test("an ambiguous Main project name preserves conversation without creating a Thread", function () {
   var consulted = false;
   var route = userMessage.validateCoopTopicIngress({
     topicIndexFor: function () { consulted = true; return null; },
@@ -222,7 +222,8 @@ test("a clear Main implementation request stays fail-closed when its project nam
     coopComposerScope: "main",
   }, {});
 
-  assert.deepEqual(route, { ok: false, code: "project_target_unavailable" });
+  assert.deepEqual(route, { ok: true, topicRef: null, projectRef: null,
+    classification: "conversational", routingAttention: "project_target_unavailable" });
   assert.equal(consulted, false, "ambiguous owner routing must not reach Thread classification");
 });
 
