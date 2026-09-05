@@ -608,6 +608,52 @@ test("resets the failover hop budget after a quiet window", function () {
   providerHealth._reset();
 });
 
+test("quota exhaustion at the failover hop budget schedules the known reset", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude", "codex"]);
+  var scheduled = [];
+  var failover = makeFailover(sm, [], { scheduled: scheduled });
+  var session = makeSession();
+  var resetsAt = Date.now() + 3600000;
+  session._providerFailoverHops = 5;
+  session._providerFailoverWindowStart = Date.now();
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+    resetsAt: resetsAt,
+  });
+
+  assert.strictEqual(handled, true);
+  assert.strictEqual(scheduled.length, 1);
+  assert.strictEqual(scheduled[0].resetsAt, resetsAt);
+  providerHealth._reset();
+});
+
+test("quota exhaustion at the failover hop budget stays actionable without reset metadata", function () {
+  providerHealth._reset();
+  providerHealth.recordFailure("claude", "usage-credits-exhausted", { immediate: true });
+  var sm = makeSm(["claude", "codex"]);
+  var scheduled = [];
+  var failover = makeFailover(sm, [], { scheduled: scheduled });
+  var session = makeSession();
+  session._providerFailoverHops = 5;
+  session._providerFailoverWindowStart = Date.now();
+
+  var handled = failover.failoverAndContinue(session, {
+    vendor: "claude",
+    reason: "usage-credits-exhausted",
+  });
+
+  assert.strictEqual(handled, false);
+  assert.strictEqual(scheduled.length, 0);
+  assert.ok(sm.recorded.some(function (item) {
+    return item.type === "info" && String(item.text || "").indexOf("did not report a future reset time") !== -1;
+  }));
+  providerHealth._reset();
+});
+
 test("a project worker still demotes through the cheapest eligible verified ladder", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "rate-limit-rejected", {
