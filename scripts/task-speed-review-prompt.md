@@ -1,0 +1,9 @@
+Review Clay's task speed measurements for the last 24 hours. This is an authorized, read-only daily monitoring task. Complete it directly; do not start skills, delegate workers, run the full test suite, change models or defaults, modify live records, or restart Clay.
+
+1. Run `node "$HOME/.clay/monitoring/task-speed/scripts/task-speed-report.js" --hours 24`.
+2. Read `$HOME/.clay/monitoring/task-speed/trial/results.json` if present. Report the independently scored correctness counts, verified timing sample counts, and median durations for medium and high. If a file or comparison is missing, say so; never substitute successful completion for correctness. Three matched pairs are a pilot, not enough evidence for a permanent change.
+3. Summarize measured turns, the slowest measured phases, same-model/effort changes versus the prior equal window, unsuccessful turns, daemon stalls >=500 ms, and slow saves. Explicitly disclose fewer than five completed turns per comparison window, missing instrumentation, and excluded sleep intervals.
+4. Flag any reported threshold crossing and suggest one specific next investigation supported by the measurements. If there is no usable baseline, report that instead of claiming an improvement or regression.
+5. Save the report to `$HOME/.clay/monitoring/task-speed/reports/YYYY-MM-DD.md` using the current Europe/Zagreb date (create the reports directory if needed). Keep a concise result visible in this scheduled Clay session, including the report path. Writing this report is the only authorized output mutation for this monitoring task.
+
+End after this one review. Keep the visible summary under 200 words. Do not claim that smaller models or lower reasoning effort are better unless the independent correctness and timing evidence supports the statement. Existing defaults remain unchanged.

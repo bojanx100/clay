@@ -305,6 +305,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `automation-modes.js` | Shared automation mode normalization and provider permission/approval mapping |
 | `provider-routes.js` | Provider-route configuration, exact-route verified live/last-known-good catalog gates, model-family matching, and health decoration |
 | `provider-routing-policy.js` | Normalizes the persisted `free-endurance`, `balanced`, and `best-available` routing profiles |
+| `turn-performance.js` | Content-free per-turn wall-clock phase accounting and asynchronous completion measurements |
+| `task-speed-report.js` + `scripts/task-speed-report.js` | Bounded-window latency reports, comparable route/effort baselines, sleep exclusion, and daemon stall summaries |
 | `provider-model-defaults.js` | Per-vendor server/project model defaults with compatibility reads for legacy Claude, Codex, and Copilot fields |
 | `provider-health.js` | Process-wide vendor-wide plus exact route/model health and quota registries (healthy→degraded→unhealthy), fed by SDK failure/success signals |
 | `model-catalog-cache.js` | Durable live/last-known-good vendor catalogs plus account/route/SDK/backend/model-scoped capability evidence |
