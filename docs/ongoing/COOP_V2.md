@@ -23,9 +23,9 @@ Independent defect repairs can proceed while those preferences are discussed.
 
 ## Implementation ledger
 
-- [ ] Preserve legitimate repeat automation with distinct binding attempts.
-- [ ] Preserve authenticated owner completion of unadopted project automation.
-- [ ] Separate internal completion from local owner-accepted workflow completion.
+- [x] Preserve legitimate repeat automation with distinct binding attempts.
+- [x] Preserve authenticated owner completion of unadopted project automation.
+- [x] Separate internal completion from local owner-accepted workflow completion.
 - [ ] Accept natural owner instructions and preserve their constraints at ingress.
 - [ ] Make multi-batch owner response linking durable and idempotent.
 - [ ] Drive durable delivery retries and recover or explicitly account for sequence gaps.
@@ -61,4 +61,17 @@ not a clean baseline and not evidence that each failure is a production defect.
 
 ## Completed iterations
 
-None yet. The branch is initialized; implementation is in progress.
+### 1. Preserve project automation under Lead
+
+Fresh launcher-qualified attempts can advance a completed primitive binding to a
+new revision. Generic candidate rediscovery still cannot reopen completed work.
+Authenticated owners can finish sessions Lead has not adopted; members and stale
+controlled sessions remain refused. Internal implementation completion releases
+execution capacity without consuming owner acceptance or snapshotting board state.
+
+Proof: with implementation changes removed, auto-launch tests were 55 total,
+51 pass / 4 fail. Restored: 151 / 151 default and 55 / 55 controlled across the
+automation, gate, admission, candidates, and task-launcher suites. Tests cover second
+eligible PR/issue attempts, subsequent duplicate scans, owner/member distinctions,
+and real router/binding completion with restart and delivery/save failures.
+Provider/GitHub boundaries are stubbed; full-suite validation remains pending.

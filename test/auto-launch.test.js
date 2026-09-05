@@ -1749,7 +1749,8 @@ test("adopted require-user-trigger primitive fans in internal completion before 
   var completionSaveAttempts = 0;
   var durableTaskLauncher = null;
   var originalGetIssueStatus = taskSources.getIssueStatus;
-  taskSources.getIssueStatus = function () { return ""; };
+  var boardStatus = "Backlog";
+  taskSources.getIssueStatus = function () { return boardStatus; };
   try {
     var tasksDir = path.join(cwd, ".clay", "tasks");
     fs.mkdirSync(tasksDir, { recursive: true });
@@ -1763,7 +1764,7 @@ test("adopted require-user-trigger primitive fans in internal completion before 
         closeSession: true,
         archiveSession: true,
       },
-      filter: { type: "bug", assigned: "me" },
+      filter: { type: "bug", assigned: "me", skipProjectStatuses: ["Dev Complete"] },
     };
     fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
     fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
@@ -1784,7 +1785,7 @@ test("adopted require-user-trigger primitive fans in internal completion before 
           "completion intent must survive a restart before coordinator delivery");
         durableTaskLauncher = JSON.parse(JSON.stringify(launcherState));
       } else if (launcherState && launcherState.executionCompletionReported &&
-          !launcherState.completionCallbackInvoked) {
+          !launcherState.completionCallbackInvoked && !launcherState.ownerCompletionApproval) {
         completionSaveAttempts++;
         assert.strictEqual(options && options.durable, true,
           "capacity release must survive a restart before it is acknowledged");
@@ -1963,12 +1964,20 @@ test("adopted require-user-trigger primitive fans in internal completion before 
     // closes the local task without sending a second coordinator completion.
     taskLauncher.handleTaskTurnDone(primitive, "", "CLAY_TASK_COMPLETE: internal work");
     assert.strictEqual(reportCalls, 3, "duplicate marker must remain idempotent");
+    assert.notStrictEqual(primitive.taskLauncher.completionCallbackInvoked, true,
+      "internal completion must not consume the local owner-Done callback");
+    var issueState = require("../lib/project-issue-launch-state").createIssueLaunchState(cwd);
+    assert.notStrictEqual(issueState.get("trialview/v2#2565").status, "completed",
+      "internal completion must not snapshot the external workflow status");
     var directive = taskLauncher.handleTaskUserMessageDispatched(primitive, "mark as done");
     assert.ok(directive && directive.indexOf("CLAY_TASK_COMPLETE") !== -1);
     assert.strictEqual(externalEvaluations, 1, "only the owner trigger may reach the external gate");
     assert.ok(primitive.taskLauncher.ownerCompletionApproval,
       "the owner trigger should record its approval");
+    boardStatus = "Dev Complete";
     taskLauncher.handleTaskTurnDone(primitive, "", "Done workflow complete. CLAY_TASK_COMPLETE: owner Done");
+    assert.strictEqual(issueState.get("trialview/v2#2565").statusAtCompletion, "Dev Complete");
+    assert.strictEqual(issueState.get("trialview/v2#2565").armed, true);
     assert.strictEqual(primitive.taskLauncher.workflowCompleted, true);
     assert.deepStrictEqual(hidden, [primitive.localId]);
     assert.strictEqual(reportCalls, 3, "owner-triggered local closure must not re-report completion");
@@ -2145,4 +2154,63 @@ test("auto-launch defers when all configured vendors are rate-limited", async fu
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
+});
+
+[false, true].forEach(function (leadMode) {
+  ["issue", "pr-review"].forEach(function (kind) {
+    test("Lead " + leadMode + " preserves a second eligible " + kind + " attempt", async function () {
+      var pr = kind === "pr-review";
+      var item = pr ? { key: "trialview/v2#3010", number: 3010, title: "Review PR",
+        url: "https://github.com/trialview/v2/pull/3010", head_sha: "abc123",
+        ci_failing: true, latestFeedbackTs: 1000, labels: [] } : unlabeledIssue();
+      var options = { leadMode: leadMode };
+      if (pr) options.source = { provider: "github", kind: "pr-reviews", repo: "trialview/v2" };
+      var h = makeIdleBoardHarness(pr ? {} : { type: "bug" }, item, options);
+      try {
+        await h.autoLaunch.launchScheduled("assigned-to-me");
+        assert.strictEqual(h.started.length, 1);
+        if (leadMode) h.finish(h.executions[0].portfolioTaskId);
+        if (pr) { item.head_sha = "def456"; item.latestFeedbackTs = 2000; }
+        else require("../lib/project-issue-launch-state").createIssueLaunchState(h.cwd)
+          .recordCompletion("trialview/v2#2565", "Dev Complete", true);
+        await h.autoLaunch.launchScheduled("assigned-to-me");
+        assert.strictEqual(h.started.length, 2, "fresh eligible work must launch");
+        if (leadMode) {
+          assert.deepStrictEqual(h.executions.map(function (entry) { return entry.bindingRevision; }), [1, 2]);
+          assert.strictEqual(h.bound[h.executions[0].portfolioTaskId + ":1"].status, "completed");
+        }
+        await h.autoLaunch.launchScheduled("assigned-to-me");
+        assert.strictEqual(h.started.length, 2, "the same attempt must not launch twice");
+      } finally { fs.rmSync(h.cwd, { recursive: true, force: true }); }
+    });
+  });
+});
+
+test("owner can finish unadopted automation with Lead ON, but members and stale managed sessions cannot", function () {
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-owner-done-"));
+  try {
+    var gate = createAutomationGate({ cwd: cwd, slug: "owner-done",
+      projectRef: { projectId: CUTOVER_PROJECT }, getLeadMode: function () { return true; } });
+    var launcher = attachTaskLauncher({ cwd: cwd,
+      sm: { saveSessionFile: function () {} },
+      usersModule: { isMultiUser: function () { return true; } },
+      getAutomationGate: function () { return gate; } });
+    function session() {
+      var value = makeAutoSession();
+      value.ownerId = "owner";
+      return value;
+    }
+    var member = session();
+    assert.match(launcher.handleTaskUserMessageDispatched(member, "mark as done", "member"), /Only the project owner/);
+    assert.notStrictEqual(member.taskLauncher.closeAfterNextTurn, true);
+    var managed = session();
+    managed.coopControlledBy = { projectId: "system-lead", sessionStorageId: "resident" };
+    assert.match(launcher.handleTaskUserMessageDispatched(managed, "mark as done", "owner"), /not authorized/);
+    assert.notStrictEqual(managed.taskLauncher.closeAfterNextTurn, true);
+    var owner = session();
+    var directive = launcher.handleTaskUserMessageDispatched(owner, "mark as done", "owner");
+    assert.strictEqual(owner.taskLauncher.closeAfterNextTurn, true);
+    assert.match(directive, /CLAY_TASK_COMPLETE/);
+    assert.strictEqual(owner.taskLauncher.ownerCompletionApproval.by, "owner");
+  } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
 });
