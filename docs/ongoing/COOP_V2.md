@@ -37,6 +37,9 @@ Independent defect repairs can proceed while those preferences are discussed.
       scoped delegation, and upward reporting.
 - [x] Give Coop explicit high-level discussion instructions while delegating substantial execution.
 - [x] Supply current role and canonical project instructions on every control turn.
+- [x] Commission durable project assignments and accept their exact scope through the resident coordinator.
+- [x] Keep pending assignments visible and cancellable, with bounded notification and durable attention.
+- [ ] Correct plain-array transcript saves that can be incorrectly skipped by the unloaded-history optimization.
 - [ ] Consolidate owner-request/task/attempt outcome provenance.
 - [ ] Remove recovery mutations from projections, drive them through daemon events,
       and release removed managers from the recovery registry.
@@ -335,3 +338,57 @@ was summary-only. Future acceptance registration must reserve its server name
 even for anonymous discovery, and must recheck the actual resident caller and
 assignment authority at mutation time. No acceptance tool is registered yet;
 this change does not authorize assignments or repair existing public MCP tools.
+
+
+### 16. Commission work through explicit project-coordinator acceptance
+
+Manual commissioning now stores immutable admitted scope on the resident project
+coordinator's task graph. It returns "assignment queued" with a TaskRef, without
+claiming that a worker exists or that the owner received an answer. The current
+coordinator accepts that exact record through a session-bound tool. Acceptance
+rechecks current project instructions, owner evidence and any named plan grant,
+then starts ordinary project execution. Qualified automation retains its immediate
+execution/adoption path, and bounded review helpers retain their existing route.
+
+The assignment survives restart, failed durable saves and provider failures.
+Notifications have a bounded retry budget; exhausted assignments create durable
+Coop attention. Attention reserves its sequence and retryable envelope atomically,
+including safe idle-cursor reclamation. Accepted execution receipts reconcile
+without starting a second session. Pending assignments are cancellable through
+normal owner/coordinator task controls; uncertain partial executions must reconcile
+first. A failed dispatch with no execution residue can be cancelled. Replaying a
+closed assignment cannot requeue it.
+
+Thread links carry the pending TaskRef and later the execution SessionRef. Pending
+assignments are visible in desktop and mobile coordinator navigation as "Awaiting
+acceptance", with no invented worker SessionRef. The same task becomes a linked
+execution after acceptance. Named plan grants and provider-route preferences are
+retained with the immutable payload. The router independently verifies a supplied
+plan grant on commissioning and acceptance, including plan changes while queued.
+
+Proof: reverting the tracked integration to the preceding commit produced
+28 default tests, 1 pass / 27 fail, and 26 controlled tests, 1 pass / 25 fail.
+Focused reversions isolate specific guards: ignoring failed durable writes gives
+15 tests, 11 pass / 4 fail; replacing atomic attention reservation gives 10 tests,
+9 pass / 1 fail; removing query leases gives 9 tests, 7 pass / 2 fail; removing
+pending visibility gives 2 tests, 1 pass / 1 fail. Each was checked in both modes.
+Removing cursor reclamation gives 2 default tests, 1 pass / 1 fail. All reversions
+were restored. The five new suites then pass 28 / 28 default and 26 / 26
+controlled. Related automation, task-orchestrator and MCP checks pass 213 / 213
+default and 150 / 150 controlled. Final full repository run: 4,164 / 4,164 default
+across 420 files and 626 / 626 controlled across 46 files, exit 0.
+
+The tests use actual temporary session managers, JSONL history, owner ledger,
+Thread index, governance records, SDK bridge and MCP callback, execution routing,
+and completion handling, with fake provider boundaries. UI tests cover shared
+desktop/mobile normalization and click routing, not browser appearance. They do
+not prove real model compliance, end-to-end Coop synthesis, read-only capability
+enforcement, or ON/OFF ownership handover. No production restart or live repair
+was performed. Independent read-only review caught and helped close the failed
+dispatch dismissal, attention-capacity and production TaskRef wiring gaps.
+
+Additional general review finding: the unloaded-history fast path in
+`sessions-persistence.js` also treats a normal in-memory array as unloaded. A
+plain `history.push(...)` followed only by `saveSessionFile` can be skipped while
+reporting success. The intake fixture now drives the production owner-ingress
+append path; that fixture correction does not repair this separate save defect.

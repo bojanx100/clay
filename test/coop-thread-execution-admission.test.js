@@ -261,6 +261,9 @@ function executionRouter(entries, delivered, handedOff, options) {
     ownerRequests: ledger,
     readLeadEvents: options.readLeadEvents || function () { return options.leadEvents || []; },
     requireOwnerImplementationDecision: true,
+    // Exercise qualified automation with manual coordinator intake enabled.
+    projectCoordinatorIntake: typeof options.validateAutomationAuthorization === "function",
+    isLeadModeEnabled: function () { return true; },
     automationThreadIndex: options.automationThreadIndex,
     onThreadHandedOff: function (input) {
       handedOff.push(input);

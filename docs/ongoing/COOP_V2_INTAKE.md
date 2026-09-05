@@ -1,7 +1,8 @@
 # Project coordinator intake
 
-Owning task and branch: the Coop v2 task on `coop_v2`. Implementation is pending.
-This is the next product change, following the prerequisite fixes in COOP_V2.md.
+Owning task and branch: the Coop v2 task on `coop_v2`. Implementation was added
+on 2026-09-06, following the prerequisite fixes in COOP_V2.md. It is wired in this
+branch; the running production daemon has not been switched to this branch.
 
 ## Intended behavior
 
@@ -44,22 +45,23 @@ review helpers likewise need not acquire a mandatory planning turn.
 
 ## Existing integration points
 
-`server-cross-project.createProjectExecution` performs admission, calls
-`controlPlaneRoute`, then immediately creates the target execution. `controlPlaneRoute`
-ensures the resident root and creates its external task row; this is the split point.
+Previously, `server-cross-project.createProjectExecution` performed admission,
+called `controlPlaneRoute`, then immediately created the target execution.
+`controlPlaneRoute` now stages manually commissioned assignments after admission.
+The session-bound acceptance continuation creates the target execution.
 `coop-control-plane.prepareTask` persists the row, and `bindTask` links the execution.
 `orchestration-tool-handlers.projectExecutionResult` currently labels every successful
-result Started/Reused and must learn an explicit queued-assignment result.
+result Started/Reused; it now distinguishes the explicit queued-assignment result.
 
-Add an exact-reference acceptance tool rather than asking the coordinator to
-resubmit a full five-field execution request. Route it through the session-bound
-MCP handler, resolve the real resident coordinator, load the immutable assignment,
-and invoke a private server dispatch continuation. No caller-supplied skip-intake
-or authority flag is acceptable. The existing execution admission and completion
-transport remain authoritative.
+The exact-reference acceptance tool resolves the real resident coordinator and
+immutable assignment through its captured session/query/fence and invokes a private
+dispatch continuation. Public router wrappers do not accept that continuation
+ticket. The original ingress, project, revision, scope and any named plan grant
+are rechecked. The existing execution admission and completion transport remain
+authoritative.
 
-Iteration 15 supplies the Codex per-query tool transport. Register acceptance in
-a separate session-scoped server, with a non-executable scoped placeholder when
+Iteration 15 supplies the Codex per-query tool transport. Acceptance is registered
+in a separate session-scoped server, with a non-executable scoped placeholder when
 no actual calling session is available. This reserves the name against remote
 substitution and anonymous cached handlers. The callback captures the session;
 the handler still rechecks its current registration, role, task and authority
@@ -69,14 +71,28 @@ The SDK role context now reads canonical project rules for fresh, resumed, and w
 turns. It conveys knowledge only; it is not a security boundary. Read-only admission
 and provider/MCP capability enforcement remain separate unfinished work.
 
-## Verification before enabling intake
+## Verification and remaining limits
 
-Exercise real owner ingress and ledger admission, resident session/task creation,
-durable notification, a fake coordinator provider turn, the actual acceptance MCP
-handler, typed target execution, worker completion, and upward reporting. Include
-replay and restart between every durable boundary, save failure, provider-start
-failure, wrong project/coordinator/task refs, changed payload, withdrawal, a newer
-owner turn after valid scoping, and Lead OFF. Repeat the existing automation tests
-with intake enabled to prove the fast path remains intact. Ordinary project-local
-workers must retain their existing behavior. No production activation or live-state
-repair is part of these isolated tests.
+The new integration tests exercise real owner history and ledger admission,
+resident session/task persistence, a fake coordinator provider turn, the actual
+acceptance MCP callback, typed target execution, completion back to the resident
+assignment, and desktop/mobile sidebar normalization and navigation. They cover
+restart, failed durable saves, provider failure, exact caller and task identity,
+scope tampering, withdrawal, changed named plan grants, a later owner turn,
+dependencies, cancellation, partial target creation, and Lead OFF admission.
+Existing qualified automation tests now run with manual intake enabled.
+
+Notifications retry at most three times, separated by a minute, while respecting
+busy coordinators, owner queues and dependencies. Exhaustion creates persistent
+attention whose sequence and outbox record are written together. A missing caller
+acknowledgement cannot strand that sequence. Unstarted assignments may be dismissed
+through normal controls, including when Lead is OFF. A ref-less failed attempt may
+be dismissed only after inspecting the actual target manager for execution residue.
+Uncertain partial starts must be reconciled before dismissal.
+
+Queued assignments remain visible without a fabricated execution SessionRef. Their
+TaskRef survives staffing, and the Thread gains the actual SessionRef. Completion
+does not mark the owner request answered or accepted. See COOP_V2.md for negative
+verification counts. These isolated tests do not establish model compliance,
+real-provider behavior, browser appearance, final Coop synthesis to the owner, or
+the complete Lead toggle handover contract. No live-state repair is included.
