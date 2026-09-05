@@ -90,6 +90,8 @@ test("the wrapper pushes a worker and aligns a clean local bojan exactly", funct
   assert.equal(local, tracked);
   assert.equal(local, remote);
   assert.match(pushed.stdout, /local bojan and origin\/bojan now match/);
+  assert.equal(fs.existsSync(h.worker), false, "completed worktree must be removed");
+  assert.equal(git(["branch", "--list", "worker-change"], h.main), "");
 });
 
 test("the wrapper preserves an uncommitted main checkout after pushing", function (t) {
@@ -106,4 +108,36 @@ test("the wrapper preserves an uncommitted main checkout after pushing", functio
   assert.equal(git(["rev-parse", "bojan"], h.main), oldLocal);
   assert.notEqual(git(["rev-parse", "origin/bojan"], h.main), oldLocal);
   assert.equal(fs.readFileSync(path.join(h.main, "owner.txt"), "utf8"), "owner work\n");
+});
+
+var cleanup = require("../scripts/cleanup-worktree").cleanup;
+
+test("cleanup preserves unique commits and dirty merged work", function (t) {
+  var h = fixture(t);
+  write(path.join(h.worker, "pending.txt"), "pending\n");
+  assert.equal(cleanup(h.main, h.worker), false);
+  git(["add", "pending.txt"], h.worker);
+  git(["commit", "-m", "test: unfinished work"], h.worker);
+  assert.equal(cleanup(h.main, h.worker), false);
+  assert.equal(fs.existsSync(path.join(h.worker, "pending.txt")), true);
+});
+
+test("cleanup preserves protected and locked worktrees", function (t) {
+  var h = fixture(t);
+  git(["branch", "-m", "codex/ui-overhaul-example"], h.worker);
+  assert.equal(cleanup(h.main, h.worker), false);
+  git(["branch", "-m", "worker-change"], h.worker);
+  git(["worktree", "lock", h.worker], h.main);
+  assert.equal(cleanup(h.main, h.worker), false);
+  assert.equal(cleanup(h.main, h.main), false);
+});
+
+test("cleanup preserves worktrees occupied by a process", function (t) {
+  var h = fixture(t);
+  var active = childProcess.spawn(process.execPath, ["-e", "setInterval(function () {}, 1000)"], {
+    cwd: h.worker, stdio: "ignore",
+  });
+  t.after(function () { active.kill(); });
+  assert.equal(cleanup(h.main, h.worker), false);
+  assert.equal(fs.existsSync(h.worker), true);
 });

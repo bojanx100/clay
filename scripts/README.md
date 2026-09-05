@@ -66,7 +66,18 @@ the shared branch deterministic:
 - `.githooks/pre-push` rejects direct updates to remote `bojan`;
 - `node scripts/push-bojan.js`, run from a clean dedicated worktree, fetches and
   rebases onto the latest `origin/bojan`, pushes `HEAD:bojan`, and fast-forwards
-  the clean main `bojan` checkout to the exact pushed commit.
+  the clean main `bojan` checkout to the exact pushed commit, then attempts to
+  remove the completed local worktree and branch.
+
+Cleanup requires merged history, a clean unlocked linked worktree, no Git operation,
+and no process with a working directory inside it (`lsof` must be available).
+`main`, `master`, `bojan`, and branches containing `ui-overhaul` are protected.
+If cleanup is pending, leave the worktree and run
+`node scripts/cleanup-worktree.js <path>` from the primary checkout after its
+session/processes exit. Ignored files are subject to normal Git worktree-removal
+checks; the script never uses force. Remote feature branches are not deleted.
+Stale work must be reconciled against its replacement before removal; age alone
+never permits discarding unique commits or dirty files.
 
 If the main checkout has uncommitted changes, the wrapper preserves them and
 prints that synchronization was skipped. Resolve those changes, then rerun the

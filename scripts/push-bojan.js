@@ -102,7 +102,7 @@ function main() {
   var branchResult = runGit(["symbolic-ref", "--quiet", "--short", "HEAD"], root);
   if (branchResult.status !== 0) return fail("run this from a named worktree branch");
   var branch = String(branchResult.stdout || "").trim();
-  if (branch === "bojan") {
+  if (branch === "bojan" || branch === "main" || branch === "master") {
     return fail("run this from the completed dedicated worktree, not from local bojan");
   }
   if (gitText(["status", "--porcelain"], root)) {
@@ -125,7 +125,16 @@ function main() {
   if (refreshResult.status !== 0) {
     return fail("push succeeded, but origin/bojan could not be refreshed locally");
   }
-  return synchronizeMain(root);
+  var synchronized = synchronizeMain(root);
+  if (synchronized !== 0) return synchronized;
+  var mainPath = mainBojanWorktree(root);
+  process.chdir(mainPath);
+  try {
+    require("./cleanup-worktree").cleanup(mainPath, root);
+  } catch (cause) {
+    console.warn("push-bojan: push succeeded; cleanup pending: " + cause.message);
+  }
+  return 0;
 }
 
 if (require.main === module) process.exitCode = main();
