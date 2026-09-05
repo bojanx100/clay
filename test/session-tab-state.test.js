@@ -268,3 +268,34 @@ test("returning to a project family restores the conversation from its last visi
     delete global.sessionStorage;
   }
 });
+
+
+test("returning to a project resolves a remembered UUID without treating its prefix as a local id", async function () {
+  var values = new Map();
+  global.sessionStorage = {
+    setItem: function (key, value) { values.set(key, value); },
+    getItem: function (key) { return values.get(key) || null; },
+    removeItem: function (key) { values.delete(key); },
+  };
+  try {
+    var tab = await import("../lib/public/modules/session-tab-state.js");
+    var policy = await import("../lib/public/modules/connection-policy.js");
+    var previous = { localId: 4, storageId: "old-storage", cliSessionId: "old-cli" };
+    var selected = { localId: 90, storageId: "4c601c4b-9d67-4390-8178-10eae3356506",
+      cliSessionId: "4a601c4b-9d67-4390-8178-10eae3356506" };
+    var sessions = new Map([[4, previous], [90, selected]]);
+    tab.rememberTabSession("project-a", selected.localId, selected.cliSessionId);
+    tab.rememberTabSession("project-b", 8, "other-project-cli");
+    var requested = policy.initialSessionReference({ currentSlug: "project-a",
+      tabSessionId: tab.readTabSession("project-a"), activeSessionProjectSlug: "project-b" });
+    var options = { sessions: sessions, allSessions: Array.from(sessions.values()),
+      requestedSessionId: requested, multiUser: false, user: null };
+    assert.equal(connectionState.findRestoredActiveSession(options).active, selected);
+    // Exact durable links use the same resolver and must not alias local id 4.
+    options.requestedSessionId = selected.storageId;
+    options.requestedSessionExact = true;
+    assert.equal(connectionState.findRestoredActiveSession(options).active, selected);
+  } finally {
+    delete global.sessionStorage;
+  }
+});
