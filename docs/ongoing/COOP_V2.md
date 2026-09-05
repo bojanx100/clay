@@ -155,3 +155,17 @@ Deployment limitation retained for later recovery work: existing sessions whose
 old code already consumed completionCallbackInvoked may still have a deferred
 owner-workflow notification stranded. New executions are fixed; historical state
 has not been repaired or used as proof of the new behavior.
+
+
+### 7. Daemon-owned delivery retries
+
+Production now starts a one-second retry clock. It runs only after controlled
+startup opens ingress, pauses during restart preparation, and is cleared on server
+destruction. A callback failure is reported once per repeated error while later
+ticks remain available. Pending reports no longer need a client replay or another
+project registration to make progress. Sequence-exhaustion recovery is next.
+
+Proof: with router wiring removed, the clock suite reports 3 tests, 1 pass / 2 fail.
+Restored delivery/router/graceful-restart suites: 73 / 73 default, 12 / 12 controlled.
+The new tests run real timers and durable delivery through the router, including
+recovery readiness and shutdown; they do not start the user's production daemon.
