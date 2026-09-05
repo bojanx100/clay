@@ -11,7 +11,8 @@ function result(ok, text) {
   return { isError: !ok, content: [{ type: "text", text: text }] };
 }
 
-function harness() {
+function harness(options) {
+  var opts = options || {};
   var parent = {
     coopHome: true,
     storageId: "canonical-coop",
@@ -24,7 +25,15 @@ function harness() {
     coordinatorForInput: function () { return parent; },
     ensureCoordinatorForInput: function () { return parent; },
     coordinatorOwningTask: function () { return null; },
+    dismissTask: function (session, task, reason) {
+      taskGraph.transition(session, task, "dismissed", {
+        currentActivity: reason,
+        resolutionReason: reason,
+      });
+      return true;
+    },
     error: function (text) { return result(false, text); },
+    getExecutionBinding: opts.getExecutionBinding,
     success: function (text) { return result(true, text); },
     schedule: function () { scheduled++; },
     updateTask: function (session, taskId, updates) {
@@ -101,4 +110,55 @@ test("approval staging is idempotent and rejects mixed or unscoped input", funct
     approvalScopes: [{ portfolioTaskId: "clay-approval-stage-one", bindingRevision: 2 }],
     reason: "Missing target scope.",
   }).isError, true);
+});
+
+test("approval staging refuses an exact revision that already has a binding", function () {
+  var h = harness({
+    getExecutionBinding: function (taskId, revision) {
+      if (taskId !== "clay-already-completed" || revision !== 3) return null;
+      return {
+        portfolioTaskId: taskId,
+        bindingRevision: revision,
+        targetProject: { projectId: CLAY },
+        status: "completed",
+      };
+    },
+  });
+  var answer = h.handlers.requestInput({
+    coordinatorSessionId: "canonical-coop",
+    approvalScopes: [scope("clay-already-completed", 3, CLAY)],
+    reason: "A stale coordinator tried to ask for approval again.",
+  });
+
+  assert.equal(answer.isError, true);
+  assert.match(answer.content[0].text, /approval_scope_already_bound:completed/);
+  assert.equal(h.parent.orchestrationTasks.length, 0,
+    "an existing binding must never gain a new approval placeholder");
+});
+
+test("re-staging clears an existing placeholder after the exact binding appears", function () {
+  var binding = null;
+  var h = harness({
+    getExecutionBinding: function () { return binding; },
+  });
+  var input = {
+    coordinatorSessionId: "canonical-coop",
+    approvalScopes: [scope("clay-late-binding", 4, CLAY)],
+    reason: "Owner approval is required before execution.",
+  };
+  assert.equal(h.handlers.requestInput(input).isError, false);
+  assert.equal(h.parent.orchestrationTasks[0].status, "waiting_user");
+
+  binding = {
+    portfolioTaskId: "clay-late-binding",
+    bindingRevision: 4,
+    targetProject: { projectId: CLAY },
+    status: "completed",
+  };
+  var healed = h.handlers.requestInput(input);
+
+  assert.equal(healed.isError, false);
+  assert.match(healed.content[0].text, /Cleared the stale staged approval/);
+  assert.equal(h.parent.orchestrationTasks[0].status, "dismissed");
+  assert.match(h.parent.orchestrationTasks[0].resolutionReason, /already bound with status completed/);
 });
