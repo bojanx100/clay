@@ -6,6 +6,7 @@ var path = require("path");
 require("./helpers/isolated-clay-home");
 var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
+var createCoopOwnerRequests = require("../lib/coop-owner-requests").createCoopOwnerRequests;
 var orchestrationMcp = require("../lib/orchestration-mcp-server");
 
 function testContext(existingSessions, options) {
@@ -2251,10 +2252,17 @@ test("target-project routing failure never falls back to a Lead-local worker", f
 test("delegate tool routes a typed binding into the target project without a Lead-local worker", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-tool-route-"));
   var targetProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  // Project-coordinator delivery has to durably claim its policy-owned Thread.
+  // Use the real isolated owner-request ledger, not a success stub, so this
+  // remains a routing and transport test under the current claim protocol.
+  var ownerRequests = createCoopOwnerRequests({
+    file: path.join(dir, "coop-owner-requests.json"),
+  });
   var router = createCrossProjectRouter({
     allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
+    ownerRequests: ownerRequests,
   });
   var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
   router.registerProjectResolver({
@@ -2292,6 +2300,9 @@ test("delegate tool routes a typed binding into the target project without a Lea
   assert.equal(binding.targetProject.projectId, targetProjectId);
   assert.equal(binding.mode, "project_coordinator");
   assert.ok(binding.coordinator);
+  assert.deepEqual(ownerRequests.canonicalCoordinator(binding.coopTopicRef,
+    binding.targetProject), binding.projectCoordinator,
+  "the target coordinator holds the durable claim for the routed Thread");
 });
 
 test("independent admitted project bindings start parallel visible target coordinators", function () {
