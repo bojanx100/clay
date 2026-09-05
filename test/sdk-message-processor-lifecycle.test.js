@@ -162,7 +162,7 @@ test("turn telemetry separates model activity from visible text", function () {
   }).length, 1);
 });
 
-test("a token-backed Codex turn recovers Sol so canonical Coop can run", function () {
+test("a token-backed Codex turn recovers Astra so canonical Coop can run", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "rate-limit-rejected", {
     providerRouteId: "claude-anthropic",
@@ -172,22 +172,22 @@ test("a token-backed Codex turn recovers Sol so canonical Coop can run", functio
   });
   providerHealth.recordFailure("codex", "provider-error:session-local-overflow", {
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     strong: true,
   });
   assert.equal(coopModelPolicy.selectRoute("execution").ok, false,
-    "with Fable unavailable and Sol degraded, Coop must fail closed");
+    "with Fable unavailable and Astra degraded, Coop must fail closed");
 
   var session = makeSession();
   session.vendor = "codex";
   session.providerRouteId = "codex-openai";
-  session.model = "gpt-5.6-sol";
+  session.model = "gpt-6-astra";
   var processor = makeProcessor();
   processor.processSDKMessage(session, { yokeType: "text_start", blockId: "answer" });
   processor.processSDKMessage(session, {
     yokeType: "text_delta",
     blockId: "answer",
-    text: "Sol completed real work.",
+    text: "Astra completed real work.",
   });
 
   var result = codexResult(40);
@@ -197,31 +197,31 @@ test("a token-backed Codex turn recovers Sol so canonical Coop can run", functio
 
   assert.equal(session._lastTurnCompletedProductively, true);
   assert.equal(providerHealth.getRouteHealth(
-    "codex", "codex-openai", "gpt-5.6-sol").state, "healthy");
+    "codex", "codex-openai", "gpt-6-astra").state, "healthy");
   var recoveredRoute = coopModelPolicy.selectRoute("execution");
   assert.equal(recoveredRoute.ok, true);
   assert.equal(recoveredRoute.providerRouteId, "codex-openai");
-  assert.equal(recoveredRoute.model, "gpt-5.6-sol");
+  assert.equal(recoveredRoute.model, "gpt-6-astra");
   providerHealth._reset();
 });
 
-test("an empty token-accounted Codex turn does not recover Sol", function () {
+test("an empty token-accounted Codex turn does not recover Astra", function () {
   providerHealth._reset();
   providerHealth.recordFailure("codex", "provider-error:session-local-overflow", {
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     strong: true,
   });
   var session = makeSession();
   session.vendor = "codex";
   session.providerRouteId = "codex-openai";
-  session.model = "gpt-5.6-sol";
+  session.model = "gpt-6-astra";
 
   makeProcessor().processSDKMessage(session, codexResult(0));
 
   assert.equal(session._turnSawActivity, false);
   assert.equal(session._lastTurnCompletedProductively, false);
   assert.equal(providerHealth.getRouteHealth(
-    "codex", "codex-openai", "gpt-5.6-sol").state, "degraded");
+    "codex", "codex-openai", "gpt-6-astra").state, "degraded");
   providerHealth._reset();
 });

@@ -4,8 +4,9 @@ var assert = require("node:assert");
 var { buildModelRecommendationPrompt } = require("../lib/model-recommendations");
 
 test("model recommendation prompt names the current runtime", function () {
-  var prompt = buildModelRecommendationPrompt("codex", "gpt-5.6-sol");
-  assert.ok(prompt.indexOf("Current runtime: Codex model: gpt-5.6-sol.") !== -1);
+  var prompt = buildModelRecommendationPrompt("codex", "gpt-6-astra");
+  assert.ok(prompt.indexOf("Current runtime: Codex model: gpt-6-astra.") !== -1);
+  assert.ok(prompt.indexOf("Suggest GPT-6 Astra") !== -1);
   assert.ok(prompt.indexOf("Suggest GPT-5.6 Sol") !== -1);
   assert.ok(prompt.indexOf("configured provider-matched worker first") !== -1);
   assert.ok(prompt.indexOf("ESCALATION_REQUIRED: yes") !== -1);

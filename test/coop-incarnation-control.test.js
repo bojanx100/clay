@@ -14,8 +14,8 @@ function harness(options) {
     coopHome: true,
     vendor: "codex",
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
-    requestedModel: "gpt-5.6-sol",
+    model: "gpt-6-astra",
+    requestedModel: "gpt-6-astra",
     history: [{ type: "user_message", text: "Keep this conversation." }],
     pendingCoopIngress: [{ ingressId: "owner-1" }],
     pendingUserMessageQueue: [{ text: "Keep this queued work." }],
@@ -33,7 +33,7 @@ function harness(options) {
       return null;
     },
     suggestionForRoute: function (route) {
-      return { model: route.vendor === "claude" ? "claude-sonnet-4-6" : "gpt-5.6-sol" };
+      return { model: route.vendor === "claude" ? "claude-sonnet-4-6" : "gpt-6-astra" };
     },
     executeProviderSwitch: function (input) {
       switches.push(input);
@@ -48,7 +48,7 @@ function harness(options) {
   };
   var sm = {
     sessions: new Map([[1, session]]),
-    currentModel: "gpt-5.6-sol",
+    currentModel: "gpt-6-astra",
     saveSessionFile: function () {
       saves += 1;
       if (opts.failDurable && saves > 1) throw new Error("disk full");
@@ -90,7 +90,7 @@ test("Restart creates a fresh fenced Coop incarnation without losing durable con
   assert.equal(ctx.switches[0].reuseCurrentTarget, true);
   assert.equal(ctx.switches[0].targetVendor, "codex");
   assert.equal(ctx.switches[0].targetRouteId, "codex-openai");
-  assert.equal(ctx.switches[0].targetModel, "gpt-5.6-sol");
+  assert.equal(ctx.switches[0].targetModel, "gpt-6-astra");
   assert.equal(ctx.session.storageId, "canonical-coop");
   assert.equal(ctx.session.coopIncarnation.epoch, before.epoch + 1);
   assert.notEqual(ctx.session.coopIncarnation.incarnationId, before.incarnationId);
@@ -108,9 +108,9 @@ test("Restart creates a fresh fenced Coop incarnation without losing durable con
 
 test("Restart leaves a degraded top-tier route instead of reusing it", function () {
   providerHealth._reset();
-  providerHealth.recordFailure("codex", "transient Sol failure", {
+  providerHealth.recordFailure("codex", "transient Astra failure", {
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
   });
   var ctx = harness();
 
@@ -129,9 +129,9 @@ test("Restart leaves a degraded top-tier route instead of reusing it", function 
 
 test("Restart reports a typed unavailable state when both top-tier routes are unhealthy", function () {
   providerHealth._reset();
-  providerHealth.recordFailure("codex", "Sol unavailable", {
+  providerHealth.recordFailure("codex", "Astra unavailable", {
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     immediate: true,
   });
   providerHealth.recordFailure("claude", "Fable unavailable", {
@@ -155,10 +155,10 @@ test("Restart reports a typed unavailable state when both top-tier routes are un
 
 test("Switch model and Switch provider preserve the exact approved top-tier choice", function () {
   var ctx = harness();
-  ctx.api.handleMessage({}, { type: "set_model", model: "gpt-5.6-sol", requestId: "model-1" });
+  ctx.api.handleMessage({}, { type: "set_model", model: "gpt-6-astra", requestId: "model-1" });
   assert.equal(ctx.switches[0].targetRouteId, "codex-openai");
-  assert.equal(ctx.switches[0].targetModel, "gpt-5.6-sol");
-  assert.equal(ctx.session.model, "gpt-5.6-sol");
+  assert.equal(ctx.switches[0].targetModel, "gpt-6-astra");
+  assert.equal(ctx.session.model, "gpt-6-astra");
 
   ctx.api.handleMessage({}, {
     type: "handoff_session",
@@ -180,8 +180,8 @@ test("an explicit other-session handoff bypasses Coop and reaches its target", f
     storageId: "project-session",
     vendor: "codex",
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
-    requestedModel: "gpt-5.6-sol",
+    model: "gpt-6-astra",
+    requestedModel: "gpt-6-astra",
     history: [],
     isProcessing: false,
   };
@@ -212,7 +212,7 @@ test("an explicit other-session handoff bypasses Coop and reaches its target", f
   assert.equal(targetSession.model, "claude-sonnet-4-6");
   assert.equal(ctx.session.vendor, "codex");
   assert.equal(ctx.session.providerRouteId, "codex-openai");
-  assert.equal(ctx.session.model, "gpt-5.6-sol");
+  assert.equal(ctx.session.model, "gpt-6-astra");
   assert.deepEqual(ctx.session.coopIncarnation, coopIncarnation);
 });
 
@@ -230,7 +230,7 @@ test("a failed switch rolls back routing, incarnation, and runtime capability", 
 
   assert.equal(ctx.session.vendor, "codex");
   assert.equal(ctx.session.providerRouteId, "codex-openai");
-  assert.equal(ctx.session.model, "gpt-5.6-sol");
+  assert.equal(ctx.session.model, "gpt-6-astra");
   assert.deepEqual(ctx.session.coopIncarnation, before);
   assert.equal(ctx.session.history.length, historyLength);
   assert.equal(ctx.session._coopExecutionFence.assert("callback"), true);
@@ -242,7 +242,7 @@ test("a partially applied switch failure still restores the prior Coop state", f
   var ctx = harness();
   ctx.api = controlModule.attachCoopIncarnationControl({
     slug: "lead",
-    sm: { sessions: new Map([[1, ctx.session]]), currentModel: "gpt-5.6-sol",
+    sm: { sessions: new Map([[1, ctx.session]]), currentModel: "gpt-6-astra",
       saveSessionFile: function () {}, broadcastSessionList: function () {} },
     switcher: {
       resolveSwitchTargetRoute: function (target) {
@@ -271,7 +271,7 @@ test("a partially applied switch failure still restores the prior Coop state", f
 
   assert.equal(ctx.session.vendor, "codex");
   assert.equal(ctx.session.providerRouteId, "codex-openai");
-  assert.equal(ctx.session.model, "gpt-5.6-sol");
+  assert.equal(ctx.session.model, "gpt-6-astra");
   assert.equal(ctx.session.history.length, historyLength);
   assert.deepEqual(ctx.session.coopIncarnation, before);
   assert.equal(ctx.session._coopExecutionFence.assert("callback"), true);
@@ -285,7 +285,7 @@ test("non-owner and processing Coop sessions fail closed", function () {
       saveSessionFile: function () {}, broadcastSessionList: function () {} },
     switcher: {
       resolveSwitchTargetRoute: function () { return { id: "codex-openai", vendor: "codex" }; },
-      suggestionForRoute: function () { return { model: "gpt-5.6-sol" }; },
+      suggestionForRoute: function () { return { model: "gpt-6-astra" }; },
       executeProviderSwitch: function () { throw new Error("must not execute"); },
     },
     getSessionForWs: function () { return ctx.session; },

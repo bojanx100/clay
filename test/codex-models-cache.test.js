@@ -120,7 +120,7 @@ test("the bundled Codex runtime reads the migrated fresh legacy cache entry", as
   fs.writeFileSync(cachePath, JSON.stringify({
     fetched_at: new Date().toISOString(),
     etag: "clay-regression-fixture",
-    client_version: "0.152.1",
+    client_version: "0.153.4",
     models: [nativeModelFixture()],
   }));
   assert.strictEqual(JSON.parse(fs.readFileSync(cachePath, "utf8")).models[0].supports_parallel_tool_calls,
@@ -136,7 +136,21 @@ test("the bundled Codex runtime reads the migrated fresh legacy cache entry", as
     env: { CODEX_HOME: cacheHome },
   });
   var stderr = "";
-  t.after(function() { server.stop(); });
+  t.after(async function() {
+    var proc = server.proc;
+    server.stop();
+    if (!proc || proc.exitCode !== null || proc.signalCode) return;
+    await new Promise(function(resolve) {
+      var timer = setTimeout(function() {
+        try { proc.kill("SIGKILL"); } catch (error) {}
+        resolve();
+      }, 1000);
+      proc.once("exit", function() {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  });
 
   await server.start();
   server.proc.stderr.on("data", function(chunk) { stderr += chunk.toString(); });

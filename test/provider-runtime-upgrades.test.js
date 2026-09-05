@@ -30,7 +30,7 @@ test("provider runtime dependencies match the vetted Canonical versions", functi
   var manifest = require("../package.json");
   var lock = require("../package-lock.json");
   assert.equal(manifest.dependencies["@anthropic-ai/claude-agent-sdk"], "^0.3.258");
-  assert.equal(manifest.optionalDependencies["@openai/codex"], "0.152.1");
+  assert.equal(manifest.optionalDependencies["@openai/codex"], "0.153.4");
   assert.equal(lock.packages["node_modules/@anthropic-ai/claude-agent-sdk"].version, "0.3.258");
-  assert.equal(lock.packages["node_modules/@openai/codex"].version, "0.152.1");
+  assert.equal(lock.packages["node_modules/@openai/codex"].version, "0.153.4");
 });

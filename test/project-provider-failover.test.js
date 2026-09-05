@@ -257,20 +257,20 @@ test("Fable fails over directly to GPT-5.6 Sol without confirmation", function (
   providerHealth._reset();
 });
 
-test("canonical Coop fails closed when Sol is degraded and Fable is unhealthy", function () {
+test("canonical Coop fails closed when Astra is degraded and Fable is unhealthy", function () {
   providerHealth._reset();
   providerHealth.recordFailure("claude", "Fable quota exhausted", {
     providerRouteId: "claude-anthropic",
     model: "fable",
     immediate: true,
   });
-  providerHealth.recordFailure("codex", "transient Sol failure", {
+  providerHealth.recordFailure("codex", "transient Astra failure", {
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
   });
   var sm = makeSm(["claude", "codex"]);
   sm.modelsByVendor.claude = ["fable"];
-  sm.modelsByVendor.codex = ["gpt-5.6-sol", "gpt-5.6-terra"];
+  sm.modelsByVendor.codex = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra"];
   var continued = [];
   var failover = makeFailover(sm, continued);
   var session = makeSession();
@@ -297,11 +297,11 @@ test("canonical Coop fails closed when Sol is degraded and Fable is unhealthy", 
   providerHealth._reset();
 });
 
-test("a fresh canonical Coop session binds to Sol before its first provider turn", function () {
+test("a fresh canonical Coop session binds to Astra before its first provider turn", function () {
   providerHealth._reset();
   var sm = makeSm(["claude", "codex"]);
   sm.modelsByVendor.claude = ["fable"];
-  sm.modelsByVendor.codex = ["gpt-5.6-sol"];
+  sm.modelsByVendor.codex = ["gpt-6-astra", "gpt-5.6-sol"];
   var failover = makeFailover(sm, []);
   var session = {
     localId: 45,
@@ -318,11 +318,11 @@ test("a fresh canonical Coop session binds to Sol before its first provider turn
   assert.equal(decision.ok, true);
   assert.equal(session.vendor, "codex");
   assert.equal(session.providerRouteId, "codex-openai");
-  assert.equal(session.model, "gpt-5.6-sol");
+  assert.equal(session.model, "gpt-6-astra");
   providerHealth._reset();
 });
 
-test("canonical Coop leaves a catalog-missing Sol route for verified Fable", function () {
+test("canonical Coop leaves a catalog-missing Astra route for verified Fable", function () {
   providerHealth._reset();
   var sm = makeSm(["claude", "codex"]);
   sm.modelsByVendor.claude = ["claude-fable-5"];
@@ -335,8 +335,8 @@ test("canonical Coop leaves a catalog-missing Sol route for verified Fable", fun
     coopHome: true,
     vendor: "codex",
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
-    requestedModel: "gpt-5.6-sol",
+    model: "gpt-6-astra",
+    requestedModel: "gpt-6-astra",
     history: [{ type: "user_message", text: "Continue" }],
     isProcessing: false,
   };
@@ -457,9 +457,11 @@ test("model capability tiers distinguish flagship and downgraded fallbacks", fun
   assert.strictEqual(failoverModule.modelCapabilityTier("fable"), 4);
   assert.strictEqual(failoverModule.modelCapabilityTier("claude-fable-5"), 4);
   assert.strictEqual(failoverModule.modelCapabilityTier("gpt-5.6-sol"), 4);
+  assert.strictEqual(failoverModule.modelCapabilityTier("gpt-6-astra"), 4);
   assert.strictEqual(failoverModule.modelCapabilityTier("claude-opus-4.8"), 3);
   assert.strictEqual(failoverModule.modelCapabilityTier("gpt-5.4-mini"), 1);
   assert.strictEqual(failoverModule.capabilityComparison("fable", "gpt-5.6-sol").comparable, true);
+  assert.strictEqual(failoverModule.capabilityComparison("fable", "gpt-6-astra").comparable, true);
   assert.strictEqual(failoverModule.capabilityComparison("fable", "claude-opus-4.8").comparable, false);
 });
 

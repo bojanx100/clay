@@ -8,12 +8,12 @@ test("unconfigured defaults choose the best provider model", function () {
   var sm = {
     modelsByVendor: {
       claude: [{ value: "default" }, { value: "best" }, { value: "claude-opus-4-8" }],
-      codex: [{ value: "gpt-5.6-terra", isDefault: true }, { value: "gpt-5.6-sol" }],
+      codex: [{ value: "gpt-5.6-terra", isDefault: true }, { value: "gpt-5.6-sol" }, { value: "gpt-6-astra" }],
     },
   };
 
   assert.strictEqual(defaultModelForVendor(sm, "claude"), "best");
-  assert.strictEqual(defaultModelForVendor(sm, "codex"), "gpt-5.6-sol");
+  assert.strictEqual(defaultModelForVendor(sm, "codex"), "gpt-6-astra");
 });
 
 test("configured provider defaults override automatic best selection", function () {

@@ -30,6 +30,7 @@ test("resolveContextWindowForModel matrix: representative Claude/Codex/Copilot m
   assert.strictEqual(resolveContextWindowForModel("claude-opus-4-8"), 1000000);
   assert.strictEqual(resolveContextWindowForModel("claude-haiku-4-5"), 200000);
   // Codex/OpenAI family.
+  assert.strictEqual(resolveContextWindowForModel("gpt-6-astra"), 1050000);
   assert.strictEqual(resolveContextWindowForModel("gpt-5.5"), 1048576);
   assert.strictEqual(resolveContextWindowForModel("gpt-5.6-sol"), 1048576);
   assert.strictEqual(resolveContextWindowForModel("o4-mini"), 200000);

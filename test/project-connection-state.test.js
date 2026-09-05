@@ -276,8 +276,8 @@ test("vendor, route, and Codex fallback model selection is deterministic", funct
   });
   assert.equal(codex.vendor, "codex");
   assert.equal(codex.route.id, "codex-openai");
-  assert.equal(codex.model, "gpt-5.6-sol");
-  assert.equal(codex.models[0].value, "gpt-5.6-sol");
+  assert.equal(codex.model, "gpt-6-astra");
+  assert.equal(codex.models[0].value, "gpt-6-astra");
 
   var copilot = state.selectInitialModelState({
     active: { vendor: "github-copilot", providerRouteId: "claude-github-copilot", model: "claude-sonnet-4.6" },

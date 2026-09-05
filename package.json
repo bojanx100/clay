@@ -72,6 +72,6 @@
     "semantic-release": "^25.0.8"
   },
   "optionalDependencies": {
-    "@openai/codex": "0.152.1"
+    "@openai/codex": "0.153.4"
   }
 }

@@ -115,8 +115,17 @@ function createFixtures() {
           }, 10000);
           if (!result || !result.userAgent) throw new Error("Codex initialize response is missing userAgent");
           server.notify("initialized", {});
+          var catalog = await server.send("model/list", {
+            includeHidden: false,
+            limit: 100,
+          }, 10000);
+          if (!catalog || !Array.isArray(catalog.data) || !catalog.data.some(function(model) {
+            return model && model.id === "gpt-6-astra";
+          })) {
+            throw new Error("Codex model/list does not expose gpt-6-astra");
+          }
           var thread = await server.send("thread/start", {
-            model: "gpt-5.4-mini",
+            model: "gpt-6-astra",
             sandbox: "read-only",
             approvalPolicy: "on-request",
             cwd: process.cwd(),

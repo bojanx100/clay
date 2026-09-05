@@ -498,12 +498,14 @@ test("the repository runner kills a spinning test process at its file deadline",
 
   try {
     var startedAt = Date.now();
+    // Give the nested Node process enough startup time under the repository's
+    // 14-way test concurrency while still exercising a short hard deadline.
     var result = await testRunner.runFile(fixture, nestedTestEnvironment,
-      summaryDir, 0, { timeoutMs: 250 });
+      summaryDir, 0, { timeoutMs: 1000 });
     assert.equal(result.timedOut, true, result.output || JSON.stringify(result));
     assert.equal(result.signal, "SIGKILL");
     assert.equal(result.summary, null);
-    assert.equal(testRunner.describeMissing(result), "timed out after 250ms");
+    assert.equal(testRunner.describeMissing(result), "timed out after 1000ms");
     assert.ok(Date.now() - startedAt < 5000, "the runner must bound a spinning child");
     workerPid = Number(fs.readFileSync(pidPath, "utf8"));
     assert.equal(processExists(workerPid), false,

@@ -14,15 +14,20 @@ function states(values) {
   };
 }
 
-test("canonical Coop prefers Sol for execution and Fable for hard judgment", function () {
+test("canonical Coop prefers Astra for execution and Fable for hard judgment", function () {
+  var active = policy.activeDesignations(policy.TOP_TIER_POLICY);
   var execution = policy.selectRoute("execution");
   var research = policy.selectRoute("research");
   var judgment = policy.selectRoute("architecture");
 
+  assert.equal(policy.TOP_TIER_POLICY.version, 2);
+  assert.deepEqual(active.filter(function (designation) {
+    return designation.track === "execution";
+  }).map(function (designation) { return designation.model; }), ["gpt-6-astra"]);
   assert.equal(execution.ok, true);
   assert.equal(execution.providerRouteId, "codex-openai");
-  assert.equal(execution.model, "gpt-5.6-sol");
-  assert.equal(research.model, "gpt-5.6-sol");
+  assert.equal(execution.model, "gpt-6-astra");
+  assert.equal(research.model, "gpt-6-astra");
   assert.equal(judgment.ok, true);
   assert.equal(judgment.providerRouteId, "claude-anthropic");
   assert.equal(judgment.model, "fable");
@@ -31,7 +36,7 @@ test("canonical Coop prefers Sol for execution and Fable for hard judgment", fun
 test("degraded and unhealthy designated routes are unavailable to Coop", function () {
   var selected = policy.selectRoute("execution", {
     healthForCandidate: states({
-      "codex-openai/gpt-5.6-sol": "degraded",
+      "codex-openai/gpt-6-astra": "degraded",
       "claude-anthropic/fable": "healthy",
     }),
   });
@@ -40,7 +45,7 @@ test("degraded and unhealthy designated routes are unavailable to Coop", functio
 
   var unavailable = policy.selectRoute("execution", {
     healthForCandidate: states({
-      "codex-openai/gpt-5.6-sol": "degraded",
+      "codex-openai/gpt-6-astra": "degraded",
       "claude-anthropic/fable": "unhealthy",
     }),
   });
@@ -122,7 +127,7 @@ test("canonical coopChannel fails closed when no designated route is healthy", f
   });
   var allDown = {
     healthForCandidate: states({
-      "codex-openai/gpt-5.6-sol": "unhealthy",
+      "codex-openai/gpt-6-astra": "unhealthy",
       "claude-anthropic/fable": "unhealthy",
     }),
   };
@@ -144,14 +149,14 @@ test("canonical coopChannel excludes a degraded route and keeps the healthy tier
   var channel = projectChannel();
   var selected = policy.selectRoute(policy.purposeForSession(channel), {
     healthForCandidate: states({
-      "codex-openai/gpt-5.6-sol": "degraded",
+      "codex-openai/gpt-6-astra": "degraded",
       "claude-anthropic/fable": "healthy",
     }),
   });
 
   assert.equal(selected.ok, true);
   assert.equal(selected.model, "fable");
-  assert.notEqual(selected.model, "gpt-5.6-sol");
+  assert.notEqual(selected.model, "gpt-6-astra");
 });
 
 test("governed successor preference applies on a canonical coopChannel too", function () {
@@ -237,9 +242,9 @@ test("canonical coopChannel surfaces unavailable through the real health store",
   // provider becomes unhealthy at runtime, so this exercises the live
   // fail-closed path instead of asserting against an injected answer.
   providerHealth._reset();
-  providerHealth.recordFailure("codex", "Sol out of tokens", {
+  providerHealth.recordFailure("codex", "Astra out of tokens", {
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     immediate: true,
   });
   providerHealth.recordFailure("claude", "Fable unavailable", {
@@ -267,7 +272,7 @@ test("canonical coopChannel surfaces unavailable through the real health store",
   var channel = projectChannel({
     vendor: "codex",
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     isProcessing: true,
   });
 
@@ -302,12 +307,12 @@ test("lower-tier and non-native targets are rejected only for canonical Coop", f
 
 test("a designated successor supersedes its track without reopening the old route", function () {
   var successorPolicy = {
-    version: 2,
+    version: 3,
     designations: policy.TOP_TIER_POLICY.designations.concat([{
       id: "codex-openai/gpt-6-sol",
       topTier: true,
       track: "execution",
-      generation: 2,
+      generation: 3,
       vendor: "codex",
       providerRouteId: "codex-openai",
       model: "gpt-6-sol",
@@ -319,7 +324,7 @@ test("a designated successor supersedes its track without reopening the old rout
   var old = policy.resolveTarget({
     vendor: "codex",
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
   }, { policy: successorPolicy });
   assert.equal(old.code, "coop_top_tier_required");
 
@@ -327,12 +332,12 @@ test("a designated successor supersedes its track without reopening the old rout
     policy: successorPolicy,
     healthForCandidate: states({
       "codex-openai/gpt-6-sol": "unhealthy",
-      "codex-openai/gpt-5.6-sol": "healthy",
+      "codex-openai/gpt-6-astra": "healthy",
       "claude-anthropic/fable": "healthy",
     }),
   });
   assert.equal(fallback.model, "fable");
-  assert.notEqual(fallback.model, "gpt-5.6-sol");
+  assert.notEqual(fallback.model, "gpt-6-astra");
 });
 
 test("verified Fable identities remain equivalent to the governed Fable alias", function () {
@@ -355,9 +360,9 @@ test("verified Fable identities remain equivalent to the governed Fable alias", 
 
 test("warm continuation refuses a degraded Coop route but leaves project sessions unchanged", function () {
   providerHealth._reset();
-  providerHealth.recordFailure("codex", "transient Sol failure", {
+  providerHealth.recordFailure("codex", "transient Astra failure", {
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
   });
   var pushed = 0;
   var bridge = attachBridgeQueryStart({
@@ -371,14 +376,14 @@ test("warm continuation refuses a degraded Coop route but leaves project session
     coopHome: true,
     vendor: "codex",
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     queryInstance: query,
   };
   var worker = {
     localId: 2,
     vendor: "codex",
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     queryInstance: query,
   };
 
@@ -391,9 +396,9 @@ test("warm continuation refuses a degraded Coop route but leaves project session
 
 test("fresh Coop routing returns a typed unavailable result before adapter startup", async function () {
   providerHealth._reset();
-  providerHealth.recordFailure("codex", "Sol unavailable", {
+  providerHealth.recordFailure("codex", "Astra unavailable", {
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     immediate: true,
   });
   providerHealth.recordFailure("claude", "Fable unavailable", {
@@ -427,7 +432,7 @@ test("fresh Coop routing returns a typed unavailable result before adapter start
     coopHome: true,
     vendor: "codex",
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     isProcessing: true,
   };
 
@@ -445,11 +450,11 @@ test("server and project defaults never rebind the canonical Coop session", func
     coopHome: true,
     vendor: "codex",
     providerRouteId: "codex-openai",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
   };
   var setModelCalls = 0;
   var sm = {
-    currentModel: "gpt-5.6-sol",
+    currentModel: "gpt-6-astra",
     defaultModelsByVendor: {},
     serverDefaultModelsByVendor: {},
     saveSessionFile: function () {},
@@ -482,7 +487,7 @@ test("server and project defaults never rebind the canonical Coop session", func
     vendor: "codex",
     model: "gpt-5.6-luna",
   }), true);
-  assert.equal(session.model, "gpt-5.6-sol");
+  assert.equal(session.model, "gpt-6-astra");
   assert.equal(setModelCalls, 0);
   assert.equal(sm.serverDefaultModelsByVendor.codex, "gpt-5.6-terra");
   assert.equal(sm.defaultModelsByVendor.codex, "gpt-5.6-luna");

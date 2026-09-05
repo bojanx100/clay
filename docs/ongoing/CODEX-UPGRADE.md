@@ -1,8 +1,12 @@
 # Codex App-Server Upgrade Tracker
 
-Installed: `@openai/codex@0.142.4`
-Latest: `@openai/codex@0.142.4` (npm)
-Updated: 2026-07-01
+~~Installed: `@openai/codex@0.142.4`~~ **Retracted:** the manifest had already
+advanced to 0.152.1, so this tracker was stale.
+~~Latest: `@openai/codex@0.142.4` (npm)~~ **Retracted:** npm reported 0.153.4
+when GPT-6 Astra support was added.
+Installed: `@openai/codex@0.153.4`
+Latest checked: `@openai/codex@0.153.4` (npm)
+Updated: 2026-09-05
 
 Tracks Clay's integration against the OpenAI Codex CLI / `codex app-server` JSON-RPC protocol. Mirrors the structure of `SDK-UPGRADE.md` so the same review cadence applies.
 
@@ -147,6 +151,15 @@ For protocol-level diagnosis, the codex app-server speaks JSON-RPC 2.0; you can 
 3. ~~Headless protocol smoke: spawn `app-server`, `initialize` handshake succeeds (response `userAgent` reports `0.142.4`). Core JSON-RPC protocol intact.~~
 4. **Pending (needs runtime/UI):** the full verification matrix above — approval, file edit, plan, MCP tool, compaction, interrupt, rewind. The headless smoke only covers spawn + initialize.
 5. If any matrix step regresses, update `lib/yoke/adapters/codex.js` `convertItemToEvents` and add a row here.
+
+### 0.152.1 -> 0.153.4 (done, GPT-6 Astra support; UI matrix pending)
+
+1. The bundled app-server initialized and reported `0.153.4` through its user agent.
+2. A real `model/list` returned `gpt-6-astra` as the default with the expected
+   Codex reasoning levels, and `thread/start` accepted that exact model ID.
+3. The shared YOKE protocol snapshots and the full automated test suite passed.
+4. **Pending (needs runtime/UI):** approval, file edit, plan, MCP tool,
+   compaction, interrupt, and rewind behavior during a real Astra response.
 
 ### Future bumps
 
