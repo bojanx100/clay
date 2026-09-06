@@ -159,6 +159,46 @@ test("typed issue qualification is policy-bound and malformed profiles fail clos
     { ok: false, reason: "policy_malformed", projectRef: REF_A });
 });
 
+test("configured-board qualification binds one exact Projects-v2 board and Status field", function () {
+  var qualification = {
+    version: 2,
+    normalIssueIntake: {
+      issueStates: ["open"],
+      boardStatuses: ["Backlog", "Ready for development"],
+      requireAllBoardItems: true,
+      assignment: "owner",
+      classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+      configuredBoard: { projectId: "PVT_unified", statusFieldId: "PVTSSF_unified_status" },
+    },
+  };
+  var cwd = makeProject({
+    "config.json": { automation: { qualification: qualification } },
+    "assigned-to-me.json": BUG_RECIPE,
+  });
+  var current = load(cwd);
+  assert.strictEqual(current.ok, true);
+  assert.deepStrictEqual(current.policy.qualification, {
+    version: 2,
+    normalIssueIntake: {
+      issueStates: ["open"],
+      boardStatuses: ["backlog", "ready for development"],
+      requireAllBoardItems: true,
+      assignment: "owner",
+      classification: { autonomous: ["bug"], ownerApproval: ["ambiguous", "feature"] },
+      configuredBoard: { projectId: "PVT_unified", statusFieldId: "PVTSSF_unified_status" },
+    },
+  });
+
+  var missingField = JSON.parse(JSON.stringify(qualification));
+  delete missingField.normalIssueIntake.configuredBoard.statusFieldId;
+  var malformed = makeProject({
+    "config.json": { automation: { qualification: missingField } },
+    "assigned-to-me.json": BUG_RECIPE,
+  });
+  assert.deepStrictEqual(load(malformed),
+    { ok: false, reason: "policy_malformed", projectRef: REF_A });
+});
+
 test("a partial explicit block falls back to the restrictive baseline, not to derivation", function () {
   var cwd = makeProject({
     "config.json": { automation: { autonomy: { feature: "deny" } } },

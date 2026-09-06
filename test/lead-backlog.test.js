@@ -102,10 +102,10 @@ function graphQlPage(items, pageInfo) {
     return {
       id: item.id,
       project: { id: item.projectId || "PVT_project_webapp" },
-      fieldValueByName: {
+      fieldValueByName: item.status === null ? null : {
         name: item.status,
         optionId: item.optionId || "PVTSSO_" + item.id,
-        field: { id: "PVTSSF_status", name: "Status" },
+        field: { id: item.statusFieldId || "PVTSSF_status", name: "Status" },
       },
     };
   });
@@ -157,6 +157,24 @@ function qualifiedWebappSource() {
   var resolved = backlog.resolveGithubSources([webappEntry([WEBAPP_ASSIGNED])]);
   assert.deepStrictEqual(resolved.conflicts, []);
   return resolved.sources[0];
+}
+
+function configuredWebappSource() {
+  var source = qualifiedWebappSource();
+  source.policy.qualification = {
+    version: 2,
+    normalIssueIntake: {
+      issueStates: ["open"],
+      boardStatuses: ["Backlog", "Ready for development"],
+      requireAllBoardItems: true,
+      assignment: "owner",
+      classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+      configuredBoard: { projectId: "PVT_unified", statusFieldId: "PVTSSF_unified_status" },
+    },
+  };
+  source.policy.digest = policyModule.policyDigest(source.policy);
+  source.policyDigest = source.policy.digest;
+  return source;
 }
 
 function qualifiedIssue(number) {
@@ -726,6 +744,42 @@ test("authoritative GraphQL board evidence pages and binds every exact item ID a
   });
 });
 
+test("configured Unified Board accepts its valid pages while an unrelated board has null Status", function (t, done) {
+  var source = configuredWebappSource();
+  var raw = qualifiedIssue(2881);
+  var graphCalls = 0;
+  var fakeExec = function (cmd, args, cb) {
+    if (args[0] === "api" && args[1] === "user") return cb(null, JSON.stringify({ login: "bojantv" }));
+    if (args[0] !== "api" || args[1] !== "graphql") return cb(null, JSON.stringify([raw]));
+    graphCalls++;
+    if (graphCalls === 1) {
+      return cb(null, graphQlPage([
+        { id: "PVTI_unified_backlog", projectId: "PVT_unified", status: "Backlog",
+          statusFieldId: "PVTSSF_unified_status" },
+        { id: "PVTI_planning_null", projectId: "PVT_planning", status: null },
+      ], { hasNextPage: true, endCursor: "cursor-unified" }));
+    }
+    return cb(null, graphQlPage([
+      { id: "PVTI_unified_ready", projectId: "PVT_unified", status: "Ready for development",
+        statusFieldId: "PVTSSF_unified_status" },
+      { id: "PVTI_planning_null_again", projectId: "PVT_planning", status: null },
+    ]));
+  };
+  backlog.collectGithubIssues(fakeExec, source, "webapp", function (err, items, metadata) {
+    assert.strictEqual(err, null);
+    assert.strictEqual(graphCalls, 2, "configured-board collection traverses every page");
+    assert.deepStrictEqual(metadata.exclusions, []);
+    assert.strictEqual(items.length, 1);
+    assert.deepStrictEqual(items[0].automationQualification.item.boardItems, [
+      { id: "PVTI_unified_backlog", projectId: "PVT_unified", status: "backlog",
+        statusFieldId: "PVTSSF_unified_status" },
+      { id: "PVTI_unified_ready", projectId: "PVT_unified", status: "ready for development",
+        statusFieldId: "PVTSSF_unified_status" },
+    ]);
+    done();
+  });
+});
+
 test("authoritative status-policy mismatch is reported separately from missing board evidence", function (t, done) {
   var source = qualifiedWebappSource();
   var raw = qualifiedIssue(2873);
@@ -786,6 +840,39 @@ test("board evidence rejects partial, ambiguous, multi-board, and unbounded Grap
   assert.deepStrictEqual(paged, {
     ok: false,
     reason: "qualification_board_evidence_pagination_exhausted",
+  });
+});
+
+test("configured board evidence fails closed for missing, wrong, or conflicting configured entries", function () {
+  var configured = { projectId: "PVT_unified", statusFieldId: "PVTSSF_unified_status" };
+  var missing;
+  boardEvidence.collectBoardItemEvidence(function (cmd, args, cb) {
+    cb(null, graphQlPage([{ id: "PVTI_planning", projectId: "PVT_planning", status: null }]));
+  }, "trialview/v2", 2882, configured, function (result) { missing = result; });
+  assert.deepStrictEqual(missing, {
+    ok: false, reason: "qualification_board_evidence_configured_board_missing",
+  });
+
+  var wrongField;
+  boardEvidence.collectBoardItemEvidence(function (cmd, args, cb) {
+    cb(null, graphQlPage([{ id: "PVTI_unified", projectId: "PVT_unified", status: "Backlog",
+      statusFieldId: "PVTSSF_wrong" }]));
+  }, "trialview/v2", 2883, configured, function (result) { wrongField = result; });
+  assert.deepStrictEqual(wrongField, {
+    ok: false, reason: "qualification_board_evidence_configured_field_invalid",
+  });
+
+  var conflicting;
+  boardEvidence.collectBoardItemEvidence(function (cmd, args, cb) {
+    cb(null, graphQlPage([
+      { id: "PVTI_duplicate", projectId: "PVT_unified", status: "Backlog",
+        statusFieldId: "PVTSSF_unified_status" },
+      { id: "PVTI_duplicate", projectId: "PVT_unified", status: "Ready for development",
+        statusFieldId: "PVTSSF_unified_status" },
+    ]));
+  }, "trialview/v2", 2884, configured, function (result) { conflicting = result; });
+  assert.deepStrictEqual(conflicting, {
+    ok: false, reason: "qualification_board_evidence_configured_field_invalid",
   });
 });
 

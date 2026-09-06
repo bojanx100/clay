@@ -72,6 +72,39 @@ function input(overrides) {
   }, overrides || {});
 }
 
+function configuredPolicy() {
+  var value = policy();
+  value.qualification = {
+    version: 2,
+    normalIssueIntake: {
+      issueStates: ["open"],
+      boardStatuses: ["Backlog", "Ready for development"],
+      requireAllBoardItems: true,
+      assignment: "owner",
+      classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+      configuredBoard: { projectId: "PVT_unified", statusFieldId: "PVTSSF_unified_status" },
+    },
+  };
+  value.digest = policyModule.policyDigest(value);
+  return value;
+}
+
+function configuredIssue(overrides) {
+  return Object.assign({
+    number: 2811,
+    state: "OPEN",
+    projectItems: [
+      { id: "PVTI_unified_backlog", projectId: "PVT_unified",
+        status: { name: "Backlog", fieldId: "PVTSSF_unified_status" } },
+      { id: "PVTI_planning", projectId: "PVT_planning", status: null },
+    ],
+  }, overrides || {});
+}
+
+function configuredInput(overrides) {
+  return Object.assign({}, input({ policy: configuredPolicy(), item: configuredIssue() }), overrides || {});
+}
+
 test("qualification receipt binds fresh open issue, every board item, policy, recipe, and bug rule", function () {
   var created = qualification.receiptFor(input());
   assert.equal(created.ok, true, created.reason);
@@ -117,6 +150,45 @@ test("qualification fails closed when any required issue or board fact is absent
   }
 });
 
+test("configured-board receipts bind board and Status field while ignoring unrelated null Status", function () {
+  var created = qualification.receiptFor(configuredInput());
+  assert.equal(created.ok, true, created.reason);
+  assert.equal(created.receipt.policy.version, 2);
+  assert.deepEqual(created.receipt.item.boardItems, [{
+    id: "PVTI_unified_backlog",
+    projectId: "PVT_unified",
+    status: "backlog",
+    statusFieldId: "PVTSSF_unified_status",
+  }]);
+  assert.ok(created.receipt.coordinator.reasons.indexOf("configured_board_items_allowed") !== -1);
+  assert.equal(qualification.verifyReceipt(created.receipt, {
+    policy: configuredInput().policy, now: 1001,
+  }).ok, true);
+
+  var wrongField = qualification.receiptFor(configuredInput({
+    item: configuredIssue({ projectItems: [{ id: "PVTI_unified_backlog", projectId: "PVT_unified",
+      status: { name: "Backlog", fieldId: "PVTSSF_wrong" } }] }),
+  }));
+  assert.equal(wrongField.reason, "qualification_board_evidence_missing");
+
+  var conflicting = qualification.receiptFor(configuredInput({
+    item: configuredIssue({ projectItems: [
+      { id: "PVTI_unified_duplicate", projectId: "PVT_unified",
+        status: { name: "Backlog", fieldId: "PVTSSF_unified_status" } },
+      { id: "PVTI_unified_duplicate", projectId: "PVT_unified",
+        status: { name: "Ready for development", fieldId: "PVTSSF_unified_status" } },
+    ] }),
+  }));
+  assert.equal(conflicting.reason, "qualification_board_evidence_missing");
+
+  var changedPolicy = configuredPolicy();
+  changedPolicy.qualification.normalIssueIntake.configuredBoard.projectId = "PVT_wrong";
+  changedPolicy.digest = policyModule.policyDigest(changedPolicy);
+  assert.equal(qualification.verifyReceipt(created.receipt, {
+    policy: changedPolicy, now: 1001,
+  }).reason, "qualification_receipt_policy_stale");
+});
+
 test("launch-time requalification rejects post-development and reassigned issues", function () {
   var movedToDevComplete = qualification.requalifyAtLaunch(input({
     item: issue({ projectItems: [{ id: "PVT_item_dev_complete", status: { name: "Dev Complete" } }] }),
@@ -139,6 +211,7 @@ test("auto-launch re-reads board status before starting an issue", async functio
   var source = recipe();
   var launchCount = 0;
   var fetchCount = 0;
+  var fetchArgs = [];
   var launcher = {
     loadRecipe: function () { return source; },
     findExistingSessionForItem: function () { return null; },
@@ -152,16 +225,18 @@ test("auto-launch re-reads board status before starting an issue", async functio
   var autoLaunch = attachAutoLaunch({
     cwd: cwd,
     sm: { sessions: new Map(), broadcastSessionList: function () {} },
-    getLeadMode: function () { return false; },
+    getLeadMode: function () { return true; },
     getTaskLauncher: function () { return launcher; },
     automationGate: {
-      refresh: function () { return { ok: true, policy: policy() }; },
+      refresh: function () { return { ok: true, policy: configuredPolicy() }; },
       evaluateLaunch: function () { return { decision: "execute" }; },
     },
-    fetchItems: function () {
+    fetchItems: function (fetchCwd, fetchRecipe, args) {
       fetchCount++;
-      var current = issue(fetchCount === 1 ? {} : {
-        projectItems: [{ id: "PVT_item_dev_complete", status: { name: "Dev Complete" } }],
+      fetchArgs.push(args);
+      var current = configuredIssue(fetchCount === 1 ? {} : {
+        projectItems: [{ id: "PVTI_unified_dev_complete", projectId: "PVT_unified",
+          status: { name: "Dev Complete", fieldId: "PVTSSF_unified_status" } }],
       });
       current.assignedToOwner = true;
       return [current];
@@ -171,6 +246,10 @@ test("auto-launch re-reads board status before starting an issue", async functio
   try {
     var result = await autoLaunch.launchScheduled("assigned-to-me");
     assert.equal(fetchCount, 2, "the launch boundary must use a fresh issue read");
+    assert.deepEqual(fetchArgs.map(function (value) { return value.qualificationBoard; }), [
+      { projectId: "PVT_unified", statusFieldId: "PVTSSF_unified_status" },
+      { projectId: "PVT_unified", statusFieldId: "PVTSSF_unified_status" },
+    ], "both scheduler collection and launch requalification receive the typed board identity");
     assert.equal(launchCount, 0, "a current Dev Complete status must block launch");
     assert.equal(result.skipped.length, 1);
   } finally {
