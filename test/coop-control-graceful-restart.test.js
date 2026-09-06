@@ -244,9 +244,10 @@ availableTest("multi-project preparation is a barrier and refuses partial checkp
 // repoints coop_control_incarnations. Live state proved the consequence: the
 // control plane kept reporting the execution running while zero turns ran, and
 // the next graceful restart could no longer resolve an exact checkpointable
-// target. Compaction of a control-plane-bound session is refused outright, so
-// the execution keeps the exact session identity the control plane pins.
-availableTest("compaction cannot re-home a control-plane-bound execution's session", function () {
+// target. Retracted: compaction of a control-plane-bound session was refused
+// outright. A provider-only renewal now preserves the exact session identity
+// pinned by the control plane and remains checkpointable.
+availableTest("compaction renews the provider without re-homing a control-plane-bound execution", async function () {
   var h = harness();
   try {
     var active = h.addExecution({ taskId: "compaction-orphan-coordinator", projectId: PROJECT_A,
@@ -265,19 +266,14 @@ availableTest("compaction cannot re-home a control-plane-bound execution's sessi
 
     var continuation = api.compactAndContinue(active.session, { reason: "empty_turn" });
 
-    assert.equal(continuation, null, "a controlled execution's session must not compact");
-    assert.equal(started.length, 0, "no successor provider turn may start");
+    assert.equal(continuation, active.session, "renewal keeps the same controlled session");
+    await active.session._coordinatorRenewal;
+    assert.deepEqual(started, [active.session], "only the pinned session starts a fresh provider turn");
     assert.equal(sm.sessions.size, 1, "no successor session may be created");
     assert.equal(active.session.hidden, undefined, "the bound session stays live");
     assert.equal(active.session.orchestrationPolicy.portfolioExecution.control.executionId,
       active.token.executionId, "control metadata stays on the pinned session");
-    assert.ok(sm.recorded.some(function (item) {
-      return item.event.type === "error" &&
-        String(item.event.text).indexOf(active.token.executionId) !== -1;
-    }), "the refusal must be recorded on the session, not silent");
-
-    // The point of the refusal: the control plane still resolves an exact
-    // checkpointable target, so graceful restart still works.
+    // Provider renewal leaves the exact checkpointable control target intact.
     var prepared = h.router.prepareControlledRestart();
     assert.equal(prepared.preparedHandoffs, 1);
     assert.equal(h.store.listHandoffs().length, 1);
