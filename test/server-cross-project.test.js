@@ -8,6 +8,7 @@ process.env.CLAY_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-"));
 
 var config = require("../lib/config");
 var { createCrossProjectRouter } = require("../lib/server-cross-project");
+var controlPlane = require("../lib/coop-control-plane");
 var attachCompletionGate =
   require("../lib/project-task-orchestrator-completion").attachCompletionGate;
 var attachSessionCompaction =
@@ -484,6 +485,89 @@ test("project registration reconciles a hidden completed coordinator's active bi
   router.reconcileStrandedCompletions();
   assert.equal(router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision).status,
     "completed");
+});
+
+test("startup repairs an exact stale parent task for a verified settled delivery once", function () {
+  var projectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-xproj-settled-parent-"));
+  var leadSessions = new Map();
+  var leadManager = {
+    sessions: leadSessions,
+    createSessionRaw: function (input) {
+      var session = Object.assign({ localId: leadSessions.size + 1, history: [] }, input);
+      leadSessions.set(session.localId, session);
+      return session;
+    },
+    saveSessionFile: function () {},
+    broadcastSessionList: function () { this.broadcasts = (this.broadcasts || 0) + 1; },
+  };
+  var root = controlPlane.ensureProjectCoordinator(leadManager, { projectId: projectId }, "Webapp", {
+    projectId: "system-lead", sessionStorageId: "coop-home",
+  });
+  var rootRef = { projectId: "system-lead", sessionStorageId: root.storageId };
+  var workerRef = { projectId: projectId, sessionStorageId: "settled-delivery" };
+  var request = {
+    source: { projectId: "system-lead", sessionStorageId: "coop-home" },
+    portfolioTaskId: "portfolio-settled-parent", bindingRevision: 1,
+    idempotencyKey: "portfolio-settled-parent-r1", mode: "project_coordinator",
+    targetProject: { projectId: projectId },
+  };
+  var task = controlPlane.prepareTask(leadManager, root, request, {
+    title: "Await owner acceptance", objective: "Keep delivery evidence intact.",
+  });
+  controlPlane.bindTask(leadManager, root, task, workerRef);
+  task.resultSummary = "Implementation was verified.";
+  task.verification = "Focused suite passed.";
+  var target = {
+    localId: 1, storageId: workerRef.sessionStorageId, isProcessing: false,
+    orchestrationPolicy: { portfolioExecution: {
+      portfolioTaskId: request.portfolioTaskId, bindingRevision: request.bindingRevision,
+      idempotencyKey: request.idempotencyKey, mode: request.mode, status: "failed",
+      targetProject: request.targetProject,
+      projectCompletionDeliveryEventId: "settled-completion",
+    } },
+    orchestrationProjectCompletion: {
+      status: "completed", portfolioTaskId: request.portfolioTaskId,
+      bindingRevision: request.bindingRevision, completedAt: 300,
+      completionRevision: 1, graphDigest: "verified-graph",
+      integrationVerification: "yes", escalationRequired: "no", revokedAt: null,
+    },
+  };
+  var targetManager = { sessions: new Map([[target.localId, target]]),
+    saveSessionFile: function () {} };
+  var router = createCrossProjectRouter({
+    bindingFile: path.join(dir, "bindings.json"),
+    getProjectContextById: function (id) {
+      if (id === "system-lead") return { getSessionManager: function () { return leadManager; } };
+      if (id === projectId) return { getSessionManager: function () { return targetManager; } };
+      return null;
+    },
+  });
+  assert.equal(router.bindingStore.reserve(request).ok, true);
+  assert.equal(router.bindingStore.commit(request.portfolioTaskId, request.bindingRevision,
+    workerRef, { projectCoordinatorRef: rootRef }).ok, true);
+  assert.equal(router.bindingStore.complete(request.portfolioTaskId, request.bindingRevision, {
+    eventId: "settled-completion", terminalStatus: "completed", executionMode: "project_coordinator",
+    ownerAcceptanceRequired: true,
+    ownerAcceptance: { status: "pending", source: "project_local_instructions" },
+    completedAt: 300, implementationCompletedAt: 300,
+    implementationCompletionRevision: 1, implementationGraphDigest: "verified-graph",
+  }).ok, true);
+  var events = root.orchestrationEvents.length;
+
+  var recovered = router.reconcileStrandedCompletions();
+  assert.deepEqual(recovered.tasks.reconciled, [task.taskId]);
+  assert.equal(task.status, "needs_input");
+  assert.equal(task.resultSummary, "Implementation was verified.");
+  assert.equal(task.verification, "Focused suite passed.");
+  assert.equal(router.getExecutionBinding(request.portfolioTaskId, request.bindingRevision).status,
+    "completed", "the settled delivery remains historical evidence");
+  assert.equal(root.orchestrationEvents.length, events + 1);
+
+  var replay = router.reconcileStrandedCompletions();
+  assert.deepEqual(replay.tasks.reconciled, []);
+  assert.equal(root.orchestrationEvents.length, events + 1,
+    "repeated startup recovery adds no parent-task event");
 });
 
 test("project registration supersedes and hides only an evidence-bound restart failure", function () {
