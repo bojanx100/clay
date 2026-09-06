@@ -977,3 +977,20 @@ found no remaining blocker in the reviewed persistence change.
 
 All checks use isolated stores and stub provider execution. No live state was changed,
 no external research was performed by a live Coop, and this branch is not activated.
+
+## Iteration 28: Separate preview instance preparation
+
+The owner asked to run `coop_v2` and open the originating Codex conversation in
+Clay. The existing daemon uses a separate runtime checkout and remains active.
+The preview uses its own data directory and listener; no production task state is
+copied into it. Native Codex import can display the original conversation in its
+matching Clay project, while implementation remains on the owner's `coop_v2` branch.
+
+Preparation found that `CLAY_HOME` did not isolate the global recent-project file.
+`CLAY_RC_PATH` now explicitly selects an independent inventory, including creating
+its parent directory. Default behavior remains `~/.clayrc`. Real filesystem tests
+exercise lookup, sync, removal and preservation of a separate existing inventory.
+With the fix removed, the two tests yield 1 pass / 1 fail; restored, both pass.
+The related config/startup suites pass 28 / 28 default and 4 / 4 controlled tests.
+These checks do not establish full runtime isolation or native-session continuation.
+Preview startup and browser import still require runtime verification.

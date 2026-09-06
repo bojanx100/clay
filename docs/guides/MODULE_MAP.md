@@ -19,6 +19,10 @@
 
 ## Server-side Modules (lib/)
 
+`config.js` resolves daemon state, IPC paths and recent projects. Set `CLAY_HOME`
+and `CLAY_RC_PATH` for a parallel instance with its own state and recent-project
+inventory; the default recent-project path remains `~/.clayrc`.
+
 ### project.js (thin coordinator, ~1,200 lines)
 
 Wires all modules, sets up session manager and SDK bridge, dispatches messages.
