@@ -458,7 +458,7 @@ test("Lead wake discovers real state-defaulted backlog and typed binding work", 
   assert.equal(scheduled, 2);
 });
 
-test("Lead wake does not retry history whose exact typed binding is durably missing", function (t) {
+test("Without proactive review, Lead wake does not retry history whose exact typed binding is durably missing", function (t) {
   var leadDir = path.join(config.CONFIG_DIR, "lead");
   fs.mkdirSync(leadDir, { recursive: true });
   t.after(function () { fs.rmSync(leadDir, { recursive: true, force: true }); });
@@ -486,7 +486,7 @@ test("Lead wake does not retry history whose exact typed binding is durably miss
   var scheduled = 0;
   var home = { localId: 1, storageId: "coop-home", coopHome: true };
   var wake = runtimeModule.createLeadWakeHandler({
-    projectSlug: "lead",
+    projectSlug: "lead", proactive: false,
     sm: { sessions: new Map([[1, home]]) },
     scheduleMessage: function () { scheduled++; },
     now: function () { return NOW; },
@@ -496,7 +496,7 @@ test("Lead wake does not retry history whose exact typed binding is durably miss
   assert.equal(scheduled, 0);
 });
 
-test("Lead wake leases the daily standup tick instead of retrying it every interval", function (t) {
+test("Without proactive review, Lead wake leases the daily standup tick instead of retrying it every interval", function (t) {
   var leadDir = path.join(config.CONFIG_DIR, "lead");
   fs.rmSync(leadDir, { recursive: true, force: true });
   t.after(function () { fs.rmSync(leadDir, { recursive: true, force: true }); });
@@ -504,7 +504,7 @@ test("Lead wake leases the daily standup tick instead of retrying it every inter
   var nowValue = 24 * 60 * 60 * 1000 + 1;
   var home = { localId: 1, storageId: "coop-home", coopHome: true };
   var wake = runtimeModule.createLeadWakeHandler({
-    projectSlug: "lead",
+    projectSlug: "lead", proactive: false,
     sm: { sessions: new Map([[1, home]]) },
     scheduleMessage: function () { scheduled++; },
     now: function () { return nowValue; },
@@ -519,12 +519,12 @@ test("Lead wake leases the daily standup tick instead of retrying it every inter
   assert.equal(scheduled, 2);
 });
 
-test("Lead wake skips non-Lead, disabled, busy, already-scheduled, and empty states", function () {
+test("Without proactive review, Lead wake skips non-Lead, disabled, busy, already-scheduled, and empty states", function () {
   var schedules = 0;
   var home = { localId: 1, storageId: "coop-home", coopHome: true };
   function attempt(overrides, tick) {
     var state = Object.assign({
-      projectSlug: "lead",
+      projectSlug: "lead", proactive: false,
       sm: { sessions: new Map([[1, home]]) },
       hasPendingWork: function () { return true; },
       scheduleMessage: function () { schedules++; },

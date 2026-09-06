@@ -157,6 +157,7 @@ test("owner ingress dispatches through an idle reusable Codex query", function (
 });
 
 test("foreground drain wakes Lead through an idle resident Codex query", function () {
+  assert.equal(require("../lib/lead-mode").setLeadMode({ enabled: true, multiUser: false }).ok, true);
   var pushed = [];
   var started = [];
   var residentQuery = query("resident-codex");
@@ -222,7 +223,7 @@ test("foreground drain wakes Lead through an idle resident Codex query", functio
   assert.equal(session.isProcessing, true);
   assert.equal(started.length, 0, "dispatch must not replace the resident query");
   assert.equal(pushed.length, 1);
-  assert.match(pushed[0], /Staff, verify, close, and advance safe work/);
+  assert.match(pushed[0], /advance admitted work/);
   assert.equal(session.history[session.history.length - 1].text, "↻ Lead tick");
   assert.equal(session.history[session.history.length - 1].autoAction, true);
 });

@@ -29,7 +29,7 @@ node scripts/lead-tick-state.js
 
 This is the ONLY state command for steps 0 and 1. It returns `leadMode`,
 `ownerRequests`, `bindings`, `capacity`, `looseItems`, `leadLedger`,
-`historicalLedger`, `providerHealth` and `budget` in a single process, so read
+`historicalLedger`, `proactiveReview`, `providerHealth` and `budget` in a single process, so read
 `leadMode` off it and continue — do not
 issue a separate command per source. Every extra bash step is a full model
 round trip, and the reads themselves are only 20-50ms each, so splitting them
@@ -202,6 +202,13 @@ block restaffing — and the unanswered owner requests as
 `reconcile_history` decision, execute that decision before any standup, wait,
 or new staffing decision.
 
+Pass the scheduled message's typed `coop_proactive_review` as `proactiveReview`.
+For a manually requested unrestricted tick with no scheduled agenda, use
+`snapshot.proactiveReview`. The scheduled agenda takes precedence because its
+wake receipt has already reserved that review; the snapshot may suggest the next
+one. Never add this agenda to an owner-limited continuation. Review is investigation
+and planning, and supplies no implementation or spending authority.
+
 When `ownerContinuationScope` is present, `leadTick` returns only
 `reconcile_scope` for the exact existing bindings, or `wait` if any exact typed
 binding is absent. It never fills spare capacity, reconciles unrelated history,
@@ -209,10 +216,10 @@ or staffs another eligible issue in that tick. An unanswered owner request
 still outranks the scope because answering the owner is not staffing.
 The decisions array is your work order for this tick.
 
-`leadTick` returns a single `answer_owner` decision and NOTHING else when the
-owner is still waiting. That is deliberate: an owner who asked something and
-got no reply outranks every standup and every backlog item, and it preempts
-even at capacity because answering consumes no worker slot. Requests already
+Retracted: “`leadTick` returns a single `answer_owner` decision and NOTHING else.”
+The current loop puts `answer_owner` first and can also return other work.
+Answer the owner before routine review or backlog work, including at capacity
+because answering consumes no worker slot. Requests already
 blocked ON the owner (`needs_input`, `attention`) are excluded from that
 preemption - they are not yours to answer, and letting them preempt would
 stall the backlog behind something only the boss can clear.
@@ -316,7 +323,22 @@ stall the backlog behind something only the boss can clear.
   `[WS-HANDLER-ERROR]` in `~/.clay/diag-dev.log`), compose with
   `lib/lead-standup.composeStandup`, post the digest, then append
   `{type:"standup_composed"}`.
-- **wait** — say the reason in one line. Never idle silently. The reason may be
+- **proactive_review** — carry out the selected bounded investigation. Read its
+  exact Thread or coordinator state before acting; reconcile discussions, help
+  coordinators, discover useful opportunities, gather relevant web/connected
+  evidence, learn from owner decisions, or investigate an operating improvement
+  according to its kind. Full execution capacity does not block this work.
+  Use Council/Triage in the existing Thread for difficult planning. Ask the owner
+  for specific missing business judgment and remember useful scoped corrections.
+  Preserve parked/closed Threads and existing owner and project boundaries.
+  Finish one useful review; keep following up within authorized scope while the
+  evidence advances. Recheck current state before commissioning anything.
+  Publish useful findings through `publish_coop_update`, selecting the review's
+  reference from `list_coop_feedback` for an original-Thread report. A wake receipt
+  is an attempted review, never proof of a finding or completed work. Record actual
+  evidence and outcomes; repeated unchanged checks back off automatically.
+- **wait** — keep the reason internal unless the owner needs to act. A staffing
+  wait does not cancel a separate proactive review. The reason may be
   `backlog empty` only after the full historical ledger scan completed with no
   unresolved records and no snapshot source errors.
 

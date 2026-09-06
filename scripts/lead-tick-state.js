@@ -356,6 +356,7 @@ function gather(options) {
     attempt("looseItems", readLooseItems),
     attempt("leadLedger", readLeadLedger),
     attempt("historicalLedger", readHistoricalLedger),
+    attempt("proactiveReview", function () { return require("../lib/coop-proactive-review").select({}); }),
     attempt("providerHealth", readProviderHealth),
     attempt("budget", function () { return readBudget(dayStartAt); }),
   ];

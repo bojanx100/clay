@@ -47,6 +47,13 @@ Pending owner preferences: behavior of already-running work when Lead turns OFF;
 coordinator freedom to change plans and create extra workers within project rules.
 Independent defect repairs can proceed while those preferences are discussed.
 
+Owner clarification, 2026-09-06: Coop should actively seek useful work, analyze and
+reconcile Threads, check and help project coordinators, gather information from the
+owner and permitted external sources, learn from decisions and improve its operation.
+The operating objective is useful progress with little avoidable idle time. Current
+default pending pacing feedback: follow useful opportunities within existing rules
+and budget, and back off repeated checks when their evidence is unchanged.
+
 ## Implementation ledger
 
 - [x] Preserve legitimate repeat automation with distinct binding attempts.
@@ -68,6 +75,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Keep pending assignments visible and cancellable, with bounded notification and durable attention.
 - [x] Preserve reports through provider submission, bound retries, and expose uncertain delivery for owner review.
 - [x] Align Main/Thread conversation filtering and preserve explicitly scoped task and planning reports through restart and compaction.
+- [x] Schedule a rotating proactive review agenda even with an empty execution backlog, preserve its scope through restart, and recheck mode/target before dispatch.
 - [x] Correct plain-array transcript saves that can be incorrectly skipped by the unloaded-history optimization.
 - [ ] Consolidate owner-request/task/attempt outcome provenance.
 - [x] Remove recovery mutations from projections, drive them through daemon events,
@@ -918,3 +926,54 @@ canary health, or activation of this branch. Existing reports with no reliable t
 planning or owner-answer reference are not retrospectively assigned to a Thread.
 No live history was repaired. Thread regrouping after commissioning, automatic ON
 adoption/OFF ownership transfer, and supervised self-repair remain broader work.
+
+## Iteration 27: Proactive review alongside execution
+
+The old default wake predicate recognized existing backlog, running bindings,
+answerable requests, actionable history and the daily standup. An empty queue could
+leave Coop with no reason to investigate opportunities, revisit a discussion or
+learn. The Lead wake check now runs every five minutes and can select a bounded
+review from actual Thread references, resident coordinator assignments, recorded
+owner requests, project discovery or an operating improvement review. Existing
+event-driven wakes after owner ingress and portfolio terminal events remain.
+
+Reviews rotate by least recent attempt, independent of execution capacity. Unchanged
+Thread/coordinator evidence starts with a fifteen-minute revisit and doubles up to
+four hours; changed evidence is eligible after five minutes. Discovery starts hourly,
+owner learning hourly, and operating review every four hours. These are review
+eligibility intervals, not promises about provider duration or model productivity.
+Wake receipts record attempts and do not certify completed reviews, learned
+preferences or finished tasks. Existing-work wake reasons remain independent.
+
+The selected agenda is typed metadata in the durable scheduled entry and synthetic
+turn. Restart reconstructs its instructions instead of reducing it to the display
+label. Dispatch rechecks Lead mode, owner ingress and current target lifecycle;
+parked, closed and merged-away Threads and replaced coordinators cannot start stale
+reviews. A failed schedule save cannot claim a wake or leave an in-memory queue
+entry for recovery to execute; a failed replacement preserves the existing timer.
+Review findings use the existing explicit owner-update path and retain the original Thread through their recorded
+review reference. Model prose does not choose a different Thread.
+
+Coop's role and tick procedure now describe discovery, relevant web/connected-source
+research, coordinator help, scoped owner learning and evidence-backed self-review.
+The deterministic loop can return proactive investigation at full worker capacity,
+but it excludes it from an owner-limited continuation. Execution, self-modification,
+spend and activation retain their existing gates. This does not implement autonomous
+daemon replacement or prove that a model will make useful decisions every cycle.
+
+Validation: the eleven proactive integration tests pass in both default and
+controlled modes. Removing the tracked implementation wiring produces 4 pass /
+7 fail in each mode. Separately removing merged-Thread filtering or exponential
+backoff produces 10 pass / 1 fail in each mode; removing failed-queue rollback
+produces 9 pass / 2 fail in each mode. All mutations were restored before the final
+full suite: 4,288 / 4,288 default and 740 / 740 controlled tests passed.
+
+The tests use real isolated session persistence, Thread merges, owner-request
+records, coordinator lookup and scheduler restoration. They inject actual append
+and fallback rename failures to establish that a failed save cannot create a ghost
+queue entry or discard an existing timer. Independent read-only review identified
+the merged-Thread and persistence gaps; after those fixes its bounded follow-up
+found no remaining blocker in the reviewed persistence change.
+
+All checks use isolated stores and stub provider execution. No live state was changed,
+no external research was performed by a live Coop, and this branch is not activated.
