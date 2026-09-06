@@ -10,7 +10,10 @@ var test = require("node:test");
 var assert = require("node:assert");
 
 var { createConcurrencyLimiter } = require("../lib/project-automation-concurrency");
-var { portfolioTaskIdFor } = require("../lib/project-automation-identity");
+var { idempotencyKeyFor, portfolioTaskIdFor } = require("../lib/project-automation-identity");
+
+var WEBAPP = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+var OTHER_PROJECT = "11111111-2222-4333-8444-555555555555";
 
 // A session manager shaped like the real one: sessions is a Map with forEach.
 function sessionManager(sessions) {
@@ -23,7 +26,7 @@ function sessionManager(sessions) {
 
 function autoSession(itemKey, overrides) {
   return Object.assign({
-    storageId: "s-" + itemKey,
+    storageId: "s-" + itemKey.replace(/[^a-zA-Z0-9-]/g, "-"),
     taskLauncher: Object.assign({
       autoLaunch: true,
       workflowCompleted: false,
@@ -53,6 +56,72 @@ function admittedCandidate(itemKey, taskId) {
     status: "admitted",
     binding: { portfolioTaskId: taskId || ("task-" + itemKey), bindingRevision: 1 },
   };
+}
+
+function webappCandidate(itemKey, taskId) {
+  var candidate = admittedCandidate(itemKey, taskId);
+  candidate.projectRef = { projectId: WEBAPP };
+  return candidate;
+}
+
+function hiddenCompletedSession(projectRef, binding, storageId, overrides) {
+  var completedAt = 1786550367439;
+  var policy = {
+    portfolioTaskId: binding.portfolioTaskId,
+    bindingRevision: binding.bindingRevision,
+    idempotencyKey: idempotencyKeyFor(binding.portfolioTaskId, binding.bindingRevision),
+    mode: "project_coordinator",
+    status: "completed",
+    source: { projectId: "system-lead", sessionStorageId: "coop-home-live" },
+    createdAt: completedAt - 1000,
+    updatedAt: completedAt,
+    projectCompletionResultEventId: "project-coordinator-result",
+    projectCompletionDeliveryEventId: "project-terminal-v1-project-coordinator-result",
+    completedAt: completedAt,
+  };
+  var session = Object.assign({
+    storageId: storageId || "c8caebc6-a1b1-439f-bbe3-1b8aaf620183",
+    hidden: true,
+    projectRef: projectRef,
+    orchestrationPolicy: { portfolioExecution: policy },
+    orchestrationProjectCompletion: {
+      status: "completed",
+      completionRevision: 1,
+      graphDigest: "#events:0::",
+      summary: "done",
+      verification: "verified",
+      integrationVerification: "yes",
+      escalationRequired: "no",
+      portfolioTaskId: binding.portfolioTaskId,
+      bindingRevision: binding.bindingRevision,
+      completedAt: completedAt,
+      revokedAt: null,
+      revocationReason: "",
+    },
+    orchestrationEvents: [{
+      type: "project_completed",
+      at: completedAt,
+      data: {
+        completionRevision: 1,
+        graphDigest: "#events:0::",
+        summary: "done",
+        verification: "verified",
+        integrationVerification: "yes",
+        escalationRequired: "no",
+        portfolioTaskId: binding.portfolioTaskId,
+        bindingRevision: binding.bindingRevision,
+      },
+    }],
+  }, overrides || {});
+  if (overrides && overrides.policyOverrides) {
+    session.orchestrationPolicy.portfolioExecution =
+      Object.assign({}, policy, overrides.policyOverrides);
+  }
+  if (overrides && overrides.completionOverrides) {
+    session.orchestrationProjectCompletion =
+      Object.assign({}, session.orchestrationProjectCompletion, overrides.completionOverrides);
+  }
+  return session;
 }
 
 // A binding reader over a mutable status table, so a test can complete a worker
@@ -343,6 +412,114 @@ test("concurrency: a null binding counts as in flight", function () {
   });
   assert.strictEqual(l.inFlight().count, 1);
   assert.strictEqual(l.slots().available, 0);
+});
+
+test("concurrency: exact hidden completed session evidence releases missing binding slots", function () {
+  var active = [
+    webappCandidate("trialview/v2#2928", "task-2928"),
+    webappCandidate("trialview/v2#2881", "task-2881"),
+    webappCandidate("trialview/v2#2874", "task-2874"),
+  ];
+  var phantom2539 = webappCandidate("trialview/v2#2539",
+    "auto:3c4d8435fedc904a1118a07a:trialview-v2-2539");
+  var phantom2246 = webappCandidate("trialview/v2#2246",
+    "auto:62f53378f5e7b9d70339760a:trialview-v2-2246");
+  var l = limiter({
+    sm: sessionManager([
+      autoSession("trialview/v2#2928"),
+      autoSession("trialview/v2#2881"),
+      autoSession("trialview/v2#2874"),
+      hiddenCompletedSession({ projectId: WEBAPP }, phantom2539.binding,
+        "c8caebc6-a1b1-439f-bbe3-1b8aaf620183"),
+      hiddenCompletedSession({ projectId: WEBAPP }, phantom2246.binding,
+        "ff0ba572-f438-4581-bdf2-0ca143af4618"),
+    ]),
+    candidates: candidateStore(active.concat([phantom2539, phantom2246])),
+    getBinding: bindingReader({
+      "task-2928": "active",
+      "task-2881": "active",
+      "task-2874": "active",
+    }),
+    getBindings: function () { return []; },
+    getLimit: function () { return 5; },
+  });
+  var slots = l.slots();
+  assert.strictEqual(slots.ok, true);
+  assert.strictEqual(slots.inFlight, 3,
+    "only the three live originals occupy capacity");
+  assert.deepStrictEqual(slots.items.sort(), [
+    "trialview/v2#2874",
+    "trialview/v2#2881",
+    "trialview/v2#2928",
+  ]);
+  assert.strictEqual(slots.available, 2);
+});
+
+test("concurrency: missing binding release fails closed without exact hidden completion evidence", function () {
+  var candidate = webappCandidate("trialview/v2#2539",
+    "auto:3c4d8435fedc904a1118a07a:trialview-v2-2539");
+  var cases = [{
+    name: "no session",
+    sessions: [],
+  }, {
+    name: "wrong revision",
+    sessions: [hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding, "s-revision", {
+      policyOverrides: { bindingRevision: 2,
+        idempotencyKey: idempotencyKeyFor(candidate.binding.portfolioTaskId, 2) },
+      completionOverrides: { bindingRevision: 2 },
+    })],
+  }, {
+    name: "wrong project",
+    sessions: [hiddenCompletedSession({ projectId: OTHER_PROJECT }, candidate.binding,
+      "s-project")],
+  }, {
+    name: "bad session identity",
+    sessions: [hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding,
+      "bad/session")],
+  }, {
+    name: "missing completion event",
+    sessions: [hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding,
+      "s-event", { orchestrationEvents: [] })],
+  }, {
+    name: "missing result id",
+    sessions: [hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding,
+      "s-result", { policyOverrides: { projectCompletionResultEventId: "" } })],
+  }, {
+    name: "revoked completion",
+    sessions: [hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding,
+      "s-revoked", { completionOverrides: { revokedAt: 1788717600001 } })],
+  }, {
+    name: "policy project conflict",
+    sessions: [hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding,
+      "s-policy-project", { policyOverrides: { targetProject: { projectId: OTHER_PROJECT } } })],
+  }, {
+    name: "hidden active duplicate",
+    sessions: [hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding, "s-old"),
+      { storageId: "s-hidden-live", hidden: true, isProcessing: true,
+        taskLauncher: { itemUrl: "https://github.com/trialview/v2/issues/2539" } }],
+  }, {
+    name: "newer active execution",
+    sessions: [hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding, "s-newer")],
+    bindings: [{ portfolioTaskId: candidate.binding.portfolioTaskId, bindingRevision: 2,
+      targetProject: { projectId: WEBAPP }, status: "active" }],
+  }, {
+    name: "ambiguous duplicate sessions",
+    sessions: [
+      hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding, "s-a"),
+      hiddenCompletedSession({ projectId: WEBAPP }, candidate.binding, "s-b"),
+    ],
+  }];
+  for (var i = 0; i < cases.length; i++) {
+    var l = limiter({
+      sm: sessionManager(cases[i].sessions),
+      candidates: candidateStore([candidate]),
+      getBinding: bindingReader({}),
+      getBindings: function () { return cases[i].bindings || []; },
+      getLimit: function () { return 1; },
+    });
+    assert.strictEqual(l.inFlight().count, 1, cases[i].name);
+    assert.strictEqual(l.slots().available, 0, cases[i].name);
+  }
 });
 
 test("concurrency: a throwing binding reader counts as in flight", function () {

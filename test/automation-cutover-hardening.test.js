@@ -33,6 +33,19 @@ function queueDeps(onSend) {
   };
 }
 
+function reconsiderationEvidence(overrides) {
+  return Object.assign({
+    schema: "clay.owner_requested_automation_reconsideration",
+    version: 1,
+    reason: "owner_requested_bounce_reconsideration",
+    ownerRequestRefs: ["owner-ingress:122", "owner-ingress:125"],
+    requestedAt: 1788717600000,
+    currentQualificationRequired: true,
+    verifiedNoLiveSession: true,
+    sessionSnapshot: { projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" }, sessions: [] },
+  }, overrides || {});
+}
+
 test("a PR pass consumed for a session that never started is restored", function () {
   var cwd = tempDir("clay-pr-rollback-");
   var prState = createPrReviewState(cwd);
@@ -88,6 +101,105 @@ test("rollback restores an existing issue's armed state, not just new entries", 
   assert.strictEqual(after.status, "completed");
   assert.strictEqual(after.statusAtCompletion, "Dev Complete");
   assert.strictEqual(issueState.shouldRelaunch("o/r#7"), true);
+});
+
+test("#2503: stale unarmed launch state clears only with exact owner reconsideration evidence", function () {
+  var cwd = tempDir("clay-issue-stale-repair-");
+  var issueState = createIssueLaunchState(cwd);
+  var file = path.join(cwd, ".clay", "tasks", "issue-launch-state.json");
+  var stale = {
+    status: "launched",
+    statusAtCompletion: "",
+    armed: false,
+    lastLaunchAt: 1786016107837,
+    completedAt: 0,
+    updatedAt: 1786016107837,
+  };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ "trialview/v2#2503": stale }, null, 2) + "\n");
+
+  var context = { projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" },
+    bindingSnapshot: [], projectSlug: "webapp" };
+  assert.equal(issueState.clearStaleLaunch("trialview/v2#2503",
+    reconsiderationEvidence({ expectedEntry: stale, sessionSnapshot: {
+      projectRef: context.projectRef, sessions: [{ storageId: "live-2503",
+        taskLauncher: { itemUrl: "https://github.com/trialview/v2/issues/2503" } }],
+    } }), context).reason, "live_session_conflict");
+  assert.equal(issueState.clearStaleLaunch("trialview/v2#2503",
+    reconsiderationEvidence({ expectedEntry: stale }), Object.assign({}, context, {
+      bindingSnapshot: [{ portfolioTaskId: "portfolio-webapp-2503", bindingRevision: 1,
+        targetProject: context.projectRef, status: "active" }],
+    })).reason, "active_binding_conflict");
+  assert.deepEqual(issueState.snapshot("trialview/v2#2503"), stale);
+
+  var result = issueState.clearStaleLaunch("trialview/v2#2503",
+    reconsiderationEvidence({ expectedEntry: stale }), {
+      projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" },
+      bindingSnapshot: [], projectSlug: "webapp",
+    });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.removed, true);
+  assert.deepEqual(result.before, stale);
+  assert.equal(issueState.hasEntry("trialview/v2#2503"), false,
+    "normal qualification may now reconsider the issue from scratch");
+});
+
+test("#2503: stale launch-state repair fails closed on mismatches and live conflicts", function () {
+  var cases = [{
+    name: "expected entry mismatch",
+    entry: {
+      status: "launched", statusAtCompletion: "", armed: false,
+      lastLaunchAt: 1786016107837, completedAt: 0, updatedAt: 1786016107837,
+    },
+    evidence: {
+      expectedEntry: {
+        status: "launched", statusAtCompletion: "", armed: false,
+        lastLaunchAt: 1786016107837, completedAt: 0, updatedAt: 1786016107838,
+      },
+    },
+    reason: "stale_launch_mismatch",
+  }, {
+    name: "armed bounce",
+    entry: {
+      status: "completed", statusAtCompletion: "Dev Complete", armed: true,
+      lastLaunchAt: 1786016107837, completedAt: 1786016200000, updatedAt: 1786016200000,
+    },
+    evidence: {
+      expectedEntry: {
+        status: "completed", statusAtCompletion: "Dev Complete", armed: true,
+        lastLaunchAt: 1786016107837, completedAt: 1786016200000, updatedAt: 1786016200000,
+      },
+    },
+    reason: "invalid_reconsideration_evidence",
+  }, {
+    name: "live conflict",
+    entry: {
+      status: "launched", statusAtCompletion: "", armed: false,
+      lastLaunchAt: 1786016107837, completedAt: 0, updatedAt: 1786016107837,
+    },
+    evidence: {
+      expectedEntry: {
+        status: "launched", statusAtCompletion: "", armed: false,
+        lastLaunchAt: 1786016107837, completedAt: 0, updatedAt: 1786016107837,
+      },
+      verifiedNoLiveSession: false,
+    },
+    reason: "invalid_reconsideration_evidence",
+  }];
+  for (var i = 0; i < cases.length; i++) {
+    var cwd = tempDir("clay-issue-stale-repair-fail-");
+    var issueState = createIssueLaunchState(cwd);
+    var file = path.join(cwd, ".clay", "tasks", "issue-launch-state.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ "trialview/v2#2503": cases[i].entry },
+      null, 2) + "\n");
+    var result = issueState.clearStaleLaunch("trialview/v2#2503",
+      reconsiderationEvidence(cases[i].evidence));
+    assert.equal(result.ok, false, cases[i].name);
+    assert.equal(result.reason, cases[i].reason, cases[i].name);
+    assert.equal(issueState.hasEntry("trialview/v2#2503"), true, cases[i].name);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 // --- Owner attribution across the queue ---------------------------------------------
