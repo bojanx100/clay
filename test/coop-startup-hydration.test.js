@@ -19,6 +19,21 @@ test("live Coop projection refresh imports its transport dependency", function (
     "server.js must import coop-topic-connection before its deferred refresh callback runs");
 });
 
+test("project identity is available before auto-launch startup recovery", function () {
+  var serverSource = fs.readFileSync(path.join(__dirname, "../lib/server.js"), "utf8");
+  var foundationSource = fs.readFileSync(
+    path.join(__dirname, "../lib/project-foundation.js"), "utf8");
+  var createContextStart = serverSource.indexOf("var ctx = createProjectContext({");
+  var createContext = serverSource.slice(createContextStart, createContextStart + 500);
+  var managerStart = foundationSource.indexOf("var sm = createSessionManager({");
+  var manager = foundationSource.slice(managerStart, managerStart + 300);
+
+  assert.match(createContext, /projectId:\s*projectId/,
+    "the server must pass the canonical ProjectRef into project construction");
+  assert.match(manager, /projectId:\s*opts\.projectId/,
+    "the session manager must know its ProjectRef before feature attachment");
+});
+
 test("one Coop projection shares one execution-binding snapshot across status reads", function () {
   var directory = fs.mkdtempSync(path.join(os.tmpdir(), "clay-coop-startup-"));
   var realStore = createPortfolioExecutionBindings({
