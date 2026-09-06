@@ -222,7 +222,7 @@ test("canonical Coop rejects a catalog substitution before provider construction
 
   var result = await harness.bridge.startQuery(session, "start", null, null);
 
-  assert.deepEqual(result, { ok: false, reason: "coop_top_tier_unavailable" });
+  assert.deepEqual(result, { ok: false, reason: "coop_top_tier_unavailable", submission: "not_submitted" });
   assert.equal(calls.indexOf("create"), -1);
   assert.ok(calls.indexOf("record") !== -1);
 });
@@ -248,7 +248,7 @@ test("provider start is rechecked after async preparation and before constructio
     beforeCreate: function () { state.provider_start = false; },
   });
   var result = await harness.bridge.startQuery(session, "start", null, null);
-  assert.deepEqual(result, { ok: false, reason: "provider_start_failed" });
+  assert.deepEqual(result, { ok: false, reason: "provider_start_failed", submission: "not_submitted" });
   assert.equal(calls.indexOf("create"), -1);
   assert.ok(calls.indexOf("abandon:provider_start_failed") !== -1);
   assert.equal(calls.indexOf("push"), -1);
@@ -274,7 +274,7 @@ test("a stale provider start cannot reset its successor after adapter preparatio
   release.resolve();
   var result = await pending;
 
-  assert.deepEqual(result, { ok: false, reason: "provider_start_failed" });
+  assert.deepEqual(result, { ok: false, reason: "provider_start_failed", submission: "not_submitted" });
   assert.deepEqual(session.blocks, { successor: true });
   assert.deepEqual(session.sentToolResults, { successor: true });
   assert.equal(session.isProcessing, true);
@@ -300,7 +300,7 @@ test("a stale provider start cannot reset its successor after worker exit", asyn
   release.resolve();
   var result = await pending;
 
-  assert.deepEqual(result, { ok: false, reason: "provider_start_failed" });
+  assert.deepEqual(result, { ok: false, reason: "provider_start_failed", submission: "not_submitted" });
   assert.deepEqual(session.blocks, { successor: true });
   assert.deepEqual(session.sentToolResults, { successor: true });
   assert.equal(session.isProcessing, true);
@@ -318,7 +318,7 @@ test("a current provider-start failure cleans live state after durable abandonme
 
   var result = await harness.bridge.startQuery(session, "start", null, null);
 
-  assert.deepEqual(result, { ok: false, reason: "provider_start_failed" });
+  assert.deepEqual(result, { ok: false, reason: "provider_start_failed", submission: "not_submitted" });
   assert.ok(calls.indexOf("abandon:provider_start_failed") !== -1);
   assert.equal(session.isProcessing, false);
   assert.equal(calls.filter(function (item) { return item === "record"; }).length, 2);
@@ -331,7 +331,7 @@ test("a post-create push failure closes the provider and abandons the durable st
   var session = controlledSession(fence);
   var harness = queryHarness(fence, calls, { pushError: "injected push failure" });
   var result = await harness.bridge.startQuery(session, "start", null, null);
-  assert.deepEqual(result, { ok: false, reason: "provider_start_failed" });
+  assert.deepEqual(result, { ok: false, reason: "provider_start_failed", submission: "uncertain" });
   assert.ok(calls.indexOf("started") < calls.indexOf("push"));
   assert.ok(calls.indexOf("close") > calls.indexOf("push"));
   assert.ok(calls.indexOf("abandon:provider_start_failed") > calls.indexOf("push"));
@@ -356,7 +356,7 @@ test("a provider created after its incarnation goes stale is closed without touc
 
   var result = await harness.bridge.startQuery(session, "start", null, null);
 
-  assert.deepEqual(result, { ok: false, reason: "provider_start_failed" });
+  assert.deepEqual(result, { ok: false, reason: "provider_start_failed", submission: "not_submitted" });
   assert.ok(calls.indexOf("close") !== -1);
   assert.equal(calls.indexOf("processing"), -1);
   assert.equal(calls.indexOf("record"), -1);

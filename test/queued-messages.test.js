@@ -35,15 +35,15 @@ function typedDeliveryOrchestrator(session, starts) {
   var sm = {
     sessions: sessions,
     appendToSessionFile: function () {},
-    saveSessionFile: function () {},
+    saveSessionFile: function () { return true; },
     broadcastSessionList: function () {},
     subscribeSession: function () { return function () {}; },
   };
   return attachTaskOrchestrator({
     sm: sm,
     sdk: {
-      startQuery: function (target, text) { starts.push({ target: target, text: text }); },
-      pushMessage: function (target, text) { starts.push({ target: target, text: text }); },
+      startQuery: function (target, text) { starts.push({ target: target, text: text }); return { ok: true, submission: "submitted" }; },
+      pushMessage: function (target, text) { starts.push({ target: target, text: text }); return { ok: true, submission: "submitted" }; },
     },
     sendToSession: function () {},
     onProcessingChanged: function () {},

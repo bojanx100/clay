@@ -82,7 +82,7 @@ scope tampering, withdrawal, changed named plan grants, a later owner turn,
 dependencies, cancellation, partial target creation, and Lead OFF admission.
 Existing qualified automation tests now run with manual intake enabled.
 
-Notifications retry at most three times, separated by a minute, while respecting
+Assignment notifications retry at most three times, separated by a minute, while respecting
 busy coordinators, owner queues and dependencies. Exhaustion creates persistent
 attention whose sequence and outbox record are written together. A missing caller
 acknowledgement cannot strand that sequence. Unstarted assignments may be dismissed
@@ -96,3 +96,11 @@ does not mark the owner request answered or accepted. See COOP_V2.md for negativ
 verification counts. These isolated tests do not establish model compliance,
 real-provider behavior, browser appearance, final Coop synthesis to the owner, or
 the complete Lead toggle handover contract. No live-state repair is included.
+
+
+Report delivery now has its own durable submission boundary (iteration 18 in
+COOP_V2.md). The daemon retries existing report queues before trying new assignment
+notifications. Uncertain submission or exhausted provider starts create visible
+report attention. Intake exposes this derived blocker to Coop and clears only
+that blocker after the report queue is resolved; unrelated owner questions remain
+unchanged. A provider-start receipt still does not accept the assignment.

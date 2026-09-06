@@ -30,7 +30,7 @@ function testContext() {
       return session;
     },
     appendToSessionFile: function (session, obj) { appended.push({ session: session, obj: obj }); },
-    saveSessionFile: function () {},
+    saveSessionFile: function () { return true; },
     broadcastSessionList: function () {},
     hideSession: function (id) { sessions.get(id).hidden = true; },
     subscribeSession: function () {},
@@ -42,6 +42,7 @@ function testContext() {
     sdk: {
       startQuery: function (session, prompt) {
         starts.push({ session: session, prompt: prompt });
+        return { ok: true, submission: "submitted" };
       },
       pushMessage: function () {},
     },

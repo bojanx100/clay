@@ -30,7 +30,7 @@ function testContext(existingSessions, options) {
       return session;
     },
     appendToSessionFile: function () {},
-    saveSessionFile: function () {},
+    saveSessionFile: function () { return true; },
     broadcastSessionList: function () {},
     hideSession: function (id) {
       sessions.get(id).hidden = true;
@@ -49,9 +49,11 @@ function testContext(existingSessions, options) {
     sdk: {
       startQuery: function (session, prompt, images) {
         starts.push({ session: session, prompt: prompt, images: images || null });
+        return { ok: true, submission: "submitted" };
       },
       pushMessage: function (session, prompt) {
         pushes.push({ session: session, prompt: prompt });
+        return true;
       },
     },
     sendToSession: function (id, event) {
@@ -744,7 +746,7 @@ test("a cross-project alias refuses an ingress that did not offer the exact sour
     isProcessing: true,
   };
   var sourceManager = {
-    saveSessionFile: function () {},
+    saveSessionFile: function () { return true; },
     subscribeSession: function () {},
   };
   var ctx = testContext(undefined, {
@@ -787,7 +789,7 @@ test("restart restoration reconciles completed aliases and surfaces missing sour
     }, { type: "done" }],
   };
   var sourceManager = {
-    saveSessionFile: function () {},
+    saveSessionFile: function () { return true; },
     subscribeSession: function () {},
   };
   var parent = {

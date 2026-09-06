@@ -89,7 +89,7 @@ function fixture(t, opts) {
         return servers;
       } });
     state.leadApi = attachOrchestrator({ cwd: leadDir, slug: "lead", sm: state.lead,
-      crossProject: state.router, sdk: state.bridge, sendToSession: function () {},
+      crossProject: state.router, now: function () { return state.now; }, sdk: state.bridge, sendToSession: function () {},
       ensureProjectAccessForSession: function () {}, autonomyPolicyFile: path.join(dir, "absent-autonomy.json") });
     gate.acceptAssignment = state.leadApi.acceptProjectAssignmentFromTool;
     state.targetApi = attachOrchestrator({ cwd: targetDir, slug: "target", sm: state.target,

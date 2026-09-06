@@ -278,7 +278,7 @@ test("canonical coopChannel surfaces unavailable through the real health store",
 
   var result = await bridge.startQuery(channel, "continue", null, null);
 
-  assert.deepEqual(result, { ok: false, reason: "coop_top_tier_unavailable" });
+  assert.deepEqual(result, { ok: false, reason: "coop_top_tier_unavailable", submission: "not_submitted" });
   assert.equal(adapterStarts, 0, "must not start an adapter on a degraded route");
   assert.equal(channel.isProcessing, false);
   assert.match(recorded[0].text, /no designated top-tier route is healthy/i);
@@ -438,7 +438,7 @@ test("fresh Coop routing returns a typed unavailable result before adapter start
 
   var result = await bridge.startQuery(session, "continue", null, null);
 
-  assert.deepEqual(result, { ok: false, reason: "coop_top_tier_unavailable" });
+  assert.deepEqual(result, { ok: false, reason: "coop_top_tier_unavailable", submission: "not_submitted" });
   assert.equal(adapterStarts, 0);
   assert.equal(session.isProcessing, false);
   assert.match(recorded[0].text, /no designated top-tier route is healthy/i);

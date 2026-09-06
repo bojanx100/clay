@@ -221,6 +221,9 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-task-orchestrator-direct-leaf-status.js` | (called by external orchestration) | Converts terminal direct-leaf results and adapter shutdowns into deterministic completed/failed lifecycle states |
 | `project-task-orchestrator-project-completion-transport.js` | (called by completion gate) | Typed, idempotent project-coordinator completion or read-only attention delivery that closes the source binding without direct file mutation |
 | `project-task-orchestrator-cross-project.js` | (called by task orchestrator) | Source-side completion closure, delivery acknowledgement, and suppression of late completed-leaf updates |
+| `project-coordinator-update-queue.js` | Durable coordinator report queue | Persisted staging/submission receipts, bounded provider retries, restart uncertainty, and exact owner review actions |
+| `project-coordinator-update-state.js` | Coordinator report projection and recovery gate | Exposes actionable reports and prevents automatic continuation from bypassing pending delivery |
+| `lib/public/modules/coordinator-update-notice.js` | Coordinator report review controls | Shows reports needing review and sends exact session/report retry or acknowledgement actions through the shared confirmation dialog |
 | `project-task-orchestrator-followup.js` | (called by task orchestrator) | Existing-worker follow-ups, retries, direct task messages, and cross-project coordinator update delivery |
 | `project-task-orchestrator-input.js` | (called by task orchestrator) | Shared typed transition from running work to durable owner-input attention |
 | `project-coordinate-queued.js` | `coordinate_queued_message` helper | Converts an explicit Coordinate action into a context-rich owned worker task |
@@ -297,7 +300,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `public/modules/server-settings-providers.js` | AI Providers settings UI, routing profiles, and supervised install/login/verification actions driven by `provider_status` rather than a hard-coded vendor list |
 | `public/modules/markdown-link-policy.js` | Shared safe-link policy for markdown surfaces: external URLs open in a new tab, scheme-less hosts become absolute URLs, and local file references route to Clay's file viewer |
 | `sdk-bridge-query-vendor.js` + `sdk-bridge-query-options.js` | Vendor readiness/auth resolution and provider-specific query option assembly |
-| `sdk-bridge-query-launch.js` | Fenced provider construction, durable start acknowledgement, and initial message dispatch |
+| `sdk-bridge-query-launch.js` | Fenced provider construction, explicit local submission receipts, and initial message dispatch |
 | `sdk-bridge-query-start-failure.js` | Shared fail-closed cleanup when provider construction or initial message dispatch fails |
 | `sdk-bridge-recovery.js` | SDK bridge transient stream error detection and bounded auto-resume scheduling helpers; direct portfolio leaves never auto-resume after adapter shutdown |
 | `sdk-bridge-rewind.js` | SDK bridge adapter-agnostic rewind preview, rewind execute, conversation rollback, and fork helpers |

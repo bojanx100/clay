@@ -39,6 +39,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Supply current role and canonical project instructions on every control turn.
 - [x] Commission durable project assignments and accept their exact scope through the resident coordinator.
 - [x] Keep pending assignments visible and cancellable, with bounded notification and durable attention.
+- [x] Preserve reports through provider submission, bound retries, and expose uncertain delivery for owner review.
 - [x] Correct plain-array transcript saves that can be incorrectly skipped by the unloaded-history optimization.
 - [ ] Consolidate owner-request/task/attempt outcome provenance.
 - [ ] Remove recovery mutations from projections, drive them through daemon events,
@@ -409,3 +410,54 @@ shutdown flush pass 2 / 2. Restoring the previous persistence file gives 0 pass 
 suites. These tests cover length changes and existing dirty-state behavior; they
 do not add automatic detection of same-length in-place edits. No live transcript
 was rewritten. The latest full repository run remains iteration 16's result.
+
+
+### 18. Preserve coordinator reports through submission and restart
+
+Typed transport now acknowledges a report only after a durable session save.
+Coordinator reports retain stable IDs and a persisted batch while the provider
+starts. Definitely unsubmitted reports retry at most three times, a minute apart,
+through the existing daemon clock. A refused warm handle is retired before retry.
+A successful local submission receipt removes only that batch, leaving reports
+which arrived during startup queued separately. A failed receipt save retries
+persistence without submitting the input again in the same process.
+
+History records staging separately from successful submission. A staged batch
+restored without a reliable receipt requires review; automatic restart and stream
+continuation cannot bypass it. An accepted report remains restart-eligible even
+if no provider event arrived before the crash. Claude, Codex and Copilot handle
+closures now explicitly refuse input. Claude worker input closure and output
+completion obey the same boundary.
+
+The conversation shows uncertain or exhausted reports with Retry reports and
+Mark reviewed controls. Actions identify the original session and exact report
+IDs, retain saved history, and preserve the owner's current conversation when a
+confirmation is completed later. Access uses the existing real session predicate.
+Assignments blocked only by report delivery resume when that queue clears;
+independent business-rule questions remain waiting for their answers. Later
+attention episodes receive their own delivery identity.
+
+Lead OFF holds automatic report-driven turns in Lead, while ordinary project
+orchestration continues. This is one boundary of the proposed handover behavior,
+not completion of the full ON/OFF ownership contract. In-progress work is not
+stopped by this change.
+
+Proof: 26 new tests pass in default and controlled modes. Restoring the preceding
+tracked implementation gives 0 pass / 26 fail in each mode. Narrow reversions
+also fail in both modes: ignoring durable save receipts gives 11 pass / 4 fail;
+restoring the old real adapter input handling gives 0 pass / 8 fail; restoring
+automatic recovery bypasses gives 14 pass / 1 fail; removing the submitted history
+marker gives 14 pass / 1 fail; removing assignment recovery gives 1 pass / 1 fail.
+All reversions were restored. Final full run: 4,192 / 4,192 default tests across
+425 files and 652 / 652 controlled tests across 50 files, exit 0. The first full
+run found nine default and seven controlled assertions expecting the old receipt
+shape; they now check the explicit submission state as part of the contract.
+
+These checks use real temporary session managers and JSONL files, the actual SDK
+bridge, real adapter handles with stub transports, the daemon retry clock,
+assignment admission, and report UI rendering/clicks through the real message
+handler and session access predicate. They do not prove remote provider receipt,
+completed model reasoning, final Coop synthesis to the owner, browser appearance,
+or live canary quietness. Local provider input acceptance is deliberately separate
+from all of those outcomes. No live state was repaired or production daemon
+restarted. Old already-lost reports still require evidence-based reconciliation.
