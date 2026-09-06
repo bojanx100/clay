@@ -27,6 +27,7 @@ var PROJECT = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 function session(overrides) {
   return Object.assign({
     localId: 4,
+    isProcessing: true,
     storageId: "worker-session",
     history: [],
     orchestrationPolicy: {

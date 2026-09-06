@@ -53,7 +53,7 @@ function coordinatorFixture() {
     orchestrationParent: { taskId: "clay-active", sessionStorageId: "clay-project-coordinator" },
   });
   var clayWorkerRunning = session(15, {
-    storageId: "clay-worker-running",
+    storageId: "clay-worker-running", isProcessing: true,
     title: "Implement hierarchy projection",
     coopControlledBy: { coopSessionStorageId: "coop-home", since: 1 },
     orchestrationParent: { taskId: "clay-worker-running", sessionStorageId: clayActive.storageId },
@@ -261,6 +261,13 @@ test("global Coop projection retains visible terminal task coordinators without 
   assert.deepEqual(taskCoordinator.children.map(function (item) {
     return [item.title, item.status, item.sessionRef, item.taskRef];
   }), [
+    ["Review hierarchy ownership", "needs_input", {
+      projectId: CLAY, sessionStorageId: "clay-worker-attention",
+    }, {
+      projectId: CLAY,
+      coordinatorSessionStorageId: "clay-active-task-coordinator",
+      taskId: "clay-worker-attention",
+    }],
     ["Implement hierarchy projection", "running", {
       projectId: CLAY, sessionStorageId: "clay-worker-running",
     }, {
@@ -275,14 +282,7 @@ test("global Coop projection retains visible terminal task coordinators without 
       coordinatorSessionStorageId: "clay-active-task-coordinator",
       taskId: "clay-worker-completed",
     }],
-    ["Review hierarchy ownership", "needs_input", {
-      projectId: CLAY, sessionStorageId: "clay-worker-attention",
-    }, {
-      projectId: CLAY,
-      coordinatorSessionStorageId: "clay-active-task-coordinator",
-      taskId: "clay-worker-attention",
-    }],
-  ], "only exact current visible worker bindings are projected once");
+  ], "exact current workers are projected once, with unresolved work before terminal history");
   assert.equal(JSON.stringify(taskCoordinator).includes("Owner direct worker"), false);
   assert.equal(JSON.stringify(taskCoordinator).includes("Foreign Coop worker"), false);
   assert.equal(JSON.stringify(taskCoordinator).includes("Historical worker attempt"), false);

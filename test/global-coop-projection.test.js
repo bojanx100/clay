@@ -499,6 +499,7 @@ test("canonical project coordinator activity is summarized from the bound projec
   var currentRef = { projectId: projectId, sessionStorageId: "current-coordinator" };
   var current = session(10, {
     storageId: currentRef.sessionStorageId,
+    isProcessing: true,
     title: "Fix current project visibility",
     coordinationMode: true,
     coordinationRole: "task_coordinator",
@@ -582,7 +583,7 @@ test("Coop projection keeps one persistent project root and retained terminal ch
     taskId: "completed-task", status: "completed",
   }]);
   var clayActive = controlled(11, {
-    storageId: "clay-active-task", title: "Active task coordinator",
+    isProcessing: true, storageId: "clay-active-task", title: "Active task coordinator",
     coordinationMode: true, coordinationRole: "task_coordinator",
     orchestrationParent: { sessionStorageId: clayRoot.storageId, taskId: "active-task" },
   });

@@ -1400,8 +1400,11 @@ stream drains. It preserves task identity, admitted scope and pending reports, a
 persists continuation context before starting the replacement provider. Generic
 worker compaction and controlled-execution identity guards retain their old paths.
 
-The owner sees real coordinator activity/status in the existing Coop project
-hierarchy, including residents with no child tasks. Expand Coordinator details for
+**Correction, 2026-09-06:** ~~The owner sees real coordinator activity/status~~
+(retracted: saved running/reviewing labels could still masquerade as execution).
+The coordinator details introduced here expose recorded activity in the existing
+Coop project hierarchy, including residents with no child tasks. The runtime
+projection correction below distinguishes actual execution from saved task state. Expand Coordinator details for
 provider/model, pending assignment/report counts, latest context receipt and file
 versions/problems, supporting references, and recent recorded task events. Existing
 project/session ACLs apply; detailed receipts are owner-only. Expansion stays open
@@ -1445,3 +1448,44 @@ control-ingress cleanup warning; startup still reports unavailable Copilot model
 discovery. Neither is evidence of a successful real-provider coordinator journey.
 See `/private/tmp/coop-v2-coordinator-activation.json` and
 `/private/tmp/coop-v2-coordinator-verified.json` for the activation record.
+
+
+## Sidebar execution truth — 2026-09-06
+
+Owner: Codex thread `01a07320-baad-7281-8b80-ca6b0cefb97e`.
+Landing target: `coop_v2`, as explicitly requested; no landing to `bojan`.
+
+The preview's Webapp status said `isProcessing: true` while all 77 session-list
+entries reported false and its daemon owned no provider processes. Read-only
+metadata inspection found six saved `reviewing` tasks under REDESIGN. The project
+pulse used durable task lifecycle, so unfinished review work could keep flashing
+indefinitely with the preview paused. This evidence identifies the original
+cause; the post-fix check below verifies the resulting behavior separately.
+
+Project pulses now require a current processing session, retaining the existing
+hidden, terminal, stale-turn and exact-binding exclusions. No task or session is
+cleared to repair the display. The Coop hierarchy resolves each exact worker and
+binding before labelling execution. Recorded failures override stale running
+parents and roll up through task coordinators, Threads and resident coordinator
+attention. Unresolved work sorts ahead of terminal history. Explicitly resolved
+parent tasks retain their disposition.
+
+Without a current coordinator or worker turn, running intent displays Waiting
+for execution. Queued and pending-review children retain their own state instead
+of turning their Thread into Working. Desktop and mobile keep waiting work
+visible, distinguish Ready and Awaiting review, and show failure before a stale
+dependency-wait label. These are read-only projections, not scheduler recovery,
+new provider launches, task completion, or owner acceptance.
+
+Verification: 4,399 default + 777 controlled = 5,176 passing checks, zero failures.
+All nine new regression tests fail with the production changes reverted
+(0 pass / 9 fail), then pass when restored (9 pass / 0 fail). They cover the
+project predicate, exact binding identity, Claude/Codex session metadata, idle
+coordinators with live descendants, Thread rollup, ledger failure evidence, and
+shared desktop/mobile rendering. Provider cases use fixtures; they do not prove
+a complete live provider failure/recovery cycle or every older owner-work view.
+
+Evidence: `/private/tmp/coop-v2-sidebar-before.json`,
+`/private/tmp/coop-v2-sidebar-reverted.out`,
+`/private/tmp/coop-v2-sidebar-restored.out`,
+`/private/tmp/coop-v2-sidebar-full-final.out`.

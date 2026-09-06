@@ -88,8 +88,8 @@ test("project activity requires a current binding for typed execution but preser
     "an unbound typed execution is historical state, not live work");
 
   var bound = session("bound", Object.assign(execution("bound", "running"), { isProcessing: false }));
-  assert.equal(projectStatus([bound], [binding("bound", "active")]).getStatus().isProcessing, true,
-    "a visible session with its exact active binding remains active");
+  assert.equal(projectStatus([bound], [binding("bound", "active")]).getStatus().isProcessing, false,
+    "a durable active binding alone does not prove runtime execution");
 
   var ordinary = session("ordinary");
   assert.equal(projectStatus([ordinary], []).getStatus().isProcessing, true,
@@ -100,6 +100,6 @@ test("project activity requires a current binding for typed execution but preser
     coordinationMode: true,
     orchestrationTasks: [{ taskId: "live-task", status: "running", workerStorageId: "worker" }],
   });
-  assert.equal(projectStatus([coordinator], []).getStatus().isProcessing, true,
-    "a genuinely running local task remains active while its coordinator is idle");
+  assert.equal(projectStatus([coordinator], []).getStatus().isProcessing, false,
+    "a saved running task alone does not prove runtime execution");
 });
