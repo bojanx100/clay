@@ -434,6 +434,89 @@ function drainHarness(sessions) {
   return { dir: dir, store: store, autoLaunch: autoLaunch };
 }
 
+test("a legacy primitive session with no key is durably recovered into its existing Coop candidate", function () {
+  var dir = tempDir();
+  var router = fakeRouter();
+  var recipe = recipeFor("assigned-to-me", "trialview/v2");
+  var store = createCandidateStore({ cwd: dir });
+  var recoveredCandidate = candidate({
+    candidateKey: "launch:trialview/v2#2881",
+    itemKey: "trialview/v2#2881",
+    itemClass: "bug",
+    admission: "auto",
+    intent: {
+      recipeId: "assigned-to-me",
+      primitiveLaunch: true,
+      automationClaimKey: "trialview/v2#2881",
+      number: 2881,
+      url: "https://github.com/trialview/v2/issues/2881",
+      title: "Fit to width not working",
+      autoKind: "issue",
+    },
+  });
+  store.upsert(recoveredCandidate);
+  var admission = createCandidateAdmission({
+    candidates: store,
+    crossProject: router,
+    getLeadMode: function () { return true; },
+    now: function () { return 1000; },
+    loadPolicy: function (projectRef) { return { ok: true, policy: policyFor(projectRef) }; },
+    resolveCoopSource: function () { return router.coopSessionRef(); },
+  });
+  var saves = [];
+  var session = {
+    localId: 8,
+    storageId: "legacy-2881",
+    taskLauncher: {
+      autoLaunch: true,
+      recipeId: "assigned-to-me",
+      itemNumber: 2881,
+      itemUrl: "https://github.com/trialview/v2/issues/2881",
+      autoKind: "issue",
+      workflowCompleted: false,
+    },
+  };
+  var autoLaunch = attachAutoLaunch({
+    cwd: dir,
+    slug: "webapp",
+    sm: {
+      sessions: { forEach: function (fn) { fn(session); } },
+      saveSessionFile: function (value, options) {
+        saves.push({ session: value, options: options });
+        return true;
+      },
+      broadcastSessionList: function () {},
+      getProjectId: function () { return WEBAPP; },
+    },
+    getLeadMode: function () { return true; },
+    candidateStore: store,
+    candidateAdmission: admission,
+    crossProject: router,
+    getTaskLauncher: function () {
+      return { loadRecipe: function () { return recipe; } };
+    },
+  });
+  try {
+    var result = autoLaunch.drainLegacyAutomation();
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.recovered, 1);
+    assert.strictEqual(result.drained, 1);
+    assert.strictEqual(result.ambiguous, 0);
+    assert.strictEqual(session.taskLauncher.itemKey, "trialview/v2#2881");
+    assert.ok(saves.some(function (save) {
+      return save.options && save.options.durable === true;
+    }), "the identity must be persisted before admission reads the session");
+    assert.strictEqual(store.get({ projectId: WEBAPP }, "launch:trialview/v2#2881").status,
+      "admitted");
+    assert.strictEqual(router.calls.length, 1, "recovery must use one typed admission");
+    assert.deepStrictEqual(router.calls[0].adoptSessionRef, {
+      projectId: WEBAPP, sessionStorageId: "legacy-2881",
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a live legacy session is drained as adopted, not killed and not re-proposed", function () {
   var h = drainHarness([{
     localId: 3, storageId: "sess-legacy",
