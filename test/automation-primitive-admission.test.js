@@ -111,6 +111,7 @@ function harness() {
   return { cwd: cwd, candidates: candidates, packet: packet, prepare: prepare, primitives: primitives,
     router: router, evidence: evidence, target: target, items: items, delivered: delivered,
     intercept: function (fn) { beforeValidation = fn; },
+    drain: function () { return auto.drainLegacyAutomation(); },
     scan: function () { return auto.launchScheduled("assigned-to-me"); },
     close: function () { fs.rmSync(cwd, { recursive: true, force: true }); },
   };
@@ -207,4 +208,63 @@ test("actual failed and superseded histories adopt the two exact primitives once
       assert.equal(h.target.sessions.size, 2, "repeated failed recovery cannot create a replacement");
     } finally { h.close(); }
   });
+});
+
+[false, true].forEach(function (alreadyDrained) {
+  test("startup preserves exact adoption retries after legacy drain=" + alreadyDrained, async function () {
+    var h = harness();
+    try {
+      var before = h.router.getExecutionBindings();
+      if (alreadyDrained) {
+        assert.equal(h.drain().ok, true);
+        h.primitives.forEach(function (session) {
+          assert.equal(h.candidates.get(projectRef, "launch:" + session.taskLauncher.itemKey).status,
+            "legacy_running");
+        });
+      }
+      h.primitives.forEach(function (session) {
+        var result = h.prepare(session);
+        assert.equal(result.ok, true, result.reason);
+        assert.equal(result.candidate.status, "pending");
+        assert.equal(result.candidate.qualificationReceipt, null);
+      });
+      var prepared = h.candidates.list();
+      assert.equal(h.drain().ok, true);
+      assert.equal(h.drain().ok, true);
+      assert.deepEqual(h.candidates.list(), prepared, "repeated startup leaves prepared evidence byte-exact");
+      await h.scan();
+      var after = h.router.getExecutionBindings();
+      assert.equal(after.length, before.length + 2);
+      before.forEach(function (binding) {
+        assert.deepEqual(after.find(function (b) { return b.portfolioTaskId === binding.portfolioTaskId &&
+          b.bindingRevision === binding.bindingRevision; }), binding);
+      });
+      h.primitives.forEach(function (session) {
+        assert.equal(h.candidates.get(projectRef, "launch:" + session.taskLauncher.itemKey).status, "admitted");
+        assert.equal(after.filter(function (b) { return b.coordinator &&
+          b.coordinator.sessionStorageId === session.storageId; }).length, 1);
+      });
+      await h.scan();
+      assert.deepEqual(h.router.getExecutionBindings(), after);
+      assert.equal(h.target.sessions.size, 2);
+    } finally { h.close(); }
+  });
+});
+
+test("a drained legacy candidate still requires original verified launch evidence", function () {
+  var h = harness();
+  try {
+    assert.equal(h.drain().ok, true);
+    var before = h.candidates.list();
+    var result = h.prepare(h.primitives[0], function (p) {
+      p.options.primitiveLaunchProof = clone(p.options.primitiveLaunchProof);
+    });
+    assert.equal(result.ok, false);
+    assert.deepEqual(h.candidates.list(), before);
+    result = h.prepare(h.primitives[0], function (p) {
+      p.request.primitiveSessionRef.sessionStorageId = h.primitives[1].storageId;
+    });
+    assert.equal(result.ok, false);
+    assert.deepEqual(h.candidates.list(), before);
+  } finally { h.close(); }
 });
