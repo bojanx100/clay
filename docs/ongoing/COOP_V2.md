@@ -993,4 +993,61 @@ exercise lookup, sync, removal and preservation of a separate existing inventory
 With the fix removed, the two tests yield 1 pass / 1 fail; restored, both pass.
 The related config/startup suites pass 28 / 28 default and 4 / 4 controlled tests.
 These checks do not establish full runtime isolation or native-session continuation.
-Preview startup and browser import still require runtime verification.
+The preview is now running at `http://127.0.0.1:7392` from the `coop_v2`
+worktree, with state in `~/.clay-coop-v2` and its own recent-project inventory.
+Port 7293 was already occupied by the original instance's onboarding listener.
+The original daemon on 7292 was not restarted. Lead is initially OFF in the fresh
+preview. Native rollout discovery still reads the owner's provider history and
+project repositories; separate Clay state is not a provider or filesystem sandbox.
+Startup displayed historical native sessions through existing automatic adoption.
+
+A verified `VACUUM INTO` snapshot of the preview control store was taken before
+import: `~/.clay-coop-v2/snapshots/before-codex-import.sqlite`, 16 tables, zero
+executions, integrity check OK. Rollback is to stop only this preview through its
+own `daemon-dev.sock` shutdown command and retain its state. The exact originating
+conversation was imported and opened after the compatibility repair below.
+Its matching project is `/Users/bojansubotic/Desktop/clay`; implementation must
+continue in `/Users/bojansubotic/Desktop/clay-worktrees/coop_v2`, not the original
+project checkout. No new model turn was sent from the imported session.
+
+
+## Iteration 29: Import Codex Desktop conversations by session ID
+
+The owner tried to locate this conversation using its exact session ID. The picker
+only indexed the title, vendor and date, and the descriptor/history readers only
+recognized legacy `user_message` / `agent_message` events. The current Desktop
+rollout instead records `event_msg.item_completed` entries containing `UserMessage`
+and `AgentMessage`. This session also has no entry in `session_index.jsonl`, so its
+actual on-disk rollout must be discovered.
+
+The picker now displays and searches provider session IDs. Descriptor discovery and
+text-history replay recognize Desktop completed items alongside the legacy format.
+Replay excludes `response_item` mirrors (including injected project instructions),
+non-message items and foreign-thread events; repeated completed-item IDs are read
+once while distinct messages with identical text remain distinct. Ordinary descriptor
+records use JSON decoding independent of field order; oversized first messages use
+the known Desktop serializer's bounded prefix, retaining at most 800 characters.
+
+Validation: four filesystem/import/history regressions and the four picker checks
+produce 3 pass / 5 fail with the tracked implementation removed. After restoration,
+all eight pass; the wider import, coordinator-restore and history suites total
+24 / 24 passing tests. The filesystem tests discover real temporary rollout files
+without a session index before importing the resulting candidate. They cover a
+22 KB metadata record, a 2 MB first message, repeat import, project mismatch,
+quoted fake events, reordered fields, duplicate records and legacy history.
+
+Live preview verification searched `01a07320-baad-7281-8b80-ca6b0cefb97e` in the
+browser and returned one matching row with that ID and the original opening prompt.
+Import persisted that exact provider/storage ID; selecting Clay local session 71
+rendered the original discussion through the owner's latest "can you fix that?"
+message. The preview tab remains open at `http://127.0.0.1:7392/p/clay/`.
+The repair was loaded by restarting only the preview (PID 19332 after restart).
+No WebSocket-handler or slow-save error was recorded during this check; observed
+post-restart loop-lag maxima were 328, 316 and 187 ms. This is bounded observation,
+not a general latency guarantee.
+
+Native import remains a text-history view: tool output, reasoning and image
+attachments are not imported by this path. No provider continuation was launched,
+so this does not verify native resume or simultaneous writers from Desktop and
+Clay. Continue the conversation from one application at a time. Full Coop lifecycle
+acceptance and the broader product gaps remain as recorded in the previous sections.

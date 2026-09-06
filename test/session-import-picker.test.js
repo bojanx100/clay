@@ -59,6 +59,7 @@ function element(tag) {
   node.addEventListener = function (type, handler) {
     node.listeners[type] = (node.listeners[type] || []).concat(handler);
   };
+  node.setAttribute = function (name, value) { node[name] = String(value); };
   node.dispatch = function (type, event) {
     var handlers = node.listeners[type] || [];
     for (var i = 0; i < handlers.length; i++) handlers[i](event || { target: node });
@@ -142,6 +143,28 @@ async function harness() {
 function listRequests(sent) {
   return sent.filter(function (msg) { return msg.type === "list_cli_sessions"; });
 }
+
+test("the import picker finds and imports an exact session ID independently of its title", async function () {
+  var h = await harness();
+  h.picker.openImportSessionPicker("codex");
+  var overlay = h.body.children[h.body.children.length - 1];
+  var id = "019f0000-0000-7000-8000-000000000001";
+  h.picker.handleCliSessionList([
+    { cliSessionId: id, title: "Architecture discussion", vendor: "codex" },
+    { cliSessionId: "019f0000-0000-7000-8000-000000000002", title: "Architecture discussion", vendor: "codex" },
+  ], "codex");
+  var search = overlay.querySelector(".import-session-search");
+  search.value = id;
+  search.dispatch("input");
+  var rows = overlay.querySelector(".import-session-body").children;
+  var visible = rows.filter(function (row) { return row.style.display !== "none"; });
+  assert.equal(visible.length, 1);
+  assert.match(visible[0].innerHTML, new RegExp(id));
+  visible[0].click();
+  var imports = h.sent.filter(function (msg) { return msg.type === "import_cli_session"; });
+  assert.equal(imports.length, 1);
+  assert.equal(imports[0].cliSessionId, id);
+});
 
 test("the import picker includes every recoverable closed session by default", async function () {
   var h = await harness();

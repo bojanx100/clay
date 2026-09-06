@@ -280,6 +280,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `daemon-network.js` | Daemon startup networking helpers: TLS certificate selection/loading and LAN IP detection for share URLs |
 | `keep-awake.js` | macOS/Windows Keep Awake lifecycle, external-display detection, and opt-in administrator-authorized headless clamshell mode |
 | `sessions-broadcast.js` | Session list client mapping, loop display resolution, debounced session list fanout |
+| `codex-rollout-message.js` | Codex Desktop completed-message decoding and bounded first-owner-message previews; excludes model-input mirrors |
 | `sessions-cli-descriptors.js` | Claude CLI JSONL and Codex rollout descriptor discovery, Codex thread index/cache, and import previews |
 | `sessions-cli-import.js` | CLI/Codex/GitHub Copilot orphan adoption, import picker rows, hidden-session restore, and import materialization |
 | `sessions-deletion.js` | Session hide/delete/bulk delete, runtime cleanup, tombstoning, and active-client close handling |
