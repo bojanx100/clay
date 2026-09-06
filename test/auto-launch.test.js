@@ -721,7 +721,7 @@ test("launchScheduled skips an issue already live under another recipe", async f
 var automationAudit = require("../lib/project-automation-audit");
 var { createAutomationGate } = require("../lib/project-automation-gate");
 var { createCandidateStore, contentDigest } = require("../lib/project-automation-candidates");
-var { portfolioTaskIdFor } = require("../lib/project-automation-identity");
+var { portfolioTaskIdFor, idempotencyKeyFor } = require("../lib/project-automation-identity");
 var automationPolicy = require("../lib/project-automation-policy");
 var automationQualification = require("../lib/project-automation-qualification");
 
@@ -1922,6 +1922,205 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     assert.strictEqual(late.ignored, true);
     assert.strictEqual(JSON.stringify(roots[0]), terminalRoot,
       "late attention cannot contradict the completed binding");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("end to end: canonical admission adopts live-shaped #2725 and #2777 primitives", async function () {
+  var serverCrossProject = require("../lib/server-cross-project");
+  var projectIdentity = require("../lib/project-identity");
+  var bindingsModule = require("../lib/portfolio-execution-bindings");
+  var authorization = require("../lib/project-automation-execution-authorization");
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-canonical-adoption-"));
+  try {
+    var tasksDir = path.join(cwd, ".clay", "tasks");
+    fs.mkdirSync(tasksDir, { recursive: true });
+    var recipe = {
+      id: "assigned-to-me",
+      source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
+      launch: { defaultLimit: 10 }, session: {}, completion: {},
+      filter: { type: "bug", assigned: "me" },
+    };
+    fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
+    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+      autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
+      automation: typedIssueAutomation(),
+    }));
+
+    var bindingFile = path.join(cwd, "bindings.json");
+    var historicalStore = bindingsModule.createPortfolioExecutionBindings({
+      file: bindingFile, now: function () { return 1788343227499; },
+    });
+    var prior2725Item = assignedIssue(2725);
+    prior2725Item.projectItems[0].status.name = "Ready for development";
+    var prior2725 = writePreviousPrimitiveCandidate(cwd, { projectId: CUTOVER_PROJECT }, recipe,
+      prior2725Item, "trialview/v2#2725", 1788343227000);
+    var oldTaskId = portfolioTaskIdFor(prior2725);
+    var oldRequest = {
+      source: { projectId: projectIdentity.LEAD_PROJECT_ID, sessionStorageId: "coop-home-live" },
+      targetProject: { projectId: CUTOVER_PROJECT },
+      mode: "project_coordinator",
+      portfolioTaskId: oldTaskId,
+      bindingRevision: 2,
+      idempotencyKey: idempotencyKeyFor(oldTaskId, 2),
+      coopTopicRef: { topicId: "automation-" + require("../lib/project-automation-identity")
+        .identityDigest(CUTOVER_PROJECT, "trialview/v2#2725") },
+      automationAuthorization: null,
+    };
+    oldRequest.automationAuthorization = authorization.createAuthorization(prior2725, oldRequest, {
+      kind: authorization.PRIMITIVE_KIND,
+    });
+    assert.ok(oldRequest.automationAuthorization, "old unrouted primitive authority must be valid");
+    assert.equal(historicalStore.reserve(oldRequest).ok, true);
+    assert.equal(historicalStore.releaseReservation(oldTaskId, 2, {
+      reason: "old_pre_adoption_failure",
+    }).ok, true);
+    var currentConfig = JSON.parse(fs.readFileSync(path.join(tasksDir, "config.json"), "utf8"));
+    currentConfig.automation.externalActions.comment = "approval";
+    currentConfig.automation.autonomy.feature = "autonomous";
+    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify(currentConfig));
+
+    var historical2777 = {
+      source: { projectId: projectIdentity.LEAD_PROJECT_ID, sessionStorageId: "coop-home-live" },
+      targetProject: { projectId: CUTOVER_PROJECT },
+      mode: "project_coordinator",
+      portfolioTaskId: "historical-webapp-2777",
+      bindingRevision: 1,
+      idempotencyKey: "historical-webapp-2777-r1",
+      candidateKey: "launch:trialview/v2#2777",
+    };
+    assert.equal(historicalStore.reserve(historical2777).ok, true);
+    assert.equal(historicalStore.commit("historical-webapp-2777", 1, {
+      projectId: CUTOVER_PROJECT, sessionStorageId: "historical-2777",
+    }, {
+      projectCoordinatorRef: { projectId: projectIdentity.LEAD_PROJECT_ID,
+        sessionStorageId: "coop-home-live" },
+    }).ok, true);
+    assert.equal(historicalStore.complete("historical-webapp-2777", 1, {
+      eventId: "historical-completion-2777", resultEventId: "historical-result-2777",
+      terminalStatus: "completed",
+    }).ok, true);
+    var completed2777 = historicalStore.get("historical-webapp-2777", 1);
+
+    var prior2777 = writePreviousPrimitiveCandidate(cwd, { projectId: CUTOVER_PROJECT }, recipe,
+      assignedIssue(2777), "trialview/v2#2777", 1788343227000);
+    prior2777.reconsideration = {
+      schema: "clay.automation_candidate_reconsideration",
+      version: 1,
+      reason: "owner_requested_bounce_reconsideration",
+      ownerRequestRefs: ["owner-ingress:2777", "owner-ingress:2777-reconsider"],
+      requestedAt: 1788343227400,
+      currentQualificationRequired: true,
+      verifiedNoLiveSession: true,
+      completionProof: {
+        kind: "completed_binding",
+        portfolioTaskId: completed2777.portfolioTaskId,
+        bindingRevision: completed2777.bindingRevision,
+        targetProject: completed2777.targetProject,
+        completedAt: completed2777.completedAt,
+        resultEventId: completed2777.resultEventId,
+        completionEventId: completed2777.completionEventId,
+        coordinator: completed2777.coordinator,
+        projectCoordinator: completed2777.projectCoordinator,
+      },
+    };
+    var candidateFile = path.join(cwd, ".clay", "tasks", "automation-candidates.json");
+    var candidateState = JSON.parse(fs.readFileSync(candidateFile, "utf8"));
+    candidateState.candidates[0] = prior2777;
+    candidateState.candidates.push(prior2725);
+    fs.writeFileSync(candidateFile, JSON.stringify(candidateState, null, 2) + "\n");
+
+    var leadManager = makeCoordinatorSessionManager(projectIdentity.LEAD_PROJECT_ID);
+    leadManager.sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
+    var targetManager = makeCoordinatorSessionManager(CUTOVER_PROJECT);
+    var autoLaunch = null;
+    var delivered = [];
+    var leadContext = {
+      getProjectId: function () { return projectIdentity.LEAD_PROJECT_ID; },
+      getSessionManager: function () { return leadManager; },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    };
+    var targetContext = {
+      getProjectId: function () { return CUTOVER_PROJECT; },
+      getSessionManager: function () { return targetManager; },
+      validateAutomationAuthorization: function (input) {
+        return autoLaunch.validateAutomationAuthorization(input);
+      },
+      deliverCrossProjectEnvelope: function (envelope) { delivered.push(envelope); return { ok: false }; },
+    };
+    var router = serverCrossProject.createCrossProjectRouter({
+      allowLeadSourcedExecution: true,
+      requireOwnerImplementationDecision: true,
+      bindingFile: bindingFile,
+      automationThreadIndex: {
+        ensureAutomationThread: function (input) {
+          return { ok: true, topicRef: { topicId: input.authorization.threadRef.threadId },
+            threadRef: input.authorization.threadRef };
+        },
+      },
+      onThreadHandedOff: function () { return { ok: true }; },
+      ownerRequests: {
+        claimCoordinator: function (input) { this.claimed = input.coordinator; return { ok: true }; },
+        canonicalCoordinator: function () { return this.claimed || null; },
+      },
+      getProjectContextById: function (projectId) {
+        if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
+        if (projectId === CUTOVER_PROJECT) return targetContext;
+        return null;
+      },
+    });
+    var taskLauncher = attachTaskLauncher({
+      cwd: cwd, sm: targetManager, sdk: { startQuery: function () {} },
+      usersModule: { isMultiUser: function () { return false; } },
+      ensureProjectAccessForSession: function () { return true; }, onProcessingChanged: function () {},
+    });
+    autoLaunch = attachAutoLaunch({
+      cwd: cwd, slug: "webapp", sm: targetManager,
+      getTaskLauncher: function () { return taskLauncher; },
+      getLeadMode: function () { return true; }, crossProject: router,
+      fetchItems: function () { return [assignedIssue(2725), assignedIssue(2777)]; },
+    });
+
+    await autoLaunch.launchScheduled("assigned-to-me");
+
+    var persisted = JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings;
+    var rearmed2725 = persisted.filter(function (binding) {
+      return binding.portfolioTaskId === oldTaskId && binding.bindingRevision === 2;
+    })[0];
+    var adopted2777 = persisted.filter(function (binding) {
+      return binding.workIdentity === "github:trialview/v2#2777" &&
+        binding.portfolioTaskId !== "historical-webapp-2777";
+    })[0];
+    assert.equal(persisted.length, 3, "the two exact primitives add bindings without replacing history");
+    assert.equal(rearmed2725.status, "active");
+    assert.equal(adopted2777.status, "active");
+    var primitive2725 = targetManager.sessions.get(100);
+    var primitive2777 = targetManager.sessions.get(101);
+    assert.equal(rearmed2725.coordinator.sessionStorageId, primitive2725.storageId,
+      "#2725 reuses the launcher-created SessionRef");
+    assert.equal(adopted2777.coordinator.sessionStorageId, primitive2777.storageId,
+      "#2777 reuses the launcher-created SessionRef");
+    assert.equal(rearmed2725.automationAuthorization.qualificationReceipt.item.boardItems[0].status,
+      "backlog", "the old unrouted revision carries current qualification authority");
+    assert.notEqual(rearmed2725.automationAuthorization.policyDigest,
+      oldRequest.automationAuthorization.policyDigest,
+      "the old reservation cannot retain superseded project-policy authority");
+    assert.equal(completed2777.status, "completed");
+    assert.equal(persisted.filter(function (binding) {
+      return binding.portfolioTaskId === "historical-webapp-2777";
+    })[0].completionEventId, "historical-completion-2777");
+    assert.equal(primitive2725.coopControlledBy.coopSessionStorageId,
+      rearmed2725.projectCoordinator.sessionStorageId,
+      "the primitive is owned by its canonical Coop ProjectRef coordinator");
+    assert.equal(primitive2777.coopControlledBy.coopSessionStorageId,
+      adopted2777.projectCoordinator.sessionStorageId,
+      "the primitive is owned by its canonical Coop ProjectRef coordinator");
+    assert.equal(delivered.length, 0, "canonical adoption never creates a second generic session");
+
+    await autoLaunch.launchScheduled("assigned-to-me");
+    assert.equal(JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings.length, 3,
+      "repeated scans converge on the same two primitive SessionRefs");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

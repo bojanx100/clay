@@ -207,6 +207,61 @@ test("stale, malformed, foreign, owner-gated, and non-autonomous evidence fails 
   }
 });
 
+test("owner reconsideration stays exact current candidate evidence", function () {
+  var h = harness();
+  try {
+    var file = path.join(h.dir, ".clay", "tasks", "automation-candidates.json");
+    var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
+    persisted.candidates[0].reconsideration = {
+      schema: "clay.automation_candidate_reconsideration",
+      version: 1,
+      reason: "owner_requested_bounce_reconsideration",
+      ownerRequestRefs: ["coop:canonical:122"],
+      requestedAt: 2000,
+      appliedAt: 2001,
+      currentQualificationRequired: true,
+      verifiedNoLiveSession: true,
+      priorStatus: "admitted",
+      priorAdmission: "auto",
+      priorAdmittedAt: 1000,
+      priorBinding: null,
+      priorOwnerDecision: null,
+      completionProof: {
+        kind: "completed_historical_binding",
+        portfolioTaskId: "historical-webapp-198",
+        bindingRevision: 1,
+        targetProject: { projectId: PROJECT },
+        completedAt: 1999,
+        resultEventId: "historical-result-198",
+        completionEventId: "historical-completion-198",
+      },
+    };
+    fs.writeFileSync(file, JSON.stringify(persisted));
+    var record = h.store.get({ projectId: PROJECT }, candidate().candidateKey);
+    var typed = authorization.createAuthorization(record, h.request);
+    assert.ok(typed, "valid stored owner evidence belongs in typed execution authority");
+    assert.equal(h.validator.validate({ authorization: typed, request: h.request }).ok, true);
+
+    var missing = JSON.parse(JSON.stringify(typed));
+    delete missing.reconsideration;
+    assert.equal(h.validator.validate({ authorization: missing, request: h.request }).reason,
+      "automation_reconsideration_mismatch");
+
+    var forged = JSON.parse(JSON.stringify(typed));
+    forged.reconsideration.completionProof.completionEventId = "other-completion";
+    assert.equal(h.validator.validate({ authorization: forged, request: h.request }).reason,
+      "automation_reconsideration_mismatch");
+
+    persisted = JSON.parse(fs.readFileSync(file, "utf8"));
+    persisted.candidates[0].reconsideration = false;
+    fs.writeFileSync(file, JSON.stringify(persisted));
+    assert.equal(h.validator.validate({ authorization: h.authorization, request: h.request }).reason,
+      "automation_candidate_malformed");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
 test("the scoped low-risk receipt is revalidated against its durable owner grant", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-scoped-auth-"));
   try {
