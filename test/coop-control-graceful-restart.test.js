@@ -35,11 +35,12 @@ function harness(options) {
   var store = storeModule.openControlStore({ dbPath: dbPath, faults: opts.faults });
   var control = executions.createExecutionControl({ enabled: true, store: store });
   var managers = Object.create(null);
-  var startupGate = { enabled: true, assertReady: function () { return true; } };
+  var startupGate = opts.startupGate || { enabled: true, assertReady: function () { return true; } };
   var router = createCrossProjectRouter({
     bindingFile: bindingFile,
     coopExecutionControl: control,
     coopStartupRecovery: startupGate,
+    restoreWorkOnStartup: opts.restoreWorkOnStartup,
   });
 
   function manager(projectId) {
@@ -607,4 +608,41 @@ availableTest("restart checkpoint corruption fails before provider activation", 
   } finally {
     h.cleanup();
   }
+});
+
+availableTest("an idle unrestored preview restarts without changing copied controlled executions", function () {
+  var h = harness({ restoreWorkOnStartup: false, startupGate: { enabled: true, state: function () { return "closed"; } } });
+  try {
+    var old = h.addExecution({ taskId: "copied-preview-work", projectId: PROJECT_A, sessionStorageId: "copied-session" });
+    // Reloaded history has metadata, but no live runtime fence/provider.
+    h.manager(PROJECT_A).sessions.set(old.session.localId, JSON.parse(JSON.stringify(Object.assign({}, old.session, { isProcessing: false }))));
+    var before = JSON.stringify(h.control.inspect(old.token.executionId));
+    assert.equal(h.router.prepareControlledRestart().unrestoredPreview, true);
+    assert.equal(h.router.prepareControlledRestart().unrestoredPreview, true, "shutdown may repeat the same preflight");
+    assert.equal(h.store.listHandoffs().length, 0);
+    assert.equal(JSON.stringify(h.control.inspect(old.token.executionId)), before);
+    assert.equal(h.router.createProjectExecution(old.request).reason, "controlled_execution_shutdown");
+  } finally { h.cleanup(); }
+});
+
+availableTest("preview restart cannot bypass active providers, runtime fences or failed/in-progress recovery", function () {
+  ["processing", "starting", "tool", "fence", "pending_permission", "pending_elicitation", "pending_dialog",
+    "recovering", "failed", "recovery_required", "restoration_enabled"].forEach(function (blocker) {
+    var h = harness({ restoreWorkOnStartup: blocker === "restoration_enabled" ? true : false,
+      startupGate: { enabled: true, state: function () { return ["recovering", "failed", "recovery_required"].includes(blocker) ? blocker : "closed"; } } });
+    try {
+      var session = { localId: 1, pendingPermissions: {} };
+      if (blocker === "processing") session.isProcessing = true;
+      if (blocker === "starting") session._queryStarting = true;
+      if (blocker === "tool") session._activeProviderToolCount = 1;
+      if (blocker === "fence") session._coopExecutionFence = {};
+      if (blocker === "pending_permission") session.pendingPermissions.request = {};
+      if (blocker === "pending_elicitation") session.pendingElicitations = { request: {} };
+      if (blocker === "pending_dialog") session.pendingUserDialogs = { request: {} };
+      h.manager(PROJECT_A).sessions.set(1, session);
+      assert.throws(function () { h.router.prepareControlledRestart(); }, /cannot drain before startup recovery/);
+      assert.equal(h.router.controlledIngressState(), "bootstrapping");
+      assert.equal(h.store.listHandoffs().length, 0);
+    } finally { h.cleanup(); }
+  });
 });

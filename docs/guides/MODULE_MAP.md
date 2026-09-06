@@ -28,6 +28,8 @@ controls for comparison snapshots. `nativeSessionDiscovery: false` stops automat
 orphan adoption in `sessions-cli-import.js`, while explicit imports remain available.
 `preview-sync-lock.js` prevents daemon startup during the stopped-preview sync tools
 in `scripts/sync-preview-{projects,sessions}.js`.
+`preview-restart.js` permits an idle comparison instance to drain without
+restoring its copied control records, only when startup recovery never began.
 
 ### project.js (thin coordinator, ~1,200 lines)
 

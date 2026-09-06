@@ -55,6 +55,25 @@ The tests use actual provider permission handlers, real plan files, the real tra
 V2 activation has an owner-authorized rollback target of `3777cbcefb`. Before activation, `snapshot-control-store.js` produced an integrity-checked snapshot with 201 executions, including WAL state, under `~/.clay-coop-v2/control-store-snapshots/coop-control.pre-handsfree-activation.20260906T204115Z.sqlite`. The configuration was separately saved and verified as `daemon-dev.pre-handsfree-activation.json` in that directory. Code rollback returns the retained v2 checkout to the prior revision and restarts its daemon with the saved configuration; the original Clay instance is separate. Restore the database only if a state repair is required, with the daemon stopped and stale WAL/SHM files removed as described in DIAGNOSTICS.md.
 
 
+### Preview restart prerequisite, 2026-09-06
+
+Activation uncovered a separate boot-policy mismatch: `restoreWorkOnStartup: false`
+intentionally skips recovery in the comparison instance, but the restart barrier
+still waited for recovery to finish. `preview-restart.js` admits only a preview
+whose recovery is still `closed`, with no processing/starting provider, active
+tool, runtime execution fence or pending owner interaction in any loaded manager.
+It drains new ingress without checkpointing or changing copied control records.
+Failed or in-progress recovery remains a restart refusal.
+
+The focused suite passed **88 normal and 20 controlled-mode tests**. Removing the
+exception yielded **13 pass / 1 fail** in each mode; removing the runtime fence
+guard separately also yielded **13 pass / 1 fail** in each mode. Restoring both
+returned the focused suite to **88 / 88 and 20 / 20**. These tests cover real
+isolated control records and repeated shutdown preparation, not a live provider
+handoff. The old running daemon cannot use this new exception until it is loaded;
+an idle, unrestored preview needs one administrative stop/start for that upgrade.
+The verified snapshot and prior source revision above are its rollback path.
+
 ### Spoken question follow-up, 2026-09-06
 
 The full suite passed **4,554 normal tests across 467 files and 849 controlled-mode tests across 70 files**. After that run, the guard against speech captured before a new question was added; the final focused suite passed **40/40 tests across seven files**. Tests drive live pending-state lookup, the real permission/dialog handlers, the real Codex adapter event handler with an in-process app-server fixture, and scripted recognition/playback through the conversation controller. They do not exercise actual microphones, external provider inference or audible browser playback.
