@@ -216,7 +216,10 @@ test("real activity makes a previously guessed timestamp authoritative again", f
 
     // appendToSessionFile only appends a history line; the meta line is rewritten
     // by the next full save, which is where the flag decides what gets written.
-    sm.saveSessionFile(session);
+    // Exercise the same coalescing state that can occur under full-suite load.
+    session._lastSaveDurMs = 50;
+    session._lastSaveAt = Date.now();
+    sm.saveSessionFile(session, { durable: true });
     assert.strictEqual(h.metaOnDisk("guessed-then-used").lastActivity, session.lastActivity,
       "and the now-authoritative value is persisted");
   } finally {

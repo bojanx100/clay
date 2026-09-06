@@ -1515,3 +1515,52 @@ verified by regression fixtures rather than by launching real provider work.
 Activation evidence: `/private/tmp/coop-v2-sidebar-activation.json`,
 `/private/tmp/coop-v2-sidebar-verified.json`,
 `/private/tmp/coop-v2-sidebar-backup.json`.
+
+
+## Bojan refresh — 2026-09-06
+
+Owner: Codex thread `01a07320-baad-7281-8b80-ca6b0cefb97e`.
+Landing target: `coop_v2`, per the owner's request to merge the latest `bojan`.
+The temporary integration worktree is `coop_v2-sync-bojan-20260906`.
+
+Merged 15 upstream commits through `55a42bb9751d3664e99699e770387b067a856ab5`.
+They add project scheduler tools, repair auto-launch identities and qualification,
+exclude background SDK/probe sessions from automatic import, select local MCP
+servers for the target provider, and preserve resident ownership across provider
+switches and repeated compaction.
+
+The Claude descriptor conflict retains v2's shared transcript parser, image-only
+intake, title/model metadata and bounded head/tail reads. The incoming SDK/greeting
+filter and message-based activity timestamps now live in that shared parser.
+Replied greetings continue scanning until a later owner request is found, including
+requests beyond the first read chunk. Explicit SDK imports retain v2 metadata.
+
+The automatic provider merge also left four Coop session-scoped tool factories
+referencing the removed default adapter variable. Assignment, planning, owner
+updates and owner memory now receive the target session's adapter. The owner-memory
+assembly regression covers both Claude and Codex and verifies the provider used
+for active planning, conversation and memory tools. Its fixture supplies the same
+provider map as project foundation. The activity recovery test now requests a
+durable save before checking disk, with coalescing forced to expose the old timing
+assumption deterministically; production persistence behavior is unchanged.
+
+Verification: 4,467 default tests across 457 files and 813 controlled tests across
+66 files, all passing (5,280 total). The import/compatibility subset is 18/18;
+restoring the pre-merge descriptor produces 14 pass / 4 fail. Reverting only the
+greeting scan condition produces 10 pass / 1 fail. Reverting the Coop provider
+wiring produces 9 pass / 1 fail in each of the default and controlled owner-model
+passes; the restored implementation passes 10/10 in each. Forcing coalescing with
+the old activity test's non-durable save produces 4 pass / 1 fail; the corrected
+fixture passes 5/5. The broader focused import check passes 38/38.
+
+Evidence: `/private/tmp/coop-v2-bojan-merge-full-verified.out`,
+`/private/tmp/coop-v2-bojan-merge-reverted.out`,
+`/private/tmp/coop-v2-bojan-merge-greeting-reverted.out`,
+`/private/tmp/coop-v2-bojan-provider-reverted.out`, and
+`/private/tmp/coop-v2-bojan-activity-coalescing-red.out`.
+
+This is a source-branch integration. No daemon was restarted or live state edited;
+the preview on port 7392 remained PID 51875 during verification. The checks use
+isolated test state and provider fixtures, not live provider calls or a runtime
+activation of the merged version. The original checkout's unrelated staged and
+unstaged work remains untouched.

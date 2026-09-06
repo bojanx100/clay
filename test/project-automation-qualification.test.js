@@ -1,14 +1,26 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var crypto = require("crypto");
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
 
 var policyModule = require("../lib/project-automation-policy");
 var qualification = require("../lib/project-automation-qualification");
+var taskSources = require("../lib/project-task-sources");
 var { attachAutoLaunch } = require("../lib/project-auto-launch");
 
 var PROJECT = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    var result = {};
+    Object.keys(value).sort().forEach(function (key) { result[key] = canonical(value[key]); });
+    return result;
+  }
+  return value;
+}
 
 function recipe() {
   return {
@@ -105,6 +117,50 @@ function configuredInput(overrides) {
   return Object.assign({}, input({ policy: configuredPolicy(), item: configuredIssue() }), overrides || {});
 }
 
+function urbanStayAllIssuesRecipe() {
+  return {
+    id: "all-issues",
+    source: { provider: "github", kind: "issue", repo: "bojanx100/urban-stay-web",
+      fetchLimit: 100, ghAccount: "bojanx100" },
+    filter: { state: "open", assigned: "any" },
+  };
+}
+
+function noBoardRecipePolicy() {
+  var source = urbanStayAllIssuesRecipe();
+  var value = policy();
+  value.qualification = {
+    version: 3,
+    normalIssueIntake: {
+      issueStates: ["open"],
+      boardStatuses: [],
+      requireAllBoardItems: false,
+      assignment: "recipe",
+      recipeAllowsUnassigned: true,
+      classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
+    },
+  };
+  value.recipes = [{ id: source.id, kind: "issue", repo: "bojanx100/urban-stay-web", type: "",
+    digest: policyModule.recipeDigest(source) }];
+  value.digest = policyModule.policyDigest(value);
+  return value;
+}
+
+function noBoardRecipeInput(overrides) {
+  var source = urbanStayAllIssuesRecipe();
+  return Object.assign({
+    policy: noBoardRecipePolicy(),
+    projectRef: { projectId: PROJECT },
+    recipe: { id: source.id, digest: policyModule.recipeDigest(source), kind: "issue" },
+    item: { number: 198, state: "OPEN" },
+    itemKey: "bojanx100/urban-stay-web#198",
+    itemClass: "bug",
+    assignedToOwner: false,
+    recipeAllowsUnassigned: taskSources.recipeAllowsUnassigned(source, {}),
+    now: 1000,
+  }, overrides || {});
+}
+
 test("qualification receipt binds fresh open issue, every board item, policy, recipe, and bug rule", function () {
   var created = qualification.receiptFor(input());
   assert.equal(created.ok, true, created.reason);
@@ -119,6 +175,88 @@ test("qualification receipt binds fresh open issue, every board item, policy, re
   assert.equal(qualification.verifyReceipt(created.receipt, {
     policy: input().policy, now: 1001,
   }).ok, true);
+});
+
+test("an explicit recipe/no-board policy admits only Urban Stay's exact all-issues recipe", function () {
+  var source = noBoardRecipeInput();
+  assert.equal(policyModule.recipeDigest(urbanStayAllIssuesRecipe()),
+    "21adf1651784d5a3654cab045b2ab9259676380c4d44c12ac57c2093300ba325");
+  assert.equal(taskSources.recipeAllowsUnassigned(urbanStayAllIssuesRecipe(), {}), true);
+  var created = qualification.receiptFor(source);
+  assert.equal(created.ok, true, created.reason);
+  assert.deepEqual(created.receipt.item.boardItems, []);
+  assert.deepEqual(created.receipt.assignment, {
+    required: "recipe", assignedToOwner: false, recipeAllowsUnassigned: true,
+  });
+  assert.ok(created.receipt.coordinator.reasons.indexOf("no_board_required") !== -1);
+  assert.ok(created.receipt.coordinator.reasons.indexOf("recipe_allows_unassigned") !== -1);
+  assert.equal(qualification.verifyReceipt(created.receipt, {
+    policy: source.policy,
+    candidate: {
+      itemKey: source.itemKey,
+      policyDigest: source.policy.digest,
+      recipeId: source.recipe.id,
+      itemClass: source.itemClass,
+      projectRef: source.projectRef,
+      eligibility: { assignedToOwner: false, recipeAllowsUnassigned: true },
+      admission: "auto",
+    },
+    now: 1001,
+  }).ok, true);
+});
+
+test("recipe/no-board qualification rejects missing policy, invalid policy, and broadened recipes", function () {
+  assert.equal(qualification.receiptFor(noBoardRecipeInput({ policy: null })).reason,
+    "qualification_policy_missing");
+
+  var invalid = noBoardRecipePolicy();
+  invalid.qualification.normalIssueIntake.boardStatuses = ["Backlog"];
+  invalid.digest = policyModule.policyDigest(invalid);
+  assert.equal(qualification.receiptFor(noBoardRecipeInput({ policy: invalid })).reason,
+    "qualification_policy_missing");
+
+  assert.equal(qualification.receiptFor(noBoardRecipeInput({
+    recipeAllowsUnassigned: taskSources.recipeAllowsUnassigned(recipe(), {}),
+  })).reason, "qualification_assignment_required");
+
+  var broadened = urbanStayAllIssuesRecipe();
+  delete broadened.filter.state;
+  assert.equal(qualification.receiptFor(noBoardRecipeInput({
+    recipe: { id: broadened.id, digest: policyModule.recipeDigest(broadened), kind: "issue" },
+    recipeAllowsUnassigned: taskSources.recipeAllowsUnassigned(broadened, {}),
+  })).reason, "qualification_recipe_mismatch");
+});
+
+test("recipe/no-board qualification rejects present or malformed Webapp board evidence", function () {
+  var ineligible = qualification.receiptFor(noBoardRecipeInput({
+    item: { number: 198, state: "OPEN", projectItems: [{
+      id: "PVTI_unified_dev_complete",
+      status: { name: "Dev Complete", fieldId: "PVTSSF_unified_status" },
+    }] },
+  }));
+  assert.equal(ineligible.reason, "qualification_board_status_ineligible");
+
+  var malformed = qualification.receiptFor(noBoardRecipeInput({
+    item: { number: 198, state: "OPEN", projectItems: [{}] },
+  }));
+  assert.equal(malformed.reason, "qualification_board_evidence_missing");
+});
+
+test("recipe/no-board receipt verification rechecks the classification rule", function () {
+  var source = noBoardRecipeInput();
+  var created = qualification.receiptFor(source);
+  assert.equal(created.ok, true, created.reason);
+  var forged = JSON.parse(JSON.stringify(created.receipt));
+  forged.classification = { itemClass: "bug", admission: "owner_approval", rule: "owner_approval" };
+  forged.approval = { required: true, ownerApproved: false };
+  var subject = {};
+  Object.keys(forged).forEach(function (key) {
+    if (key !== "digest") subject[key] = forged[key];
+  });
+  forged.digest = crypto.createHash("sha256")
+    .update(JSON.stringify(canonical(subject))).digest("hex");
+  assert.equal(qualification.verifyReceipt(forged, { policy: source.policy, now: 1001 }).reason,
+    "qualification_receipt_policy_stale");
 });
 
 test("qualification fails closed when any required issue or board fact is absent or disallowed", function () {
@@ -150,7 +288,7 @@ test("qualification fails closed when any required issue or board fact is absent
   }
 });
 
-test("configured-board receipts bind board and Status field while ignoring unrelated null Status", function () {
+test("configured Webapp-board receipts bind Status and reject ineligible current status", function () {
   var created = qualification.receiptFor(configuredInput());
   assert.equal(created.ok, true, created.reason);
   assert.equal(created.receipt.policy.version, 2);
@@ -170,6 +308,12 @@ test("configured-board receipts bind board and Status field while ignoring unrel
       status: { name: "Backlog", fieldId: "PVTSSF_wrong" } }] }),
   }));
   assert.equal(wrongField.reason, "qualification_board_evidence_missing");
+
+  var ineligibleStatus = qualification.receiptFor(configuredInput({
+    item: configuredIssue({ projectItems: [{ id: "PVTI_unified_dev_complete", projectId: "PVT_unified",
+      status: { name: "Dev Complete", fieldId: "PVTSSF_unified_status" } }] }),
+  }));
+  assert.equal(ineligibleStatus.reason, "qualification_board_status_ineligible");
 
   var conflicting = qualification.receiptFor(configuredInput({
     item: configuredIssue({ projectItems: [

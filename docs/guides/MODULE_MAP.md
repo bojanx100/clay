@@ -129,6 +129,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-loop-state.js` | (called from project-loop.js) | Persisted loop-state recovery, orphan-loop discovery, and reconnect payload decisions |
 | `project-loop-files.js` | (called from project-loop.js and project-loop-handlers.js) | Loop file readiness/title extraction, start preparation, settings persistence, and PROMPT/JUDGE watcher lifecycle |
 | `project-loop-handlers.js` | Loop WebSocket dispatch from project-loop.js | Wizard/crafting, loop start/stop, registry, schedule, and file-edit message handlers |
+| `project-scheduler-service.js` | Shared project scheduler operations | Validated task CRUD, prompt/settings persistence, idempotency, history, and immediate-run dispatch used by the UI and MCP tools |
+| `scheduler-mcp-server.js` | Built-in `clay-scheduler` MCP server | Typed session tools for schedule list/get/create/update/pause/resume/run/history/delete |
 | `project-notifications.js` | `notification_mark_read`, `notification_mark_all_read`, `notification_delete`, `notification_clear_all` | Notification center persistence and CRUD |
 | `whats-new.js` + `whats-new-content.js` | `whats_new_state` (s2c, pushed from `project-connection.js`), `whats_new_seen` (c2s, handled in `project-sessions-user-state.js`) | What's New modal. `whats-new-content.js` is pure data (entries array). `whats-new.js` joins content with per-user seen ids. Client viewer (`lib/public/modules/whats-new.js`) is content-agnostic; add a new modal by appending to the content file only. |
 | `app-messages-debate.js` | Client WebSocket debate message routing for preparation, live debate turns, comments, user floor, resume, end, and errors |
@@ -195,7 +197,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-http.js` | All HTTP routes: image serving, file upload, push, skills, git status, info |
 | `project-image.js` | `hydrateImageRefs`, `saveImageFile`, image directory setup |
 | `project-interactions.js` | Project-level wiring for memory, mate mentions, user mentions, and debate handlers |
-| `project-local-mcp-servers.js` | In-app MCP server assembly for debate, history, AskUser, browser, email, and mate datastore tools |
+| `project-local-mcp-servers.js` | In-app MCP server assembly for debate, history, AskUser, browser, email, scheduler, orchestration, and mate datastore tools |
 | `project-mate-claude-watcher.js` | Mate `CLAUDE.md` startup enforcement, sticky-note knowledge sync, and change watcher |
 | `project-mcp-bridge-handler.js` | Codex HTTP MCP bridge list/call tool handler for in-app and extension-proxied servers |
 | `project-os-users.js` | OS-user isolation helpers for per-session Linux users, project access grants, and cached user info lookup |

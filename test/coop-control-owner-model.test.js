@@ -245,24 +245,40 @@ test("ambiguous, unprepared, and unsaved owner evidence cannot be learned", func
 
 test("the real Lead local-server assembly reserves owner memory for the current Coop query", function (t) {
   var h = fixture(t);
+  var adapters = {};
+  ["claude", "codex"].forEach(function (vendor) {
+    adapters[vendor] = { createToolServer: function (input) {
+      return Object.assign({}, input, { adapterVendor: vendor });
+    } };
+  });
   var local = require("../lib/project-local-mcp-servers").createProjectLocalMcpServers({
-    adapter: { createToolServer: function (input) { return input; } },
+    adapter: adapters.claude, adapters: adapters,
     isMate: false, isHostAgent: false, slug: "lead", sm: h.sm,
     clients: new Set(), browserState: {}, pendingDebateProposals: {},
     loadContextSources: function () { return []; }, saveContextSources: function () {},
     getAllProjectsWithSessions: function () { return []; },
     email: { createMcpDeps: function () { return {}; }, hasEmailCapability: function () { return false; } },
-    mateDatastore: {},
+    mateDatastore: {}, taskOrchestrationGate: { planning: {} },
   });
-  var dormant = local.getLocalMcpServers(h.source)["clay-owner-memory"];
-  assert.equal(dormant.sessionScoped, true);
-  assert.equal(dormant.tools, undefined);
-  h.source.isProcessing = true;
-  h.source._sessionControlToolQuery = new AbortController();
-  var live = local.getLocalMcpServers(h.source)["clay-owner-memory"];
-  assert.equal(live.sessionScoped, true);
-  assert.deepEqual(live.tools.map(function (tool) { return tool.name; }),
-    ["list_owner_preferences", "remember_owner_preference", "retract_owner_preference"]);
+  ["claude", "codex"].forEach(function (vendor) {
+    h.source.vendor = vendor;
+    h.source.isProcessing = false;
+    delete h.source._sessionControlToolQuery;
+    var dormant = local.getLocalMcpServers(h.source)["clay-owner-memory"];
+    assert.equal(dormant.sessionScoped, true);
+    assert.equal(dormant.tools, undefined);
+    h.source.isProcessing = true;
+    h.source._sessionControlToolQuery = new AbortController();
+    var servers = local.getLocalMcpServers(h.source);
+    var live = servers["clay-owner-memory"];
+    assert.equal(live.sessionScoped, true);
+    ["./coop-owner-model-mcp", "./coop-owner-updates-mcp", "./coop-planning-mcp"].forEach(function (modulePath) {
+      var name = require("../lib/" + modulePath.slice(2)).SERVER_NAME;
+      assert.equal(servers[name].adapterVendor, vendor, name + " must use the current query's provider");
+    });
+    assert.deepEqual(live.tools.map(function (tool) { return tool.name; }),
+      ["list_owner_preferences", "remember_owner_preference", "retract_owner_preference"]);
+  });
   var worker = h.sm.createSessionRaw({ ownerId: h.source.ownerId });
   worker._sessionControlToolQuery = new AbortController();
   assert.equal(local.getLocalMcpServers(worker)["clay-owner-memory"].tools, undefined);

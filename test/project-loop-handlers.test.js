@@ -5,6 +5,8 @@ var os = require("os");
 var path = require("path");
 var files = require("../lib/project-loop-files");
 var handlers = require("../lib/project-loop-handlers");
+var attachProjectScheduler =
+  require("../lib/project-scheduler-service").attachProjectScheduler;
 
 function makeHarness() {
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-loop-handlers-"));
@@ -44,7 +46,13 @@ function makeHarness() {
       return record;
     },
     getById: function (id) { return records.get(id) || null; },
-    update: function (id) { return records.get(id) || null; },
+    getAll: function () { return Array.from(records.values()); },
+    update: function (id, data) {
+      var record = records.get(id);
+      if (!record) return null;
+      Object.assign(record, data || {});
+      return record;
+    },
     remove: function (id) { return records.delete(id); },
     toggleEnabled: function (id) {
       var record = records.get(id);
@@ -74,6 +82,24 @@ function makeHarness() {
     startClaudeDirWatch: function () { watched++; }, stopClaudeDirWatch: function () {},
     setActiveRegistryId: function () {},
   };
+  options.schedulerService = attachProjectScheduler({
+    cwd: cwd,
+    fs: fs,
+    path: path,
+    loopRegistry: registry,
+    runRecordNow: function (id) {
+      if (state.active) return { ok: false, message: "Another loop is already active in this project." };
+      var record = records.get(id);
+      if (!record) return { ok: false, message: "Task not found in this project." };
+      var dir = path.join(cwd, ".claude", "loops", record.linkedTaskId || id);
+      if (!fs.existsSync(path.join(dir, "PROMPT.md"))) {
+        return { ok: false, message: "PROMPT.md is missing for " + id + "." };
+      }
+      started.push(undefined);
+      sent.push({ type: "loop_rerun_started", recordId: id });
+      return { ok: true, started: true, recordId: id };
+    },
+  });
   return {
     cwd: cwd, state: state, sent: sent, targeted: targeted, sessions: sessions, records: records,
     options: options, handle: handlers.createLoopMessageHandler(options),
@@ -184,7 +210,7 @@ test("registry file, delete, toggle, and rerun paths preserve errors and success
     h.records.set("loop_rerun", { id: "loop_rerun", name: "Rerun", prompt: true });
     h.state.active = true;
     h.handle({}, { type: "loop_registry_rerun", id: "loop_rerun" });
-    assert.ok(h.targeted.some(function (x) { return x.payload.text === "A loop is already running"; }));
+    assert.ok(h.targeted.some(function (x) { return x.payload.text === "Another loop is already active in this project."; }));
     h.state.active = false;
     var rerunDir = path.join(h.cwd, ".claude", "loops", "loop_rerun");
     fs.mkdirSync(rerunDir, { recursive: true });
@@ -206,6 +232,7 @@ test("registry file reads and saves broadcast exact content, including save erro
   var h = makeHarness();
   var originalWrite = h.options.fs.writeFileSync;
   try {
+    h.records.set("loop_files", { id: "loop_files", mode: "loop" });
     h.handle({}, { type: "loop_registry_save_files", id: "loop_files", prompt: "P", judge: "J", settings: { x: 1 } });
     var dir = path.join(h.cwd, ".claude", "loops", "loop_files");
     assert.strictEqual(fs.readFileSync(path.join(dir, "PROMPT.md"), "utf8"), "P");

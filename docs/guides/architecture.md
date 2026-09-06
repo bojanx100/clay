@@ -190,7 +190,7 @@ Slugs are auto-generated from the directory name. Duplicates get `-2`, `-3`, etc
 
 ## Built-in MCP Servers
 
-The daemon ships four MCP servers that any session (Claude or Codex) can call:
+The daemon ships built-in MCP servers that Claude and Codex sessions can call:
 
 | Server | File | Provides |
 |---|---|---|
@@ -198,6 +198,9 @@ The daemon ships four MCP servers that any session (Claude or Codex) can call:
 | `browser` | `browser-mcp-server.js` | Open / navigate / click / screenshot / extract via the user's connected browser |
 | `debate` | `debate-mcp-server.js` | Spawn a structured multi-Mate debate from inside an agent run |
 | `email` | `email-mcp-server.js` | Read / send / search across IMAP/SMTP accounts the user has configured |
+| `clay-scheduler` | `scheduler-mcp-server.js` | Manage scheduled tasks in the current project without driving the web interface |
+
+The scheduler server is available to interactive project sessions. Autonomous scheduled runs do not receive it, preventing a running task from rewriting or deleting its own schedule. Read operations are auto-approved; mutations use Clay's normal tool permission flow.
 
 User-defined MCP servers from `~/.clay/mcp.json` are loaded on top.
 

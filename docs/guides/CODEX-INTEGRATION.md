@@ -27,7 +27,7 @@ codex CLI binary    (@openai/codex)
            v
          Project MCP handler  (lib/project.js getMcpBridgeHandler)
            |
-           +--> in-app servers (clay-debate, clay-browser, clay-email)
+           +--> in-app servers (clay-debate, clay-browser, clay-email, clay-scheduler)
            +--> remote servers (extension-proxied via WS)
 ```
 

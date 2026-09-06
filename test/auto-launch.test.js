@@ -923,11 +923,18 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
   }));
   var started = [];
   var sessions = new Map();
+  var legacySession = settings.legacySession || null;
+  var saveCalls = settings.saveCalls || null;
+  if (legacySession) sessions.set(legacySession.localId, legacySession);
+  function legacySessionForItem(i) {
+    if (!legacySession || !legacySession.taskLauncher) return null;
+    return String(legacySession.taskLauncher.itemNumber) === String(i.number) ? legacySession : null;
+  }
   var launcher = {
     loadRecipe: function () { return recipe; },
-    findExistingSessionForItem: function () { return null; },
-    findAnyLiveSessionForItem: function () { return null; },
-    findAnyVisibleSessionForItem: function () { return null; },
+    findExistingSessionForItem: function (r, i) { return legacySessionForItem(i); },
+    findAnyLiveSessionForItem: function (i) { return legacySessionForItem(i); },
+    findAnyVisibleSessionForItem: function (i) { return legacySessionForItem(i); },
     startSessionForItem: function (ws, r, i) {
       var itemKey = (recipe.source.repo || "") + "#" + i.number;
       var session = {
@@ -979,6 +986,10 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
       slug: "webapp",
       sm: {
         sessions: sessions,
+        saveSessionFile: function (session, options) {
+          if (saveCalls) saveCalls.push({ session: session, options: options });
+          return true;
+        },
         broadcastSessionList: function () {},
         getProjectId: function () { return settings.projectId || CUTOVER_PROJECT; },
       },
@@ -992,6 +1003,8 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
   return {
     autoLaunch: autoLaunch, started: started, executions: executions,
     cwd: cwd, crossProject: crossProject, bound: bound, launcher: launcher,
+    recipe: recipe,
+    saveCalls: saveCalls,
     // A fresh controller over the SAME durable project state, i.e. a restart.
     restart: function () { return buildAutoLaunch(); },
     // Marks an admitted item's binding terminal, the way a finishing worker
@@ -1160,6 +1173,71 @@ test("a fresh eligible scan upgrades a legacy awaiting-owner candidate and admit
     await h.autoLaunch.launchScheduled("assigned-to-me");
     assert.equal(h.executions.length, 1,
       "the next natural scan must reuse the same admitted candidate rather than duplicate work");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("a scheduled scan recovers an in-flight legacy primitive before live dedup", async function () {
+  var saves = [];
+  var legacy = {
+    localId: 2881,
+    storageId: "legacy-2881",
+    taskLauncher: {
+      autoLaunch: true,
+      recipeId: "assigned-to-me",
+      itemNumber: 2881,
+      itemUrl: "https://github.com/trialview/v2/issues/2881",
+      autoKind: "issue",
+      itemKey: "",
+      workflowCompleted: false,
+    },
+  };
+  var item = assignedIssue(2881);
+  var h = makeIdleBoardHarness({ type: "bug" }, item, {
+    legacySession: legacy,
+    saveCalls: saves,
+  });
+  try {
+    var proposal = h.autoLaunch.automationGate.evaluateLaunch({
+      itemKey: "trialview/v2#2881",
+      eligibilityPass: "legacy-scan",
+      item: item,
+      recipe: h.recipe,
+      recipeKind: "issue",
+      recipeType: "bug",
+      assignedToOwner: true,
+      intent: {
+        recipeId: "assigned-to-me",
+        primitiveLaunch: true,
+        automationClaimKey: "trialview/v2#2881",
+        number: 2881,
+        url: item.url,
+        title: item.title,
+        autoKind: "issue",
+      },
+    });
+    assert.strictEqual(proposal.decision, "propose");
+    item.projectItems[0].status.name = "🔄 In progress";
+    await h.autoLaunch.runScheduled({ id: "autolaunch_assigned", task: "assigned-to-me" });
+    assert.deepStrictEqual(h.started, [],
+      "recovering an existing primitive must not start a second session");
+    assert.strictEqual(h.executions.length, 1,
+      "the exact current scan must adopt the existing session once");
+    assert.strictEqual(legacy.taskLauncher.itemKey, "trialview/v2#2881");
+    assert.ok(saves.some(function (save) {
+      return save.options && save.options.durable === true;
+    }), "the recovered identity must be durably persisted");
+    var stored = h.autoLaunch.candidateStore.get({ projectId: CUTOVER_PROJECT },
+      "launch:trialview/v2#2881");
+    assert.strictEqual(stored.status, "admitted");
+    assert.ok(stored.qualificationReceipt.coordinator.reasons.indexOf(
+      "existing_primitive_in_flight") !== -1,
+      "adoption must carry an explicit in-flight qualification reason");
+    assert.deepStrictEqual(h.executions[0].adoptSessionRef, {
+      projectId: CUTOVER_PROJECT,
+      sessionStorageId: "legacy-2881",
+    });
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
@@ -1672,23 +1750,18 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     });
 
     var primitive = null;
+    var taskLauncher = attachTaskLauncher({
+      cwd: cwd,
+      sm: targetManager,
+      sdk: { startQuery: function () {} },
+      usersModule: { isMultiUser: function () { return false; } },
+      ensureProjectAccessForSession: function () { return true; },
+      onProcessingChanged: function () {},
+    });
     autoLaunch = attachAutoLaunch({
       cwd: cwd, slug: "webapp",
       sm: targetManager,
-      getTaskLauncher: function () {
-        return {
-          loadRecipe: function () { return recipe; },
-          findExistingSessionForItem: function () { return null; },
-          findAnyLiveSessionForItem: function () { return null; },
-          findAnyVisibleSessionForItem: function () { return null; },
-          startSessionForItem: function (ws, value, item) {
-            primitive = targetManager.createSessionRaw({ storageId: "primitive-session",
-              title: item.title, taskLauncher: { autoLaunch: true,
-                itemKey: "trialview/v2#" + item.number } });
-            return primitive;
-          },
-        };
-      },
+      getTaskLauncher: function () { return taskLauncher; },
       getLeadMode: function () { return true; },
       crossProject: router,
       fetchItems: function () { return [assignedIssue(2565)]; },
@@ -1697,6 +1770,10 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     await autoLaunch.launchScheduled("assigned-to-me");
 
     // The binding is real, committed, on disk, and targets THIS project.
+    primitive = targetManager.sessions.get(100);
+    assert.ok(primitive, "the real task launcher should create the primitive session");
+    assert.strictEqual(primitive.taskLauncher.itemKey, "trialview/v2#2565",
+      "the primitive must persist the identity Coop authorizes");
     var persisted = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
     assert.strictEqual(persisted.bindings.length, 1, "the scan must land exactly one binding");
     var binding = persisted.bindings[0];
@@ -1707,7 +1784,7 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
       "adoption must not replace the primitive with a generic delivery");
 
     // And the coordinator session it bound is the one the target reported.
-    assert.strictEqual(binding.coordinator.sessionStorageId, "primitive-session");
+    assert.strictEqual(binding.coordinator.sessionStorageId, primitive.storageId);
     assert.strictEqual(binding.projectCoordinator.projectId, projectIdentity.LEAD_PROJECT_ID);
     assert.strictEqual(primitive.coordinationRole, "task_coordinator");
     var roots = Array.from(leadManager.sessions.values()).filter(function (session) {
@@ -1715,7 +1792,7 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     });
     assert.strictEqual(roots.length, 1, "one resident ProjectRef coordinator owns the primitive");
     assert.strictEqual(roots[0].orchestrationTasks.length, 1);
-    assert.strictEqual(roots[0].orchestrationTasks[0].workerStorageId, "primitive-session");
+    assert.strictEqual(roots[0].orchestrationTasks[0].workerStorageId, primitive.storageId);
     assert.strictEqual(autoLaunch.candidateStore.get({ projectId: CUTOVER_PROJECT },
       "launch:trialview/v2#2565").status, "admitted");
 
