@@ -923,11 +923,18 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
   }));
   var started = [];
   var sessions = new Map();
+  var legacySession = settings.legacySession || null;
+  var saveCalls = settings.saveCalls || null;
+  if (legacySession) sessions.set(legacySession.localId, legacySession);
+  function legacySessionForItem(i) {
+    if (!legacySession || !legacySession.taskLauncher) return null;
+    return String(legacySession.taskLauncher.itemNumber) === String(i.number) ? legacySession : null;
+  }
   var launcher = {
     loadRecipe: function () { return recipe; },
-    findExistingSessionForItem: function () { return null; },
-    findAnyLiveSessionForItem: function () { return null; },
-    findAnyVisibleSessionForItem: function () { return null; },
+    findExistingSessionForItem: function (r, i) { return legacySessionForItem(i); },
+    findAnyLiveSessionForItem: function (i) { return legacySessionForItem(i); },
+    findAnyVisibleSessionForItem: function (i) { return legacySessionForItem(i); },
     startSessionForItem: function (ws, r, i) {
       var itemKey = (recipe.source.repo || "") + "#" + i.number;
       var session = {
@@ -979,6 +986,10 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
       slug: "webapp",
       sm: {
         sessions: sessions,
+        saveSessionFile: function (session, options) {
+          if (saveCalls) saveCalls.push({ session: session, options: options });
+          return true;
+        },
         broadcastSessionList: function () {},
         getProjectId: function () { return settings.projectId || CUTOVER_PROJECT; },
       },
@@ -992,6 +1003,7 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
   return {
     autoLaunch: autoLaunch, started: started, executions: executions,
     cwd: cwd, crossProject: crossProject, bound: bound, launcher: launcher,
+    saveCalls: saveCalls,
     // A fresh controller over the SAME durable project state, i.e. a restart.
     restart: function () { return buildAutoLaunch(); },
     // Marks an admitted item's binding terminal, the way a finishing worker
@@ -1160,6 +1172,47 @@ test("a fresh eligible scan upgrades a legacy awaiting-owner candidate and admit
     await h.autoLaunch.launchScheduled("assigned-to-me");
     assert.equal(h.executions.length, 1,
       "the next natural scan must reuse the same admitted candidate rather than duplicate work");
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("a scheduled scan recovers a legacy primitive before live dedup", async function () {
+  var saves = [];
+  var legacy = {
+    localId: 2881,
+    storageId: "legacy-2881",
+    taskLauncher: {
+      autoLaunch: true,
+      recipeId: "assigned-to-me",
+      itemNumber: 2881,
+      itemUrl: "https://github.com/trialview/v2/issues/2881",
+      autoKind: "issue",
+      itemKey: "",
+      workflowCompleted: false,
+    },
+  };
+  var h = makeIdleBoardHarness({ type: "bug" }, assignedIssue(2881), {
+    legacySession: legacy,
+    saveCalls: saves,
+  });
+  try {
+    await h.autoLaunch.runScheduled({ id: "autolaunch_assigned", task: "assigned-to-me" });
+    assert.deepStrictEqual(h.started, [],
+      "recovering an existing primitive must not start a second session");
+    assert.strictEqual(h.executions.length, 1,
+      "the exact current scan must adopt the existing session once");
+    assert.strictEqual(legacy.taskLauncher.itemKey, "trialview/v2#2881");
+    assert.ok(saves.some(function (save) {
+      return save.options && save.options.durable === true;
+    }), "the recovered identity must be durably persisted");
+    var stored = h.autoLaunch.candidateStore.get({ projectId: CUTOVER_PROJECT },
+      "launch:trialview/v2#2881");
+    assert.strictEqual(stored.status, "admitted");
+    assert.deepStrictEqual(h.executions[0].adoptSessionRef, {
+      projectId: CUTOVER_PROJECT,
+      sessionStorageId: "legacy-2881",
+    });
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
