@@ -226,3 +226,49 @@ test("stream message failures invoke Coop route recovery after removing the opti
   assert.match(source, /case "message_accepted":[\s\S]*?handleStagedApprovalMessageAccepted\(msg\.clientMessageId \|\| ""\);[\s\S]*?markUserMessageAccepted\(msg\.clientMessageId \|\| ""\);/);
   assert.match(source, /case "message_failed":[\s\S]*?removeOptimisticUserMessage\(msg\.clientMessageId \|\| ""\);[\s\S]*?handleStagedApprovalMessageFailed\(msg\.clientMessageId \|\| "", msg\.text \|\| ""\);[\s\S]*?handleRejectedCoopIngress\(msg\);/);
 });
+
+test("Main, Thread, and project streams share the human conversation projection with replay", async function () {
+  var loaded = await loadModules();
+  var connection = require("../lib/coop-topic-connection");
+  var history = [
+    { type: "user_message", text: "Keep my example: ```bash\npwd\n```", from: "owner" },
+    { type: "delta", text: "The change is ready.\n\n```ba" },
+    { type: "delta", text: "sh\nsecret-command\n```\n\n![Preview](/preview.png)\n" },
+    { type: "delta", text: "```mermaid\ngraph LR\nA-->B\n```\nThe diagram explains the flow." },
+    { type: "done" },
+    { type: "coop_owner_update", text: "Ready.\n~~~js\nsecret-code\n~~~\nPlease review." },
+  ];
+  ["main", "topic", "project"].forEach(function (scope) {
+    loaded.storeModule.createStore({ activeCoopHome: true, activeCoopLensScope: scope });
+    var replay = connection.replayTransform({}, { scope: scope });
+    var projected = history.map(function (item, index) {
+      var live = loaded.filter.projectMainCoopStreamMessage(item);
+      assert.deepEqual(live, replay(item, index), "live and replay agree for " + scope);
+      return live;
+    });
+    assert.equal(projected[0], history[0]);
+    var text = projected.slice(1).map(function (item) { return item.text || ""; }).join("");
+    assert.doesNotMatch(text, /secret-command|secret-code|```ba/);
+    assert.match(text, /!\[Preview\]/);
+    assert.match(text, /```mermaid\ngraph LR\nA-->B\n```/);
+    assert.match(text, /Please review/);
+  });
+  loaded.storeModule.createStore({ activeCoopHome: true, activeCoopLensScope: "canonical" });
+  history.forEach(function (item) {
+    assert.equal(loaded.filter.projectMainCoopStreamMessage(item), item);
+    assert.equal(connection.replayTransform({}, { scope: "canonical" })(item), item);
+  });
+});
+
+test("standalone reports filter by their own Thread even within an unrelated hidden batch", async function () {
+  var loaded = await loadModules();
+  loaded.storeModule.createStore({ activeCoopHome: true, activeCoopTopicRef: { topicId: "annotations" },
+    activeCoopLensScope: "topic", coopTopicLiveTurnVisible: false });
+  var matching = { type: "coop_owner_update", text: "Annotations are ready.",
+    feedbackRefs: [{ coopTopicRef: { topicId: "annotations" } }] };
+  assert.equal(loaded.filter.shouldSuppressCoopTopicStream(matching), false);
+  assert.equal(loaded.filter.shouldSuppressCoopTopicStream({ type: "delta", text: "Internal followup" }), true);
+  assert.equal(loaded.filter.shouldSuppressCoopTopicStream(Object.assign({}, matching, {
+    feedbackRefs: [{ coopTopicRef: { topicId: "speed" } }],
+  })), true);
+});

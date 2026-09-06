@@ -398,3 +398,19 @@ test("a refused durable batch extension preserves the previously staged requests
   assert.equal(responseLinkage.pendingOwnerResponse(h.session).requests.length, 2);
   assert.equal((await stage([first])).duplicate, true);
 });
+
+test("a proven automated owner reply survives Main filtering after its pending link is finalized", function () {
+  var h = harness();
+  var linked = recordRequest(h.ledger, 1, 20);
+  h.session.history.push({ type: "delta", text: "Checking tick state." });
+  assert.equal(responseLinkage.stageOwnerResponse({ session: h.session, ownerRequests: h.ledger,
+    requests: [linked], saveSession: h.save }).ok, true);
+  h.session.history.push({ type: "delta", text: "Here is the answer you requested." });
+  h.session.history.push({ type: "done", code: 0, _ts: 100 });
+  var controller = conversationControl.attachCoopConversationControl({ coopOwnerRequests: h.ledger,
+    sm: { saveSessionFile: h.save }, sendToSession: function () {} });
+  assert.equal(controller.markAnswered(h.session), true);
+  assert.equal(h.session.coopConversationIngress.pendingOwnerResponse, undefined);
+  var reloadedHistory = JSON.parse(JSON.stringify(h.session.history));
+  assert.deepEqual(require("../lib/coop-topic-relevance").mainLensEventIndexes(reloadedHistory), [2]);
+});

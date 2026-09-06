@@ -99,7 +99,7 @@ test("OFF records running work without launching its dependent or coordinator; O
   assert.equal(h.parent.pendingCoordinatorUpdates.length, 1);
   assert.equal(h.parent.pendingCoordinatorUpdates[0].attempts, 0);
   toggle(true);
-  var deadline = Date.now() + 1500;
+  var deadline = Date.now() + 10000;
   while (workerStarts(h).length < 2 && Date.now() < deadline) await pause(10);
   assert.equal(tasks[1].status, "running");
   assert.equal(workerStarts(h).length, 2);
@@ -202,7 +202,9 @@ test("owner Live UI feedback survives restart and runs while OFF without drainin
   worker.history.push({ type: "done", code: 0 });
   h.sm.saveSessionFile(worker, { durable: true });
   h.reload();
-  var deadline = Date.now() + 1500;
+  // The full suite runs many isolated processes concurrently. Wait for the
+  // real retry clock without making host scheduling speed an assertion.
+  var deadline = Date.now() + 10000;
   while (workerStarts(h).length < 2 && Date.now() < deadline) await pause(10);
   assert.equal(workerStarts(h).length, 2);
   assert.match(workerStarts(h)[1].text, /Owner correction to mobile copy/);

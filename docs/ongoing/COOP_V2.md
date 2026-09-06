@@ -17,6 +17,17 @@ Threads retain conversation identity when tasks are commissioned. Tasks describe
 outcomes, attempts describe executions, and sessions run agents. Answering a request,
 finishing implementation, and owner acceptance are separate facts.
 
+Owner clarification, 2026-09-06, conversation views: All is the complete record of
+Coop/owner exchanges and execution detail. Main is the complete human conversation,
+including messages, pictures and diagrams. Threads collect all relevant conversation
+about a particular topic from Main. They remain discussion until the chat or a
+Council/Triage debate supplies enough scope to commission a task. Commissioning adds
+a task and execution links while preserving the Thread as an ongoing chat beneath
+the project coordinator. Scope enrichment, corrections and feedback continue there;
+actual execution belongs in the target project. Current display assumption pending
+owner clarification: preserve owner-authored pasted content verbatim; filter Coop's
+fenced execution examples in conversational views.
+
 Owner clarification, 2026-09-06: Council and Triage are multi-AI debates/planning
 inside Coop, optionally including the owner. Coop can seek their help before
 escalating a difficult choice. The resulting plan becomes project work only through
@@ -56,6 +67,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Commission durable project assignments and accept their exact scope through the resident coordinator.
 - [x] Keep pending assignments visible and cancellable, with bounded notification and durable attention.
 - [x] Preserve reports through provider submission, bound retries, and expose uncertain delivery for owner review.
+- [x] Align Main/Thread conversation filtering and preserve explicitly scoped task and planning reports through restart and compaction.
 - [x] Correct plain-array transcript saves that can be incorrectly skipped by the unloaded-history optimization.
 - [ ] Consolidate owner-request/task/attempt outcome provenance.
 - [x] Remove recovery mutations from projections, drive them through daemon events,
@@ -850,3 +862,59 @@ in force, automatic intake/adoption of pre-existing project automation remains
 open, and the owner has not confirmed the policy for already-running work. The
 current stated assumption lets running workers finish. Production activation,
 live canary verification, and a full owner-visible workflow remain outstanding.
+
+
+## Iteration 26: One conversation across Main, Threads and commissioned work
+
+The latest owner clarification makes a Thread a continuing conversation about a
+topic. Existing handed-off Thread rows already open the canonical topic chat, and
+new owner ingress already remains valid after commissioning. The defects found here
+were differing display filters and lost feedback provenance.
+
+Main, Thread and project conversation projections now remove the same exact Lead
+boilerplate and fenced execution code while retaining owner text, images and Mermaid
+markup for the diagram renderer. Live Thread/project views also hide operational
+blocks, including streamed command output and worker progress. Internal tick prose
+no longer becomes a message simply because its wording has not appeared before.
+The role prompt explains the discussion-to-commissioning lifecycle explicitly.
+
+Coop can publish a concise owner update with selected delivered feedback event IDs.
+The service resolves those IDs from actual persisted notification batches, saves one
+canonical conversation record before broadcasting, and derives Thread membership
+from those references. It does not attach a whole mixed-task batch to every Thread.
+Reports persist across queue reload, replay, compaction and idempotent retries.
+Execution feedback scope is resolved from durable bindings and reciprocal worker
+ancestry across registered project checkouts. Council/Triage feedback uses its own
+planning session/run reference, because planning precedes a portfolio task.
+
+Ordinary automated answers linked to owner requests retain a durable boundary on
+the last pre-response event. That field prevents the JSONL writer from coalescing
+away the boundary. Older answers with verified response UUIDs remain in Main and
+their recorded Thread; stale numeric offsets alone cannot recover an answer. Typed
+owner decision responses remain visible. Live projection resets at explicit answer
+boundaries so an unfinished internal code fence cannot swallow the answer. Queued
+internal work announces its provenance before provider output, and replay restores
+the active conversation state for subsequent live events. Main and Thread replay
+restore that state from the stitched compaction lineage, including scoped answers
+and decisions started on a predecessor. All retains its bounded lazy history read;
+selecting a human lens requests the indexed replay that establishes live filtering.
+
+Validation: removing the tracked implementation changes produced 104 default
+checks, 82 pass / 22 fail, and 22 controlled checks, 10 pass / 12 fail. With those
+changes restored, the same suites pass 104 / 104 default and 22 / 22 controlled
+within the final full run: 4,277 / 4,277 default and 729 / 729 controlled. The
+new compaction cases run actual session compaction, indexed replay and the client
+turn classifier for internal work, scoped answers and staged decisions. Existing
+lazy-history tests verify that All does not hydrate the whole transcript. A retry
+clock test exceeded its old 1.5-second wait under full-suite contention; its bounded
+wait now allows ten seconds while still exercising the actual retry clock.
+
+An independent read-only review found no remaining critical regression in the
+reviewed reconnect and feedback paths. This is a bounded finding, not a complete
+product acceptance result.
+These checks exercise local code with isolated stores and provider stubs. They do
+not establish live provider behavior, browser rendering of every visual, production
+canary health, or activation of this branch. Existing reports with no reliable task,
+planning or owner-answer reference are not retrospectively assigned to a Thread.
+No live history was repaired. Thread regrouping after commissioning, automatic ON
+adoption/OFF ownership transfer, and supervised self-repair remain broader work.

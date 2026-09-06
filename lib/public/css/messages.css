@@ -2160,7 +2160,9 @@ body.wide-view .turn-meta {
 
    It also makes lens switching instant and lossless: the same DOM is revealed
    or hidden, so no block can be duplicated, dropped or reordered. */
-#messages[data-coop-lens="main"] > [data-coop-relevance="internal"] {
+#messages[data-coop-lens="main"] > [data-coop-relevance="internal"],
+#messages[data-coop-lens="topic"] > [data-coop-relevance="internal"],
+#messages[data-coop-lens="project"] > [data-coop-relevance="internal"] {
   display: none;
 }
 

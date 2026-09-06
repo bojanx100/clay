@@ -77,7 +77,7 @@ test("the live Lead tick is internal, recognised by flag not by label text", asy
   assert.ok(lens.isInternalMessage({ type: "user_message", text: "↻ Lead tick" }));
 });
 
-test("repeated internal Lead ticks coalesce live while owner messages stay deliverable", async function () {
+test("internal Lead ticks stay hidden live while owner messages stay deliverable", async function () {
   var lens = await loadRelevance();
   var tracker = lens.createTurnRelevanceTracker();
   var running = { type: "delta", text: "Running the tick; I'll report only if the state changes." };
@@ -85,8 +85,8 @@ test("repeated internal Lead ticks coalesce live while owner messages stay deliv
   var tick = { type: "user_message", text: "↻ Lead tick", autoAction: true };
 
   assert.equal(tracker.relevance(tick), "internal");
-  assert.equal(tracker.relevance(running), "owner");
-  assert.equal(tracker.relevance(unchanged), "owner");
+  assert.equal(tracker.relevance(running), "internal");
+  assert.equal(tracker.relevance(unchanged), "internal");
   assert.equal(tracker.relevance({ type: "done" }), "internal");
 
   assert.equal(tracker.relevance(tick), "internal");
@@ -212,7 +212,7 @@ test("every block is classified before it renders", function () {
   // Before any handler runs, so every block the message produces is marked.
   var dispatch = messages.slice(messages.indexOf("export function processMessage(msg)"));
   assert.ok(dispatch.indexOf("setCurrentBlockRelevance(turnRelevanceTracker.relevance(msg))") <
-    dispatch.indexOf("if (handleLiveUiMessage(msg)) return;"));
+    dispatch.indexOf("if (handleMateDmPreMessage(msg)) return;"));
   assert.match(dispatch, /turnRelevanceTracker\.reset\(\)/);
 
   var rendering = clientSource("app-rendering.js");
@@ -245,7 +245,7 @@ test("filtering is a direct-child rule, so nested structure is never disturbed",
   var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "messages.css"), "utf8");
   // Direct child, so a tool item inside a tool group is governed by its group
   // rather than being hidden independently and stranding the group header.
-  assert.match(css, /#messages\[data-coop-lens="main"\] > \[data-coop-relevance="internal"\] \{\s*\n\s*display: none;/);
+  assert.match(css, /#messages\[data-coop-lens="main"\] > \[data-coop-relevance="internal"\],[\s\S]*?#messages\[data-coop-lens="project"\] > \[data-coop-relevance="internal"\] \{\s*\n\s*display: none;/);
   // No rule hides the whole transcript or the re-pinned transient elements.
   assert.doesNotMatch(css, /#messages\[data-coop-lens="main"\] \{\s*\n\s*display: none/);
 });
@@ -308,9 +308,47 @@ test("only Coop filters; an ordinary project transcript is never touched", funct
 
 test("All shows everything live, including what Main filters", function () {
   var css = fs.readFileSync(path.join(__dirname, "..", "lib", "public", "css", "messages.css"), "utf8");
-  // The only hiding rule is scoped to the main lens, so under All (and under a
-  // topic lens, whose membership the server already filtered) nothing is hidden.
+  // All retains execution detail. Main, Threads, and project discussions share
+  // the owner-conversation filter during streaming as well as replay.
   var hidingRules = css.match(/#messages\[data-coop-lens="[^"]+"\][^{]*\{[^}]*display:\s*none/g) || [];
   assert.equal(hidingRules.length, 1);
   assert.match(hidingRules[0], /data-coop-lens="main"/);
+});
+
+test("a saved internal turn remains internal after a filtered replay and live continuation", async function () {
+  var lens = await loadRelevance();
+  var session = { coopHome: true, storageId: "reconnecting-coop", history: [
+    { type: "user_message", text: "Check the plan.", from: "owner" },
+    { type: "delta", text: "I will check it." }, { type: "done" },
+    { type: "user_message", text: "Worker report", synthetic: true, internalOnly: true },
+    { type: "delta", text: "Inspecting the raw report." },
+  ] };
+  var tracker = lens.createTurnRelevanceTracker();
+  var api = require("../lib/sessions-history").attachSessionHistory({
+    send: function (message) { tracker.relevance(message); }, sessions: new Map(),
+    isMeaninglessUnknownError: function () { return false; },
+  });
+  api.replayHistory(session, 0, null, null, { scope: "main",
+    eventIndexes: require("../lib/coop-main-replay").membershipIndexes(session) });
+  assert.equal(tracker.relevance({ type: "delta", text: "Running another check." }), "internal");
+  assert.equal(tracker.relevance({ type: "coop_owner_update", text: "The plan is ready." }), "owner");
+  assert.equal(tracker.relevance({ type: "delta", text: "Internal bookkeeping." }), "internal");
+  tracker.relevance({ type: "user_message", text: "Explain the plan.", from: "owner" });
+  assert.equal(tracker.relevance({ type: "delta", text: "Here is the plan." }), "owner");
+  tracker.relevance({ type: "coop_internal_turn_started" });
+  assert.equal(tracker.relevance({ type: "delta", text: "Checking task status." }), "internal");
+});
+
+test("a staged owner answer resets an internal incomplete code fence before becoming visible", async function () {
+  var lens = await loadRelevance();
+  var server = require("../lib/coop-topic-relevance");
+  [lens, server].forEach(function (module) {
+    ["coop_owner_response_started", "coop_owner_decision_staged"].forEach(function (type) {
+      var projector = module.createMainAuthorityDisclosureProjector();
+      projector.project({ type: "delta", text: "Internal command:\n```sh\nnpm test\n" });
+      projector.project({ type: type });
+      assert.equal(projector.project({ type: "delta", text: "The change is complete." }).text,
+        "The change is complete.");
+    });
+  });
 });

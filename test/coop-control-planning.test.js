@@ -361,3 +361,35 @@ test("a real governance refusal releases the unsubmitted commissioning reservati
   assert.notEqual(accepted.isError, true);
   assert.equal(h.delegated.length, 1);
 });
+
+test("completed Council feedback survives queue restart and returns to its originating conversation Thread", async function (t) {
+  var h = fixture(t);
+  var starts = [];
+  var queueModule = require("../lib/project-coordinator-update-queue");
+  var queueContext = { sm: h.sm, sdk: { startQuery: function (session, text) {
+    starts.push(text); return { ok: true };
+  } }, sendState: function () {}, onProcessingChanged: function () {}, sendToSession: function () {},
+  ensureProjectAccessForSession: function () {} };
+  h.serviceCtx.queueUpdate = queueModule.attachCoordinatorUpdateQueue(queueContext).queue;
+  var input = h.input();
+  var started = await complete(h, input);
+  var plan = h.byRef(started.planningRef);
+  var eventId = "planning:" + plan.storageId + ":1";
+  assert.equal(h.source.pendingCoordinatorUpdates[0].feedback.eventId, eventId);
+  var restored = createManager(h.smOptions);
+  var source = h.byRef({ sessionStorageId: h.source.storageId }, restored);
+  restored.getHistoryView(source);
+  var queue = queueModule.attachCoordinatorUpdateQueue(Object.assign({}, queueContext, { sm: restored }));
+  assert.equal(queue.flush(source), true);
+  assert.equal(starts.length, 1);
+  var ownerUpdates = require("../lib/coop-owner-updates");
+  assert.deepEqual(ownerUpdates.pending(restored, source).map(function (ref) { return ref.eventId; }), [eventId]);
+  var text = "Council recommends flat pricing with a usage ceiling. The plan is ready to discuss.";
+  assert.equal(ownerUpdates.publish(restored, source, { replyId: "council-result", text: text,
+    feedbackEventIds: [eventId] }).ok, true);
+  var view = restored.getHistoryView(source);
+  var indexes = require("../lib/coop-topic-connection").boundedMembershipIndexes(
+    h.index.resolve(input.topicRef, false).topic, source, view);
+  assert.deepEqual(indexes.map(function (index) { return view.history[index].text; }), [text]);
+  assert.deepEqual(ownerUpdates.indexesForTopic(view, { topicId: "unrelated" }), []);
+});
