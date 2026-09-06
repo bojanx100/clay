@@ -9,6 +9,33 @@ var createCrossProjectRouter = require("../lib/server-cross-project").createCros
 var createCoopOwnerRequests = require("../lib/coop-owner-requests").createCoopOwnerRequests;
 var orchestrationMcp = require("../lib/orchestration-mcp-server");
 
+["hideSession", "saveSessionFile"].forEach(function (backend) {
+  test("explicit completion archive preserves the " + backend + " fallback", function () {
+    var archive = require("../lib/project-task-orchestrator-completion").archiveCompletedCoopSession;
+    var session = {
+      localId: 17,
+      coopControlledBy: { coopSessionStorageId: "archive-owner" },
+      orchestrationPolicy: { portfolioExecution: { mode: "project_coordinator" } },
+      orchestrationProjectCompletion: { status: "completed", escalationRequired: "no" },
+    };
+    var calls = [];
+    var sm = {};
+    sm[backend] = function (value) {
+      calls.push(value);
+      if (backend === "hideSession") session.hidden = true;
+    };
+
+    assert.equal(archive(sm, session, {}), false);
+    assert.equal(session.hidden, undefined);
+    assert.equal(calls.length, 0);
+    assert.equal(archive(sm, session, { explicit: true }), true);
+    assert.equal(session.hidden, true);
+    assert.deepEqual(calls, [backend === "hideSession" ? session.localId : session]);
+    assert.equal(archive(sm, session, { explicit: true }), false);
+    assert.equal(calls.length, 1);
+  });
+});
+
 function testContext(existingSessions, options) {
   options = options || {};
   var sessions = existingSessions || new Map();
