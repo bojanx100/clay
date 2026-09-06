@@ -110,7 +110,7 @@ function fixture(t, mode, legacy) {
   return {
     router: router, store: store, binding: binding, session: session, calls: calls,
     deliveries: deliveries, continuations: continuations, predecessor: predecessor, caller: caller,
-    fence: fence, budgetChecks: budgetChecks,
+    fence: fence, budgetChecks: budgetChecks, leadSessions: leadSessions,
     request: { source: clone(CALLER), targetProject: { projectId: PROJECT_ID }, targetSession: clone(TARGET),
       portfolioTaskId: "owned-task", bindingRevision: 1, idempotencyKey: "switch-r1",
       target: "codex-openai", model: "gpt-6-astra", reason: "Recover the interrupted execution" },
@@ -151,6 +151,68 @@ test("real router switches a canonical successor's resident-owned execution and 
   assert.equal(f.router(f.request).reused, true);
   assert.equal(f.continuations.length, 1, "idempotent retry must not resume twice");
   assert.equal(f.session.history.length, 2, "idempotent retry must not switch twice");
+});
+
+function compactCaller(f) {
+  var nextId = 20;
+  var time = 200;
+  f.caller.history = [{ type: "user_message", text: "Continue the owned recovery", _ts: 1 }];
+  var sm = {
+    sessions: f.leadSessions,
+    createSessionRaw: function (options) {
+      var session = Object.assign({}, options, {
+        localId: nextId++, storageId: "compacted-coop-" + nextId, history: [],
+      });
+      sm.sessions.set(session.localId, session);
+      return session;
+    },
+    sendAndRecord: function (session, event) { session.history.push(event); },
+    saveSessionFile: function () {}, switchSession: function () {}, broadcastSessionList: function () {},
+  };
+  var api = require("../lib/project-session-compaction").attachSessionCompaction({
+    cwd: process.cwd(), sm: sm, sdk: { startQuery: function () {} },
+    sendToSession: function () {}, now: function () { return time; },
+  });
+  var middle = api.compactAndContinue(f.caller, { reason: "manual" });
+  time = 300;
+  var latest = api.compactAndContinue(middle, { reason: "manual" });
+  f.request.source = { projectId: "system-lead", sessionStorageId: latest.storageId };
+  return { middle: middle, latest: latest };
+}
+
+test("real repeated compaction preserves provider-switch authority through older timestamps", function (t) {
+  var f = fixture(t);
+  var chain = compactCaller(f);
+  assert.equal(f.caller.compactedAt, 200);
+  assert.equal(chain.middle.compactedAt, 300);
+  var before = ownership(f.session);
+  var result = f.router(f.request);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(f.deliveries[0].sourceBindingProof.hops, 3);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.session.cliSessionId, null);
+  assert.deepEqual(ownership(f.session), before);
+  assert.equal(result.continued, false);
+  assert.match(f.calls[0].routingRationale, new RegExp(chain.latest.storageId));
+});
+
+[
+  ["older reciprocal successor", function (f) { f.predecessor.compactedIntoLocalId = 999; }],
+  ["older reciprocal predecessor", function (f) { f.caller.compactedFromLocalId = 999; }],
+  ["older storage ancestry", function (f) { f.caller.compactedFromStorageId = "unrelated"; }],
+  ["reversed historical time", function (f) { f.predecessor.compactedAt = 201; }],
+  ["newest timestamp mismatch", function (f, chain) { chain.latest.compactedAt = 301; }],
+].forEach(function (entry) {
+  test("repeated compaction still rejects " + entry[0], function (t) {
+    var f = fixture(t);
+    var chain = compactCaller(f);
+    entry[1](f, chain);
+    var before = clone(f.session);
+    assert.equal(f.router(f.request).reason, "binding_mismatch");
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.deliveries.length, 0);
+    assert.deepEqual(f.session, before);
+  });
 });
 
 test("real router accepts the original canonical caller with the same distinct resident owner", function (t) {
