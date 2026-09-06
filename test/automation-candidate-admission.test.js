@@ -109,6 +109,31 @@ function candidate(overrides) {
   return value;
 }
 
+function reconsiderationEvidence(overrides) {
+  return Object.assign({
+    schema: "clay.owner_requested_automation_reconsideration",
+    version: 1,
+    reason: "owner_requested_bounce_reconsideration",
+    ownerRequestRefs: ["owner-ingress:122", "owner-ingress:125"],
+    requestedAt: 1788717600000,
+    currentQualificationRequired: true,
+    verifiedNoLiveSession: true,
+    sessionSnapshot: { projectRef: { projectId: "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9" }, sessions: [] },
+  }, overrides || {});
+}
+
+function completedLeadBinding(overrides) {
+  return Object.assign({
+    portfolioTaskId: "portfolio-webapp-2522",
+    bindingRevision: 1,
+    targetProject: { projectId: WEBAPP },
+    status: "completed",
+    completedAt: 1788275158478,
+    resultEventId: "project-coordinator-df5b271c-f73e-4d39-85b8-785ef51b7574",
+    completionEventId: "project-terminal-v1-project-coordinator-df5b271c-f73e-4d39-85b8-785ef51b7574",
+  }, overrides || {});
+}
+
 function withTestPass(admission) {
   var admitPending = admission.admitPending;
   admission.admitPending = function (options) {
@@ -357,6 +382,191 @@ test("a legacy admitted record keeps its no-receipt lifecycle on a fresh scan", 
     assert.equal(refreshed.legacyNoReceipt, true);
     assert.equal(refreshed.candidate.status, "admitted");
     assert.equal(refreshed.candidate.qualificationReceipt, null);
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("#2677: completed admitted work needs explicit reconsideration before a fresh revision", function () {
+  var h = harness();
+  try {
+    var work = candidate();
+    h.store.upsert(work);
+    assert.equal(h.admission.admitPending().admitted, 1);
+    var admitted = h.store.get({ projectId: WEBAPP }, work.candidateKey);
+    var exact = h.cross.getBinding(admitted.binding.portfolioTaskId,
+      admitted.binding.bindingRevision);
+    exact.status = "completed";
+    exact.completedAt = 1788346126643;
+    exact.resultEventId = "project-coordinator-342c1036-fb5d-44f0-898d-37b7f8e86b72";
+    exact.completionEventId =
+      "project-terminal-v1-project-coordinator-342c1036-fb5d-44f0-898d-37b7f8e86b72";
+    exact.projectCoordinator = { projectId: "system-lead", sessionStorageId: "coop-home-live" };
+
+    var ordinary = h.store.upsert(candidate(), {
+      bindingSnapshot: h.cross.getExecutionBindings(),
+    });
+    assert.equal(ordinary.candidate.status, "admitted",
+      "ordinary refresh must preserve completed delivery history");
+
+    var reconsidered = h.store.requestReconsideration({ projectId: WEBAPP },
+      work.candidateKey, reconsiderationEvidence(), {
+        bindingSnapshot: h.cross.getExecutionBindings(),
+      });
+    assert.equal(reconsidered.ok, true, reconsidered.reason);
+    assert.equal(reconsidered.candidate.status, "pending");
+    assert.equal(reconsidered.candidate.eligibilityPass, null);
+    assert.equal(reconsidered.candidate.qualificationReceipt, null);
+    assert.deepEqual(reconsidered.candidate.binding, admitted.binding,
+      "prior completed binding stays attached until the next admission replaces it");
+    assert.equal(reconsidered.candidate.reconsideration.completionProof.kind,
+      "completed_binding");
+    assert.equal(reconsidered.candidate.reconsideration.priorAdmission, "auto");
+
+    var stale = h.admission.admitPending();
+    assert.equal(stale.admitted, 0);
+    assert.equal(stale.deferred, 1);
+    assert.equal(stale.revalidationDeferred, 1,
+      "reconsideration is not itself current launch authority");
+    assert.equal(h.cross.calls.length, 1);
+
+    var duplicate = h.store.requestReconsideration({ projectId: WEBAPP },
+      work.candidateKey, reconsiderationEvidence(), {
+        bindingSnapshot: h.cross.getExecutionBindings(),
+      });
+    assert.equal(duplicate.ok, true);
+    assert.equal(duplicate.changed, false);
+    assert.equal(h.store.list().length, 1);
+
+    var fresh = h.store.upsert(candidate(), {
+      bindingSnapshot: h.cross.getExecutionBindings(),
+    });
+    assert.equal(fresh.candidate.status, "pending");
+    assert.ok(fresh.candidate.qualificationReceipt);
+    assert.equal(h.admission.admitPending().admitted, 1);
+    assert.equal(h.cross.calls[1].bindingRevision, 2,
+      "completed history forces the reconsidered launch onto a new revision");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("#2522: legacy receiptless acceptance can be explicitly reconsidered without erasing history", function () {
+  var h = harness();
+  try {
+    var legacy = candidate({
+      candidateKey: "launch:trialview/v2#2522",
+      itemKey: "trialview/v2#2522",
+      admission: "owner_approval",
+      itemClass: "feature",
+      intent: { recipeId: "assigned-to-me", number: 2522, autoKind: "issue" },
+    });
+    delete legacy.qualificationReceipt;
+    assert.equal(h.store.upsert(legacy).ok, true);
+    assert.equal(h.store.markAdmitted({ projectId: WEBAPP }, legacy.candidateKey, null).ok, true);
+
+    var ordinary = h.store.upsert(candidate({
+      candidateKey: legacy.candidateKey,
+      itemKey: legacy.itemKey,
+      intent: legacy.intent,
+    }));
+    assert.equal(ordinary.legacyNoReceipt, true);
+    assert.equal(ordinary.candidate.status, "admitted");
+    assert.equal(ordinary.candidate.qualificationReceipt, null);
+
+    var unrelated = completedLeadBinding({ portfolioTaskId: "portfolio-webapp-2677" });
+    assert.equal(h.store.requestReconsideration({ projectId: WEBAPP }, legacy.candidateKey,
+      reconsiderationEvidence({ historicalBinding: unrelated }), {
+        bindingSnapshot: [unrelated], projectSlug: "webapp",
+      }).reason, "historical_completion_evidence_incomplete",
+    "completion of a different issue cannot authorize this reconsideration");
+
+    var evidence = reconsiderationEvidence({ historicalBinding: completedLeadBinding() });
+    var reconsidered = h.store.requestReconsideration({ projectId: WEBAPP },
+      legacy.candidateKey, evidence, {
+        bindingSnapshot: [completedLeadBinding()], projectSlug: "webapp",
+      });
+    assert.equal(reconsidered.ok, true, reconsidered.reason);
+    assert.equal(reconsidered.candidate.status, "pending");
+    assert.equal(reconsidered.candidate.eligibilityPass, null);
+    assert.equal(reconsidered.candidate.qualificationReceipt, null);
+    assert.equal(reconsidered.candidate.reconsideration.completionProof.kind,
+      "completed_historical_binding");
+    assert.equal(reconsidered.candidate.reconsideration.priorAdmission, "owner_approval");
+
+    var stale = h.admission.admitPending();
+    assert.equal(stale.admitted, 0);
+    assert.equal(stale.revalidationDeferred, 1);
+    assert.equal(h.cross.calls.length, 0);
+
+    var fresh = h.store.upsert(candidate({
+      candidateKey: legacy.candidateKey,
+      itemKey: legacy.itemKey,
+      intent: legacy.intent,
+    }));
+    assert.equal(fresh.ok, true, fresh.reason);
+    assert.equal(fresh.candidate.status, "pending");
+    assert.equal(fresh.candidate.admission, "auto");
+    assert.ok(fresh.candidate.qualificationReceipt);
+    assert.equal(h.admission.admitPending().admitted, 1);
+    assert.equal(h.cross.calls[0].bindingRevision, 1,
+      "legacy acceptance is preserved as history, not rewritten as an auto binding");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("candidate reconsideration rejects malformed, live-conflicted, and wrong-project evidence", function () {
+  var h = harness();
+  try {
+    var work = candidate();
+    h.store.upsert(work);
+    assert.equal(h.admission.admitPending().admitted, 1);
+    var admitted = h.store.get({ projectId: WEBAPP }, work.candidateKey);
+    var exact = h.cross.getBinding(admitted.binding.portfolioTaskId,
+      admitted.binding.bindingRevision);
+    exact.status = "completed";
+    exact.completedAt = 1788346126643;
+    exact.resultEventId = "project-coordinator-result";
+    exact.completionEventId = "project-terminal-v1-project-coordinator-result";
+    exact.projectCoordinator = { projectId: "system-lead", sessionStorageId: "coop-home-live" };
+
+    assert.equal(h.store.requestReconsideration({ projectId: WEBAPP }, work.candidateKey,
+      reconsiderationEvidence({ ownerRequestRefs: [] }), {
+        bindingSnapshot: h.cross.getExecutionBindings(),
+      }).reason, "invalid_reconsideration_evidence");
+
+    assert.equal(h.store.requestReconsideration({ projectId: WEBAPP }, work.candidateKey,
+      reconsiderationEvidence({ verifiedNoLiveSession: false }), {
+        bindingSnapshot: h.cross.getExecutionBindings(),
+      }).reason, "invalid_reconsideration_evidence");
+
+    var currentSnapshot = h.cross.getExecutionBindings();
+    assert.equal(h.store.requestReconsideration({ projectId: WEBAPP }, work.candidateKey,
+      reconsiderationEvidence({ sessionSnapshot: null }), {
+        bindingSnapshot: currentSnapshot,
+      }).reason, "session_snapshot_required");
+    assert.equal(h.store.requestReconsideration({ projectId: WEBAPP }, work.candidateKey,
+      reconsiderationEvidence({ sessionSnapshot: { projectRef: { projectId: WEBAPP },
+        sessions: [{ storageId: "still-live", taskLauncher: { itemKey: work.itemKey } }] } }),
+      { bindingSnapshot: currentSnapshot }).reason, "live_session_conflict");
+    var newer = Object.assign({}, exact, { bindingRevision: exact.bindingRevision + 1, status: "active" });
+    assert.equal(h.store.requestReconsideration({ projectId: WEBAPP }, work.candidateKey,
+      reconsiderationEvidence(), { bindingSnapshot: currentSnapshot.concat([newer]) }).reason,
+    "active_binding_conflict");
+
+    var wrongProject = Object.assign({}, exact, { targetProject: { projectId: OTHER } });
+    assert.equal(h.store.requestReconsideration({ projectId: WEBAPP }, work.candidateKey,
+      reconsiderationEvidence(), { bindingSnapshot: [wrongProject] }).reason,
+    "binding_evidence_missing");
+
+    exact.status = "active";
+    assert.equal(h.store.requestReconsideration({ projectId: WEBAPP }, work.candidateKey,
+      reconsiderationEvidence(), { bindingSnapshot: h.cross.getExecutionBindings() }).reason,
+    "binding_not_completed");
+
+    assert.equal(h.store.get({ projectId: WEBAPP }, work.candidateKey).status, "admitted",
+      "failed reconsideration attempts must not mutate the candidate");
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
   }
@@ -1112,13 +1322,6 @@ test("an admitted candidate reopens only from its exact terminal binding snapsho
     assert.equal(missingRefresh.candidate.status, "admitted",
       "absence is not terminal evidence and cannot reopen work");
 
-    exact.status = "unrouted";
-    var rearmableRefresh = h.store.upsert(candidate({ policyDigest: "digest-unrouted" }), {
-      bindingSnapshot: h.cross.getExecutionBindings(),
-    });
-    assert.equal(rearmableRefresh.candidate.status, "admitted",
-      "a rearmable reservation state is not terminal evidence");
-
     exact.status = "failed";
     exact.statusReason = "verified_terminal_failure";
     var terminalSnapshot = h.cross.getExecutionBindings();
@@ -1144,6 +1347,83 @@ test("an admitted candidate reopens only from its exact terminal binding snapsho
     assert.equal(h.cross.calls.length, 2);
     assert.equal(h.cross.calls[1].bindingRevision, 2,
       "only terminal evidence permits the next revision to start");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("an exact unrouted admitted candidate reopens as one retryable record", function () {
+  var h = harness();
+  try {
+    var work = candidate();
+    h.store.upsert(work);
+    assert.equal(h.admission.admitPending().admitted, 1);
+    var admitted = h.store.get({ projectId: WEBAPP }, work.candidateKey);
+    var exact = h.cross.getBinding(admitted.binding.portfolioTaskId,
+      admitted.binding.bindingRevision);
+    exact.status = "unrouted";
+    exact.statusReason = "pre_task_failure: active_binding_exists";
+    exact.unroutedAt = 1788343227520;
+    delete exact.coordinator;
+
+    var reopened = h.store.upsert(candidate(), {
+      bindingSnapshot: h.cross.getExecutionBindings(),
+    });
+    assert.equal(reopened.ok, true, reopened.reason);
+    assert.equal(reopened.changed, true);
+    assert.equal(reopened.candidate.status, "pending");
+    assert.deepEqual(reopened.candidate.binding, admitted.binding,
+      "the original binding pointer is preserved for exact replay");
+    assert.equal(reopened.candidate.terminalReconciliation.kind, "rearmable");
+    assert.equal(reopened.candidate.terminalReconciliation.status, "unrouted");
+    assert.equal(reopened.candidate.terminalReconciliation.terminalAt, 1788343227520);
+    assert.equal(h.store.list().length, 1, "retrying must not create a duplicate candidate");
+
+    var again = h.store.upsert(candidate(), {
+      bindingSnapshot: h.cross.getExecutionBindings(),
+    });
+    assert.equal(again.candidate.status, "pending");
+    assert.equal(h.store.list().length, 1);
+
+    var result = h.admission.admitPending();
+    assert.equal(result.admitted, 0, "the fake router cannot re-arm, so it must not admit");
+    assert.equal(result.failed, 1);
+    assert.equal(result.attention[0].reason, "binding_never_routed");
+    assert.equal(h.store.get({ projectId: WEBAPP }, work.candidateKey).status, "pending");
+  } finally {
+    fs.rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("#2725: a receiptless admitted candidate with exact unrouted binding accepts fresh retry evidence", function () {
+  var h = harness();
+  try {
+    var work = candidate();
+    h.store.upsert(work);
+    assert.equal(h.admission.admitPending().admitted, 1);
+    var admitted = h.store.get({ projectId: WEBAPP }, work.candidateKey);
+    var exact = h.cross.getBinding(admitted.binding.portfolioTaskId,
+      admitted.binding.bindingRevision);
+    exact.status = "unrouted";
+    exact.statusReason = "pre_task_failure: active_binding_exists";
+    exact.unroutedAt = 1788343227520;
+    delete exact.coordinator;
+
+    var file = path.join(h.dir, ".clay", "tasks", "automation-candidates.json");
+    var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
+    delete persisted.candidates[0].qualificationReceipt;
+    fs.writeFileSync(file, JSON.stringify(persisted));
+
+    var refreshed = h.store.upsert(candidate(), {
+      bindingSnapshot: h.cross.getExecutionBindings(),
+    });
+    assert.equal(refreshed.ok, true, refreshed.reason);
+    assert.equal(refreshed.legacyNoReceipt, undefined);
+    assert.equal(refreshed.candidate.status, "pending");
+    assert.ok(refreshed.candidate.qualificationReceipt,
+      "the retry must carry the current scan receipt");
+    assert.equal(refreshed.candidate.eligibilityPass, TEST_PASS);
+    assert.equal(h.store.list().length, 1);
   } finally {
     fs.rmSync(h.dir, { recursive: true, force: true });
   }
