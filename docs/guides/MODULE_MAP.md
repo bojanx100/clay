@@ -288,6 +288,11 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `keep-awake.js` | macOS/Windows Keep Awake lifecycle, external-display detection, and opt-in administrator-authorized headless clamshell mode |
 | `sessions-broadcast.js` | Session list client mapping, loop display resolution, debounced session list fanout |
 | `codex-rollout-message.js` | Codex Desktop completed-message decoding and bounded first-owner-message previews; excludes model-input mirrors |
+| `codex-rollout-images.js` | Codex owner attachment decoding for embedded and local raster images, with explicit unavailable-image placeholders |
+| `jsonl-first-record.js` | Bounded UTF-8-safe first-record reads for native rollout identity checks |
+| `claude-session-record.js` | Shared Claude owner-message, image and real tool-result interpretation for synchronous/asynchronous history replay |
+| `claude-session-descriptor.js` | Bounded Claude metadata head/tail scans for owner previews, saved titles and model information |
+| `cli-sessions.js` | Native Claude/Codex history readers, file identity/activity lookup, and versioned imported-history cache format |
 | `sessions-cli-descriptors.js` | Claude CLI JSONL and Codex rollout descriptor discovery, Codex thread index/cache, and import previews |
 | `sessions-cli-import.js` | CLI/Codex/GitHub Copilot orphan adoption, import picker rows, hidden-session restore, and import materialization |
 | `sessions-deletion.js` | Session hide/delete/bulk delete, runtime cleanup, tombstoning, and active-client close handling |

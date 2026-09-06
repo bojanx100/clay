@@ -141,3 +141,46 @@ test("Codex rollout hydration still populates empty imported sessions", function
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("a reader upgrade refreshes imported history once even when the rollout is unchanged", function () {
+  var home = fs.mkdtempSync(path.join(os.tmpdir(), "clay-history-format-"));
+  var cwd = path.join(home, "project");
+  var threadId = "019f1234-aaaa-bbbb-cccc-123456789abc";
+  var saves = [];
+  try {
+    var rollout = writeCodexRollout(home, cwd, threadId);
+    var session = { vendor: "codex", cliSessionId: threadId, storageId: threadId,
+      _historyMtime: fs.statSync(rollout).mtimeMs, history: [{ type: "user_message", text: "Old incomplete import" }] };
+    var view = createView(home, cwd, saves);
+    view.resolveSessionForView(session, null);
+    assert.equal(session.history[0].text, "External prompt");
+    assert.equal(session._historyFormatVersion, require("../lib/cli-sessions").HISTORY_FORMAT_VERSION);
+    assert.equal(saves.length, 1);
+    view.resolveSessionForView(session, null);
+    assert.equal(saves.length, 1, "the upgraded cache stays fresh");
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test("external Codex sync replays a format upgrade even without an activity-time change", function () {
+  var home = fs.mkdtempSync(path.join(os.tmpdir(), "clay-history-refresh-"));
+  var cwd = path.join(home, "project");
+  var threadId = "019f1234-aaaa-bbbb-cccc-123456789abc";
+  var sync = require("../lib/project-external-codex-sync");
+  var switches = 0;
+  try {
+    var rollout = writeCodexRollout(home, cwd, threadId);
+    var session = { localId: 1, vendor: "codex", cliSessionId: threadId,
+      _historyMtime: fs.statSync(rollout).mtimeMs, history: [{ type: "user_message", text: "Old incomplete import" }] };
+    sync.startExternalCodexSync({
+      clients: new Set([{ readyState: 1, _clayActiveSession: 1 }]),
+      sessions: createView(home, cwd, []),
+      sm: { sessions: new Map([[1, session]]), switchSession: function () { switches++; } },
+      setInterval: function () { return { unref: function () {} }; }, clearInterval: function () {},
+    });
+    sync._tickForTests();
+    assert.equal(session.history[0].text, "External prompt");
+    assert.equal(switches, 1);
+    sync._tickForTests();
+    assert.equal(switches, 1);
+  } finally { sync._resetForTests(); fs.rmSync(home, { recursive: true, force: true }); }
+});

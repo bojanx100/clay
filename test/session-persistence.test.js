@@ -69,6 +69,26 @@ test("adopted CLI provenance survives a daemon restart", async function () {
   }
 });
 
+test("imported transcript format and activity markers survive a real session-store reload", async function () {
+  var h = makeSessionHarness();
+  try {
+    var session = Array.from(h.sm.sessions.values())[0];
+    session.storageId = "transcript-format";
+    session.cliSessionId = "transcript-format";
+    session._historyMtime = 1788690000000;
+    session._historyFormatVersion = require("../lib/cli-sessions").HISTORY_FORMAT_VERSION;
+    h.sm.saveSessionFile(session);
+    assert.equal(readSessionMeta(h, "transcript-format").historyFormatVersion, 2);
+    clearSessionModuleCache();
+    var restored = require("../lib/sessions").createSessionManager({ cwd: h.projectDir, send: function () {} });
+    var loaded = Array.from(restored.sessions.values()).find(function (candidate) {
+      return candidate.storageId === "transcript-format";
+    });
+    assert.equal(loaded._historyFormatVersion, 2);
+    assert.equal(loaded._historyMtime, 1788690000000);
+  } finally { await wait(20); h.cleanup(); }
+});
+
 test("Lead sessions keep exactly one durable, protected Coop home", async function () {
   var h = makeSessionHarness({ isLead: true });
   try {

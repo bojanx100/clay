@@ -150,3 +150,72 @@ test("Desktop discovery accepts reordered JSON fields", function () {
     assert.equal(desc.title, "Reordered owner message");
   });
 });
+
+test("Codex replay preserves local Desktop screenshots and legacy embedded images", function () {
+  fixture(function (f) {
+    var png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+    var file = path.join(f.root, "screenshot.png");
+    fs.writeFileSync(file, Buffer.from(png, "base64"));
+    var owner = completed(f.id, "UserMessage", "screenshot-1", "Review this screenshot");
+    owner.payload.item.content.push({ type: "local_image", path: file });
+    f.write([owner, { type: "event_msg", payload: { type: "user_message", message: "",
+      images: ["data:image/png;base64," + png], local_images: [file] } }]);
+    var history = cli.readCodexHistorySync(f.root, f.id, f.cwd);
+    assert.equal(history.length, 2);
+    assert.equal(history[0].text, "Review this screenshot");
+    assert.deepEqual(history[0].images, [{ mediaType: "image/png", data: png }]);
+    assert.equal(history[1].text, "");
+    assert.equal(history[1].images.length, 2);
+    assert.equal(history[1].images[1].data, png);
+  });
+});
+
+test("image-only Desktop sessions remain discoverable including large embedded images", function () {
+  fixture(function (f) {
+    var owner = completed(f.id, "UserMessage", "image-only", "");
+    owner.payload.item.content = [{ type: "image", url: "data:image/png;base64," + "A".repeat(200000) }];
+    f.write([owner]);
+    var sm = createSessionManager({ cwd: f.cwd, send: function () {} });
+    var candidates = sm.listAdoptableCliSessions("codex");
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0].title, "Image attachment");
+    assert.equal(candidates[0].cliSessionId, f.id);
+  });
+});
+
+test("missing or non-image local attachments stay visible without importing arbitrary file contents", function () {
+  fixture(function (f) {
+    var file = path.join(f.root, "private.txt");
+    fs.writeFileSync(file, "private text is not an image");
+    var owner = completed(f.id, "UserMessage", "unavailable", "");
+    owner.payload.item.content = [{ type: "local_image", path: file },
+      { type: "local_image", path: path.join(f.root, "missing.png") },
+      { type: "image", url: "https://example.com/image.png" }];
+    f.write([owner]);
+    var history = cli.readCodexHistorySync(f.root, f.id, f.cwd);
+    assert.equal(history.length, 1);
+    assert.match(history[0].text, /Image attachment unavailable: missing.png/);
+    assert.equal(history[0].images, undefined);
+    assert.doesNotMatch(JSON.stringify(history), /private text is not an image/);
+  });
+});
+
+test("Codex activity lookup reads bounded metadata rather than the entire transcript", function () {
+  fixture(function (f) {
+    f.write([completed(f.id, "UserMessage", "owner-1", "Review the project"),
+      completed(f.id, "AgentMessage", "large", "x".repeat(8 * 1024 * 1024))]);
+    var original = fs.readFileSync;
+    var originalRead = fs.readSync;
+    var total = 0;
+    try {
+      fs.readFileSync = function (file) {
+        assert.notEqual(file, f.rollout, "metadata lookup must not read the complete rollout");
+        return original.apply(fs, arguments);
+      };
+      fs.readSync = function () { var count = originalRead.apply(fs, arguments); total += count; return count; };
+      assert.ok(cli.codexRolloutMtime(f.root, f.id, f.cwd) > 0);
+      assert.ok(total < 128 * 1024, "identity is resolved from the actual first record");
+      assert.equal(cli.codexRolloutMtime(f.root, f.id, path.join(f.root, "other")), 0);
+    } finally { fs.readFileSync = original; fs.readSync = originalRead; }
+  });
+});

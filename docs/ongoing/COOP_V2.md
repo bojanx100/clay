@@ -1046,8 +1046,10 @@ No WebSocket-handler or slow-save error was recorded during this check; observed
 post-restart loop-lag maxima were 328, 316 and 187 ms. This is bounded observation,
 not a general latency guarantee.
 
-Native import remains a text-history view: tool output, reasoning and image
-attachments are not imported by this path. No provider continuation was launched,
+~~Native import remains a text-history view: tool output, reasoning and image
+attachments are not imported by this path.~~ **Retracted in iteration 33:** Codex
+owner images are now imported; tool output and reasoning remain outside this
+conversation reader. No provider continuation was launched,
 so this does not verify native resume or simultaneous writers from Desktop and
 Clay. Continue the conversation from one application at a time. Full Coop lifecycle
 acceptance and the broader product gaps remain as recorded in the previous sections.
@@ -1201,3 +1203,64 @@ exactly matched the corresponding source event; the old instance had appended
 more events after capture. This establishes the copied current transcript's exact
 prefix, not equality of the Main projections across different code versions or
 continuous synchronization between the two instances.
+
+### Iteration 33 — current Claude and Codex transcript compatibility
+
+The audit checked installed runtimes and native saved records, rather than treating
+the shell CLI version as Clay's runtime version. The terminal commands reported
+Claude 2.1.42 and Codex 0.151.0, while Clay resolves Claude Agent SDK 0.3.258 and
+bundled Codex 0.153.4. Recent sampled Claude records include version 2.1.200;
+this Codex Desktop conversation records version 0.153.4. These are local observations,
+not claims about the newest upstream release. No global runtime was upgraded.
+
+Claude replay previously ignored actual tool-result records and emitted empty
+successful results as soon as each tool call appeared. It also discarded owner
+screenshots. The shared reader now preserves owner images, image-only messages,
+real tool output and failure status, tool-result images, native call pairing,
+timestamps and mixed owner/tool-result records. An unfinished call remains unfinished.
+Both history readers use the same interpretation. Session discovery now excludes
+tool-only records from owner previews and reads saved titles and model metadata.
+Typical metadata reads stop after establishing a conversation and inspect a bounded
+tail; unusually large opening records retain the existing 8 MiB head limit. The
+async listing yields between files. Metadata beyond those windows is not guaranteed
+to be found, so this is not an exhaustive transcript statistics reader.
+
+Codex conversation replay now handles Desktop `local_image`/embedded images and
+legacy image arrays. Missing files, unsupported local content and remote URLs retain
+an explicit unavailable-image label; remote images are not fetched. Image-only
+Desktop conversations are discoverable, including oversized first records. Identity
+and activity lookup reads only the first JSONL record rather than the entire rollout.
+Existing imported caches carry a persisted format version, refresh once even with
+an unchanged source modification time, and replay that upgrade to an active viewer.
+Ordinary Clay-owned Codex histories remain protected from import replacement.
+
+Read-only checks against actual Claude transcripts recovered 50 nonempty tool
+results in one session, its saved title/model, and an owner screenshot in another.
+The current Codex conversation's previously dropped local screenshot is recovered
+as a PNG. Regression tests discover candidates from real temporary native directories
+before importing their returned IDs. They cover both provider formats, saved title
+and model changes, image-only discovery, multiple out-of-order tool results, errors,
+interrupted calls, bounded reads, cache upgrades, external-view refresh and persistence.
+Removing all changed tracked reader/integration files produces 41 pass / 14 fail;
+restoring them produces 55 pass / 0 fail. Separate removal checks fail the missing-native
+cache protection and metadata byte budget (0 pass / 1 fail each). The final full suite
+passes 4,331 default tests and 746 controlled tests.
+
+The preview restarted as PID 3679 on port 7392 after a verified backup of 399 imported
+or TUI cache files, its three configuration/manifest files, and a VACUUM snapshot
+of all 16 control-store tables with 201 executions. Rollback is in
+`~/.clay-coop-v2/before-transcript-v2-fpcK3F`. The saved conversation now records
+format version 2 and its PNG attachment; browser inspection confirms that image
+loaded at its native 69 by 98 pixels. Lead remains off, schedules and restored work
+remain paused, and native discovery remains disabled. No provider dispatch, queue
+flush or automatic resume appeared in the inspected startup log. The original
+daemon remained on PID 98484 throughout this activation (it had independently
+restarted since the prior iteration's PID 74378).
+
+This improves history fidelity and metadata lookup. Codex execution/tool/reasoning
+replay is still incomplete, and initial full-history hydration remains synchronous.
+The checks do not establish native continuation, every possible provider record
+variant, or a general UI latency guarantee. The readers do not modify native provider
+transcripts. Startup verification separately found that the shared Claude notification
+installer rewrites the global hook to the preview's port; that isolation defect is
+addressed in the following iteration before considering activation complete.
