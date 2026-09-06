@@ -190,6 +190,20 @@ test("launchExternal resolves ok and starts a session", async function () {
   }
 });
 
+test("task launcher persists the canonical issue key when the source omits item.key", function () {
+  var h = makeHarness(function () { return Promise.resolve([]); });
+  try {
+    var recipe = h.launcher.loadRecipe("bugs");
+    var session = h.launcher.startSessionForItem(null, recipe,
+      makeItem(42, "Missing source key"), {}, null, { auto: true });
+
+    assert.strictEqual(session.taskLauncher.itemKey, "owner/repo#42");
+    assert.strictEqual(session.taskLauncher.prKey, null);
+  } finally {
+    cleanupHarness(h);
+  }
+});
+
 test("launchExternal resolves an error object when async fetch fails", async function () {
   var h = makeHarness(function () {
     return Promise.reject(new Error("worker down"));

@@ -1672,23 +1672,18 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     });
 
     var primitive = null;
+    var taskLauncher = attachTaskLauncher({
+      cwd: cwd,
+      sm: targetManager,
+      sdk: { startQuery: function () {} },
+      usersModule: { isMultiUser: function () { return false; } },
+      ensureProjectAccessForSession: function () { return true; },
+      onProcessingChanged: function () {},
+    });
     autoLaunch = attachAutoLaunch({
       cwd: cwd, slug: "webapp",
       sm: targetManager,
-      getTaskLauncher: function () {
-        return {
-          loadRecipe: function () { return recipe; },
-          findExistingSessionForItem: function () { return null; },
-          findAnyLiveSessionForItem: function () { return null; },
-          findAnyVisibleSessionForItem: function () { return null; },
-          startSessionForItem: function (ws, value, item) {
-            primitive = targetManager.createSessionRaw({ storageId: "primitive-session",
-              title: item.title, taskLauncher: { autoLaunch: true,
-                itemKey: "trialview/v2#" + item.number } });
-            return primitive;
-          },
-        };
-      },
+      getTaskLauncher: function () { return taskLauncher; },
       getLeadMode: function () { return true; },
       crossProject: router,
       fetchItems: function () { return [assignedIssue(2565)]; },
@@ -1697,6 +1692,10 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     await autoLaunch.launchScheduled("assigned-to-me");
 
     // The binding is real, committed, on disk, and targets THIS project.
+    primitive = targetManager.sessions.get(100);
+    assert.ok(primitive, "the real task launcher should create the primitive session");
+    assert.strictEqual(primitive.taskLauncher.itemKey, "trialview/v2#2565",
+      "the primitive must persist the identity Coop authorizes");
     var persisted = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
     assert.strictEqual(persisted.bindings.length, 1, "the scan must land exactly one binding");
     var binding = persisted.bindings[0];
@@ -1707,7 +1706,7 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
       "adoption must not replace the primitive with a generic delivery");
 
     // And the coordinator session it bound is the one the target reported.
-    assert.strictEqual(binding.coordinator.sessionStorageId, "primitive-session");
+    assert.strictEqual(binding.coordinator.sessionStorageId, primitive.storageId);
     assert.strictEqual(binding.projectCoordinator.projectId, projectIdentity.LEAD_PROJECT_ID);
     assert.strictEqual(primitive.coordinationRole, "task_coordinator");
     var roots = Array.from(leadManager.sessions.values()).filter(function (session) {
@@ -1715,7 +1714,7 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
     });
     assert.strictEqual(roots.length, 1, "one resident ProjectRef coordinator owns the primitive");
     assert.strictEqual(roots[0].orchestrationTasks.length, 1);
-    assert.strictEqual(roots[0].orchestrationTasks[0].workerStorageId, "primitive-session");
+    assert.strictEqual(roots[0].orchestrationTasks[0].workerStorageId, primitive.storageId);
     assert.strictEqual(autoLaunch.candidateStore.get({ projectId: CUTOVER_PROJECT },
       "launch:trialview/v2#2565").status, "admitted");
 
