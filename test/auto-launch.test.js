@@ -1917,7 +1917,8 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
   }
 });
 
-test("end to end: the real router adopts a current in-flight primitive", async function () {
+function registerPrimitiveRecoveryCase(scenario) {
+test(scenario.name, async function () {
   var serverCrossProject = require("../lib/server-cross-project");
   var projectIdentity = require("../lib/project-identity");
   var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-inflight-"));
@@ -1951,7 +1952,12 @@ test("end to end: the real router adopts a current in-flight primitive", async f
       getProjectId: function () { return CUTOVER_PROJECT; },
       getSessionManager: function () { return targetManager; },
       validateAutomationAuthorization: function (input) {
-        return autoLaunch.validateAutomationAuthorization(input);
+        if (scenario.removeBeforeAdmission) fs.unlinkSync(evidenceStore.fileFor({
+          projectId: CUTOVER_PROJECT, sessionStorageId: "legacy-2883",
+        }));
+        var validated = autoLaunch.validateAutomationAuthorization(input);
+        if (scenario.hideBeforeCommit) primitive.hidden = true;
+        return validated;
       },
       deliverCrossProjectEnvelope: function (envelope) { delivered.push(envelope); return { ok: false }; },
     };
@@ -1989,8 +1995,9 @@ test("end to end: the real router adopts a current in-flight primitive", async f
       onProcessingChanged: function () {},
     });
     var item = assignedIssue(2883);
-    writePreviousPrimitiveCandidate(cwd, { projectId: CUTOVER_PROJECT },
-      recipe, item, "trialview/v2#2883", Date.now());
+    var previousCandidate = writePreviousPrimitiveCandidate(cwd, { projectId: CUTOVER_PROJECT },
+      recipe, item, "trialview/v2#2883", Date.now() -
+        (scenario.historical ? automationQualification.MAX_RECEIPT_AGE_MS + 60000 : 0));
     var primitive = targetManager.createSessionRaw({
       storageId: "legacy-2883",
       title: item.title,
@@ -2004,7 +2011,27 @@ test("end to end: the real router adopts a current in-flight primitive", async f
         workflowCompleted: false,
       },
     });
+    if (scenario.historical) {
+      primitive.createdAt = previousCandidate.qualificationReceipt.evidenceAt + 25;
+      var evidenceStore = require("../lib/project-primitive-launch-evidence")
+        .createLaunchEvidenceStore({ cwd: cwd });
+      var retained = evidenceStore.retain({
+        sessionRef: { projectId: CUTOVER_PROJECT,
+          sessionStorageId: scenario.wrongSession ? "unrelated-session" : "legacy-2883" },
+        qualificationReceipt: previousCandidate.qualificationReceipt,
+      });
+      assert.strictEqual(retained.ok, true);
+      if (scenario.lateLaunch) primitive.createdAt += automationQualification.MAX_RECEIPT_AGE_MS;
+      // The candidate has since changed: only the immutable original record
+      // can establish what was eligible when this exact session was created.
+      writePreviousPrimitiveCandidate(cwd, { projectId: CUTOVER_PROJECT },
+        recipe, item, "trialview/v2#2883",
+        previousCandidate.qualificationReceipt.evidenceAt - automationQualification.MAX_RECEIPT_AGE_MS - 1);
+    }
     item.projectItems[0].status.name = "🔄 In progress";
+    if (scenario.closed) item.state = "CLOSED";
+    if (scenario.unassigned) item.assignedToOwner = false;
+    if (scenario.doneBoard) item.projectItems[0].status.name = "Dev Complete";
     autoLaunch = attachAutoLaunch({
       cwd: cwd,
       slug: "webapp",
@@ -2017,6 +2044,14 @@ test("end to end: the real router adopts a current in-flight primitive", async f
 
     await autoLaunch.runScheduled({ id: "autolaunch_assigned", task: "assigned-to-me" });
 
+    if (scenario.denied) {
+      assert.strictEqual(primitive.taskLauncher.itemKey, "",
+        "old launch evidence must not bypass a current or historical boundary");
+      var deniedBindings = fs.existsSync(bindingFile) ? JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings : [];
+      assert.strictEqual(deniedBindings.length, 0);
+      assert.strictEqual(delivered.length, 0);
+      return;
+    }
     assert.strictEqual(primitive.taskLauncher.itemKey, "trialview/v2#2883",
       "legacy recovery must persist the exact primitive identity");
     var persisted = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
@@ -2029,10 +2064,26 @@ test("end to end: the real router adopts a current in-flight primitive", async f
       "project_auto_launch_primitive");
     assert.strictEqual(delivered.length, 0,
       "valid primitive adoption must not deliver a generic duplicate command");
+    await autoLaunch.runScheduled({ id: "autolaunch_assigned", task: "assigned-to-me" });
+    assert.strictEqual(JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings.length, 1,
+      "replaying recovery must retain exactly the original binding");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+}
+[
+  { name: "end to end: the real router adopts a current in-flight primitive" },
+  { name: "end to end: historical launch evidence recovers the exact old primitive", historical: true },
+  { name: "historical primitive recovery rejects a now-closed issue", historical: true, closed: true, denied: true },
+  { name: "historical primitive recovery rejects lost assignment", historical: true, unassigned: true, denied: true },
+  { name: "historical primitive recovery rejects a completed board status", historical: true, doneBoard: true, denied: true },
+  { name: "historical primitive recovery rejects evidence for another session", historical: true, wrongSession: true, denied: true },
+  { name: "historical primitive recovery rejects an expired receipt at launch", historical: true, lateLaunch: true, denied: true },
+  { name: "historical primitive recovery rechecks evidence at final admission", historical: true, removeBeforeAdmission: true, denied: true },
+  { name: "primitive adoption rechecks hidden state at commit", hideBeforeCommit: true, denied: true },
+].forEach(registerPrimitiveRecoveryCase);
 
 test("adopted require-user-trigger primitive fans in internal completion before owner Done", async function () {
   var serverCrossProject = require("../lib/server-cross-project");
@@ -2442,4 +2493,60 @@ test("auto-launch defers when all configured vendors are rate-limited", async fu
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
+});
+
+
+test("historical launch evidence is immutable and a copied proof cannot authorize recovery", function () {
+  var item = assignedIssue(2999);
+  var h = makeIdleBoardHarness({ type: "bug" }, item);
+  try {
+    var evidence = require("../lib/project-primitive-launch-evidence");
+    var store = evidence.createLaunchEvidenceStore({ cwd: h.cwd });
+    var ref = { projectId: CUTOVER_PROJECT, sessionStorageId: "actual-old-launch" };
+    var old = writePreviousPrimitiveCandidate(h.cwd, { projectId: CUTOVER_PROJECT },
+      h.recipe, item, "trialview/v2#2999", Date.now() - automationQualification.MAX_RECEIPT_AGE_MS - 1000);
+    var record = { sessionRef: ref, qualificationReceipt: old.qualificationReceipt };
+    assert.deepStrictEqual(store.retain(record), { ok: true, created: true });
+    var before = fs.readFileSync(store.fileFor(ref));
+    assert.deepStrictEqual(store.retain(record), { ok: true, created: false });
+    var different = writePreviousPrimitiveCandidate(h.cwd, { projectId: CUTOVER_PROJECT },
+      h.recipe, item, "trialview/v2#2999", old.qualificationReceipt.evidenceAt + 1);
+    assert.strictEqual(store.retain({ sessionRef: ref,
+      qualificationReceipt: different.qualificationReceipt }).reason, "historical_launch_evidence_conflict");
+    assert.ok(before.equals(fs.readFileSync(store.fileFor(ref))));
+    var session = { storageId: ref.sessionStorageId,
+      createdAt: old.qualificationReceipt.evidenceAt + 25,
+      taskLauncher: { autoLaunch: true, recipeId: h.recipe.id,
+        itemNumber: item.number, itemUrl: item.url, itemKey: "" } };
+    var policy = automationPolicy.loadProjectAutomationPolicy({ cwd: h.cwd,
+      projectRef: { projectId: CUTOVER_PROJECT } }).policy;
+    var input = { session: session, projectRef: { projectId: CUTOVER_PROJECT },
+      recipe: h.recipe, itemKey: old.itemKey, policy: policy, now: Date.now() };
+    var verified = store.verify(input);
+    assert.strictEqual(verified.ok, true);
+    item.projectItems[0].status.name = "In progress";
+    var request = { policy: policy, projectRef: input.projectRef,
+      recipe: old.qualificationReceipt.recipe, item: item, itemKey: old.itemKey,
+      itemClass: "bug", assignedToOwner: true, recipeAllowsUnassigned: false,
+      allowInFlightPrimitive: true, previousQualificationReceipt: old.qualificationReceipt,
+      historicalPrimitiveLaunch: verified.proof, now: Date.now() };
+    var fresh = automationQualification.receiptFor(request);
+    assert.strictEqual(fresh.ok, true);
+    assert.ok(automationQualification.normalizeReceipt(fresh.receipt));
+    assert.strictEqual(fresh.receipt.historicalLaunch.receiptDigest, old.qualificationReceipt.digest);
+    assert.strictEqual(automationQualification.receiptFor(Object.assign({}, request, {
+      historicalPrimitiveLaunch: JSON.parse(JSON.stringify(verified.proof)),
+    })).ok, false, "serialized proof data must not impersonate an internally verified launch");
+    session.createdAt += 1;
+    assert.strictEqual(automationQualification.receiptFor(request).ok, false,
+      "a proof must stop working if actual session identity changes");
+    session.createdAt -= 1;
+    session.taskLauncher.itemUrl = "https://github.com/other/repo/issues/2999";
+    assert.strictEqual(store.verify(input).ok, false,
+      "matching issue number alone cannot establish repository identity");
+    session.taskLauncher.itemUrl = item.url;
+    var changedPolicy = JSON.parse(JSON.stringify(policy));
+    changedPolicy.digest = "a".repeat(64);
+    assert.strictEqual(store.verify(Object.assign({}, input, { policy: changedPolicy })).ok, false);
+  } finally { fs.rmSync(h.cwd, { recursive: true, force: true }); }
 });
