@@ -461,3 +461,76 @@ completed model reasoning, final Coop synthesis to the owner, browser appearance
 or live canary quietness. Local provider input acceptance is deliberately separate
 from all of those outcomes. No live state was repaired or production daemon
 restarted. Old already-lost reports still require evidence-based reconciliation.
+
+### 19. Enforce read-only evidence authority at execution
+
+Read-only diagnosis admission used to accept an implementation instruction when
+the title still said “diagnose.” It now checks all four brief fields for mutation
+instructions using the shared review predicate. Negative safety clauses remain
+valid; an affirmative edit instruction does not borrow the diagnosis grant.
+
+Authority comes from the admitted `portfolioExecution.reviewOnly` policy. New
+orchestrated children retain a separate read-only flag, without copying their
+parent's completion identity. Older child restrictions are resolved through stable
+parent references and saved before startup graph cleanup or SDK dispatch; a failed
+save rolls back the in-memory receipt. Read-only task coordinators cannot take over
+existing conversations. Ordinary project coordinators retain that capability.
+
+Read-only queries override bypass preferences, loop permissions and remembered
+tool approvals. Claude receives an actual Read/Glob/Grep availability list in both
+the SDK and worker IPC paths, strict empty MCP configuration, disabled hooks and
+no settings/plugin/agent sources. Codex receives a read-only filesystem sandbox,
+no network or escalation, empty native MCP configuration and no dynamic external
+tools, apps, hooks, native agents or Clay skill-invocation injection. File-reading remains
+available through sandboxed shell commands. Provider callbacks deny elevation and
+external tool calls. Permission switches cannot widen a running evidence query;
+an old unrestricted warm handle refuses restricted input.
+
+The installed Codex binary exposed an additional resume issue: a loaded subscribed
+thread ignores new configuration. Read-only resume first requires an idle thread
+and releases this client's subscription so the provider rebuilds it with the
+restricted tables. `agents.enabled = false` is also required on resumed threads;
+the feature flags alone were insufficient. Clay checks the provider's actual
+returned sandbox and approval policy before sending the new turn. Unsupported
+servers and Copilot evidence queries fail with a visible error.
+
+Verification uses actual temporary session stores, real admission and orchestration
+routes, SDK callbacks, complete Claude adapter option builders with a stub SDK,
+and the installed Codex 0.153.4 process against a localhost fake model and harmless
+MCP fixture. The native test reads a real evidence file and attempts a real write,
+checks fresh and resumed writable/nominally-read-only contexts, then confirms an
+ordinary session still has its original tools and write behavior. No remote model
+was queried. Optional native tests skip when the Codex binary is not installed;
+it was installed and exercised in the reported run.
+
+Focused green runs: 114/114 default and 92/92 controlled. Actual narrow reversions:
+
+| Removed repair | Default pass / fail | Controlled pass / fail |
+| --- | --- | --- |
+| Diagnosis action scan | 15 / 1 | Not part of controlled pass |
+| Child creation/startup inheritance | 83 / 4 | 83 / 4 |
+| SDK query authority | 6 / 3 | 6 / 3 |
+| Claude SDK/IPC availability forwarding | 2 / 2 | 2 / 2 |
+| Native MCP removal | 0 / 1 | 0 / 1 |
+| Native agent disablement | 0 / 1 | 0 / 1 |
+| Native sandbox enforcement/receipt | 0 / 1 | 0 / 1 |
+| Native idle-resume subscription release | 0 / 1 | 0 / 1 |
+| Native sandbox receipt check | 3 / 1 | 3 / 1 |
+| Permission-toggle guard | 7 / 2 | 7 / 2 |
+| Read-only adoption refusal | 5 / 1 | Not part of controlled pass |
+
+All repairs were restored. Removing the native sandbox repair actually allowed
+the fixture write; removing MCP removal exposed the fixture tool again. One
+negative receipt test initially waited on its deliberately broken fake provider;
+after adding bounded fixture shutdown, that case was rerun and failed through
+its assertion in both modes. The initial and final full suites each passed
+4,211/4,211 default tests across 428 files and 669/669 controlled tests across
+53 files, exit 0.
+
+Limitations: this is currently local evidence work. Claude cannot run shell-based
+checks in this mode, and neither provider gets external evidence connectors.
+Read-only work must return findings through its normal final report; implementation
+requires a separately admitted execution. Existing preference controls still need
+an effective-authority label in the UI. Tests do not prove real-model usefulness,
+complete Coop synthesis, native tools on other binary versions/platforms, or live
+canary quietness. The daemon was not restarted and live records were not repaired.

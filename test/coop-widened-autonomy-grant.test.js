@@ -310,6 +310,17 @@ test("switched on, a read-only diagnosis dispatch proceeds", function () {
     { autonomyPolicyFile: file }).ok, true);
 });
 
+test("diagnosis framing cannot borrow the read-only standing grant for mutation in any brief field", function () {
+  var file = policyFile({ enabled: true, categories: ["read_only_diagnosis"] });
+  ["title", "objective", "context", "acceptanceCriteria"].forEach(function (field) {
+    var input = dispatch({ title: "Diagnose the parser regression", objective: "Investigate the parser." });
+    input[field] += " Edit lib/parser.js to fix it.";
+    assert.equal(grant.standingAdmission(input, request(), { autonomyPolicyFile: file }), null, field);
+    var result = itemApproval.executionAdmission(input, request(), null, { autonomyPolicyFile: file });
+    assert.notEqual(result && result.ok, true, "real admission gate: " + field);
+  });
+});
+
 test("Clay On admits newly named ordinary internal Clay and Coop implementations", function () {
   var file = policyFile({ enabled: true });
   [

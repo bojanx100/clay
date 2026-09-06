@@ -121,6 +121,22 @@ function adoptOnce(h, title) {
   });
 }
 
+test("read-only task coordinators cannot adopt an existing writable conversation", function () {
+  var h = adoptionHarness();
+  assert.equal(h.adoption.propose(h.ordinary, h.coordinator), true);
+  h.coordinator.orchestrationPolicy = { portfolioExecution: { reviewOnly: true } };
+  h.ordinary.queryInstance = { pushMessage: function () { throw new Error("Writable provider reached"); } };
+  var before = JSON.stringify(h.ordinary);
+  var result = h.adoption.adoptFromTool({ sourceSessionId: h.ordinary.storageId,
+    coordinatorSessionId: h.coordinator.storageId, action: "new_task", title: "Review" });
+  assert.match(result.error, /Read-only/);
+  assert.equal(JSON.stringify(h.ordinary), before);
+  assert.equal(h.coordinator.orchestrationTasks.length, 0);
+  assert.equal(h.dispatched.length, 0);
+  assert.equal(h.adoption.propose(h.ordinary, h.coordinator), false);
+  assert.equal(h.adoption.listCoordinators(h.ordinary).length, 0);
+});
+
 test("a session whose adopted task finished can be adopted again", function () {
   var h = adoptionHarness();
 

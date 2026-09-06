@@ -3807,6 +3807,28 @@ test("resident project coordinators cannot bypass typed scope through local dele
   assert.equal(ctx.sessions.size, 2);
 });
 
+["delegate", "plan", "external"].forEach(function (route) {
+  test("read-only target authority follows workers created through " + route, function (t) {
+    var ctx = testContext();
+    t.after(ctx.api.stopCoopWatchdog);
+    var parent = coordinator(ctx);
+    parent.coordinationRole = "task_coordinator";
+    parent.orchestrationPolicy = { portfolioExecution: { reviewOnly: true } };
+    parent.permissionMode = "bypassPermissions";
+    var input = brief(parent);
+    // A child-supplied implementation brief is never a new grant.
+    if (route === "delegate") assert.notEqual(ctx.api.delegateFromTool(input).isError, true);
+    if (route === "plan") assert.notEqual(ctx.api.planFromTool({
+      coordinatorSessionId: parent.storageId, tasks: [input] }).isError, true);
+    if (route === "external") assert.equal(ctx.api.coordinateExternalTask(input).ok, true);
+    assert.equal(ctx.starts.length, 1);
+    var worker = ctx.starts[0].session;
+    assert.equal(worker.orchestrationPolicy.readOnlyExecution, true);
+    assert.equal(worker.orchestrationPolicy.portfolioExecution, undefined,
+      "a child cannot become the target completion owner");
+  });
+});
+
 test("legacy local rows on a resident coordinator surface scope attention instead of launching at restart", function () {
   var controlPlane = require("../lib/coop-control-plane");
   var graph = require("../lib/orchestration-task-graph");
