@@ -933,3 +933,24 @@ test("revoked project topics fail closed for selection and every existing-topic 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("restored connections project inherited execution authority separately from permission preferences", function () {
+  var sent = [];
+  var restore = patchDependencies({ storedPresence: { sessionId: 7 }, multiUser: false, presenceWrites: [] });
+  try {
+    var session = makeSession(7);
+    session.permissionMode = "bypassPermissions";
+    session.orchestrationParent = { sessionStorageId: "evidence-parent", sessionId: 999 };
+    var ctx = makeContext(session, sent, [], []);
+    var parent = makeSession(8);
+    parent.storageId = "evidence-parent";
+    parent.orchestrationPolicy = { portfolioExecution: { reviewOnly: true } };
+    ctx.sm.sessions.set(parent.localId, parent);
+    handlers.attachConnectionHandlers(ctx).handleConnection(new FakeWebSocket(), null, function () {}, function () {});
+    var message = sent.find(function (entry) { return entry.type === "session_switched"; });
+    assert.equal(message.permissionMode, "bypassPermissions");
+    assert.equal(message.executionAuthority, "read-only");
+    var list = sent.find(function (entry) { return entry.type === "session_list"; });
+    assert.equal(list.sessions.find(function (entry) { return entry.id === session.localId; }).executionAuthority, "read-only");
+  } finally { restore(); }
+});

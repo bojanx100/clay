@@ -68,6 +68,7 @@ test("session switch update preserves runtime precedence and optional Codex sett
     activeCoopHome: true,
     activeCoopChannel: { projectSlug: "p", projectTitle: "Project" },
     currentAutomationMode: "full",
+    currentExecutionAuthority: null,
     currentMode: "accept-edits",
     codexApproval: "on-request",
     codexSandbox: "workspace-write",

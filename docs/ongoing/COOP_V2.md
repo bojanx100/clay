@@ -31,7 +31,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Drive durable delivery retries and recover or explicitly account for sequence gaps.
 - [x] Make normal completion and late attention transitions idempotent.
 - [x] Preserve execution links and concurrent changes during Thread undo.
-- [ ] Enforce read-only authority at admission and execution boundaries.
+- [x] Enforce read-only local evidence authority at admission and execution, and show its effective limits in session settings.
 - [ ] Define and implement ON adoption / OFF ownership handover.
 - [ ] Give persistent project coordinators explicit role, project context, intake,
       scoped delegation, and upward reporting.
@@ -530,7 +530,37 @@ its assertion in both modes. The initial and final full suites each passed
 Limitations: this is currently local evidence work. Claude cannot run shell-based
 checks in this mode, and neither provider gets external evidence connectors.
 Read-only work must return findings through its normal final report; implementation
-requires a separately admitted execution. Existing preference controls still need
-an effective-authority label in the UI. Tests do not prove real-model usefulness,
+requires a separately admitted execution. ~~Existing preference controls still need
+an effective-authority label in the UI.~~ Retracted as current status: iteration
+20 adds this label and removes ineffective controls. Tests do not prove real-model usefulness,
 complete Coop synthesis, native tools on other binary versions/platforms, or live
 canary quietness. The daemon was not restarted and live records were not repaired.
+
+
+### 20. Show effective evidence authority in session settings
+
+Session switches, live lists and initial reconnect lists now expose the same
+server-resolved authority used by execution. Parent lookup uses the full session
+manager, including an older child's stable parent reference. Permission preferences
+remain separate; a title containing “read-only” does not grant or restrict authority.
+
+The shared composer chip labels restricted work “Read-only evidence.” Its settings
+explain local inspection and a separate implementation task, and hide permission,
+automation, sandbox and web-search controls which cannot widen the admitted task.
+Copilot shows an explicit unsupported-provider explanation. Switching back to an
+ordinary conversation restores its normal provider controls. Live updates apply
+only to the active session in its current project, ignoring local-ID collisions
+from other projects.
+
+Proof: six new regressions pass. Reverting all tracked implementation changes gives
+17 pass / 6 fail across the 23-test default proof and 0 pass / 5 fail in controlled
+mode. All implementation was restored. Focused final checks pass 40/40 default and
+5/5 controlled; final full suite passes 4,217/4,217 default tests across 429 files
+and 674/674 controlled tests across 54 files, exit 0.
+
+The checks drive real session managers and parent lookup, switch/broadcast/reconnect
+messages, the actual client switch/list handlers and full config renderer. The DOM
+fixture obtains element IDs from the shipped HTML; unrelated UI imports and browser
+facilities are stubbed. Independent source review found no additional blocker.
+These checks do not prove browser layout, remote-model usefulness, full owner-facing
+synthesis or live canary quietness. No production restart or live-state repair.
