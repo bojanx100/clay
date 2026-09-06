@@ -91,6 +91,39 @@ function candidateEligibility(itemKey, assignedToOwner, recipeAllowsUnassigned) 
   };
 }
 
+var URBAN_REF = { projectId: "51e67388-cea0-52b7-8e01-cde68cae713c" };
+var URBAN_ALL_ISSUES = {
+  id: "all-issues",
+  source: { provider: "github", kind: "issue", repo: "bojanx100/urban-stay-web",
+    fetchLimit: 100, ghAccount: "bojanx100" },
+  filter: { state: "open", assigned: "any" },
+};
+
+function urbanNoBoardSource() {
+  var policy = policyFor(URBAN_REF, [URBAN_ALL_ISSUES]).policy;
+  policy.qualification = {
+    version: 3,
+    normalIssueIntake: {
+      issueStates: ["open"],
+      boardStatuses: [],
+      requireAllBoardItems: false,
+      assignment: "recipe",
+      recipeAllowsUnassigned: true,
+      classification: { autonomous: ["ambiguous"], ownerApproval: ["bug", "feature"] },
+    },
+  };
+  policy.digest = policyModule.policyDigest(policy);
+  return {
+    repo: "bojanx100/urban-stay-web",
+    project: "urban-stay",
+    projectRef: URBAN_REF,
+    recipe: URBAN_ALL_ISSUES,
+    policy: policy,
+    policyDigest: policy.digest,
+    candidateEligibility: candidateEligibility,
+  };
+}
+
 var WEBAPP_ASSIGNED = {
   id: "assigned-to-me",
   source: { provider: "github", kind: "issue", repo: "trialview/v2", ghAccount: "bojantv", includeProjectItems: true },
@@ -487,6 +520,33 @@ test("ghIssueArgs requests projectItems when recipe status exclusions require th
   var jsonIndex = args.indexOf("--json");
   assert.ok(jsonIndex !== -1);
   assert.strictEqual(args[jsonIndex + 1], "number,title,body,labels,state,updatedAt,url,projectItems");
+});
+
+test("no-board qualification collects the real recipe without a project API lookup", function (t, done) {
+  var source = urbanNoBoardSource();
+  var issueCalls = 0;
+  var graphCalls = 0;
+  var fakeExec = function (cmd, args, cb) {
+    if (args[0] === "api" && args[1] === "graphql") {
+      graphCalls++;
+      return cb(new Error("no project scope should be needed for no-board intake"), "");
+    }
+    issueCalls++;
+    var jsonFields = args[args.indexOf("--json") + 1];
+    assert.strictEqual(jsonFields.indexOf("projectItems"), -1);
+    cb(null, JSON.stringify([{ number: 202, title: "Urban Stay issue", body: "", labels: [],
+      state: "OPEN", updatedAt: "2026-09-06T12:00:00Z", url: "https://github.com/bojanx100/urban-stay-web/issues/202" }]));
+  };
+  backlog.collectGithubIssues(fakeExec, source, "urban-stay", function (err, items, metadata) {
+    assert.strictEqual(err, null);
+    assert.strictEqual(issueCalls, 1);
+    assert.strictEqual(graphCalls, 0);
+    assert.deepStrictEqual(metadata.exclusions, []);
+    assert.deepStrictEqual(items.map(function (item) { return item.number; }), [202]);
+    assert.deepStrictEqual(items[0].automationQualification.item.boardItems, []);
+    assert.strictEqual(items[0].automationQualification.assignment.required, "recipe");
+    done();
+  });
 });
 
 test("collectGithubIssues rejects any issue with a skipped project item status", function (t, done) {
