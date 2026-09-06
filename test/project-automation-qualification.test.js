@@ -212,6 +212,21 @@ test("recipe/no-board qualification rejects missing policy, invalid policy, and 
   })).reason, "qualification_recipe_mismatch");
 });
 
+test("recipe/no-board qualification rejects present or malformed Webapp board evidence", function () {
+  var ineligible = qualification.receiptFor(noBoardRecipeInput({
+    item: { number: 198, state: "OPEN", projectItems: [{
+      id: "PVTI_unified_dev_complete",
+      status: { name: "Dev Complete", fieldId: "PVTSSF_unified_status" },
+    }] },
+  }));
+  assert.equal(ineligible.reason, "qualification_board_status_ineligible");
+
+  var malformed = qualification.receiptFor(noBoardRecipeInput({
+    item: { number: 198, state: "OPEN", projectItems: [{}] },
+  }));
+  assert.equal(malformed.reason, "qualification_board_evidence_missing");
+});
+
 test("qualification fails closed when any required issue or board fact is absent or disallowed", function () {
   var cases = [{
     name: "closed issue",
