@@ -619,10 +619,12 @@ prove a real model's high-level explanation to the owner or replay the two live
 rejected reports. No live record was repaired and no daemon was restarted; the
 branch has not been activated, so live canary quietness is not established.
 
-## Queued architecture iteration: daemon-owned maintenance
+## Architecture review leading to iteration 24: daemon-owned maintenance
 
 The owner's subsequent Council/Triage and learning clarification takes precedence
-for the next product iterations. The maintenance findings below remain open.
+for iterations 22–23. Historical status, retracted after iteration 24: “The
+maintenance findings below remain open.” The findings and required proofs below
+record why the daemon-owned service was needed.
 
 Read-only follow-up review confirmed five remaining mutations during dashboard
 projection: control-plane ensure/migration/handoff sweeps, topic index advancement
@@ -633,7 +635,7 @@ Sibling worktree sessions are read through an aggregate facade whose mutating
 methods belong to the parent manager. These are source findings, not a measurement
 of the live loop-lag spikes observed in the canary.
 
-The next implementation should move maintenance into one daemon-owned service with
+The reviewed implementation plan was to move maintenance into one daemon-owned service with
 no actor or ACL input. It must use the full project inventory, deduplicate resident
 identity by ProjectRef, and send every mutation through the owning runtime manager.
 Order: ensure/migrate roles, advance canonical topic lineage, reconcile explicit
@@ -745,3 +747,50 @@ acceptance of choices, browser presentation, or a full live project outcome. No
 production restart or live profile import/repair occurred. This first learning slice
 does not yet derive habits from direct project sessions or task decision cards,
 compare predicted choices with actual outcomes, or train a separate personal model.
+
+
+## Iteration 24: Maintenance independent of dashboard reads
+
+The daemon now owns control-plane ensure/migration, completed-turn topic indexing,
+explicit-archive visibility, and session-ledger refresh. It uses the full project
+inventory and each runtime's actual SessionManager, including sibling worktrees.
+A dashboard read cannot create roles, migrate history, hide workers, or fall back
+to writing a per-topic ledger. Archived tasks remain absent from the rendered tree
+while durable visibility is reconciled separately. Projection aggregates contain
+sessions only, without forwarding the parent manager's write methods.
+
+Registration, processing events, Lead-mode broadcasts and a five-second retry clock
+request maintenance. Startup readiness gates every run. Lead OFF permits owner
+history/visibility bookkeeping but does not create or migrate supervisory roles or
+run Class B handoff sweeps. Shutdown stops the clock and removes the mode listener.
+An unchanged idle tick avoids rebuilding transcript lineage, active turns defer
+historical indexing, and completed-history changes advance once. Cold predecessor
+histories return to their prior residency after a necessary scan.
+
+A failed control-session save retains an in-process retry marker so the next ensure
+cannot mistake the unsaved object for a durable role. Multiple topic claims sharing
+one legacy coordinator transfer atomically once before binding/hierarchy migration;
+calling the transfer repeatedly with stale predecessor refs would split the two
+operations across retry passes.
+
+Verification: the full suite passed 4,246/4,246 tests across 432 default-mode
+files and 703/703 across 57 controlled-mode files (exit 0). The nine new tests
+passed in both modes. Removing the existing lifecycle wiring produced 5 passes
+and 4 failures; removing migration/history guards produced 7 passes and 2
+failures; disabling the retry clock produced 7 passes and 2 failures; removing
+the duplicate-refresh guard produced 8 passes and 1 failure, in each mode. All
+changes were restored before the final green run. The tests use actual temporary session JSONL,
+Topic index and session/binding ledgers, real coordinator lookup/migration, real
+worktree managers with colliding local IDs, actual compaction and lazy history, and
+both a deterministic scheduler and the real retry timer. Mechanical guards retain
+the server lifecycle wiring and forbid dashboard mutation callbacks. Existing Class
+B tests still exercise the actual handoff controller and durable receipt. These
+checks do not prove production canary quietness, a real provider handoff during a
+running daemon, or the complete owner/work lifecycle. The branch remains unactivated.
+
+Remaining toggle findings: OFF still lacks durable ownership handover and existing
+Coop task graphs can schedule dependencies/retries. ON's legacy-automation drain
+records duplicate-prevention candidates but does not yet give resident coordinators
+oversight of those existing sessions. Ordinary owner-created orchestration must stay
+usable while those transitions are implemented. The owner's exact preference for
+already-running work on OFF is still pending.

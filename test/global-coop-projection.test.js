@@ -3,6 +3,7 @@ var assert = require("node:assert/strict");
 var fs = require("node:fs");
 var os = require("node:os");
 var path = require("node:path");
+var advanceCanonicalCoopTopics = require("../lib/global-coop-projection").advanceCanonicalCoopTopics;
 var buildGlobalCoopProjection = require("../lib/global-coop-projection").buildGlobalCoopProjection;
 var createTopicIndex = require("../lib/coop-topic-index").createTopicIndex;
 var attachCoopSessionLedger = require("../lib/coop-session-ledger").attachCoopSessionLedger;
@@ -487,11 +488,8 @@ test("temporary worktree sessions project through their canonical parent Project
   assert.equal(projection.projects.length, 1);
   assert.deepEqual(projection.projects[0].projectRef, { projectId: clayId });
   assert.equal(projection.projects[0].summary.activeWork[0].title, "Canonical worktree task");
-  assert.equal(typeof controlManager.createSessionRaw, "function",
-    "canonical control-plane maintenance keeps the parent manager write surface");
-  assert.equal(controlManager.createSessionRaw({ storageId: "parent-only" }).storageId, "parent-only");
-  assert.equal(parent.sm.sessions.has(100), true,
-    "the aggregate manager writes to the canonical parent, not the temporary runtime");
+  assert.equal(controlManager, null, "reading sibling sessions never invokes control-plane maintenance");
+  assert.equal(parent.sm.sessions.has(100), false);
 });
 
 test("canonical project coordinator activity is summarized from the bound project session", function () {
@@ -692,7 +690,7 @@ test("global Coop projection exposes bounded topic lenses and revokes denied pro
     });
     var lead = project("system-lead", "lead", [home], { isLead: true });
     var clay = project("5332aafc-31e7-5cb1-ba96-c8d90e78260e", "clay", []);
-    buildGlobalCoopProjection({ projects: [lead, clay], coopTopicIndex: index });
+    advanceCanonicalCoopTopics({ projects: [lead, clay], coopTopicIndex: index });
     assert.equal(index.addEventMembership({ topicId: "navigation-session-restoration" }, [
       { eventIndex: 1 }, { eventIndex: 2 },
     ]).ok, true);
@@ -748,7 +746,7 @@ test("global Coop projection exposes bounded topic lenses and revokes denied pro
   }
 });
 
-test("building the global projection alone migrates pre-fix garbled titles exactly once", function () {
+test("explicit topic maintenance migrates pre-fix garbled titles before pure projection", function () {
   // Owner evidence 2026-08-09 ~15:45: a genuine owner message in the canonical
   // Coop session left titleRetrofitAudit=0 -- the message-ingress retrofit
   // hook never ran for real owner traffic. The projection build is the daemon
@@ -775,7 +773,7 @@ test("building the global projection alone migrates pre-fix garbled titles exact
       ],
     });
     var lead = project("system-lead", "lead", [home], { isLead: true });
-    buildGlobalCoopProjection({ projects: [lead], coopTopicIndex: index });
+    advanceCanonicalCoopTopics({ projects: [lead], coopTopicIndex: index });
 
     // Inject a topic exactly as the old classifier minted it: contraction
     // fragment title, fingerprint intact, legacy-anchored to the real owner
@@ -799,6 +797,7 @@ test("building the global projection alone migrates pre-fix garbled titles exact
 
     // The failing ingress shape: the owner opens the app, the projection is
     // built. Nothing else happens.
+    advanceCanonicalCoopTopics({ projects: [lead], coopTopicIndex: index });
     var visible = buildGlobalCoopProjection({ projects: [lead], coopTopicIndex: index });
 
     var persisted = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -824,7 +823,7 @@ test("building the global projection alone migrates pre-fix garbled titles exact
     var restarted = createTopicIndex({ file: file, now: function () { return 99; } });
     var again = restarted.ensureTitleRetrofit(home);
     assert.equal(again.alreadyComplete, true);
-    buildGlobalCoopProjection({ projects: [lead], coopTopicIndex: restarted });
+    advanceCanonicalCoopTopics({ projects: [lead], coopTopicIndex: restarted });
     assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).titleRetrofit.completedAt,
       persisted.titleRetrofit.completedAt, "restart never re-stamps or re-runs");
 
@@ -866,7 +865,7 @@ test("topic related-session links stay top-level, ACL-filtered, and reference-on
     var otherTopLevel = session(20, { storageId: "webapp-top", title: "Webapp work" });
     var webapp = project("11111111-1111-5111-8111-111111111111", "webapp", [otherTopLevel], { title: "Webapp" });
 
-    buildGlobalCoopProjection({ projects: [lead, clay, webapp], coopTopicIndex: index });
+    advanceCanonicalCoopTopics({ projects: [lead, clay, webapp], coopTopicIndex: index });
     var topicRef = { topicId: "navigation-session-restoration" };
 
     // Link a top-level coordinator, a worker, a nested child, a missing

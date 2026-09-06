@@ -483,9 +483,9 @@ test("a durable task dismissal overrides its failed historical child execution",
   assert.equal(JSON.stringify(tree).includes("905f2146-ee64-4f21-bc74-60b3f406404e"), false);
   assert.equal(JSON.stringify(tree).includes("e43eeac8-c25f-4905-b54c-1e95718a5740"), false);
   assert.equal(JSON.stringify(tree).includes("ee3df56a-8494-473f-9b01-0c7967759131"), false);
-  assert.deepEqual(reconciled.map(function (item) { return item[1]; }), legacy.map(function (item) { return item.id; }));
-  assert.equal(sessions.every(function (item) { return item.hidden === true; }), true,
-    "only the exact dismissed task bindings are reconciled into hidden history");
+  assert.deepEqual(reconciled, [], "projection never persists visibility changes");
+  assert.equal(sessions.every(function (item) { return item.hidden !== true; }), true,
+    "explicitly archived tasks are excluded without mutating their sessions during a read");
 });
 
 test("sidebar hides historical failed coordinator revisions and retains latest attention", async function () {
