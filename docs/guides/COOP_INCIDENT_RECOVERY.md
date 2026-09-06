@@ -31,7 +31,9 @@ project, portfolio revision and both session references. It requires verificatio
 a settled worker and any required owner acceptance. The previous attempt outcome
 remains in the resolution record, and the execution kernel is never reopened.
 
-Project registration reconciles previously verified coordinator resolutions.
+Project registration and the daemon maintenance clock reconcile previously verified
+coordinator resolutions, including verification that arrived while the worker was
+still stopping.
 Replays preserve the original resolution time. Session and Thread projections see
 the reconciled portfolio outcome and its verification. Worker failures also retain
 their actionable reason instead of becoming `unspecified`.

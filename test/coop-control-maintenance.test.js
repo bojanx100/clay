@@ -275,3 +275,37 @@ test("the server owns maintenance lifecycle and dashboard readers cannot fall ba
   var bindings = source.slice(source.indexOf("  function ledgerTopicBindings("), source.indexOf("  function archiveCompletedCoopTopicSessions("));
   assert.doesNotMatch(bindings, /crossProject\.topicSessionEvidence\(/);
 });
+
+
+test("maintenance reconciles a verified task after its failed worker finishes stopping", function (t) {
+  var h = fixture(t);
+  h.ready(true);
+  assert.equal(h.service.run("startup").ok, true);
+  var root = plane.projectCoordinatorFor(h.lead.sm, { projectId: PROJECT });
+  var source = { projectId: "system-lead", sessionStorageId: root.storageId };
+  var request = { portfolioTaskId: "verified-after-stop", bindingRevision: 1, idempotencyKey: "verified-after-stop-r1",
+    mode: "project_coordinator", targetProject: { projectId: PROJECT }, source: source };
+  var worker = h.parent.sm.createSessionRaw({ coordinationMode: true });
+  worker.coordinationRole = "task_coordinator";
+  worker.projectCoordinatorRef = source;
+  worker.orchestrationPolicy = { portfolioExecution: Object.assign({}, request, { status: "failed" }) };
+  worker.isProcessing = true;
+  var workerRef = { projectId: PROJECT, sessionStorageId: worker.storageId };
+  assert.equal(h.router.bindingStore.reserve(request).ok, true);
+  assert.equal(h.router.bindingStore.commit(request.portfolioTaskId, 1, workerRef, { projectCoordinatorRef: source }).ok, true);
+  assert.equal(h.router.bindingStore.complete(request.portfolioTaskId, 1,
+    { eventId: "worker-stopping", terminalStatus: "failed", failureCode: "activation_pending" }).ok, true);
+  var task = plane.prepareTask(h.lead.sm, root, request, { title: "Verify activation", objective: "Normal launch observed" });
+  plane.bindTask(h.lead.sm, root, task, workerRef);
+  Object.assign(task, { status: "completed", resolvedByCoordinator: true, resolvedAt: Date.now(),
+    resultSummary: "Normal launch observed.", verification: "Verified the actual scheduler dispatch receipt." });
+  h.lead.sm.saveSessionFile(root, { durable: true });
+  assert.equal(h.router.resolveProjectCoordinatorTask({ source: source, taskId: task.taskId }).reason, "worker_not_settled");
+  assert.equal(h.service.run("worker_stopping").ok, true);
+  assert.equal(h.router.getExecutionBinding(request.portfolioTaskId, 1).status, "failed");
+  worker.isProcessing = false;
+  assert.equal(h.service.run("worker_stopped").ok, true);
+  assert.equal(h.router.getExecutionBinding(request.portfolioTaskId, 1).status, "completed");
+  assert.equal(h.router.sessionLedger.get(workerRef).workState, "done");
+  assert.deepEqual(h.failures, []);
+});
