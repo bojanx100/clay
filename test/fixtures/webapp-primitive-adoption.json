@@ -1,0 +1,956 @@
+{
+  "provenance": "Sanitized snapshot of the actual 2026-09-06 adoption failures. Secret-bearing source configuration is replaced with a placeholder; original launch receipts are regenerated through the production qualifier for that sanitized policy. Prior binding states, acceptance records, session identities, and event times remain unchanged.",
+  "config": {
+    "autoLaunch": {
+      "enabled": true,
+      "recipeId": "assigned-to-me",
+      "cron": "*/5 * * * *",
+      "recipes": [
+        "assigned-to-me",
+        "pr-review"
+      ],
+      "maxPasses": 2,
+      "vendorWeights": {
+        "claude": 70,
+        "codex": 30
+      },
+      "maxConcurrent": 5
+    },
+    "automation": {
+      "autonomy": {
+        "bug": "autonomous",
+        "feature": "owner_approval",
+        "ambiguous": "owner_approval",
+        "pr_review": "autonomous"
+      },
+      "candidateEligibility": {
+        "boardExclusions": [
+          "Dev Complete",
+          "Ready for production",
+          "Done"
+        ]
+      },
+      "qualification": {
+        "version": 2,
+        "normalIssueIntake": {
+          "configuredBoard": {
+            "projectId": "PVT_kwDOA5Dnns4BOYgP",
+            "statusFieldId": "PVTSSF_lADOA5Dnns4BOYgPzg9Gf70"
+          },
+          "issueStates": [
+            "open"
+          ],
+          "boardStatuses": [
+            "📋 Backlog",
+            "🚀 Ready for development"
+          ],
+          "requireAllBoardItems": true,
+          "assignment": "owner",
+          "classification": {
+            "autonomous": [
+              "bug"
+            ],
+            "ownerApproval": [
+              "feature",
+              "ambiguous"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "recipes": [
+    {
+      "id": "pr-review",
+      "source": {
+        "provider": "github",
+        "kind": "pr-reviews",
+        "repo": "trialview/v2",
+        "fetchLimit": 50,
+        "ghAccount": "bojantv"
+      }
+    },
+    {
+      "id": "sentry-fix",
+      "source": {
+        "provider": "sentry",
+        "kind": "findings",
+        "baseUrl": "https://de.sentry.io",
+        "organization": "trialview",
+        "project": "v2",
+        "githubRepo": "trialview/v2",
+        "relatedTo": [
+          "issues",
+          "prs"
+        ],
+        "query": "is:unresolved",
+        "statsPeriod": "14d",
+        "fetchLimit": 100,
+        "githubFetchLimit": 100,
+        "githubPrFetchLimit": 50,
+        "ghAccount": "bojantv",
+        "authToken": "fixture-placeholder"
+      }
+    },
+    {
+      "id": "assigned-to-me",
+      "source": {
+        "provider": "github",
+        "kind": "issue",
+        "repo": "trialview/v2",
+        "fetchLimit": 100,
+        "ghAccount": "bojantv",
+        "includeProjectItems": true
+      },
+      "filter": {
+        "state": "open",
+        "assigned": "me",
+        "type": "bug",
+        "titleExcludePrefixes": [
+          "BE:"
+        ],
+        "labels": {
+          "exclude": [
+            "blocked",
+            "backend",
+            "BE",
+            "sentry"
+          ]
+        }
+      }
+    }
+  ],
+  "bindings": {
+    "schema": "clay.portfolio_execution_bindings",
+    "version": 2,
+    "bindings": [
+      {
+        "portfolioTaskId": "portfolio-webapp-2777",
+        "mode": "project_coordinator",
+        "targetProject": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "bindingRevision": 1,
+        "idempotencyKey": "lead-webapp-2777-r1-20260831",
+        "source": {
+          "projectId": "system-lead",
+          "sessionStorageId": "b1d82712-8d9e-4a6c-a331-f8d4129e3347"
+        },
+        "coopTopicRef": {
+          "topicId": "owner-68638a1827ed47988320e7c0"
+        },
+        "workIdentity": "github:trialview/v2#2777",
+        "controlPlaneProvenance": {
+          "schema": "clay.coop_control_plane_reservation",
+          "version": 1
+        },
+        "taskPayloadDigest": "e75bf4aba88dc81e7a498da3059eb7c900d0007f35070395b680627a8f7cf6d9",
+        "provider": "codex",
+        "model": "gpt-5.6-luna",
+        "status": "failed",
+        "createdAt": 1788211403050,
+        "updatedAt": 1788212247620,
+        "coordinator": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9",
+          "sessionStorageId": "aeb9498c-335d-487a-a2cc-0d02a57dca46"
+        },
+        "projectCoordinator": {
+          "projectId": "system-lead",
+          "sessionStorageId": "0338bf37-74df-4edd-81a4-54f6363a2e25"
+        },
+        "statusReason": "unspecified",
+        "completedAt": 1788212247619,
+        "completionEventId": "project-terminal-v1-project-coordinator-231b9f71-3efa-4466-bd21-9038dcf4a078",
+        "resultEventId": "project-coordinator-231b9f71-3efa-4466-bd21-9038dcf4a078",
+        "completionOwnerNotification": false,
+        "completionOwnerDelivered": false,
+        "failureCode": "unspecified"
+      },
+      {
+        "portfolioTaskId": "portfolio-webapp-2725",
+        "mode": "project_coordinator",
+        "targetProject": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "bindingRevision": 1,
+        "idempotencyKey": "staff-portfolio-webapp-2725-r1-owner-approved-20260901",
+        "source": {
+          "projectId": "system-lead",
+          "sessionStorageId": "254222fd-3808-4cd4-88fc-2484a45a8f94"
+        },
+        "coopTopicRef": {
+          "topicId": "owner-a449a406f7bba015b6ece442"
+        },
+        "workIdentity": "github:trialview/v2#2725",
+        "controlPlaneProvenance": {
+          "schema": "clay.coop_control_plane_reservation",
+          "version": 1
+        },
+        "taskPayloadDigest": "15ee43e688aa87ac6e61cc79a4e040c0600d91cc88e280bb09d2467a1c692a7f",
+        "provider": "claude",
+        "model": "claude-opus-5",
+        "status": "superseded",
+        "createdAt": 1788266244699,
+        "updatedAt": 1788278021908,
+        "coordinator": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9",
+          "sessionStorageId": "2491fe59-5aa0-4a92-9b25-e9629b07eb40"
+        },
+        "projectCoordinator": {
+          "projectId": "system-lead",
+          "sessionStorageId": "0338bf37-74df-4edd-81a4-54f6363a2e25"
+        },
+        "statusReason": "Dismiss only the stale running execution shell after independent technical verification. The exact pushed #2725 implementation remains preserved at 224246f2ca2340bea9f80c4837322b8f9db6f5b2 and a fresh full suite passes 1065 files / 11804 te",
+        "supersededAt": 1788278021908,
+        "ownerAcceptanceRequired": true,
+        "ownerAcceptance": {
+          "status": "pending",
+          "source": "project_local_instructions"
+        },
+        "implementationCompletedAt": 1788266650452,
+        "implementationCompletionRevision": 1,
+        "implementationGraphDigest": "#events:0::"
+      },
+      {
+        "portfolioTaskId": "auto:344dd511172b31317028bdd4:trialview-v2-2725",
+        "mode": "project_coordinator",
+        "targetProject": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "bindingRevision": 1,
+        "idempotencyKey": "admit-auto:344dd511172b31317028bdd4:trialview-v2-2725-r1",
+        "source": {
+          "projectId": "system-lead",
+          "sessionStorageId": "d3e4e11f-fcdc-486a-b287-aec37d0c322b"
+        },
+        "coopTopicRef": {
+          "topicId": "automation-344dd511172b31317028bdd4"
+        },
+        "workIdentity": "github:trialview/v2#2725",
+        "automationAuthorization": {
+          "schema": "clay.project_automation_execution_authorization",
+          "version": 2,
+          "kind": "project_policy_autonomous",
+          "source": {
+            "kind": "project_automation_candidate",
+            "recipeId": "assigned-to-me",
+            "workKind": "issue"
+          },
+          "projectRef": {
+            "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+          },
+          "candidateKey": "launch:trialview/v2#2725",
+          "candidateDigest": "fd63d71b67ae03d66762e94a03b7c8e8",
+          "itemKey": "trialview/v2#2725",
+          "itemClass": "bug",
+          "policyDigest": "dcf2b42b77f0b4f1cfa5e6bd2d0df5c26af025bbfccfbaea128f4e9dbd516410",
+          "eligibilityPass": "445b1b1c0d6d4b38500f4afde99d5782",
+          "eligibility": {
+            "assignedToOwner": true,
+            "recipeAllowsUnassigned": false,
+            "reason": "assigned_to_owner"
+          },
+          "threadRef": {
+            "threadId": "automation-344dd511172b31317028bdd4"
+          },
+          "scope": {
+            "portfolioTaskId": "auto:344dd511172b31317028bdd4:trialview-v2-2725",
+            "bindingRevision": 1,
+            "idempotencyKey": "admit-auto:344dd511172b31317028bdd4:trialview-v2-2725-r1",
+            "mode": "project_coordinator"
+          },
+          "qualificationReceipt": {
+            "schema": "clay.project_automation_qualification_receipt",
+            "version": 1,
+            "projectRef": {
+              "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+            },
+            "policy": {
+              "digest": "dcf2b42b77f0b4f1cfa5e6bd2d0df5c26af025bbfccfbaea128f4e9dbd516410",
+              "version": 1
+            },
+            "recipe": {
+              "id": "assigned-to-me",
+              "digest": "9e6a6709a7acbdf2ea92d134eda55b43eed19cc626efd65c64cdfa5c93ce284b",
+              "kind": "issue"
+            },
+            "item": {
+              "key": "trialview/v2#2725",
+              "repo": "trialview/v2",
+              "number": 2725,
+              "state": "open",
+              "boardItems": [
+                {
+                  "id": "PVTI_lADOA5Dnns4BOYgPzg3vU-o",
+                  "status": "🚀 ready for development"
+                }
+              ]
+            },
+            "evidenceAt": 1788342020846,
+            "assignment": {
+              "required": "owner",
+              "assignedToOwner": true,
+              "recipeAllowsUnassigned": false
+            },
+            "classification": {
+              "itemClass": "bug",
+              "admission": "auto",
+              "rule": "autonomous"
+            },
+            "approval": {
+              "required": false,
+              "ownerApproved": false
+            },
+            "coordinator": {
+              "verdict": "qualified",
+              "reasons": [
+                "issue_state_open",
+                "all_board_items_allowed",
+                "assigned_to_owner",
+                "classification_bug_autonomous"
+              ]
+            },
+            "digest": "9afa2442cdc7d85ce65966e948d556e7913b5e4158e9e68f5e19a818c285b56b"
+          },
+          "qualifiedLaunchReport": {
+            "schema": "clay.project_automation_qualified_launch",
+            "version": 1,
+            "verdict": "qualified_and_launched",
+            "receiptDigest": "9afa2442cdc7d85ce65966e948d556e7913b5e4158e9e68f5e19a818c285b56b",
+            "reasons": [
+              "issue_state_open",
+              "all_board_items_allowed",
+              "assigned_to_owner",
+              "classification_bug_autonomous"
+            ]
+          }
+        },
+        "controlPlaneProvenance": {
+          "schema": "clay.coop_control_plane_reservation",
+          "version": 1
+        },
+        "taskPayloadDigest": "e81f5c72825127a7da644c49df15d08bc5d2b0c8cf5356db0ff1b3fd065153f5",
+        "provider": null,
+        "model": null,
+        "status": "failed",
+        "createdAt": 1788342021072,
+        "updatedAt": 1788343029497,
+        "coordinator": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9",
+          "sessionStorageId": "239526c0-b3a0-4235-93d0-1824b013f5f0"
+        },
+        "projectCoordinator": {
+          "projectId": "system-lead",
+          "sessionStorageId": "0338bf37-74df-4edd-81a4-54f6363a2e25"
+        },
+        "statusReason": "unspecified",
+        "completedAt": 1788343029497,
+        "completionEventId": "project-terminal-v1-project-coordinator-50463a94-8104-4f8b-aed5-61794f05057b",
+        "resultEventId": "project-coordinator-50463a94-8104-4f8b-aed5-61794f05057b",
+        "completionOwnerNotification": false,
+        "completionOwnerDelivered": false,
+        "failureCode": "unspecified"
+      },
+      {
+        "portfolioTaskId": "auto:344dd511172b31317028bdd4:trialview-v2-2725",
+        "mode": "project_coordinator",
+        "targetProject": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "bindingRevision": 2,
+        "idempotencyKey": "admit-auto:344dd511172b31317028bdd4:trialview-v2-2725-r2",
+        "source": {
+          "projectId": "system-lead",
+          "sessionStorageId": "d3e4e11f-fcdc-486a-b287-aec37d0c322b"
+        },
+        "coopTopicRef": {
+          "topicId": "automation-344dd511172b31317028bdd4"
+        },
+        "workIdentity": "github:trialview/v2#2725",
+        "automationAuthorization": {
+          "schema": "clay.project_automation_execution_authorization",
+          "version": 2,
+          "kind": "project_policy_autonomous",
+          "source": {
+            "kind": "project_automation_candidate",
+            "recipeId": "assigned-to-me",
+            "workKind": "issue"
+          },
+          "projectRef": {
+            "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+          },
+          "candidateKey": "launch:trialview/v2#2725",
+          "candidateDigest": "fd63d71b67ae03d66762e94a03b7c8e8",
+          "itemKey": "trialview/v2#2725",
+          "itemClass": "bug",
+          "policyDigest": "dcf2b42b77f0b4f1cfa5e6bd2d0df5c26af025bbfccfbaea128f4e9dbd516410",
+          "eligibilityPass": "ae4671c49e58a8647f7578ce49ab5c77",
+          "eligibility": {
+            "assignedToOwner": true,
+            "recipeAllowsUnassigned": false,
+            "reason": "assigned_to_owner"
+          },
+          "threadRef": {
+            "threadId": "automation-344dd511172b31317028bdd4"
+          },
+          "scope": {
+            "portfolioTaskId": "auto:344dd511172b31317028bdd4:trialview-v2-2725",
+            "bindingRevision": 2,
+            "idempotencyKey": "admit-auto:344dd511172b31317028bdd4:trialview-v2-2725-r2",
+            "mode": "project_coordinator"
+          },
+          "qualificationReceipt": {
+            "schema": "clay.project_automation_qualification_receipt",
+            "version": 1,
+            "projectRef": {
+              "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+            },
+            "policy": {
+              "digest": "dcf2b42b77f0b4f1cfa5e6bd2d0df5c26af025bbfccfbaea128f4e9dbd516410",
+              "version": 1
+            },
+            "recipe": {
+              "id": "assigned-to-me",
+              "digest": "9e6a6709a7acbdf2ea92d134eda55b43eed19cc626efd65c64cdfa5c93ce284b",
+              "kind": "issue"
+            },
+            "item": {
+              "key": "trialview/v2#2725",
+              "repo": "trialview/v2",
+              "number": 2725,
+              "state": "open",
+              "boardItems": [
+                {
+                  "id": "PVTI_lADOA5Dnns4BOYgPzg3vU-o",
+                  "status": "🚀 ready for development"
+                }
+              ]
+            },
+            "evidenceAt": 1788343227235,
+            "assignment": {
+              "required": "owner",
+              "assignedToOwner": true,
+              "recipeAllowsUnassigned": false
+            },
+            "classification": {
+              "itemClass": "bug",
+              "admission": "auto",
+              "rule": "autonomous"
+            },
+            "approval": {
+              "required": false,
+              "ownerApproved": false
+            },
+            "coordinator": {
+              "verdict": "qualified",
+              "reasons": [
+                "issue_state_open",
+                "all_board_items_allowed",
+                "assigned_to_owner",
+                "classification_bug_autonomous"
+              ]
+            },
+            "digest": "cd08970a2139b5b03eb2c2768d0f3dcd490145efd768c532977f74fd2801515d"
+          },
+          "qualifiedLaunchReport": {
+            "schema": "clay.project_automation_qualified_launch",
+            "version": 1,
+            "verdict": "qualified_and_launched",
+            "receiptDigest": "cd08970a2139b5b03eb2c2768d0f3dcd490145efd768c532977f74fd2801515d",
+            "reasons": [
+              "issue_state_open",
+              "all_board_items_allowed",
+              "assigned_to_owner",
+              "classification_bug_autonomous"
+            ]
+          }
+        },
+        "controlPlaneProvenance": {
+          "schema": "clay.coop_control_plane_reservation",
+          "version": 1
+        },
+        "taskPayloadDigest": "e81f5c72825127a7da644c49df15d08bc5d2b0c8cf5356db0ff1b3fd065153f5",
+        "provider": null,
+        "model": null,
+        "status": "unrouted",
+        "createdAt": 1788343227499,
+        "updatedAt": 1788343227520,
+        "statusReason": "pre_task_failure: active_binding_exists",
+        "unroutedAt": 1788343227520,
+        "failureCode": "active_binding_exists"
+      },
+      {
+        "portfolioTaskId": "portfolio-webapp-2725",
+        "mode": "project_coordinator",
+        "targetProject": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "bindingRevision": 2,
+        "idempotencyKey": "staff-portfolio-webapp-2725-r2-lead-approved",
+        "source": {
+          "projectId": "system-lead",
+          "sessionStorageId": "b3967af4-03d0-4f78-96c6-a2c838a6613f"
+        },
+        "coopTopicRef": {
+          "topicId": "owner-786afdeeed1b235ba311046d"
+        },
+        "workIdentity": "github:trialview/v2#2725",
+        "controlPlaneProvenance": {
+          "schema": "clay.coop_control_plane_reservation",
+          "version": 1
+        },
+        "taskPayloadDigest": "5dd939d7d351dc5ef757c27538480a92e7055239b3e3b2aefb88d44ae354bf8a",
+        "provider": "claude",
+        "model": "opus",
+        "status": "unrouted",
+        "createdAt": 1788376878141,
+        "updatedAt": 1788376878176,
+        "statusReason": "pre_task_failure: delivery_error",
+        "unroutedAt": 1788376878176,
+        "failureCode": "delivery_error"
+      },
+      {
+        "portfolioTaskId": "portfolio-webapp-2777",
+        "mode": "project_coordinator",
+        "targetProject": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "bindingRevision": 2,
+        "idempotencyKey": "staff-portfolio-webapp-2777-r2",
+        "source": {
+          "projectId": "system-lead",
+          "sessionStorageId": "1133c69e-ce5c-4c1b-9dff-8d29a2001d89"
+        },
+        "coopTopicRef": {
+          "topicId": "owner-f0835c8907d7623f4fee7538"
+        },
+        "workIdentity": "github:trialview/v2#2777",
+        "controlPlaneProvenance": {
+          "schema": "clay.coop_control_plane_reservation",
+          "version": 1
+        },
+        "taskPayloadDigest": "72d844d11abf19033d9fbb0bcfb00f979dc0d4c5f4819b2a3bb2a78212783f3c",
+        "provider": "claude",
+        "model": "claude-opus-5",
+        "status": "failed",
+        "createdAt": 1788435634558,
+        "updatedAt": 1788442096842,
+        "coordinator": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9",
+          "sessionStorageId": "c005e1c1-ee0c-4b43-8c11-d3bb8ec39206"
+        },
+        "projectCoordinator": {
+          "projectId": "system-lead",
+          "sessionStorageId": "0338bf37-74df-4edd-81a4-54f6363a2e25"
+        },
+        "statusReason": "provider_start_failed",
+        "completedAt": 1788439167161,
+        "completionEventId": "project-terminal-v1-project-coordinator-c3691094-f857-4fd2-90a8-fc63f17b9ae8",
+        "resultEventId": "project-coordinator-c3691094-f857-4fd2-90a8-fc63f17b9ae8",
+        "completionOwnerNotification": false,
+        "completionOwnerDelivered": false,
+        "failureCode": "provider_start_failed"
+      }
+    ]
+  },
+  "candidates": {
+    "schema": "clay.automation_candidates",
+    "version": 1,
+    "candidates": [
+      {
+        "candidateKey": "launch:trialview/v2#2777",
+        "itemKey": "trialview/v2#2777",
+        "itemClass": "bug",
+        "admission": "auto",
+        "projectRef": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "policyDigest": "cc9ab0621b38823b14bd770a45ef2e2a9ccc7ff574347c86d87e605ea40087c4",
+        "recipeId": "assigned-to-me",
+        "intent": {
+          "recipeId": "assigned-to-me",
+          "primitiveLaunch": true,
+          "automationClaimKey": "trialview/v2#2777",
+          "number": 2777,
+          "url": "https://github.com/trialview/v2/issues/2777",
+          "title": "Regression trialview/v2#2777",
+          "autoKind": "issue"
+        },
+        "eligibilityPass": "777fc574f8537079d983e04e0f9413c9",
+        "eligibility": {
+          "assignedToOwner": true,
+          "recipeAllowsUnassigned": false,
+          "reason": "assigned_to_owner"
+        },
+        "qualificationReceipt": {
+          "schema": "clay.project_automation_qualification_receipt",
+          "version": 1,
+          "projectRef": {
+            "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+          },
+          "policy": {
+            "digest": "cc9ab0621b38823b14bd770a45ef2e2a9ccc7ff574347c86d87e605ea40087c4",
+            "version": 2
+          },
+          "recipe": {
+            "id": "assigned-to-me",
+            "digest": "9e6a6709a7acbdf2ea92d134eda55b43eed19cc626efd65c64cdfa5c93ce284b",
+            "kind": "issue"
+          },
+          "item": {
+            "key": "trialview/v2#2777",
+            "repo": "trialview/v2",
+            "number": 2777,
+            "state": "open",
+            "boardItems": [
+              {
+                "id": "PVTI_lADOA5Dnns4BOYgPzg4QxzY",
+                "projectId": "PVT_kwDOA5Dnns4BOYgP",
+                "status": "🚀 ready for development",
+                "statusFieldId": "PVTSSF_lADOA5Dnns4BOYgPzg9Gf70"
+              }
+            ]
+          },
+          "evidenceAt": 1788722130639,
+          "assignment": {
+            "required": "owner",
+            "assignedToOwner": true,
+            "recipeAllowsUnassigned": false
+          },
+          "classification": {
+            "itemClass": "bug",
+            "admission": "auto",
+            "rule": "autonomous"
+          },
+          "approval": {
+            "required": false,
+            "ownerApproved": false
+          },
+          "coordinator": {
+            "verdict": "qualified",
+            "reasons": [
+              "issue_state_open",
+              "configured_board_items_allowed",
+              "assigned_to_owner",
+              "classification_bug_autonomous"
+            ]
+          },
+          "digest": "534fbf7fb9715fa6f7c8256266832473680f7eff3d2bb5c952486c0aa04bad59"
+        },
+        "safety": {
+          "version": 1,
+          "risk": "low",
+          "destructive": false,
+          "selfModifying": false,
+          "controlPlane": false,
+          "securitySensitive": false,
+          "spendBudget": false,
+          "crossProject": false,
+          "materialScopeChange": false
+        },
+        "status": "pending",
+        "firstSeenAt": 1787831719638,
+        "lastSeenAt": 1788722130643,
+        "seenCount": 1063,
+        "digest": "349da400cebee2aa7c22646dd9f31eb7",
+        "attention": {
+          "reason": "duplicate_work_identity",
+          "needsOwner": false,
+          "firstAt": 1788722130782,
+          "lastAt": 1788722130782,
+          "count": 1
+        }
+      },
+      {
+        "candidateKey": "launch:trialview/v2#2725",
+        "itemKey": "trialview/v2#2725",
+        "itemClass": "bug",
+        "admission": "auto",
+        "projectRef": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "policyDigest": "cc9ab0621b38823b14bd770a45ef2e2a9ccc7ff574347c86d87e605ea40087c4",
+        "recipeId": "assigned-to-me",
+        "intent": {
+          "recipeId": "assigned-to-me",
+          "primitiveLaunch": true,
+          "automationClaimKey": "trialview/v2#2725",
+          "number": 2725,
+          "url": "https://github.com/trialview/v2/issues/2725",
+          "title": "Regression trialview/v2#2725",
+          "autoKind": "issue"
+        },
+        "eligibilityPass": "777fc574f8537079d983e04e0f9413c9",
+        "eligibility": {
+          "assignedToOwner": true,
+          "recipeAllowsUnassigned": false,
+          "reason": "assigned_to_owner"
+        },
+        "qualificationReceipt": {
+          "schema": "clay.project_automation_qualification_receipt",
+          "version": 1,
+          "projectRef": {
+            "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+          },
+          "policy": {
+            "digest": "cc9ab0621b38823b14bd770a45ef2e2a9ccc7ff574347c86d87e605ea40087c4",
+            "version": 2
+          },
+          "recipe": {
+            "id": "assigned-to-me",
+            "digest": "9e6a6709a7acbdf2ea92d134eda55b43eed19cc626efd65c64cdfa5c93ce284b",
+            "kind": "issue"
+          },
+          "item": {
+            "key": "trialview/v2#2725",
+            "repo": "trialview/v2",
+            "number": 2725,
+            "state": "open",
+            "boardItems": [
+              {
+                "id": "PVTI_lADOA5Dnns4BOYgPzg3vU-o",
+                "projectId": "PVT_kwDOA5Dnns4BOYgP",
+                "status": "🚀 ready for development",
+                "statusFieldId": "PVTSSF_lADOA5Dnns4BOYgPzg9Gf70"
+              }
+            ]
+          },
+          "evidenceAt": 1788722130817,
+          "assignment": {
+            "required": "owner",
+            "assignedToOwner": true,
+            "recipeAllowsUnassigned": false
+          },
+          "classification": {
+            "itemClass": "bug",
+            "admission": "auto",
+            "rule": "autonomous"
+          },
+          "approval": {
+            "required": false,
+            "ownerApproved": false
+          },
+          "coordinator": {
+            "verdict": "qualified",
+            "reasons": [
+              "issue_state_open",
+              "configured_board_items_allowed",
+              "assigned_to_owner",
+              "classification_bug_autonomous"
+            ]
+          },
+          "digest": "b36c3afd156897b3ace3cef5b948d02c3d538b4e00c9f4a446341eaa9c4d6818"
+        },
+        "safety": {
+          "version": 1,
+          "risk": "low",
+          "destructive": false,
+          "selfModifying": false,
+          "controlPlane": false,
+          "securitySensitive": false,
+          "spendBudget": false,
+          "crossProject": false,
+          "materialScopeChange": false
+        },
+        "status": "pending",
+        "firstSeenAt": 1788259809502,
+        "lastSeenAt": 1788722130820,
+        "seenCount": 883,
+        "digest": "245bbf743482b1b017a741d5686fa25e",
+        "admittedAt": 1788343227536,
+        "binding": {
+          "portfolioTaskId": "auto:344dd511172b31317028bdd4:trialview-v2-2725",
+          "bindingRevision": 2,
+          "coopThreadRef": {
+            "threadId": "automation-344dd511172b31317028bdd4"
+          }
+        },
+        "terminalReconciliation": {
+          "kind": "rearmable",
+          "portfolioTaskId": "auto:344dd511172b31317028bdd4:trialview-v2-2725",
+          "bindingRevision": 2,
+          "targetProject": {
+            "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+          },
+          "status": "unrouted",
+          "statusReason": "pre_task_failure: active_binding_exists",
+          "terminalAt": 1788343227520
+        },
+        "attention": {
+          "reason": "idempotency_conflict",
+          "needsOwner": false,
+          "firstAt": 1788722130881,
+          "lastAt": 1788722130881,
+          "count": 1
+        }
+      }
+    ]
+  },
+  "sessions": [
+    {
+      "storageId": "f24dba08-eced-4066-961c-7f357750a72a",
+      "createdAt": 1788722130850,
+      "taskLauncher": {
+        "recipeId": "assigned-to-me",
+        "itemUrl": "https://github.com/trialview/v2/issues/2725",
+        "itemNumber": 2725,
+        "itemKey": "trialview/v2#2725",
+        "completion": {
+          "marker": "CLAY_TASK_COMPLETE",
+          "needsInputMarker": "CLAY_NEEDS_INPUT",
+          "closeSession": true,
+          "requireUserTrigger": true
+        },
+        "autoLaunch": true,
+        "autoKind": "issue",
+        "prKey": null,
+        "awaitingInputNotified": true
+      }
+    },
+    {
+      "storageId": "bb7248ef-e4a5-4234-b77f-6abd863de9f1",
+      "createdAt": 1788722130665,
+      "taskLauncher": {
+        "recipeId": "assigned-to-me",
+        "itemUrl": "https://github.com/trialview/v2/issues/2777",
+        "itemNumber": 2777,
+        "itemKey": "trialview/v2#2777",
+        "completion": {
+          "marker": "CLAY_TASK_COMPLETE",
+          "needsInputMarker": "CLAY_NEEDS_INPUT",
+          "closeSession": true,
+          "requireUserTrigger": true
+        },
+        "autoLaunch": true,
+        "autoKind": "issue",
+        "prKey": null,
+        "awaitingInputNotified": true
+      }
+    }
+  ],
+  "launchRecords": [
+    {
+      "sessionRef": {
+        "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9",
+        "sessionStorageId": "bb7248ef-e4a5-4234-b77f-6abd863de9f1"
+      },
+      "qualificationReceipt": {
+        "schema": "clay.project_automation_qualification_receipt",
+        "version": 1,
+        "projectRef": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "policy": {
+          "digest": "b5b583f540b92352c52c3d4226da5f9729b4aa3db8b1108b952df2095038780e",
+          "version": 2
+        },
+        "recipe": {
+          "id": "assigned-to-me",
+          "digest": "9e6a6709a7acbdf2ea92d134eda55b43eed19cc626efd65c64cdfa5c93ce284b",
+          "kind": "issue"
+        },
+        "item": {
+          "key": "trialview/v2#2777",
+          "repo": "trialview/v2",
+          "number": 2777,
+          "state": "open",
+          "boardItems": [
+            {
+              "id": "PVTI_lADOA5Dnns4BOYgPzg4QxzY",
+              "projectId": "PVT_kwDOA5Dnns4BOYgP",
+              "status": "🚀 ready for development",
+              "statusFieldId": "PVTSSF_lADOA5Dnns4BOYgPzg9Gf70"
+            }
+          ]
+        },
+        "evidenceAt": 1788722130639,
+        "assignment": {
+          "required": "owner",
+          "assignedToOwner": true,
+          "recipeAllowsUnassigned": false
+        },
+        "classification": {
+          "itemClass": "bug",
+          "admission": "auto",
+          "rule": "autonomous"
+        },
+        "approval": {
+          "required": false,
+          "ownerApproved": false
+        },
+        "coordinator": {
+          "verdict": "qualified",
+          "reasons": [
+            "issue_state_open",
+            "configured_board_items_allowed",
+            "assigned_to_owner",
+            "classification_bug_autonomous"
+          ]
+        },
+        "digest": "4b71d4f0105e238ed17ca2fc1cbfbe576340dde35e58af301a9043ec72c7e3c2"
+      }
+    },
+    {
+      "sessionRef": {
+        "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9",
+        "sessionStorageId": "f24dba08-eced-4066-961c-7f357750a72a"
+      },
+      "qualificationReceipt": {
+        "schema": "clay.project_automation_qualification_receipt",
+        "version": 1,
+        "projectRef": {
+          "projectId": "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9"
+        },
+        "policy": {
+          "digest": "b5b583f540b92352c52c3d4226da5f9729b4aa3db8b1108b952df2095038780e",
+          "version": 2
+        },
+        "recipe": {
+          "id": "assigned-to-me",
+          "digest": "9e6a6709a7acbdf2ea92d134eda55b43eed19cc626efd65c64cdfa5c93ce284b",
+          "kind": "issue"
+        },
+        "item": {
+          "key": "trialview/v2#2725",
+          "repo": "trialview/v2",
+          "number": 2725,
+          "state": "open",
+          "boardItems": [
+            {
+              "id": "PVTI_lADOA5Dnns4BOYgPzg3vU-o",
+              "projectId": "PVT_kwDOA5Dnns4BOYgP",
+              "status": "🚀 ready for development",
+              "statusFieldId": "PVTSSF_lADOA5Dnns4BOYgPzg9Gf70"
+            }
+          ]
+        },
+        "evidenceAt": 1788722130817,
+        "assignment": {
+          "required": "owner",
+          "assignedToOwner": true,
+          "recipeAllowsUnassigned": false
+        },
+        "classification": {
+          "itemClass": "bug",
+          "admission": "auto",
+          "rule": "autonomous"
+        },
+        "approval": {
+          "required": false,
+          "ownerApproved": false
+        },
+        "coordinator": {
+          "verdict": "qualified",
+          "reasons": [
+            "issue_state_open",
+            "configured_board_items_allowed",
+            "assigned_to_owner",
+            "classification_bug_autonomous"
+          ]
+        },
+        "digest": "b196d253d39dcbcf7aa095a3b52baa7eecf06583cfa8544000568fcd410c9239"
+      }
+    }
+  ],
+  "requestedAt": 1788702821947
+}

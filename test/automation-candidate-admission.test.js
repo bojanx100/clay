@@ -516,6 +516,23 @@ test("#2522: legacy receiptless acceptance can be explicitly reconsidered withou
   }
 });
 
+test("#2522: an already refreshed pending candidate can recover exact owner reconsideration", function () {
+  var h = harness();
+  try {
+    var pending = candidate({ candidateKey: "launch:trialview/v2#2522", itemKey: "trialview/v2#2522" });
+    assert.equal(h.store.upsert(pending).ok, true);
+    var result = h.store.requestReconsideration({ projectId: WEBAPP }, pending.candidateKey,
+      reconsiderationEvidence({ historicalBinding: completedLeadBinding() }), {
+        bindingSnapshot: [completedLeadBinding()], projectSlug: "webapp",
+      });
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.candidate.status, "pending");
+    assert.equal(result.candidate.qualificationReceipt, null);
+    assert.equal(result.candidate.reconsideration.completionProof.portfolioTaskId, "portfolio-webapp-2522");
+    assert.equal(h.admission.admitPending().admitted, 0, "fresh qualification is still required");
+  } finally { fs.rmSync(h.dir, { recursive: true, force: true }); }
+});
+
 test("candidate reconsideration rejects malformed, live-conflicted, and wrong-project evidence", function () {
   var h = harness();
   try {
