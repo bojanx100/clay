@@ -1166,3 +1166,38 @@ controlled startup recovery stays paused; enabling live authority requires a
 separate cutover. The source can continue changing after capture. The final
 rollback directory is `~/.clay-coop-v2/before-session-sync-IoOSnk`; the initial
 pre-copy preview inventory is retained in `before-session-sync-Gak97f`.
+
+### Iteration 32 — hide Coop navigation with Lead off
+
+The owner clarified that Lead off should at least remove the compass shortcut
+from ordinary project navigation. The workspace registration and saved sessions
+were already independent of Lead mode, but all three navigation renderers also
+unconditionally exposed Coop. The preview therefore looked active despite its
+management being disabled.
+
+The client now stores the server's Lead-mode state and uses one visibility
+predicate for the icon rail, desktop project picker and mobile Projects sheet.
+Coop stays hidden until the server confirms Lead on. Toggle results and state
+broadcasts update the existing navigation immediately, including an already-open
+mobile sheet with an unchanged project inventory. Ordinary project entries and
+saved Coop history remain available in their existing stores; this change does
+not delete or transfer sessions, block direct historical URLs, or activate work.
+
+Validation: the new regression suite executes the shipped store, message handler
+and desktop/mobile renderers with substituted DOM primitives. It covers cold
+load, both message/list arrival orders, ON/OFF transitions, duplicate and malformed
+messages, and reconnect state. Reverting all five implementation files gives
+0 pass / 4 fail; restoring them gives 4 pass / 0 fail. The focused compatibility
+run passes 23 tests. The full suite passes 4,317 default tests and 746 controlled
+tests. Browser reload on port 7392 confirms the compass is absent and all nine
+ordinary roots remain visible. Live Lead was not enabled to exercise autonomous
+model behavior; ON/OFF renderer behavior is established by the regression suite.
+The preview serves the changed client files without a daemon restart; the original
+instance and both instances' execution settings were not changed.
+
+The chat comparison also found the current canonical Coop session by its saved
+`coopHome` metadata in both instances. Every one of the preview's 116 body events
+exactly matched the corresponding source event; the old instance had appended
+more events after capture. This establishes the copied current transcript's exact
+prefix, not equality of the Main projections across different code versions or
+continuous synchronization between the two instances.

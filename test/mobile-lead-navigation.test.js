@@ -41,7 +41,7 @@ test("the chat sheet's chip bar carries mates only, and vanishes when empty", fu
   assert.doesNotMatch(mobile, /chip\.dataset\.type === "project" && chip\.dataset\.slug === currentSlug/);
 });
 
-test("Coop is pinned first in the one surface that switches projects", function () {
+test("enabled Coop is pinned first in the one surface that switches projects", function () {
   // The ordering guarantee this file used to make about the Lead chip now lives
   // in the projects sheet, which is the single entry point.
   var mobile = source("sidebar-mobile.js");
@@ -50,7 +50,7 @@ test("Coop is pinned first in the one surface that switches projects", function 
     mobile.indexOf("function renderSheetSessions(listEl)")
   );
   assert.ok(sheet.length > 0);
-  assert.match(sheet, /var leadProject = findLeadProject\(projects\)/);
+  assert.match(sheet, /var leadProject = findVisibleLeadProject\(projects\)/);
   assert.ok(sheet.indexOf("createMobileLeadProjectItem") < sheet.indexOf("parentProjects(visibleProjects)"));
 
   var lead = source("sidebar-lead.js");
