@@ -106,16 +106,17 @@ function configuredInput(overrides) {
   return Object.assign({}, input({ policy: configuredPolicy(), item: configuredIssue() }), overrides || {});
 }
 
-function unassignedRecipe() {
+function urbanStayAllIssuesRecipe() {
   return {
-    id: "urban-stay-any",
-    source: { provider: "github", kind: "issue", repo: "bojanx100/urban-stay-web" },
-    filter: { state: "open", assigned: "any", type: "bug" },
+    id: "all-issues",
+    source: { provider: "github", kind: "issue", repo: "bojanx100/urban-stay-web",
+      fetchLimit: 100, ghAccount: "bojanx100" },
+    filter: { state: "open", assigned: "any" },
   };
 }
 
 function noBoardRecipePolicy() {
-  var source = unassignedRecipe();
+  var source = urbanStayAllIssuesRecipe();
   var value = policy();
   value.qualification = {
     version: 3,
@@ -128,14 +129,14 @@ function noBoardRecipePolicy() {
       classification: { autonomous: ["bug"], ownerApproval: ["feature", "ambiguous"] },
     },
   };
-  value.recipes = [{ id: source.id, kind: "issue", repo: "bojanx100/urban-stay-web", type: "bug",
+  value.recipes = [{ id: source.id, kind: "issue", repo: "bojanx100/urban-stay-web", type: "",
     digest: policyModule.recipeDigest(source) }];
   value.digest = policyModule.policyDigest(value);
   return value;
 }
 
 function noBoardRecipeInput(overrides) {
-  var source = unassignedRecipe();
+  var source = urbanStayAllIssuesRecipe();
   return Object.assign({
     policy: noBoardRecipePolicy(),
     projectRef: { projectId: PROJECT },
@@ -165,8 +166,11 @@ test("qualification receipt binds fresh open issue, every board item, policy, re
   }).ok, true);
 });
 
-test("an explicit recipe/no-board policy admits only its exact assigned:any recipe", function () {
+test("an explicit recipe/no-board policy admits only Urban Stay's exact all-issues recipe", function () {
   var source = noBoardRecipeInput();
+  assert.equal(policyModule.recipeDigest(urbanStayAllIssuesRecipe()),
+    "21adf1651784d5a3654cab045b2ab9259676380c4d44c12ac57c2093300ba325");
+  assert.equal(taskSources.recipeAllowsUnassigned(urbanStayAllIssuesRecipe(), {}), true);
   var created = qualification.receiptFor(source);
   assert.equal(created.ok, true, created.reason);
   assert.deepEqual(created.receipt.item.boardItems, []);
@@ -204,8 +208,8 @@ test("recipe/no-board qualification rejects missing policy, invalid policy, and 
     recipeAllowsUnassigned: taskSources.recipeAllowsUnassigned(recipe(), {}),
   })).reason, "qualification_assignment_required");
 
-  var broadened = unassignedRecipe();
-  delete broadened.filter.type;
+  var broadened = urbanStayAllIssuesRecipe();
+  delete broadened.filter.state;
   assert.equal(qualification.receiptFor(noBoardRecipeInput({
     recipe: { id: broadened.id, digest: policyModule.recipeDigest(broadened), kind: "issue" },
     recipeAllowsUnassigned: taskSources.recipeAllowsUnassigned(broadened, {}),
