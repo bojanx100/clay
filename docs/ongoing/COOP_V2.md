@@ -1099,3 +1099,70 @@ selection, not a general latency guarantee. Rollback is to stop only the preview
 restore its preserved empty JSONL while stopped, and run the previous code; retain
 the SQLite snapshot if a control-store rollback is separately needed. The original
 Clay daemon was not restarted.
+
+### Iteration 31 — comparable projects and saved sessions
+
+The owner found that the preview had only Clay registered and then clarified that
+its sessions should match the old Clay, with this Codex conversation as the sole
+addition in Clay. The initial project-only setup was therefore extended to copy
+saved history. The preview's native orphan adoption had exposed extra Claude
+rollouts that the old Clay's saved visibility state did not show.
+
+The preview now has the same nine project roots, order, ProjectRefs, titles,
+visibility and GitHub-account choices, plus the original chat/provider preferences.
+The repeatable project sync preserves preview infrastructure and unrelated config.
+The session sync replaces the preview inventory with a verified copy of the source
+session files and conversation-related data, including Coop's database through
+VACUUM INTO. It preserves the source owner ID for historical references and keeps
+the preview's own authentication. Extra preview sessions remain in rollback folders.
+Twelve original transcript fragments without metadata are preserved, not turned
+into invented sessions or repaired in the original store.
+
+Automatic orphan discovery is disabled for the comparison instance. Its scheduled
+launches and restored work are paused without changing repository auto-launch
+rules. The pause covers schedule ticks, direct auto-launch entry points, a scan
+that becomes paused while fetching, legacy automation draining, saved continuation
+timers, restart wrappers, startup queue restoration, controlled startup recovery
+and execution reaping. The sidebar shows Paused instead of a misleading countdown.
+An exclusive sync lock prevents the daemon from starting during snapshot creation.
+
+The first live copied-history check exposed a missed wrapper: runtime restart
+restoration flushed a copied owner queue before calling the already-gated scheduled
+message module. A provider start was attempted, but Codex rejected it because the
+original native thread already had an active writer. The preview was stopped,
+the wrapper was gated before queue reconciliation, and a regression was added
+against the shipped wrapper itself. The clean source snapshot was then restored.
+No provider tool execution was observed from the rejected attempt. This episode is
+not evidence that the earlier pause had worked.
+
+The final snapshot was captured at 2026-09-06T12:14:11.373Z, with 3,075 original
+saved sessions plus this conversation. All 5,442 copied files matched their captured
+hashes before the final startup. Runtime counts then matched the original across
+every root and Coop: Clay 910 versus preview 911; Webapp 1,072; Urban Stay 458;
+Health OS 62; Kodex 2; Waze 55; Revlogbook 3; Career Agent 1; Photos 1; Coop 311.
+The one added provider session is `01a07320-baad-7281-8b80-ca6b0cefb97e`.
+The original remained on PID 74378 / port 7292; the final preview started as
+PID 87775 / port 7392.
+
+Focused validation passes 12 tests. Reverting the five startup/launch/import
+implementation files makes all six isolation regressions fail (0 pass / 6 fail),
+then they pass after restoration. The copy tests exercise real filesystem
+inventory, visibility, retained-session deduplication, a live WAL row, byte
+preservation, rollback retention, identity/auth separation and the sync lock.
+One full run during concurrent snapshot I/O hit two existing immediate-save
+assertions after slow writes selected the coalescing path; the affected persistence
+implementation was not changed. The final run with test concurrency limited to
+four passes 4,313 / 4,313 default tests and 746 / 746 controlled tests. Browser
+checks show all nine roots, the retained conversation in Clay, Paused schedule
+labels in Webapp and Coop, and GPT-6 Astra on the copied canonical Coop chat.
+After the final restart and those page loads, the daemon log contains zero
+provider starts, copied queue flushes or automatic restart continuations.
+Loading large copied histories still produces event-loop lag spikes; this change
+does not establish a general UI latency guarantee.
+
+This is a comparison snapshot, not a continuously synchronized second writer.
+The repository paths and native provider history are shared. Lead stays off and
+controlled startup recovery stays paused; enabling live authority requires a
+separate cutover. The source can continue changing after capture. The final
+rollback directory is `~/.clay-coop-v2/before-session-sync-IoOSnk`; the initial
+pre-copy preview inventory is retained in `before-session-sync-Gak97f`.

@@ -23,6 +23,12 @@
 and `CLAY_RC_PATH` for a parallel instance with its own state and recent-project
 inventory; the default recent-project path remains `~/.clayrc`.
 
+`scheduled-execution-policy.js` reads instance-local schedule and startup-resume
+controls for comparison snapshots. `nativeSessionDiscovery: false` stops automatic
+orphan adoption in `sessions-cli-import.js`, while explicit imports remain available.
+`preview-sync-lock.js` prevents daemon startup during the stopped-preview sync tools
+in `scripts/sync-preview-{projects,sessions}.js`.
+
 ### project.js (thin coordinator, ~1,200 lines)
 
 Wires all modules, sets up session manager and SDK bridge, dispatches messages.

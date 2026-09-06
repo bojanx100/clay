@@ -3,6 +3,54 @@
 Maintenance utilities in this directory are intended to be run from the repo
 root with `node scripts/<name>.js`.
 
+## Parallel Preview Environment
+
+Use a separate `CLAY_HOME`, `CLAY_CONFIG`, `CLAY_RC_PATH`, and port for a comparison
+daemon. Stop only that destination before applying either sync. The source stays
+online and is only read. A sync lock also rejects daemon startup while a copy is in
+progress; a crash may leave the lock behind, so verify the PID recorded in it before
+removing a stale lock.
+
+```sh
+node scripts/sync-preview-projects.js --source /path/to/original-state --target /path/to/preview-state
+node scripts/sync-preview-projects.js --source /path/to/original-state --target /path/to/preview-state --apply
+node scripts/sync-preview-sessions.js --source /path/to/original-state --target /path/to/preview-state --keep-session /path/to/preview-state/sessions/project/session.jsonl --apply
+```
+
+The project sync copies registered roots in order, their metadata and selected
+conversation/provider preferences, mapping private projects to the preview owner.
+It preserves listener/authentication settings, unknown destination settings and
+Lead configuration. Without `--apply`, it only reports its plan.
+
+The session sync stages a snapshot of saved sessions, hidden/archive choices,
+Coop records, attachments, schedules and related conversation data. It does not copy
+startup caches, historical `.bak` files, SQLite sidecars or symlinks. The active Coop
+database is copied with the verified `snapshot-control-store.js` VACUUM path. The
+source is live, so JSON files are individually captured and hash-verified; this is
+not a transaction across every file and database. Non-session transcript fragments
+are retained as evidence without inventing sessions for them.
+
+The source admin ID is retained for historical ACL/reference integrity, while the
+preview retains its own authentication material. Both tools require a single,
+unambiguous admin mapping. `--keep-session` retains one extra preview conversation
+only if its provider ID is absent from the copied inventory. Without `--apply`, the
+session tool creates a verified staging copy but does not replace active state.
+
+Old preview directories are moved to the printed rollback directory, including
+extra sessions; they are not permanently deleted. Restore instructions and verified
+config/user backups are stored there, alongside a consistent snapshot of the prior
+Coop database. Stop the preview before any rollback.
+
+The resulting preview uses `scheduledExecutionPaused: true`,
+`restoreWorkOnStartup: false`, and `nativeSessionDiscovery: false`. Schedules remain
+defined and display **Paused**, copied queues/restart continuations/control recovery
+do not start automatically, and native orphan discovery cannot refill the sidebar.
+Explicit native imports remain available. These settings do not create a filesystem
+or provider sandbox: the registered repository folders and native provider sessions
+still belong to the same owner environment. Lead mode is preserved from the preview,
+not activated by copying the original. A paused control startup barrier is intentional;
+restoring live control authority is a separate cutover, not part of a history copy.
+
 ## Commit Message Guard
 
 CLAUDE.md forbids `Co-Authored-By` lines and requires Conventional Commits.
