@@ -65,6 +65,9 @@ test("a changed durable payload fails integrity checks; presentation edits do no
   assert.equal((await f.accept(queued.taskRef)).reason, "assignment_integrity_failed");
   task.projectAssignment.payload.objective = objective;
   task.objective = "Editable task presentation";
+  assert.equal((await f.accept(queued.taskRef)).reason, "coordinator_context_refresh_required",
+    "the provider first received an invalid assignment snapshot");
+  assert.equal(f.bridge.pushMessage(f.root(), "Re-read the restored durable assignment", null), true);
   var accepted = await f.accept(queued.taskRef);
   assert.equal(accepted.ok, true, JSON.stringify(accepted));
   assert.match(f.starts[0].text, /Implement the approved project change/);

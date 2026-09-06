@@ -67,9 +67,17 @@ substitution and anonymous cached handlers. The callback captures the session;
 the handler still rechecks its current registration, role, task and authority
 immediately before dispatch. Transport identity alone is not authorization.
 
-The SDK role context now reads canonical project rules for fresh, resumed, and warm
-turns. It conveys knowledge only; it is not a security boundary. Read-only admission
-and provider/MCP capability enforcement remain separate unfinished work.
+The SDK role context reads canonical project rules for fresh, resumed, warm and
+buffered turns. Iteration 36 extends required local references, rebuilds durable
+assignments and reports, and records the instruction manifest supplied at actual
+provider dispatch. New assignment acceptance requires the same live provider handle
+and current instruction digest; changed rules require a fresh turn. A historical
+receipt is not proof of understanding or authority after restart.
+
+Historical statement, retracted as a description of the current branch:
+~~Read-only admission and provider/MCP capability enforcement remain separate
+unfinished work.~~ Later iterations added those checks; model compliance remains
+unproven by deterministic tests. Context contents alone grant no execution authority.
 
 ## Verification and remaining limits
 

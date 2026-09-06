@@ -80,8 +80,9 @@ function fixture(t, opts) {
       cleanups.push(function () { handle.close(); });
       return handle;
     } };
+    var adapters = { codex: adapter, claude: Object.assign({}, adapter, { vendor: "claude" }) };
     state.bridge = createSDKBridge({ cwd: leadDir, slug: "lead", sessionManager: state.lead,
-      adapter: adapter, adapters: { codex: adapter }, send: function () {},
+      adapter: adapter, adapters: adapters, send: function () {},
       getControlSessionContext: state.router.getControlSessionContext,
       mcpServers: function (session) {
         var servers = {};

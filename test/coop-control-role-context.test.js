@@ -64,7 +64,7 @@ function snapshot(text) {
   return JSON.parse(match[1]);
 }
 
-function bridgeFixture(t, f) {
+function bridgeFixture(t, f, onCreate) {
   var messages = [];
   var options = [];
   var finish;
@@ -72,7 +72,9 @@ function bridgeFixture(t, f) {
   var handle = { pushMessage: function (text, images) { messages.push({ text: text, images: images }); } };
   handle[Symbol.asyncIterator] = function () { return { next: function () { return end; } }; };
   var adapter = { vendor: "codex", createQuery: async function (queryOptions) {
-    options.push(queryOptions); return handle;
+    options.push(queryOptions);
+    if (onCreate) await onCreate();
+    return handle;
   } };
   var bridge = createSDKBridge({ cwd: f.leadProject.cwd, slug: "lead", sessionManager: f.lead,
     adapter: adapter, adapters: { codex: adapter }, send: function () {},
@@ -172,4 +174,25 @@ test("ordinary owner turns remain byte-identical at the provider boundary", func
   var images = ["owner-image"];
   assert.equal(h.bridge.pushMessage(ordinary, text, images), true);
   assert.deepEqual(delivered, [[text, images]]);
+});
+
+
+test("fresh and buffered input resolve rules at actual dispatch after delayed provider creation", async function (t) {
+  var f = fixture(t);
+  var ready;
+  var entered;
+  var gate = new Promise(function (resolve) { ready = resolve; });
+  var created = new Promise(function (resolve) { entered = resolve; });
+  var h = bridgeFixture(t, f, async function () { entered(); await gate; });
+  var starting = h.bridge.startQuery(f.root, "First input", null, null);
+  await created;
+  assert.equal(h.bridge.pushMessage(f.root, "Buffered input", null), true);
+  fs.writeFileSync(path.join(f.target.cwd, "AGENTS.md"), "Rules changed while the provider was starting.");
+  ready();
+  await starting;
+  assert.equal(h.messages.length, 2);
+  h.messages.forEach(function (message) {
+    assert.equal(snapshot(message.text).instructions[0].body, "Rules changed while the provider was starting.");
+    assert.equal((message.text.match(/<clay_control_context>/g) || []).length, 1);
+  });
 });

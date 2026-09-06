@@ -71,6 +71,9 @@ and budget, and back off repeated checks when their evidence is unchanged.
       scoped delegation, and upward reporting.
 - [x] Give Coop explicit high-level discussion instructions while delegating substantial execution.
 - [x] Supply current role and canonical project instructions on every control turn.
+- [x] Follow required instruction references and restore durable assignment/report context at provider dispatch.
+- [x] Expose resident coordinator activity, context receipts and pending work to the owner.
+- [x] Renew resident provider conversations without changing their Clay TaskRef identity.
 - [x] Commission durable project assignments and accept their exact scope through the resident coordinator.
 - [x] Keep pending assignments visible and cancellable, with bounded notification and durable attention.
 - [x] Preserve reports through provider submission, bound retries, and expose uncertain delivery for owner review.
@@ -298,7 +301,10 @@ removed projects, incomplete instructions, and oversized instruction sets cannot
 supply a substitute or partial rule snapshot. Context accompanies initial,
 resumed, and warm provider messages; ordinary turns and owner history are preserved.
 The conversation retains its Lead workspace. Context supplies knowledge, not
-execution authority; coordinator intake and scoped delegation remain unfinished.
+execution authority. Historical status, retracted as current:
+~~coordinator intake and scoped delegation remain unfinished.~~ Subsequent iterations
+added intake and scoped delegation. Iteration 36 extends the fixed root/local file
+set described here with transitive required references and durable work context.
 
 Coop's foreground instructions now keep high-level planning, discussion, and
 outcome synthesis with Coop. The shared workspace identifies the distinct roles,
@@ -1360,3 +1366,63 @@ was recorded. The preview's existing execution pauses remain in force. A 324 ms
 startup-period loop-lag sample and the existing Copilot account-model discovery
 warning remain. This code merge does not refresh the historical snapshot or make
 the two instances' chats continuously synchronize.
+
+
+### Iteration 36 — coordinator instructions, continuity and transparency
+
+Owner request: coordinators must retain project rules and obligations across restarts
+and provider changes, and their work must be visible in Coop.
+
+Governing context now discovers case variants of root AGENTS/CLAUDE files, includes
+the existing required local staffing files, and recursively follows explicit local
+required-reading references and @ imports. References resolve against their source
+file or canonical project root; ambiguous paths, missing/empty required files,
+symlink escapes, and size limits block new assignment acceptance. Cycles are
+bounded. Code fences, descriptive tables and template examples do not create
+mandatory files. Supporting document references are indexed, with availability,
+for task-specific retrieval; they are not silently summarized or described as read.
+This is a documented parsing convention, not semantic understanding of arbitrary
+Markdown. Limits are 64 governing files / 512 KiB and 256 KiB of work context.
+The byte limits are not a provider token-budget guarantee.
+
+Each dispatched turn rebuilds durable assignment scope, TaskRefs, dependencies,
+exact bound worker status, pending reports and recent outcomes/events. All open
+assignments and their dependency records are included; older outcomes/events are
+bounded with explicit omitted counts. Invalid admitted payloads block acceptance.
+Provider construction and buffered input previously could carry stale context;
+context is now resolved again at actual dispatch. A saved receipt lists what Clay
+supplied, when, and to which provider/model. New acceptance requires the exact live
+handle and unchanged instruction digest. Receipts survive restart for inspection
+but do not restore current-provider authority. Ordinary owner history is unchanged.
+
+Resident compaction renews the provider in the same Clay session after the previous
+stream drains. It preserves task identity, admitted scope and pending reports, and
+persists continuation context before starting the replacement provider. Generic
+worker compaction and controlled-execution identity guards retain their old paths.
+
+The owner sees real coordinator activity/status in the existing Coop project
+hierarchy, including residents with no child tasks. Expand Coordinator details for
+provider/model, pending assignment/report counts, latest context receipt and file
+versions/problems, supporting references, and recent recorded task events. Existing
+project/session ACLs apply; detailed receipts are owner-only. Expansion stays open
+across projection refreshes. This surfaces recorded activity, not private model
+reasoning, and does not insert execution details into Main.
+
+Read-only checks of actual project files: Webapp resolves its root and both local
+rules; Clay resolves its required guides. Urban Stay currently fails the existing
+local staffing rule because localAIConfig/AGENTS.local.md is absent. No project
+instruction file outside Clay was modified. That configuration gap is now explicit.
+
+Verification: 4,390 default + 768 controlled = 5,158 passing checks, zero failures.
+Focused tests: 22 default + 19 controlled pass. Reverting the implementation wiring
+while retaining the tests yields 12 pass / 10 fail (default) and 11 pass / 8 fail
+(controlled); restored implementation passes. Tests exercise real local-file
+resolution, real session save/load, the SDK dispatch and acceptance MCP paths,
+Codex-to-Claude switching, resident renewal with open work, rejection/save failures,
+and owner/ACL/client projection. An isolated browser fixture verified expansion,
+readability and visible instruction/activity details. Fake provider adapters prove
+what Clay supplies, not real model compliance or a complete live Lead-on journey.
+
+Evidence: /private/tmp/coop-v2-coordinator-full.out,
+/private/tmp/coop-v2-coordinator-proof-fixed.out,
+/private/tmp/coop-v2-coordinator-proof-reverted.out.
