@@ -1431,8 +1431,9 @@ Evidence: /private/tmp/coop-v2-coordinator-full.out,
 /private/tmp/coop-v2-coordinator-proof-reverted.out.
 
 
-Activation: implementation commit `90560a7828acc987615f0d719233c62a73b942af`
-is running in the isolated preview on port 7392 (PID 92441). Lead remains OFF;
+Historical activation before the sidebar correction: implementation commit
+`90560a7828acc987615f0d719233c62a73b942af` was verified in the isolated preview
+on port 7392 (PID 92441). Lead remains OFF;
 schedules, automatic startup work, native discovery and global Claude settings
 management remain disabled. Nine registered projects remain configured. The
 3,514-file backup at `~/.clay-coop-v2/before-coordinator-context-MgZtCd` includes
@@ -1489,3 +1490,28 @@ Evidence: `/private/tmp/coop-v2-sidebar-before.json`,
 `/private/tmp/coop-v2-sidebar-reverted.out`,
 `/private/tmp/coop-v2-sidebar-restored.out`,
 `/private/tmp/coop-v2-sidebar-full-final.out`.
+
+
+Activation verified: implementation `4d292120edc17e0d338f54a444204d754d270862`
+is running on port 7392 (PID 51875). The fresh Webapp WebSocket reports all 77
+sessions idle and project `isProcessing: false`; a connected browser has zero
+processing session markers and Webapp's dot is connected without processing.
+All nine registered projects remain configured. Lead OFF, schedules paused,
+automatic startup work/native discovery/global Claude settings management OFF
+were re-read after restart. Original daemon config and global Claude settings
+hashes are unchanged across this activation.
+
+The verified snapshot at `~/.clay-coop-v2/before-sidebar-truth-7alp0qyj` contains
+5,533 verified non-SQLite files plus a VACUUM SQLite snapshot (16 tables, 201
+executions). Rollback instructions point to `bacf2d3673`; they require stopping
+only the preview and reviewing any restoration so newer work is not overwritten.
+The preview manifest was updated and unrelated fields were checked unchanged.
+No new recovery events were recorded. Initial measured loop lag was 172 ms.
+The existing paused-ingress shutdown warning and unavailable Copilot model
+catalog warning remain; neither caused this activity projection defect.
+The live check deliberately kept Lead off, so Coop failure propagation was
+verified by regression fixtures rather than by launching real provider work.
+
+Activation evidence: `/private/tmp/coop-v2-sidebar-activation.json`,
+`/private/tmp/coop-v2-sidebar-verified.json`,
+`/private/tmp/coop-v2-sidebar-backup.json`.
