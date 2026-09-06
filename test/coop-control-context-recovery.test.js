@@ -214,3 +214,24 @@ test("a provider that cannot detach blocks renewal within a bounded wait", async
     assert.ok(h.events.some(function (entry) { return /did not stop in time/.test(entry.text); }));
   } finally { h.cleanup(); }
 });
+
+
+test("recovery cannot launch if its bounded retry budget was not saved", async function () {
+  var h = harness();
+  var originalSave = h.sm.saveSessionFile;
+  var refused = false;
+  h.sm.saveSessionFile = function (session) {
+    if (!refused && session.contextRecovery && session.contextRecovery.status === "renewing") {
+      refused = true;
+      return false;
+    }
+    return originalSave(session);
+  };
+  try {
+    await overflow(h);
+    assert.equal(refused, true);
+    assert.equal(h.starts.length, 0);
+    assert.equal(h.session.contextRecovery.reason, "recovery_not_durable");
+    assert.equal(h.session.cliSessionId, "exhausted-thread");
+  } finally { h.cleanup(); }
+});

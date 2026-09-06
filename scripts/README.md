@@ -54,6 +54,28 @@ still belong to the same owner environment. Lead mode is preserved from the prev
 not activated by copying the original. A paused control startup barrier is intentional;
 restoring live control authority is a separate cutover, not part of a history copy.
 
+## Verified Runtime Activation
+
+`verify-runtime-activation.js` compares the actual serving daemon with an explicit
+checkout, commit and source fingerprint. It is read-only by default:
+
+```sh
+node scripts/verify-runtime-activation.js --socket /path/to/daemon-dev.sock --checkout /path/to/clay-worktree --revision FULL_COMMIT_SHA
+```
+
+After authorization, a verified state snapshot and a stated rollback path, add
+`--restart` to request activation. The daemon refuses a restart that would load a
+different checkout or source, rechecks after draining tools, and the script verifies
+the process after restart. Exit success means `activationVerified: true`, not merely
+that the restart request was accepted. An already active source needs no restart.
+The default verification window is 30 seconds; a pending result does not claim
+failure or cancel a longer graceful drain. Re-run without `--restart` to check it.
+
+Daemons predating this identity endpoint need a coordinated initial upgrade;
+the script will not blindly restart them. Existing restart commands remain available,
+so project coordinators must use this verification workflow for activation claims.
+See [Coop execution recovery](../docs/guides/COOP_INCIDENT_RECOVERY.md).
+
 ## Commit Message Guard
 
 CLAUDE.md forbids `Co-Authored-By` lines and requires Conventional Commits.

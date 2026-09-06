@@ -165,6 +165,9 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `lib/public/modules/human-attention.js` | Focus/visibility/interaction leases, live title-bar budget chip, cap editor, project totals, and 10-workday presentation |
 | `server-lead.js` | Permanent Coop pseudo-project registration, designated-owner resolution, managed no-local-execution directive, and immutable legacy Lead reference/supersession helpers |
 | `lead-mode.js` | Server-authoritative Coop Lead mode: one-time owner-preference migration, designated Clay-owner mutation authority, durable audit trail, and cross-project state fanout; it gates autonomous powers, not Coop persistence. Client navigation uses the same state through `sidebar-lead.js` to hide the Coop shortcut and project-picker entries while off |
+| `coop-coordinator-resolution.js` + `portfolio-coordinator-resolution.js` | Exact resident task verification reconciles portfolio outcomes while retaining failed attempt evidence; replay and startup reconciliation |
+| `coop-settled-discussion.js` | Owner follow-ups on terminal controlled workers route to the resident discussion through durable delivery, preserving the execution fence |
+| `runtime-activation.js` | Boot and disk source identity, explicit checkout/commit/fingerprint activation preflight and post-restart verification |
 | `server-cross-project.js` | Daemon cross-project router: non-authoritative legacy text notifications, typed durable delivery by stable ProjectRef/SessionRef, controlled legacy-to-project execution migration, and project-registration reconciliation of audited restart supersessions |
 | `server-cross-project-automation-admission.js` | Separate cross-project authorization boundary for policy-autonomous execution | Forbids owner-shaped ingress, validates current project-owned evidence through the target ProjectRef, and ensures the matching canonical automation Thread before binding delivery |
 | `cross-project-delivery-retry.js` | Daemon-owned delivery retry clock with readiness, shutdown, and error-reporting boundaries |
@@ -343,6 +346,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `sdk-bridge-query-vendor.js` + `sdk-bridge-query-options.js` | Vendor readiness/auth resolution and provider-specific query option assembly |
 | `sdk-bridge-query-launch.js` | Fenced provider construction, explicit local submission receipts, and initial message dispatch |
 | `sdk-bridge-query-start-failure.js` | Shared fail-closed cleanup when provider construction or initial message dispatch fails |
+| `sdk-context-recovery.js` | Durable bounded context-exhaustion renewal, Lead/owner/authority gates, and productive-turn reset |
 | `sdk-bridge-recovery.js` | SDK bridge transient stream error detection and bounded auto-resume scheduling helpers; direct portfolio leaves never auto-resume after adapter shutdown |
 | `sdk-bridge-rewind.js` | SDK bridge adapter-agnostic rewind preview, rewind execute, conversation rollback, and fork helpers |
 | `sdk-bridge-stream.js` | Fenced provider-stream coordinator |
