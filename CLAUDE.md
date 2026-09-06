@@ -45,7 +45,11 @@ hook that now enforces it has never been violated. Prose is the fallback, not th
 
 ## Skill routing
 
-When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+Invoke a named skill when the user explicitly requests it. Otherwise, use a skill when its workflow materially helps the requested work; a keyword alone is not enough. Answer simple questions and status requests directly, and handle small, reversible edits without starting a broader review pipeline. Keep verification proportional to the change while preserving the regression-proof and safety requirements above. Once the relevant checks pass, continue to completion without repeating them unless the code changed, a check failed, or a specific concern remains.
+
+For a restart or interruption, continue from the conversation and existing worktree state. Use /context-restore when a saved checkpoint is needed; do not turn an explicit request to continue into a separate confirmation step.
+
+For routine work, keep the current session's selected model and complete the work directly. When delegation is warranted, start with the configured efficient worker and escalate only the unresolved portion. Do not add model-switch suggestions or extra workers to simple requests.
 
 Key routing rules:
 - Product ideas/brainstorming → invoke /office-hours

@@ -56,6 +56,44 @@ function createHandle(fakeConnection, opts) {
   }, opts || {}));
 }
 
+test("GitHub Copilot adapter builds Clay bridge from retained init options", async function() {
+  var captured = null;
+  var catalogStarted = false;
+  var adapter = copilotAdapter.createGitHubCopilotAdapter({
+    cwd: "/workspace",
+    slug: "initial-project",
+    _copilotPath: "/bin/copilot",
+    _catalog: {
+      start: function() { catalogStarted = true; },
+      init: function() { return Promise.resolve({ models: ["auto"] }); },
+      supportedModels: function() { return Promise.resolve(["auto"]); },
+      refreshModels: function() { return Promise.resolve(["auto"]); },
+    },
+    _createCopilotQueryHandle: function(opts) {
+      captured = opts;
+      return { ok: true };
+    },
+  });
+
+  await adapter.init({
+    clayPort: 7292,
+    clayTls: true,
+    clayAuthToken: "session-token",
+    slug: "target-project",
+  });
+  var handle = adapter.createQuery({ prompt: "bridge check", model: "auto" });
+
+  assert.deepStrictEqual(handle, { ok: true });
+  assert.strictEqual(catalogStarted, true);
+  assert.strictEqual(captured.mcpServers.length, 1);
+  assert.strictEqual(captured.mcpServers[0].name, "clay-tools");
+  assert.strictEqual(captured.mcpServers[0].command, process.execPath);
+  assert.ok(captured.mcpServers[0].args[0].endsWith("lib/yoke/mcp-bridge-server.js"));
+  assert.deepStrictEqual(captured.mcpServers[0].args.slice(1),
+    ["--port", "7292", "--slug", "target-project", "--tls"]);
+  assert.deepStrictEqual(captured.mcpServers[0].env, { CLAY_AUTH_TOKEN: "session-token" });
+});
+
 async function readUntil(handle, predicate) {
   var eventsOut = [];
   for await (var event of handle) {
@@ -159,6 +197,41 @@ test("GitHub Copilot routes a full turn with text, tool calls, and completion", 
       cache_creation_input_tokens: 0,
     });
     assert.strictEqual(result.verifiedModel, "gpt-5");
+  } finally {
+    handle.close();
+  }
+});
+
+test("GitHub Copilot starts ACP sessions with Clay MCP bridge servers", async function() {
+  var newSessionParams = null;
+  var mcpServers = [{ name: "clay-tools", command: process.execPath, args: ["bridge.js"], env: { CLAY_AUTH_TOKEN: "token" } }];
+  var fakeConnection = {
+    initialize: function() {
+      return Promise.resolve({ agentCapabilities: { sessionCapabilities: { resume: true } } });
+    },
+    newSession: function(params) {
+      newSessionParams = params;
+      return Promise.resolve({ sessionId: "copilot-bridge-session", configOptions: [] });
+    },
+    prompt: function(params) {
+      assert.strictEqual(params.sessionId, "copilot-bridge-session");
+      return Promise.resolve({ usage: { inputTokens: 1, outputTokens: 1 }, stopReason: "end_turn" });
+    },
+    closeSession: function() {
+      return Promise.resolve({});
+    },
+    cancel: function() {
+      return Promise.resolve({});
+    },
+  };
+  var handle = createHandle(fakeConnection, { mcpServers: mcpServers });
+
+  try {
+    await readUntil(handle, function(event) {
+      return event.yokeType === "result";
+    });
+
+    assert.deepStrictEqual(newSessionParams.mcpServers, mcpServers);
   } finally {
     handle.close();
   }

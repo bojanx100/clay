@@ -150,6 +150,7 @@ function target(control, timeline, options) {
     coopDeliveryControl: opts.deliveryControl,
     coopExecutionControl: control,
     coopStartupRecovery: opts.startupRecovery,
+    reconcileSettledReview: opts.reconcileSettledReview,
     crossProject: opts.crossProject || {
       getExecutionBinding: function () {
         var session = Array.from(sessions.values())[0];
@@ -586,6 +587,127 @@ availableTest("restart reconciliation repairs a legacy owner-acceptance wait", f
     durable = recoveredControl.inspect(executionId);
     assert.equal(durable.execution.currentEpoch, 2);
     assert.equal(durable.current.startState, "started");
+    delivery.close();
+    recoveredControl.close();
+  } finally {
+    restoreFlags();
+    h.cleanup();
+  }
+});
+
+availableTest("startup reconciles one settled verified read-only review without recreating its failed incarnation", function () {
+  var h = harness();
+  var restoreFlags = enableExecutionFlags();
+  try {
+    var timeline = [];
+    var control = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var runtime = target(control, timeline);
+    var root = {
+      localId: 99,
+      storageId: "settled-read-only-review-root",
+      coordinationMode: true,
+      orchestrationPolicy: {},
+      orchestrationTasks: [],
+      orchestrationEvents: [],
+      history: [],
+      pendingPermissions: {},
+      pendingAskUser: {},
+      allowedTools: {},
+    };
+    runtime.sessions.set(root.localId, root);
+    var request = coordinatorEnvelope(624, root.storageId);
+    request.payload.controlRole = "triage";
+    request.payload.reviewOnly = true;
+    runtime.attached.handleEnvelope(request);
+    var session = controlledSession(runtime);
+    var execution = session.orchestrationPolicy.portfolioExecution;
+    var executionId = execution.control.executionId;
+    var completion = {
+      status: "completed",
+      completionRevision: 1,
+      graphDigest: "#events:0::",
+      summary: "The independently verified read-only review is complete.",
+      verification: "The stored review evidence is complete and exact.",
+      integrationVerification: "yes",
+      escalationRequired: "no",
+      portfolioTaskId: execution.portfolioTaskId,
+      bindingRevision: execution.bindingRevision,
+      completedAt: 1788656959403,
+    };
+    session.orchestrationProjectCompletion = completion;
+    execution.ownerAcceptanceRequired = true;
+    execution.ownerAcceptance = {
+      status: "pending",
+      source: "project_local_instructions",
+    };
+    finishControlledExecution(session, "needs_input", { control: control });
+    var durable = control.inspect(executionId);
+    execution.status = "failed";
+    execution.reason = "needs_input";
+    execution.terminalAt = durable.execution.finishedAt;
+    session.isProcessing = false;
+    control.close();
+
+    delete session._coopExecutionFence;
+    var recoveredControl = executions.createExecutionControl({ dbPath: h.dbPath, enabled: true });
+    var deliveries = [];
+    var completions = [];
+    var crossProject = {
+      createEnvelope: function (value) { return value; },
+      completeProjectCoordinatorExecution: function (value) {
+        completions.push(value);
+        return { ok: true };
+      },
+      deliverEnvelope: function (value) {
+        deliveries.push(value);
+        return { ok: true };
+      },
+    };
+    var gate = attachCompletionGate({
+      sm: runtime.sm,
+      flushCoordinatorUpdates: function () { return false; },
+      queueCoordinatorUpdate: function () {},
+      sendState: function () {},
+      crossProject: crossProject,
+      finishControlledExecution: function (targetSession, status) {
+        return finishControlledExecution(targetSession, status, { control: recoveredControl });
+      },
+    });
+
+    gate.restore(session);
+    assert.equal(execution.status, "failed",
+      "the completion gate runs before durable target reconciliation and must not invent a fence");
+    var reconciled = 0;
+    var delivery = deliveryModule.createDeliveryControl({
+      enabled: true,
+      store: recoveredControl.getStore(),
+    });
+    var recoveredRuntime = target(recoveredControl, [], {
+      deliveryControl: delivery,
+      sessions: runtime.sessions,
+      reconcileSettledReview: function (targetSession) {
+        reconciled++;
+        gate.restore(targetSession);
+      },
+    });
+    assert.equal(recoveredRuntime.attached.reconcilePersistedSessions(), true);
+    assert.equal(reconciled, 1,
+      "the post-control startup pass retries only the settled review completion");
+    assert.equal(execution.status, "completed");
+    assert.equal(completions.length, 1);
+    assert.equal(deliveries.length, 1);
+    assert.equal(session.orchestrationProjectCompletion, completion,
+      "the existing authenticated completion is replayed rather than recreated");
+    assert.equal(recoveredRuntime.attached.reconcilePersistedSessions(), false,
+      "a replay leaves the original failed execution terminal and adds no lease");
+    durable = recoveredControl.inspect(executionId);
+    assert.equal(durable.execution.status, "failed");
+    assert.equal(durable.current.failureCode, "needs_input");
+    assert.equal(durable.leases.length, 0);
+    assert.equal(completions.length, 1,
+      "a repeated typed reconciliation does not create another completion");
+    assert.equal(deliveries.length, 1,
+      "a repeated typed reconciliation does not send another delivery");
     delivery.close();
     recoveredControl.close();
   } finally {

@@ -6,7 +6,35 @@ var path = require("path");
 require("./helpers/isolated-clay-home");
 var attachTaskOrchestrator = require("../lib/project-task-orchestrator").attachTaskOrchestrator;
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
+var createCoopOwnerRequests = require("../lib/coop-owner-requests").createCoopOwnerRequests;
 var orchestrationMcp = require("../lib/orchestration-mcp-server");
+
+["hideSession", "saveSessionFile"].forEach(function (backend) {
+  test("explicit completion archive preserves the " + backend + " fallback", function () {
+    var archive = require("../lib/project-task-orchestrator-completion").archiveCompletedCoopSession;
+    var session = {
+      localId: 17,
+      coopControlledBy: { coopSessionStorageId: "archive-owner" },
+      orchestrationPolicy: { portfolioExecution: { mode: "project_coordinator" } },
+      orchestrationProjectCompletion: { status: "completed", escalationRequired: "no" },
+    };
+    var calls = [];
+    var sm = {};
+    sm[backend] = function (value) {
+      calls.push(value);
+      if (backend === "hideSession") session.hidden = true;
+    };
+
+    assert.equal(archive(sm, session, {}), false);
+    assert.equal(session.hidden, undefined);
+    assert.equal(calls.length, 0);
+    assert.equal(archive(sm, session, { explicit: true }), true);
+    assert.equal(session.hidden, true);
+    assert.deepEqual(calls, [backend === "hideSession" ? session.localId : session]);
+    assert.equal(archive(sm, session, { explicit: true }), false);
+    assert.equal(calls.length, 1);
+  });
+});
 
 function testContext(existingSessions, options) {
   options = options || {};
@@ -1540,6 +1568,191 @@ test("Webapp completion stays implemented and verified until the owner explicitl
   assert.equal(binding.ownerAcceptance.status, "accepted");
 });
 
+test("a legacy coordinator-verified read-only triage review terminalizes its exact binding", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-read-only-review-completion-"));
+  var workflowDir = webappWorkflowDir();
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, {
+    cwd: workflowDir, projectId: targetProjectId, crossProject: router,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    getSessionManager: function () { return target.sm; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    getSessionManager: function () { return lead.sm; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  // Exercise compatibility delivery below the owner-facing tool: new Council
+  // and Triage work must use Coop planning, while old typed reviews can settle.
+  var created = router.createProjectExecution({
+    source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    portfolioTaskId: "triage-verified-read-only-review",
+    bindingRevision: 1,
+    idempotencyKey: "triage-verified-read-only-review-r1",
+    mode: "project_coordinator",
+    targetProject: { projectId: targetProjectId },
+    title: "Triage verified read-only review",
+    objective: "Review the completed coordinator evidence without source edits.",
+    acceptanceCriteria: "Deliver verified review findings without product acceptance.",
+    ownedPaths: "read-only:lib/project-task-orchestrator-completion.js",
+    controlRole: "triage",
+    reviewOnly: true,
+  });
+  assert.equal(created.ok, true, JSON.stringify(created));
+  var session = portfolioSession(target, "triage-verified-read-only-review");
+  assert.equal(session.orchestrationPolicy.portfolioExecution.ownerAcceptanceRequired, true);
+  session.history.push({
+    type: "delta",
+    text: "PROJECT_COMPLETED: yes\nSUMMARY: Triage review verified the exact completion path.\n" +
+      "VERIFICATION: focused orchestration and binding suites passed\n" +
+      "INTEGRATION_VERIFIED: yes\nESCALATION_REQUIRED: no",
+  });
+  session.isProcessing = false;
+
+  target.api.handleCoordinatorTurnDone(session);
+
+  var binding = router.getExecutionBinding("triage-verified-read-only-review", 1);
+  assert.equal(session.orchestrationProjectCompletion.status, "completed");
+  assert.equal(session.orchestrationPolicy.portfolioExecution.status, "completed");
+  assert.equal(session.orchestrationPolicy.portfolioExecution.ownerAcceptanceRequired, undefined);
+  assert.equal(binding.status, "completed");
+  assert.equal(binding.ownerAcceptanceRequired, undefined);
+  assert.equal(binding.ownerAcceptance, undefined);
+  assert.deepEqual(binding.targetProject, { projectId: targetProjectId });
+  assert.equal(binding.bindingRevision, 1);
+  assert.deepEqual(router.bindingStore.listCurrent(), []);
+  var completionEventId = binding.completionEventId;
+
+  target.api.handleCoordinatorTurnDone(session);
+  binding = router.getExecutionBinding("triage-verified-read-only-review", 1);
+  assert.equal(binding.status, "completed");
+  assert.equal(binding.completionEventId, completionEventId,
+    "normal completion readback does not reopen or rewrite the exact review");
+  var readback = router.queryCoopSessions({
+    projectRefs: [{ projectId: targetProjectId }], topLevelOnly: false,
+  }).sessions.find(function (entry) {
+    return entry.sessionStorageId === session.storageId;
+  });
+  assert.equal(readback.workState, "done");
+});
+
+test("read-only review delivery refuses incomplete, running, and unanswered review states", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-read-only-review-negatives-"));
+  var workflowDir = webappWorkflowDir();
+  var targetProjectId = "6c7c7cd4-7cc3-5d7e-91d5-e20a3aafcf04";
+  var router = createCrossProjectRouter({
+    allowLeadSourcedExecution: true,
+    bindingFile: path.join(dir, "bindings.json"),
+    deliveryFile: path.join(dir, "delivery.json"),
+  });
+  var target = testContext(undefined, {
+    cwd: workflowDir, projectId: targetProjectId, crossProject: router,
+  });
+  var lead = testContext(undefined, { projectId: "system-lead", crossProject: router });
+  var coop = coordinator(lead);
+  coop.coopHome = true;
+  router.registerProjectResolver({
+    getProjectId: function () { return targetProjectId; },
+    deliverCrossProjectEnvelope: target.api.deliverCrossProjectEnvelope,
+  });
+  router.registerProjectResolver({
+    getProjectId: function () { return "system-lead"; },
+    deliverCrossProjectEnvelope: lead.api.deliverCrossProjectEnvelope,
+  });
+  function startReview(taskId) {
+    assert.equal(router.createProjectExecution({
+      source: { projectId: "system-lead", sessionStorageId: coop.storageId },
+      portfolioTaskId: taskId,
+      bindingRevision: 1,
+      idempotencyKey: taskId + "-r1",
+      mode: "project_coordinator",
+      targetProject: { projectId: targetProjectId },
+      title: "Triage " + taskId,
+      objective: "Return read-only review evidence.",
+      acceptanceCriteria: "Do not claim completion without a resolved review.",
+      ownedPaths: "read-only:lib/project-task-orchestrator-completion.js",
+      controlRole: "triage",
+      reviewOnly: true,
+    }).ok, true);
+    return portfolioSession(target, taskId);
+  }
+  function completedEnvelope() {
+    return "PROJECT_COMPLETED: yes\nSUMMARY: Review evidence is complete.\n" +
+      "VERIFICATION: focused suite passed\nINTEGRATION_VERIFIED: yes\nESCALATION_REQUIRED: no";
+  }
+
+  var unverified = startReview("triage-unverified-review");
+  unverified.history.push({ type: "delta", text: "PROJECT_COMPLETED: yes\nSUMMARY: Not enough evidence." });
+  unverified.isProcessing = false;
+  target.api.handleCoordinatorTurnDone(unverified);
+  assert.equal(router.getExecutionBinding("triage-unverified-review", 1).status, "active");
+  assert.equal(unverified.orchestrationProjectCompletion.status, "pending");
+
+  var running = startReview("triage-running-review");
+  running.orchestrationTasks.push({
+    taskId: "running-review-worker", status: "running", workerStorageId: "running-review-worker",
+  });
+  running.history.push({ type: "delta", text: completedEnvelope() });
+  running.isProcessing = false;
+  target.api.handleCoordinatorTurnDone(running);
+  assert.equal(router.getExecutionBinding("triage-running-review", 1).status, "active");
+  assert.equal(running.orchestrationProjectCompletion.status, "pending");
+
+  var unanswered = startReview("triage-unanswered-review");
+  unanswered.orchestrationTasks.push({
+    taskId: "unanswered-review-question", status: "waiting_user",
+    userQuestion: "Which review finding should be escalated?",
+  });
+  unanswered.history.push({ type: "delta", text: completedEnvelope() });
+  unanswered.isProcessing = false;
+  target.api.handleCoordinatorTurnDone(unanswered);
+  assert.equal(router.getExecutionBinding("triage-unanswered-review", 1).status, "active");
+  assert.equal(unanswered.orchestrationProjectCompletion.status, "pending");
+  assert.equal(unanswered.orchestrationTasks[0].status, "waiting_user");
+
+  var mismatch = router.completeProjectCoordinatorExecution({
+    eventId: "triage-mismatched-project",
+    source: { projectId: "different-project", sessionStorageId: unverified.storageId },
+    destination: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    bindingRevision: 1,
+    payload: {
+      type: "portfolio_execution_completed",
+      executionMode: "project_coordinator",
+      portfolioTaskId: "triage-unverified-review",
+      bindingRevision: 1,
+      terminalStatus: "completed",
+    },
+  });
+  assert.equal(mismatch.reason, "invalid_completion");
+  assert.equal(router.getExecutionBinding("triage-unverified-review", 1).status, "active");
+  var revisionMismatch = router.completeProjectCoordinatorExecution({
+    eventId: "triage-mismatched-revision",
+    source: { projectId: targetProjectId, sessionStorageId: unverified.storageId },
+    destination: { projectId: "system-lead", sessionStorageId: coop.storageId },
+    bindingRevision: 2,
+    payload: {
+      type: "portfolio_execution_completed",
+      executionMode: "project_coordinator",
+      portfolioTaskId: "triage-unverified-review",
+      bindingRevision: 2,
+      terminalStatus: "completed",
+    },
+  });
+  assert.equal(revisionMismatch.reason, "binding_mismatch");
+  assert.equal(router.getExecutionBinding("triage-unverified-review", 1).status, "active");
+});
+
 test("Webapp portfolio staffing fails closed when a local instruction is missing", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-webapp-missing-triage-"));
   var workflowDir = webappWorkflowDir();
@@ -2310,10 +2523,17 @@ test("target-project routing failure never falls back to a Lead-local worker", f
 test("delegate tool routes a typed binding into the target project without a Lead-local worker", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-project-tool-route-"));
   var targetProjectId = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
+  // Project-coordinator delivery has to durably claim its policy-owned Thread.
+  // Use the real isolated owner-request ledger, not a success stub, so this
+  // remains a routing and transport test under the current claim protocol.
+  var ownerRequests = createCoopOwnerRequests({
+    file: path.join(dir, "coop-owner-requests.json"),
+  });
   var router = createCrossProjectRouter({
     allowLeadSourcedExecution: true,
     bindingFile: path.join(dir, "bindings.json"),
     deliveryFile: path.join(dir, "delivery.json"),
+    ownerRequests: ownerRequests,
   });
   var target = testContext(undefined, { projectId: targetProjectId, crossProject: router });
   router.registerProjectResolver({
@@ -2327,6 +2547,7 @@ test("delegate tool routes a typed binding into the target project without a Lea
   var result = lead.api.delegateFromTool({
     coordinatorSessionId: coop.storageId,
     portfolioTaskId: "portfolio-tool-route",
+    coopTopicRef: { topicId: "portfolio-tool-route-thread" },
     bindingRevision: 1,
     idempotencyKey: "staff-portfolio-tool-route-r1",
     mode: "project_coordinator",
@@ -2351,6 +2572,9 @@ test("delegate tool routes a typed binding into the target project without a Lea
   assert.equal(binding.targetProject.projectId, targetProjectId);
   assert.equal(binding.mode, "project_coordinator");
   assert.ok(binding.coordinator);
+  assert.deepEqual(ownerRequests.canonicalCoordinator(binding.coopTopicRef,
+    binding.targetProject), binding.projectCoordinator,
+  "the target coordinator holds the durable claim for the routed Thread");
 });
 
 test("independent admitted project bindings start parallel visible target coordinators", function () {

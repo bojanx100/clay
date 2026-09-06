@@ -77,3 +77,84 @@ test("Workspace tasks reject composite assent and use its concrete objective", f
   }] });
   assert.equal(rows[0].title, "Ship the task panel");
 });
+
+test("Lead uses the latest target-project execution instead of stale resident task badges", function () {
+  var resident = { storageId: "resident", orchestrationTasks: [
+    { taskId: "old", clientRef: "portfolio:deploy:1", title: "Old deployment", status: "running" },
+    { taskId: "current", clientRef: "portfolio:deploy:2", title: "Deploy Tasks", status: "running" },
+  ] };
+  var rows = projectTasks({ projectId: "system-lead", sessions: [resident], bindings: [
+    binding("deploy", 1, "failed", { projectCoordinator: { projectId: "system-lead", sessionStorageId: "resident" } }),
+    binding("deploy", 2, "completed", { projectCoordinator: { projectId: "system-lead", sessionStorageId: "resident" } }),
+  ] });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "completed");
+  assert.equal(rows[0].group, "completed");
+  assert.equal(rows[0].title, "Deploy Tasks");
+  assert.equal(rows[0].bindingRevision, 2);
+  assert.equal(resident.orchestrationTasks[1].status, "running", "projection does not rewrite historical records");
+});
+
+test("Lead does not import unrelated global bindings or claim unverified historical work is running", function () {
+  var rows = projectTasks({ projectId: "system-lead", sessions: [{
+    storageId: "resident", orchestrationTasks: [
+      { taskId: "legacy", clientRef: "portfolio:legacy:1", title: "Recover the old runtime", status: "running" },
+      { taskId: "mismatch", clientRef: "portfolio:mismatch:1", title: "Check project state", status: "running" },
+      { taskId: "done", clientRef: "portfolio:done:1", title: "Completed audit", status: "completed" },
+    ],
+  }], bindings: [
+    binding("hidden", 1, "active"),
+    binding("mismatch", 1, "completed", { source: { projectId: "system-lead", sessionStorageId: "another-owner" } }),
+  ] });
+  assert.equal(rows.length, 3);
+  assert.equal(rows.find(function (row) { return row.key === "legacy"; }).status, "unavailable");
+  assert.equal(rows.find(function (row) { return row.key === "mismatch"; }).status, "unavailable");
+  assert.equal(rows.find(function (row) { return row.key === "done"; }).status, "completed");
+  assert.equal(rows.some(function (row) { return row.key === "hidden"; }), false);
+});
+
+test("ordinary project views cannot use another project's execution as their status source", function () {
+  var rows = projectTasks({ projectId: "project-b", sessions: [{
+    storageId: "resident", orchestrationTasks: [{ taskId: "task", clientRef: "portfolio:deploy:1", title: "Local deployment", status: "pending" }],
+  }], bindings: [binding("deploy", 1, "completed", { source: { projectId: "system-lead", sessionStorageId: "resident" } })] });
+  assert.equal(rows[0].status, "pending");
+});
+
+test("Lead reconciles older visible task references against their exact target project", function () {
+  var rows = projectTasks({ projectId: "system-lead", sessions: [{ storageId: "resident", orchestrationTasks: [
+    { taskId: "task", clientRef: "portfolio:deploy:1", title: "Deploy the preview", status: "running", coopProjectRef: { projectId: "project-a" } },
+    { taskId: "other", clientRef: "portfolio:other:1", title: "Another deployment", status: "running", coopProjectRef: { projectId: "project-b" } },
+  ] }], bindings: [binding("deploy", 1, "failed"), binding("other", 1, "completed")] });
+  assert.equal(rows.find(function (row) { return row.key === "deploy"; }).status, "failed");
+  assert.equal(rows.find(function (row) { return row.key === "other"; }).status, "unavailable");
+});
+
+test("Lead only calls an unbound local worker running with live processing evidence", function () {
+  var rows = projectTasks({ projectId: "system-lead", bindings: [], sessions: [
+    { storageId: "resident", orchestrationTasks: [
+      { taskId: "live", title: "Run the build", status: "running", workerStorageId: "live-worker" },
+      { taskId: "idle", title: "Review the build", status: "running", workerSessionId: 44 },
+      { taskId: "gone", title: "Check the previous build", status: "running", workerStorageId: "missing" },
+    ] },
+    { storageId: "live-worker", isProcessing: true },
+    { localId: 44, storageId: "idle-worker", isProcessing: false },
+  ] });
+  assert.equal(rows.find(function (row) { return row.taskId === "live"; }).status, "running");
+  assert.equal(rows.find(function (row) { return row.taskId === "idle"; }).status, "unavailable");
+  assert.equal(rows.find(function (row) { return row.taskId === "gone"; }).status, "unavailable");
+});
+
+test("a stale session copy cannot mask an authoritative binding discovered later", function () {
+  var rows = projectTasks({ projectId: "system-lead", sessions: [
+    { storageId: "historical-copy", orchestrationTasks: [
+      { taskId: "old", clientRef: "portfolio:deploy:1", title: "Old deployment", status: "running", updatedAt: 1000 },
+    ] },
+    { storageId: "resident", orchestrationTasks: [
+      { taskId: "current", clientRef: "portfolio:deploy:2", title: "Current deployment", status: "running", coopProjectRef: { projectId: "project-a" } },
+    ] },
+  ], bindings: [binding("deploy", 2, "failed")] });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "failed");
+  assert.equal(rows[0].title, "Current deployment");
+  assert.equal(rows[0].bindingRevision, 2);
+});

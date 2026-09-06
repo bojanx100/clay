@@ -151,7 +151,7 @@ test("the envelope factory reserves source sequences before multiple events are 
   });
 });
 
-test("source cursor capacity stays retryable and redelivers after bounded cursor reconciliation", function () {
+test("legacy source capacity dead letters replay after bounded cursor reconciliation", function () {
   withTransport({}, function (scratch) {
     var clock = 0;
     var applied = [];
@@ -199,20 +199,24 @@ test("source cursor capacity stays retryable and redelivers after bounded cursor
       createdAt: 513,
       payload: { type: "coordinator_update", text: "worker needs input" },
     };
-    var first = delivery.deliverEnvelope(blocked);
-
-    assert.equal(first.deadLettered, true);
-    assert.equal(first.pending, true);
-    assert.deepEqual(delivery.getPendingEventIds(), ["cursor-capacity-needs-input"]);
-    assert.equal(applied.includes("cursor-capacity-needs-input"), false);
-    assert.deepEqual(recovery.map(function (event) { return event.lastError; }), [
-      "source cursor capacity reached",
-    ]);
-
     // Older capacity failures were persisted only as a dead letter, with no
-    // outbox record for retry. Simulate that exact durable pre-repair state.
+    // outbox record for retry. Seed that legacy envelope after building the
+    // saturated cursors through real deliveries; reclamation must find its
+    // own eligible acknowledged source.
     var persisted = delivery.getState();
-    delete persisted.outbox[blocked.eventId];
+    persisted.deadLetters.push({
+      eventId: blocked.eventId,
+      envelope: blocked,
+      source: blocked.source,
+      destination: blocked.destination,
+      bindingRevision: blocked.bindingRevision,
+      reason: "delivery_error",
+      attempts: 0,
+      createdAt: blocked.createdAt,
+      failedAt: clock,
+      nextRetryAt: 5,
+      lastError: "source cursor capacity reached",
+    });
     fs.writeFileSync(scratch.file, JSON.stringify(persisted));
 
     clock = 5;
@@ -222,6 +226,7 @@ test("source cursor capacity stays retryable and redelivers after bounded cursor
     assert.deepEqual(afterRestart.getPendingEventIds(), []);
     assert.equal(afterRestart.getDeadLetters().length, 0);
     assert.equal(Object.keys(afterRestart.getState().sequences).length, 512);
+    assert.deepEqual(recovery, []);
   });
 });
 

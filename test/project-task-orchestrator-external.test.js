@@ -5,6 +5,7 @@ var os = require("os");
 var path = require("path");
 
 var externalOrchestration = require("../lib/project-task-orchestrator-external");
+var autonomyGrant = require("../lib/coop-autonomy-grant");
 var createCrossProjectRouter = require("../lib/server-cross-project").createCrossProjectRouter;
 // These fixtures exercise owner-derived routes with no independent standing
 // grant. The owner's shipped switch must not change their authority model.
@@ -16,6 +17,20 @@ function createExternalTaskCoordinator(options) {
 var attachPortfolioExecutionTarget = externalOrchestration.attachPortfolioExecutionTarget;
 var terminalStatusForTurn =
   require("../lib/project-task-orchestrator-direct-leaf-status").terminalStatusForTurn;
+
+function noStandingAutonomyPolicyFile() {
+  var directory = fs.mkdtempSync(path.join(os.tmpdir(), "clay-no-standing-autonomy-"));
+  var file = path.join(directory, "scoped-autonomy-policy.json");
+  fs.writeFileSync(file, JSON.stringify({
+    schema: autonomyGrant.SCHEMA,
+    version: autonomyGrant.VERSION,
+    enabled: false,
+    projects: [],
+    categories: [],
+    permanentlyGated: autonomyGrant.forbiddenIds(),
+  }, null, 2) + "\n");
+  return file;
+}
 
 test("external task context becomes a durable task owned by the coordinator", function () {
   var coordinator = {
@@ -965,6 +980,10 @@ test("a named owner approval routes itself and mints the Thread it needs", funct
 });
 
 test("an approval never routes a task it did not name", function () {
+  // This case asserts a turn with no task-specific authorization. The shipped
+  // policy deliberately grants ordinary Clay work, so make the no-grant premise
+  // explicit instead of letting this fixture read that mutable repository state.
+  var autonomyPolicyFile = noStandingAutonomyPolicyFile();
   var approval = {
     type: "user_message",
     text: "approve eligibility fix",
@@ -976,6 +995,7 @@ test("an approval never routes a task it did not name", function () {
   var minted = 0;
   var delivered = null;
   var coordinate = createExternalTaskCoordinator({
+    autonomyPolicyFile: autonomyPolicyFile,
     sessionForInput: function () { return source; },
     projectId: function () { return "system-lead"; },
     readLeadEvents: function () {
@@ -1440,7 +1460,9 @@ test("a minted Thread is carried by the durable scope once the owner types again
 test("an unscoped Main turn carrying no implementation decision mints nothing", function () {
   // Minting is not a courtesy extended to every Main turn. A question authorizes
   // nothing, so it gets no Thread and stays undispatchable.
-  var harness = unscopedMainCoordinator(unscopedMainCommand("what is blocking the dispatch?"));
+  var harness = unscopedMainCoordinator(
+    unscopedMainCommand("what is blocking the dispatch?"),
+    { autonomyPolicyFile: noStandingAutonomyPolicyFile() });
 
   harness.coordinate(unscopedMainInput());
 

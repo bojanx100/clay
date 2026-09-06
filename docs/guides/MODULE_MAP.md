@@ -90,6 +90,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `global-coop-topic-client.js` | Bounded client Topic projection | Shapes durable grouped Topic data into the ACL-safe client payload, keeping canonical-event previews and stable TopicRef links bounded |
 | `global-coop-coordinator-tree.js` | Global Coop sidebar execution hierarchy | Exact bounded projection of Lead-resident ProjectRef-bound coordinators → durable handed-off Thread containers → target-project task coordinators → current bound worker sessions, with canonical TopicRef/TaskRef/SessionRef ownership, dependency metadata, active/attention rollup, and Council/Triage exclusion from the generic hierarchy |
 | `coop-control-plane.js` | Persistent Coop control-plane sessions | Ensures project-named ProjectRef-bound coordinators plus Council/Triage in Lead, owns cross-project task links, conservatively migrates live legacy target-local hierarchy metadata, and invokes the bounded Class-B sweep adapter |
+| `coop-control-settled-task-reconciliation.js` | Exact completion and delivery evidence for repairing a settled implementation's Lead task projection while retaining owner acceptance |
+| `coop-control-settled-review-reconciliation.js` | Exact durable incarnation and completion receipts for settling legacy read-only reviews without rewriting execution history |
 | `coop-control-maintenance.js` | Daemon-owned control maintenance | Full runtime inventory, startup/Lead gates, coalesced events and bounded retry drive role migration, topic advancement, explicit archive visibility and session-ledger refresh through each owning manager; dashboard projection stays read-only |
 | `coop-owner-model.js` + `coop-owner-model-mcp.js` | Evidence-backed owner preferences | Reads durable owner ingress across compaction lineage without a second observation store; retains scoped, versioned interpretations and retractions; session-scoped Coop tools search and correct preferences without granting execution authority |
 | `coop-control-role-context.js` + `coop-control-role-prompt.js` | Resident control session role and project knowledge | Resolves registered session identity and canonical ProjectRef, reads current root/local staffing instructions, and supplies distinct Coop/coordinator/peer context to fresh, resumed, and warm provider turns without changing conversation cwd or granting execution authority |
@@ -161,7 +163,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `cross-project-delivery.js` | Atomic bounded outbox/inbox persistence, acknowledgement, ordered retries, retained transient failures, and explicit terminal sequence disposition |
 | `cross-project-outbox-queue.js` | Atomic envelope reservation | Persists a sequence together with its retryable envelope before caller acknowledgement, including rollback of idle-cursor reclamation when saving fails |
 | `cross-project-envelope.js` | Versioned bounded cross-project wire format, validation, and byte-stable replay identity |
-| `cross-project-delivery-cursors.js` | Bounded source/inbox cursor allocation and reclamation that preserves pending reports |
+| `cross-project-delivery-cursors.js` | Immediate bounded source/inbox cursor reclamation that preserves pending reports and unacknowledged factory reservations |
 | `cross-project-delivery-retention.js` | Atomic predecessor/successor slot exchange for recovery from a saturated legacy outbox |
 | `server-cross-project-control-plane-migration.js` | Canonical typed migration of one exact verified legacy project-coordinator binding revision onto Coop's resident control plane: fail-closed ref/prior/claim/owner-direct verification, byte-stable idempotent retries, immutable terminal history, and no duplicated coordinators, tasks, claims, sessions, or fan-in events |
 | `project-live-ui.js` | Session/dev-tab authorization and versioned Live UI target/control relay |
@@ -347,6 +349,8 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `automation-modes.js` | Shared automation mode normalization and provider permission/approval mapping |
 | `provider-routes.js` | Provider-route configuration, exact-route verified live/last-known-good catalog gates, model-family matching, and health decoration |
 | `provider-routing-policy.js` | Normalizes the persisted `free-endurance`, `balanced`, and `best-available` routing profiles |
+| `turn-performance.js` | Content-free per-turn wall-clock phase accounting and asynchronous completion measurements |
+| `task-speed-report.js` + `scripts/task-speed-report.js` | Bounded-window latency reports, comparable route/effort baselines, sleep exclusion, and daemon stall summaries |
 | `provider-model-defaults.js` | Per-vendor server/project model defaults with compatibility reads for legacy Claude, Codex, and Copilot fields |
 | `provider-health.js` | Process-wide vendor-wide plus exact route/model health and quota registries (healthy→degraded→unhealthy), fed by SDK failure/success signals |
 | `model-catalog-cache.js` | Durable live/last-known-good vendor catalogs plus account/route/SDK/backend/model-scoped capability evidence |

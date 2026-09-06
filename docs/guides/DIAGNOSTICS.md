@@ -193,8 +193,15 @@ preceding the death (`grep -n "^\[daemon\] v2\..* PID " …`) against
 `kill -TERM <pid>` in `~/.clay/sessions/**/*.jsonl` — but exclude your own
 session file, or you will match your own notes about the search.
 
-**The daemon is supervised; the watcher is not.** This asymmetry decides whether
-a kill is a blip or an outage, so establish it first:
+**The daemon is supervised; the watcher is not.** **Retracted for SIGTERM/SIGHUP
+as of the supervisor signal guard:** these signals are now refused by the dev
+watcher. A `[dev] Refused SIGTERM` or `Refused SIGHUP` line means it stayed alive.
+Managed restarts still use `clay --dev --restart` and daemon exit code 120.
+Ctrl+C remains an explicit stop; SIGKILL cannot be caught and is not protected.
+A competing launcher now refuses takeover if the prior watcher has not exited.
+
+The following describes the historical failure before the guard (and why it
+was added):
 
 - **Daemon killed alone** → it exits 0, falls through to the "Unexpected exit —
   auto restart" branch (`bin/cli.js:1958`) and is respawned 500ms later. Clay

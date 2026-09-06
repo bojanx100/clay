@@ -271,3 +271,49 @@ test("the dev watcher delegates Ctrl+C teardown to the owned-daemon stop barrier
   assert.match(source, /isDaemonProcessAlive:[\s\S]*process\.kill\(devConfig\.pid, 0\)/,
     "takeover must wait for the daemon PID, not only for its IPC socket to close");
 });
+
+
+test("takeover refuses a watcher that did not exit without touching its daemon", async function () {
+  var shutdownCalls = 0;
+  await assert.rejects(takeOverExistingDev({pid:4243, devWatcherPid:4242}, {
+    currentPid:99, waitAttempts:1, waitIntervalMs:0,
+    isWatcherAlive:function () { return true; },
+    isDaemonAlive:function () { return Promise.resolve(true); },
+    stopWatcher:function () {}, sleep:function () { return Promise.resolve(); },
+    shutdownDaemon:function () { shutdownCalls++; return Promise.resolve(); },
+  }), /supervisor is still running/);
+  assert.equal(shutdownCalls, 0);
+});
+
+test("real process signals cannot shut down a guarded supervisor", async function (t) {
+  var spawn = require("node:child_process").spawn;
+  var events = require("node:events");
+  var guardPath = require.resolve("../lib/dev-watcher-takeover");
+  var child = spawn(process.execPath, ["-e", [
+    "var guard=require(process.argv[1]);",
+    "['SIGTERM','SIGHUP','SIGINT'].forEach(function(s){process.on(s,function(){",
+    "if(guard.shouldStopWatcher(s))process.exit(0);else process.send({refused:s});});});",
+    "process.send({ready:true});setInterval(function(){},1000);"
+  ].join(""), guardPath], {stdio:["ignore","pipe","pipe","ipc"]});
+  t.after(function () { if (child.exitCode === null) child.kill("SIGKILL"); });
+  await events.once(child, "message");
+  for (var signal of ["SIGTERM", "SIGHUP"]) {
+    var message = Promise.race([
+      events.once(child,"message"),
+      events.once(child,"exit").then(function () { throw new Error("Supervisor exited on " + signal); })
+    ]);
+    child.kill(signal);
+    assert.deepEqual((await message)[0], {refused:signal});
+    assert.equal(child.exitCode, null);
+  }
+  var exited=events.once(child,"exit");child.kill("SIGINT");
+  assert.equal((await exited)[0],0);
+});
+
+test("CLI applies the signal guard before any shutdown side effects", function () {
+  var source = require("fs").readFileSync(require("path").join(__dirname,"../bin/cli.js"),"utf8");
+  var start = source.indexOf("function shutdownWatcher(signal)");
+  var body = source.slice(start, source.indexOf('process.on("SIGINT"',start));
+  assert.match(body, /if \(!devWatcherTakeover.shouldStopWatcher\(signal\)\)/);
+  assert.ok(body.indexOf("shouldStopWatcher(signal)") < body.indexOf("intentionalKill = true"));
+});

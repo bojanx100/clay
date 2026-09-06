@@ -47,6 +47,25 @@ function graphQlPage() {
   } } } } });
 }
 
+function configuredGraphQlPage() {
+  return JSON.stringify({ data: { repository: { issue: { projectItems: {
+    nodes: [{
+      id: "PVT_item_unified_2819",
+      project: { id: "PVT_unified" },
+      fieldValueByName: {
+        name: "Backlog",
+        optionId: "PVTSSO_backlog",
+        field: { id: "PVTSSF_unified_status", name: "Status" },
+      },
+    }, {
+      id: "PVT_item_planning_2819",
+      project: { id: "PVT_planning" },
+      fieldValueByName: null,
+    }],
+    pageInfo: { hasNextPage: false, endCursor: null },
+  } } } } });
+}
+
 function withStubbedGh(handler, run) {
   var original = childProcess.execFileSync;
   delete require.cache[require.resolve("../lib/project-task-sources")];
@@ -76,6 +95,25 @@ test("GitHub task sources replace CLI projectItems with exact GraphQL board evid
     assert.strictEqual(graphCalls, 1, "source must use the authoritative GraphQL query once");
     assert.deepStrictEqual(items[0].projectItems, [{
       id: "PVT_item_2819", status: { name: "Backlog" },
+    }]);
+  });
+});
+
+test("GitHub task sources preserve configured board and Status field identity", function () {
+  withStubbedGh(function (command, args) {
+    if (args[0] === "auth") return "";
+    if (args[0] === "api" && args[1] === "user") return JSON.stringify({ login: "owner" });
+    if (args[0] === "issue" && args[1] === "list") return JSON.stringify([rawIssue()]);
+    if (args[0] === "api" && args[1] === "graphql") return configuredGraphQlPage();
+    throw new Error("unexpected gh invocation: " + args.join(" "));
+  }, function (taskSources) {
+    var items = taskSources.fetchItems("/unused", recipe(), {
+      qualificationBoard: { projectId: "PVT_unified", statusFieldId: "PVTSSF_unified_status" },
+    });
+    assert.deepStrictEqual(items[0].projectItems, [{
+      id: "PVT_item_unified_2819",
+      projectId: "PVT_unified",
+      status: { name: "Backlog", fieldId: "PVTSSF_unified_status" },
     }]);
   });
 });

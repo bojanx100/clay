@@ -72,6 +72,42 @@ test("Copilot entitlement discovery reads the account-scoped ACP model option", 
   assert.strictEqual(proc.killed, true);
 });
 
+test("Copilot entitlement discovery preserves supplied ACP MCP servers", async function() {
+  entitlements._test.reset();
+  var newSessionParams = null;
+  var mcpServers = [{ name: "clay-tools", command: process.execPath, args: ["bridge.js"], env: { CLAY_AUTH_TOKEN: "token" } }];
+  var connection = {
+    initialize: function() { return Promise.resolve({ agentCapabilities: {} }); },
+    newSession: function(params) {
+      newSessionParams = params;
+      return Promise.resolve({
+        sessionId: "discovery-session",
+        configOptions: [{
+          id: "model",
+          category: "model",
+          currentValue: "auto",
+          options: [{ value: "auto" }],
+        }],
+      });
+    },
+    closeSession: function() {
+      return Promise.resolve({});
+    },
+  };
+  var proc = makeFakeProcess();
+
+  await entitlements.probeCopilotEntitlements({
+    executable: "/bin/copilot",
+    cwd: process.cwd(),
+    mcpServers: mcpServers,
+    acpLoader: makeAcpLoader(connection),
+    spawn: function() { return proc; },
+  });
+
+  assert.deepStrictEqual(newSessionParams.mcpServers, mcpServers);
+  assert.strictEqual(proc.killed, true);
+});
+
 test("trusted Copilot catalogs expire when refresh has been failing", function() {
   entitlements._test.reset();
   entitlements._test.setSnapshot(["claude-fable-5"], Date.now() - entitlements._test.TRUST_TTL_MS - 1);

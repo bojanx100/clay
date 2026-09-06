@@ -2022,6 +2022,10 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
   // Clean exit on Ctrl+C
   var shuttingDown = false;
   function shutdownWatcher(signal) {
+    if (!devWatcherTakeover.shouldStopWatcher(signal)) {
+      console.error("[dev] Refused " + signal + ": supervisor stays running. Use Clay's restart command for a managed restart.");
+      return;
+    }
     if (shuttingDown) return;
     shuttingDown = true;
     // Name the signal and say the outage is terminal: intentionalKill below
@@ -2047,13 +2051,8 @@ async function devMode(mode, keepAwake, existingPinHash, wantOsUsers) {
     }
   }
 
-  // SIGTERM as well as SIGINT: a takeover, a kill, or a supervising script all
-  // send SIGTERM, and without a handler this process died instantly and left its
-  // daemon running as an orphan -- still holding the port and still being
-  // SIGTERMed by, and SIGTERMing, whichever daemon started next.
-  // Pass the signal name explicitly: a Ctrl+C arrives here as SIGINT, so any
-  // other signal came from a script, a takeover or a supervisor, and the exit
-  // line has to say which so the two are told apart in the terminal.
+  // Catch external termination and hangup signals so an agent cannot stop its
+  // own supervisor mid-tool. Only the interactive operator stop tears it down.
   process.on("SIGINT", function () { shutdownWatcher("SIGINT"); });
   process.on("SIGTERM", function () { shutdownWatcher("SIGTERM"); });
   process.on("SIGHUP", function () { shutdownWatcher("SIGHUP"); });

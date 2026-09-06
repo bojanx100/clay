@@ -210,6 +210,35 @@ test("ACP shutdown cancels in-flight initialization without poisoning retry", as
   await adapter.shutdown();
 });
 
+test("shared ACP adapter builds Clay bridge MCP server from retained init options", async function() {
+  FakeManager.instances = [];
+  var adapter = createAcpAdapter("opencode", adapterOptions(getProfile("opencode")));
+  await adapter.init({
+    clayPort: 7292,
+    clayTls: true,
+    clayAuthToken: "session-token",
+    slug: "target-project",
+  });
+  var handle = await adapter.createQuery({ cwd: process.cwd(), model: "auto" });
+  assert.strictEqual(handle.pushMessage("bridge test"), true);
+
+  for await (var event of handle) {
+    if (event.yokeType === "result") break;
+  }
+  handle.close();
+
+  var newSessionCall = FakeManager.instances[0].calls.find(function(call) { return call.method === "session/new"; });
+  assert.ok(newSessionCall, "session/new was called");
+  assert.strictEqual(newSessionCall.params.mcpServers.length, 1);
+  assert.strictEqual(newSessionCall.params.mcpServers[0].name, "clay-tools");
+  assert.strictEqual(newSessionCall.params.mcpServers[0].command, process.execPath);
+  assert.ok(newSessionCall.params.mcpServers[0].args[0].endsWith("lib/yoke/mcp-bridge-server.js"));
+  assert.deepStrictEqual(newSessionCall.params.mcpServers[0].args.slice(1),
+    ["--port", "7292", "--slug", "target-project", "--tls"]);
+  assert.deepStrictEqual(newSessionCall.params.mcpServers[0].env, { CLAY_AUTH_TOKEN: "session-token" });
+  await adapter.shutdown();
+});
+
 test("shared ACP adapter streams standard updates through the YOKE contract", async function() {
   FakeManager.instances = [];
   var adapter = createAcpAdapter("opencode", adapterOptions(getProfile("opencode")));
@@ -237,11 +266,13 @@ test("shared ACP adapter streams standard updates through the YOKE contract", as
     return call.method === "session/set_config_option" && call.params.configId === "mode";
   }), false);
   var newSessionCall = FakeManager.instances[0].calls.find(function(call) { return call.method === "session/new"; });
-  assert.strictEqual(Object.prototype.hasOwnProperty.call(newSessionCall.params, "mcpServers"), false);
+  assert.ok(Array.isArray(newSessionCall.params.mcpServers));
+  assert.ok(newSessionCall.params.mcpServers.some(function(server) { return server.name === "clay-tools"; }));
   await adapter.shutdown();
 });
 
-test("shared ACP session requests omit MCP tool servers on every open path", async function() {
+test("shared ACP session requests pass MCP tool servers on every open path", async function() {
+  var mcpServers = [{ name: "clay-tools", command: process.execPath, args: ["bridge.js"], env: { CLAY_AUTH_TOKEN: "token" } }];
   var cases = [{
     method: "session/new",
     opts: { canResumeSession: false, canLoadSession: false },
@@ -261,7 +292,7 @@ test("shared ACP session requests omit MCP tool servers on every open path", asy
       cwd: process.cwd(),
       driver: { permissionModeGuaranteed: true },
       model: "auto",
-      mcpServers: [{ name: "clay-tools", command: "node", args: ["bridge.js"], env: [] }],
+      mcpServers: mcpServers,
     }, cases[i].opts));
     assert.strictEqual(handle.pushMessage("hello"), true);
     handle.endInput();
@@ -278,7 +309,7 @@ test("shared ACP session requests omit MCP tool servers on every open path", asy
     var call = manager.calls.find(function(item) { return item.method === cases[i].method; });
     assert.strictEqual(sawResult, true);
     assert.ok(call, cases[i].method + " was called");
-    assert.strictEqual(Object.prototype.hasOwnProperty.call(call.params, "mcpServers"), false);
+    assert.deepStrictEqual(call.params.mcpServers, mcpServers);
   }
 });
 

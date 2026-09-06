@@ -502,8 +502,17 @@ test("dynamic ActionQueue details fail closed when the canonical worker session 
   });
 });
 
+function matchesSelector(node, selector) {
+  if (!node.tagName) return false;
+  var attribute = selector.match(/^\[([^=\]]+)(?:=["']?([^"'\]]+)["']?)?\]$/);
+  if (attribute) return node.hasAttribute(attribute[1]) &&
+    (attribute[2] === undefined || node.getAttribute(attribute[1]) === attribute[2]);
+  if (selector.charAt(0) === ".") return node.className.split(/\s+/).indexOf(selector.slice(1)) !== -1;
+  return node.tagName === selector.toUpperCase();
+}
+
 function element(tag) {
-  var node = { tagName: String(tag).toUpperCase(), children: [], className: "", attributes: {}, listeners: {}, type: "", title: "", disabled: false };
+  var node = { tagName: String(tag).toUpperCase(), children: [], className: "", attributes: {}, listeners: {}, type: "", title: "", disabled: false, parentNode: null, parentElement: null };
   Object.defineProperty(node, "textContent", {
     get: function () {
       if (node._textContent !== undefined) return node._textContent;
@@ -511,9 +520,12 @@ function element(tag) {
     },
     set: function (value) { node._textContent = String(value); },
   });
-  node.appendChild = function (child) { child.parentNode = node; node.children.push(child); return child; };
+  node.appendChild = function (child) { child.parentNode = node; child.parentElement = node; node.children.push(child); return child; };
   node.setAttribute = function (key, value) { node.attributes[key] = String(value); };
   node.getAttribute = function (key) { return node.attributes[key] || null; };
+  node.hasAttribute = function (key) { return Object.prototype.hasOwnProperty.call(node.attributes, key); };
+  node.querySelector = function (selector) { return node.querySelectorAll(selector)[0] || null; };
+  node.querySelectorAll = function (selector) { return descendants(node).filter(function (child) { return matchesSelector(child, selector); }); };
   node.addEventListener = function (type, handler) { node.listeners[type] = (node.listeners[type] || []).concat(handler); };
   node.click = function () {
     var handlers = node.listeners.click || [];

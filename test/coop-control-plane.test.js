@@ -78,6 +78,54 @@ test("a Lead-resident project coordinator owns a target-project task coordinator
     { projectId: projectIdentity.LEAD_PROJECT_ID, sessionStorageId: root.storageId });
 });
 
+test("a settled delivery moves only its matching running parent task to owner input", function () {
+  var sm = manager();
+  var root = controlPlane.ensureProjectCoordinator(sm, { projectId: CLAY }, "Clay", {
+    projectId: projectIdentity.LEAD_PROJECT_ID, sessionStorageId: "canonical-coop",
+  });
+  var request = {
+    portfolioTaskId: "settled-parent-task",
+    bindingRevision: 1,
+    targetProject: { projectId: CLAY },
+  };
+  var task = controlPlane.prepareTask(sm, root, request, {
+    title: "Await owner acceptance", objective: "Preserve verified implementation.",
+  });
+  var worker = { projectId: CLAY, sessionStorageId: "settled-child" };
+  controlPlane.bindTask(sm, root, task, worker);
+  task.resultSummary = "Verified implementation remains pending acceptance.";
+  task.verification = "Focused suite passed.";
+  task.userQuestion = "Do you approve the implementation?";
+  var events = root.orchestrationEvents.length;
+
+  assert.equal(controlPlane.reconcileSettledTask(sm, root, request, {
+    workerSessionRef: { projectId: CLAY, sessionStorageId: "wrong-child" },
+    completionEventId: "completion-1",
+  }).ok, false);
+  assert.equal(task.status, "running");
+  assert.equal(root.orchestrationEvents.length, events);
+
+  var reconciled = controlPlane.reconcileSettledTask(sm, root, request, {
+    workerSessionRef: worker, completionEventId: "completion-1",
+  });
+  assert.deepEqual({ ok: reconciled.ok, duplicate: reconciled.duplicate },
+    { ok: true, duplicate: false });
+  assert.equal(task.status, "needs_input");
+  assert.equal(task.resultSummary, "Verified implementation remains pending acceptance.");
+  assert.equal(task.verification, "Focused suite passed.");
+  assert.equal(task.userQuestion, "Do you approve the implementation?");
+  assert.equal(root.orchestrationEvents.length, events + 1);
+  assert.equal(root.orchestrationEvents.at(-1).data.completionEventId, "completion-1");
+
+  var replay = controlPlane.reconcileSettledTask(sm, root, request, {
+    workerSessionRef: worker, completionEventId: "completion-1",
+  });
+  assert.deepEqual({ ok: replay.ok, duplicate: replay.duplicate },
+    { ok: true, duplicate: true });
+  assert.equal(root.orchestrationEvents.length, events + 1,
+    "a replay does not append an event or mutate the already-repaired task");
+});
+
 test("ensuring a resident project coordinator reactivates the same archived session", function () {
   var sm = manager();
   var coopRef = { projectId: projectIdentity.LEAD_PROJECT_ID,

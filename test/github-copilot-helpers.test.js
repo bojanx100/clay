@@ -44,22 +44,39 @@ test("Copilot image support follows ACP agent prompt capabilities", function () 
   assert.strictEqual(helpers.copilotSupportsPromptImages({}), false);
 });
 
-test("startCopilotSession omits MCP tool servers from ACP session requests", async function () {
+test("Clay MCP bridge config is a serializable ACP stdio server", function () {
+  var servers = helpers.buildClayMcpBridgeServers({
+    clayPort: 7292,
+    clayTls: true,
+    clayAuthToken: "session-token",
+    slug: "target-project",
+  });
+
+  assert.strictEqual(servers.length, 1);
+  assert.strictEqual(servers[0].name, "clay-tools");
+  assert.strictEqual(servers[0].command, process.execPath);
+  assert.ok(servers[0].args[0].endsWith("lib/yoke/mcp-bridge-server.js"));
+  assert.deepStrictEqual(servers[0].args.slice(1), ["--port", "7292", "--slug", "target-project", "--tls"]);
+  assert.deepStrictEqual(servers[0].env, { CLAY_AUTH_TOKEN: "session-token" });
+});
+
+test("startCopilotSession passes MCP bridge servers to ACP session requests", async function () {
+  var mcpServers = [{ name: "clay-tools", command: process.execPath, args: ["bridge.js"], env: { CLAY_AUTH_TOKEN: "token" } }];
   var cases = [{
     caps: { sessionCapabilities: { resume: true } },
-    opts: { cwd: "/x", sessionId: "stored-resume", mcpServers: [{ name: "clay-tools" }] },
+    opts: { cwd: "/x", sessionId: "stored-resume", mcpServers: mcpServers },
     method: "resumeSession",
-    expected: { cwd: "/x", sessionId: "stored-resume" },
+    expected: { cwd: "/x", sessionId: "stored-resume", mcpServers: mcpServers },
   }, {
     caps: { loadSession: true },
-    opts: { cwd: "/x", sessionId: "stored-load", mcpServers: [{ name: "clay-tools" }] },
+    opts: { cwd: "/x", sessionId: "stored-load", mcpServers: mcpServers },
     method: "loadSession",
-    expected: { cwd: "/x", sessionId: "stored-load" },
+    expected: { cwd: "/x", sessionId: "stored-load", mcpServers: mcpServers },
   }, {
     caps: { sessionCapabilities: { resume: true } },
-    opts: { cwd: "/x", mcpServers: [{ name: "clay-tools" }] },
+    opts: { cwd: "/x", mcpServers: mcpServers },
     method: "newSession",
-    expected: { cwd: "/x" },
+    expected: { cwd: "/x", mcpServers: mcpServers },
   }];
 
   for (var i = 0; i < cases.length; i++) {
