@@ -43,9 +43,15 @@ governance learning store remains a substrate with no production learning consum
 Inferred preferences remain distinguishable from owner statements and create no
 execution authority. Broader action/outcome learning remains open.
 
-Pending owner preferences: behavior of already-running work when Lead turns OFF;
-coordinator freedom to change plans and create extra workers within project rules.
-Independent defect repairs can proceed while those preferences are discussed.
+Owner-confirmed Lead OFF policy, 2026-09-06: let active work finish and block
+new automatic Coop work, including worker starts, dependencies and retries.
+Ordinary owner-directed sessions and existing project automation retain their
+project rules. This confirms the current scheduling-pause behavior; it does not
+complete durable ownership handover or switch authority between Clay instances.
+
+Pending owner preference: coordinator freedom to change plans within an approved
+outcome and existing project rules. The owner already allows creating workers
+when needed. Independent defect repairs can proceed while boundaries are discussed.
 
 Owner clarification, 2026-09-06: Coop should actively seek useful work, analyze and
 reconcile Threads, check and help project coordinators, gather information from the
@@ -820,8 +826,9 @@ finding, retracted after iteration 25: “existing Coop task graphs can schedule
 dependencies/retries” while OFF. ON's legacy-automation drain
 records duplicate-prevention candidates but does not yet give resident coordinators
 oversight of those existing sessions. Ordinary owner-created orchestration must stay
-usable while those transitions are implemented. The owner's exact preference for
-already-running work on OFF is still pending.
+usable while those transitions are implemented. Historical status, superseded by owner confirmation on 2026-09-06:
+~~The owner's exact preference for already-running work on OFF is still pending.~~
+The owner selected: "Let active work finish; block new automatic work".
 
 
 ## Iteration 25: Pause automatic Coop orchestration when Lead is OFF
@@ -873,9 +880,13 @@ closure; it does not create a live provider execution fence. Logs are under
 
 This is a scheduling pause, not durable ownership release. Startup fences remain
 in force, automatic intake/adoption of pre-existing project automation remains
-open, and the owner has not confirmed the policy for already-running work. The
-current stated assumption lets running workers finish. Production activation,
-live canary verification, and a full owner-visible workflow remain outstanding.
+open. Historical policy status, superseded on 2026-09-06:
+~~The owner has not confirmed the policy for already-running work; letting running
+workers finish is an assumption.~~ The owner has now explicitly confirmed letting
+active work finish while blocking new automatic Coop work. This resolves the policy
+question, not the remaining ownership handover and live workflow verification.
+Production activation, live canary verification, and a full owner-visible workflow
+remain outstanding for this transition.
 
 
 ## Iteration 26: One conversation across Main, Threads and commissioned work

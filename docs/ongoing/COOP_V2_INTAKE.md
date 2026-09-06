@@ -38,8 +38,10 @@ review helpers likewise need not acquire a mandatory planning turn.
 - Coordinator notifications are durable and recoverable. A delivered notification
   is not proof that a model started or accepted work. Provider-start failure must
   leave the assignment pending, with bounded retry and visible attention.
-- No autonomous intake/retry starts after Lead is OFF. Existing active work and
-  owner-direct sessions require the separate handover contract in COOP_V2.md.
+- No autonomous Coop intake/retry starts after Lead is OFF. The owner confirmed
+  on 2026-09-06 that active work should finish while new automatic Coop work is
+  blocked. Ordinary owner-directed work and project automation retain their rules.
+  Durable ownership handover remains separate unfinished work in COOP_V2.md.
 - Thread identity stays intact. Link the assignment's TaskRef and target ProjectRef
   while queued, then the actual execution SessionRef when staffed.
 
