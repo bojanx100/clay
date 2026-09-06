@@ -45,6 +45,18 @@ test("speech combines finalized phrases after a pause and retains its copied des
   assert.equal(h.sent[0].routing.sessionId, 7);
 });
 
+test("a new question prompt discards speech captured before that question was presented", async function () {
+  var h = await harness(); await h.controller.start(route);
+  h.recognized[0].final("yes");
+  h.controller.speakPrompt("A different question. Option one: Keep it simple. Option two: Rebuild.");
+  h.tick();
+  assert.equal(h.sent.length, 0, "the pending old utterance cannot answer or bypass a new question");
+  h.spoken[0].onend();
+  assert.equal(h.sent.length, 0, "finishing the prompt must not release a stale queued utterance either");
+  assert.equal(h.controller.getState().listening, true);
+  h.controller.end();
+});
+
 test("two complete spoken exchanges send and resume listening without Send or Listen clicks", async function () {
   var h = await harness();
   await h.controller.start(route);

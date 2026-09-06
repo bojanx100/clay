@@ -9,6 +9,8 @@
 
 **Owner clarification, 2026-09-06**: Voice is an ongoing conversation without relying on the keyboard. With Lead on, the conversation is with Coop only. With Lead off, Voice talks to the selected individual session. Voice is a transport for the existing conversation, not a dedicated topic or a separate worker. The current browser slice and its remaining gaps are documented in [Coop Voice](../../guides/COOP_VOICE.md).
 
+**Implemented follow-up, 2026-09-06**: ordinary Claude/Codex pending questions now support spoken option/free-text answers, full readback and explicit submission to an exact live request revision. This completes the scripted question path, not the full desktop acceptance workflow: permission/plan dialogs, audio interruption, durable reconnect playback and real device validation remain open.
+
 ---
 
 ## Product Decision

@@ -73,7 +73,7 @@ Reference: `docs/roadmaps/in-progress/yoke/codex/llms-full.txt` section "Codex A
 | `item/agentMessage/delta` | Streaming text delta |
 | `item/commandExecution/requestApproval` | Approval request for command |
 | `item/fileChange/requestApproval` | Approval request for file change |
-| `item/tool/requestUserInput` | MCP tool approval/elicitation |
+| `item/tool/requestUserInput` | ~~MCP tool approval/elicitation~~ Retracted 2026-09-06: structured user questions with `{answers: {questionId: {answers: string[]}}}` replies; distinct from `mcpServer/elicitation/request` |
 | `serverRequest/resolved` | Confirms approval was processed |
 
 ### Approval Flow

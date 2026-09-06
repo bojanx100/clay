@@ -25,6 +25,7 @@ test("Voice button follows Lead mode, opens Coop, starts listening and stops on 
   var stores = await import(url + "store.js");
   var routes = await import(url + "voice-conversation-routing.js");
   var controllers = await import(url + "voice-conversation-controller.js");
+  var questionModule = await import(url + "voice-questions.js");
   stores.createStore({ currentSlug: "webapp", activeSessionProjectSlug: "webapp", activeSessionId: 7,
     activeSessionTitle: "Investigate annotation", activeSessionMode: "gui", connected: true, leadModeEnabled: false });
   var all = {}, starts = [], switches = [];
@@ -37,6 +38,14 @@ test("Voice button follows Lead mode, opens Coop, starts listening and stops on 
     switchProject: function (slug) { switches.push(slug); },
     sendVoiceConversationMessage: function () { return true; },
     createVoiceConversationController: controllers.createVoiceConversationController,
+    createVoiceQuestions: questionModule.createVoiceQuestions,
+    sendWsJson: function (message) {
+      if (message.type === "voice_question_state_request") Promise.resolve().then(function () {
+        context.observeVoiceConversationMessage({ type: "voice_question_state", sessionId: message.sessionId,
+          clientRequestId: message.clientRequestId, available: true, requests: [], blockedCount: 0 });
+      });
+      return true;
+    },
   }, routes);
   var source = read("lib/public/modules/voice-conversation.js").replace(/^import[^;]*;\s*$/gm, "").replace(/^export /gm, "");
   vm.createContext(context); vm.runInContext(source, context);
