@@ -1,5 +1,6 @@
 var test = require("node:test");
 var assert = require("node:assert/strict");
+var crypto = require("crypto");
 var fs = require("fs");
 var os = require("os");
 var path = require("path");
@@ -10,6 +11,16 @@ var taskSources = require("../lib/project-task-sources");
 var { attachAutoLaunch } = require("../lib/project-auto-launch");
 
 var PROJECT = "b0c9b7a0-371e-5cd8-9e29-7c3971aff3f9";
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    var result = {};
+    Object.keys(value).sort().forEach(function (key) { result[key] = canonical(value[key]); });
+    return result;
+  }
+  return value;
+}
 
 function recipe() {
   return {
@@ -229,6 +240,23 @@ test("recipe/no-board qualification rejects present or malformed Webapp board ev
     item: { number: 198, state: "OPEN", projectItems: [{}] },
   }));
   assert.equal(malformed.reason, "qualification_board_evidence_missing");
+});
+
+test("recipe/no-board receipt verification rechecks the classification rule", function () {
+  var source = noBoardRecipeInput();
+  var created = qualification.receiptFor(source);
+  assert.equal(created.ok, true, created.reason);
+  var forged = JSON.parse(JSON.stringify(created.receipt));
+  forged.classification = { itemClass: "bug", admission: "owner_approval", rule: "owner_approval" };
+  forged.approval = { required: true, ownerApproved: false };
+  var subject = {};
+  Object.keys(forged).forEach(function (key) {
+    if (key !== "digest") subject[key] = forged[key];
+  });
+  forged.digest = crypto.createHash("sha256")
+    .update(JSON.stringify(canonical(subject))).digest("hex");
+  assert.equal(qualification.verifyReceipt(forged, { policy: source.policy, now: 1001 }).reason,
+    "qualification_receipt_policy_stale");
 });
 
 test("qualification fails closed when any required issue or board fact is absent or disallowed", function () {
