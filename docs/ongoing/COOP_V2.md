@@ -24,11 +24,13 @@ the project coordinator. A single project execution carrying a Council/Triage la
 does not satisfy this requirement. Planning stays under its existing Thread.
 
 Coop must also learn the owner's habits, choices, and corrections. The repository
-already synthesizes a shared user profile from Mate observations, but Coop does not
-capture or retrieve that context. The governance learning store is a substrate with
-no production learning consumer. Connect scoped, attributable observations and
-explicit corrections to Coop's decision context; inferred preferences must remain
-distinguishable from instructions and must not create execution authority.
+already synthesizes a shared user profile from Mate observations. Historical finding,
+retracted as a statement of the current branch after iteration 23: “Coop does not
+capture or retrieve that context.” Coop now retrieves its own durable owner evidence
+and scoped preferences; the existing free-form Mate profile is not imported. The
+governance learning store remains a substrate with no production learning consumer.
+Inferred preferences remain distinguishable from owner statements and create no
+execution authority. Broader action/outcome learning remains open.
 
 Pending owner preferences: behavior of already-running work when Lead turns OFF;
 coordinator freedom to change plans and create extra workers within project rules.
@@ -697,4 +699,49 @@ substitutes. This does not prove real-model debate quality, the visual experienc
 or a live end-to-end commissioned project outcome. No daemon was restarted or live
 state repaired; the branch is not activated. The first panel version uses existing
 ready Claude/Codex Mates; creating virtual participants without Mate setup remains
-future work. Learning capture/retrieval and the broader Lead handover remain open.
+future work. Historical status, superseded by iteration 23: learning capture/retrieval
+remained open here. The broader Lead handover remains open.
+
+
+## Iteration 23: Owner preferences with durable evidence
+
+Coop can learn useful preferences from actual owner messages, distinguish literal
+owner statements from tentative interpretations, and retrieve relevant preferences
+on fresh, resumed, and warm turns. Project coordinators and legacy project Coop
+channels receive only global and exact-project preferences. Unresolved project
+routing cannot create global guidance. Current owner instructions take precedence;
+preferences never participate in execution admission.
+
+The canonical owner transcript is the observation source. Reading recent observations
+requires no extra durable write, so there is no second capture transaction that can
+silently lose an already-saved message. Lookup checks authenticated owner identity,
+unique immutable ingress, prepared durable history, and validated compaction lineage.
+A queued ingress may be prepared in a continuation while keeping its original ID;
+lookup requires the original owner event and matching text. Recent observations
+survive compaction without duplicating the transcript or retaining paged-in history.
+
+Only preference versions, exact quotes, scope, source refs, and retractions persist
+in the owner's hashed JSON store under the configured CLAY_HOME. Writes use the
+existing lock and atomic commit machinery. Corrections supersede in place while
+retaining evidence; retractions remove active guidance and prevent relearning the
+same forgotten quote under a different paraphrase. Management tools support search
+and pagination, independently of the 30-preference prompt limit. Tool handlers are
+reserved to the canonical Coop's current query lease.
+
+Proof: removing the three existing wiring changes gives 12 pass / 3 fail out of
+15 tests in both modes. Removing lineage lookup, unresolved-scope refusal,
+management pagination, and the query lease guard gives 6 pass / 4 fail out of
+10 tests in both modes. Removing failed-read history release gives 9 pass / 1 fail
+out of 10 in both modes. Restoring passes all cases. Focused run: 18/18 default,
+16/16 controlled. Final full suite: 4,237/4,237 default across 431 files and
+694/694 controlled across 56 files, exit 0. Logs:
+`/private/tmp/coop-v2-owner-model-{unwired,guards-removed,lazy-removed,restored,full}.out`.
+
+The tests exercise actual JSONL persistence and
+reload, local MCP server assembly and handlers, the SDK bridge provider boundary,
+real queue transfer/compaction, scoped project context, and failed memory commits.
+They do not measure real-model interpretation quality, imitation accuracy, owner
+acceptance of choices, browser presentation, or a full live project outcome. No
+production restart or live profile import/repair occurred. This first learning slice
+does not yet derive habits from direct project sessions or task decision cards,
+compare predicted choices with actual outcomes, or train a separate personal model.
