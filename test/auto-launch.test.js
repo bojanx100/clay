@@ -1003,6 +1003,7 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
   return {
     autoLaunch: autoLaunch, started: started, executions: executions,
     cwd: cwd, crossProject: crossProject, bound: bound, launcher: launcher,
+    recipe: recipe,
     saveCalls: saveCalls,
     // A fresh controller over the SAME durable project state, i.e. a restart.
     restart: function () { return buildAutoLaunch(); },
@@ -1177,7 +1178,7 @@ test("a fresh eligible scan upgrades a legacy awaiting-owner candidate and admit
   }
 });
 
-test("a scheduled scan recovers a legacy primitive before live dedup", async function () {
+test("a scheduled scan recovers an in-flight legacy primitive before live dedup", async function () {
   var saves = [];
   var legacy = {
     localId: 2881,
@@ -1192,11 +1193,32 @@ test("a scheduled scan recovers a legacy primitive before live dedup", async fun
       workflowCompleted: false,
     },
   };
-  var h = makeIdleBoardHarness({ type: "bug" }, assignedIssue(2881), {
+  var item = assignedIssue(2881);
+  var h = makeIdleBoardHarness({ type: "bug" }, item, {
     legacySession: legacy,
     saveCalls: saves,
   });
   try {
+    var proposal = h.autoLaunch.automationGate.evaluateLaunch({
+      itemKey: "trialview/v2#2881",
+      eligibilityPass: "legacy-scan",
+      item: item,
+      recipe: h.recipe,
+      recipeKind: "issue",
+      recipeType: "bug",
+      assignedToOwner: true,
+      intent: {
+        recipeId: "assigned-to-me",
+        primitiveLaunch: true,
+        automationClaimKey: "trialview/v2#2881",
+        number: 2881,
+        url: item.url,
+        title: item.title,
+        autoKind: "issue",
+      },
+    });
+    assert.strictEqual(proposal.decision, "propose");
+    item.projectItems[0].status.name = "🔄 In progress";
     await h.autoLaunch.runScheduled({ id: "autolaunch_assigned", task: "assigned-to-me" });
     assert.deepStrictEqual(h.started, [],
       "recovering an existing primitive must not start a second session");
@@ -1209,6 +1231,9 @@ test("a scheduled scan recovers a legacy primitive before live dedup", async fun
     var stored = h.autoLaunch.candidateStore.get({ projectId: CUTOVER_PROJECT },
       "launch:trialview/v2#2881");
     assert.strictEqual(stored.status, "admitted");
+    assert.ok(stored.qualificationReceipt.coordinator.reasons.indexOf(
+      "existing_primitive_in_flight") !== -1,
+      "adoption must carry an explicit in-flight qualification reason");
     assert.deepStrictEqual(h.executions[0].adoptSessionRef, {
       projectId: CUTOVER_PROJECT,
       sessionStorageId: "legacy-2881",
