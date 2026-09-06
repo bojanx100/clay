@@ -78,3 +78,13 @@ resolution failed all 10 scenarios without its changes. Closed-worker discussion
 failed 5 of 7 tests without its routing changes; ordinary manual chat and the new
 standalone URL helper remained valid. Additional negative checks cover durable
 recovery-budget persistence, coordinator outcome context and runtime activation.
+
+
+Final validation on 2026-09-06: `CLAY_TEST_CONCURRENCY=4 npm test` passed
+4,520 tests in the default pass and 844 in controlled mode, with zero failures.
+The final maintenance regression failed 1 of 10 tests in each mode with its hook
+removed and passed all 10 after restoration. The initial full run also exposed
+an obsolete blanket-compaction refusal assertion (updated to prove stable identity)
+and an owner-feedback timing failure; the latter passed in isolation and in both
+subsequent full runs at lower parallelism. Its initial timing cause is not proven.
+No live automatic-launch outcome is asserted by these test results.
