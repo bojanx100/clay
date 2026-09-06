@@ -720,8 +720,10 @@ test("launchScheduled skips an issue already live under another recipe", async f
 
 var automationAudit = require("../lib/project-automation-audit");
 var { createAutomationGate } = require("../lib/project-automation-gate");
-var { createCandidateStore } = require("../lib/project-automation-candidates");
+var { createCandidateStore, contentDigest } = require("../lib/project-automation-candidates");
 var { portfolioTaskIdFor } = require("../lib/project-automation-identity");
+var automationPolicy = require("../lib/project-automation-policy");
+var automationQualification = require("../lib/project-automation-qualification");
 
 var CUTOVER_PROJECT = "5332aafc-31e7-5cb1-ba96-c8d90e78260e";
 var URBAN_STAY_PROJECT = "51e67388-cea0-52b7-8e01-cde68cae713c";
@@ -1022,6 +1024,67 @@ function makeIdleBoardHarness(recipeFilter, item, options) {
   };
 }
 
+function writePreviousPrimitiveCandidate(cwd, projectRef, recipe, item, itemKey, evidenceAt) {
+  var loaded = automationPolicy.loadProjectAutomationPolicy({
+    cwd: cwd,
+    projectRef: projectRef,
+  });
+  assert.strictEqual(loaded.ok, true, loaded.reason);
+  var receipt = automationQualification.receiptFor({
+    policy: loaded.policy,
+    projectRef: projectRef,
+    recipe: {
+      id: recipe.id,
+      digest: automationPolicy.recipeDigest(recipe),
+      kind: "issue",
+    },
+    item: item,
+    itemKey: itemKey,
+    itemClass: "bug",
+    assignedToOwner: true,
+    recipeAllowsUnassigned: false,
+    now: evidenceAt,
+  });
+  assert.strictEqual(receipt.ok, true, receipt.reason);
+  var record = {
+    candidateKey: "launch:" + itemKey,
+    itemKey: itemKey,
+    itemClass: "bug",
+    admission: "auto",
+    projectRef: projectRef,
+    policyDigest: loaded.policy.digest,
+    recipeId: recipe.id,
+    intent: {
+      recipeId: recipe.id,
+      primitiveLaunch: true,
+      automationClaimKey: itemKey,
+      number: item.number,
+      url: item.url,
+      title: item.title,
+      autoKind: "issue",
+    },
+    eligibilityPass: "previous-scan",
+    eligibility: {
+      assignedToOwner: true,
+      recipeAllowsUnassigned: false,
+      reason: "assigned_to_owner",
+    },
+    qualificationReceipt: receipt.receipt,
+    status: "pending",
+    firstSeenAt: evidenceAt,
+    lastSeenAt: evidenceAt,
+    seenCount: 1,
+  };
+  record.digest = contentDigest(record);
+  fs.writeFileSync(path.join(cwd, ".clay", "tasks", "automation-candidates.json"),
+    JSON.stringify({
+      schema: "clay.automation_candidates",
+      version: 1,
+      candidates: [record],
+    }, null, 2) + "\n");
+  return record;
+}
+
 // An unlabeled issue ASSIGNED TO THE OWNER, exactly as project-task-sources
 // stamps it. The stamp is the proof of ownership every eligibility decision
 // downstream reads; an item without it is not the owner's work.
@@ -1238,6 +1301,46 @@ test("a scheduled scan recovers an in-flight legacy primitive before live dedup"
       projectId: CUTOVER_PROJECT,
       sessionStorageId: "legacy-2881",
     });
+  } finally {
+    fs.rmSync(h.cwd, { recursive: true, force: true });
+  }
+});
+
+test("an expired prior receipt cannot recover an in-flight legacy primitive", async function () {
+  var saves = [];
+  var legacy = {
+    localId: 2882,
+    storageId: "legacy-2882",
+    taskLauncher: {
+      autoLaunch: true,
+      recipeId: "assigned-to-me",
+      itemNumber: 2882,
+      itemUrl: "https://github.com/trialview/v2/issues/2882",
+      autoKind: "issue",
+      itemKey: "",
+      workflowCompleted: false,
+    },
+  };
+  var item = assignedIssue(2882);
+  var h = makeIdleBoardHarness({ type: "bug" }, item, {
+    legacySession: legacy,
+    saveCalls: saves,
+  });
+  try {
+    writePreviousPrimitiveCandidate(h.cwd, { projectId: CUTOVER_PROJECT },
+      h.recipe, item, "trialview/v2#2882",
+      Date.now() - automationQualification.MAX_RECEIPT_AGE_MS - 1000);
+    item.projectItems[0].status.name = "🔄 In progress";
+    await h.autoLaunch.runScheduled({ id: "autolaunch_assigned", task: "assigned-to-me" });
+    assert.deepStrictEqual(h.started, [],
+      "recovery must not replace the already-started primitive");
+    assert.strictEqual(h.executions.length, 0,
+      "an expired previous receipt alone must not authorize adoption");
+    assert.strictEqual(legacy.taskLauncher.itemKey, "",
+      "the legacy identity must not be rebound from stale qualification evidence");
+    var stored = h.autoLaunch.candidateStore.get({ projectId: CUTOVER_PROJECT },
+      "launch:trialview/v2#2882");
+    assert.notStrictEqual(stored.status, "admitted");
   } finally {
     fs.rmSync(h.cwd, { recursive: true, force: true });
   }
@@ -1824,6 +1927,174 @@ test("end to end: a scan lands a real canonical binding, exactly once", async fu
   }
 });
 
+function registerPrimitiveRecoveryCase(scenario) {
+test(scenario.name, async function () {
+  var serverCrossProject = require("../lib/server-cross-project");
+  var projectIdentity = require("../lib/project-identity");
+  var cwd = fs.mkdtempSync(path.join(os.tmpdir(), "clay-e2e-inflight-"));
+  try {
+    var tasksDir = path.join(cwd, ".clay", "tasks");
+    fs.mkdirSync(tasksDir, { recursive: true });
+    var recipe = {
+      id: "assigned-to-me",
+      source: { provider: "github", kind: "issue", repo: "trialview/v2", includeProjectItems: true },
+      launch: { defaultLimit: 10 }, session: {}, completion: {},
+      filter: { type: "bug", assigned: "me" },
+    };
+    fs.writeFileSync(path.join(tasksDir, "assigned-to-me.json"), JSON.stringify(recipe));
+    fs.writeFileSync(path.join(tasksDir, "config.json"), JSON.stringify({
+      autoLaunch: { enabled: true, recipes: ["assigned-to-me"], cron: "*/5 * * * *", maxConcurrent: 5 },
+      automation: typedIssueAutomation(),
+    }));
+
+    var bindingFile = path.join(cwd, "bindings.json");
+    var delivered = [];
+    var leadManager = makeCoordinatorSessionManager(projectIdentity.LEAD_PROJECT_ID);
+    leadManager.sessions.set("coop", { coopHome: true, storageId: "coop-home-live" });
+    var targetManager = makeCoordinatorSessionManager(CUTOVER_PROJECT);
+    var autoLaunch = null;
+    var leadContext = {
+      getProjectId: function () { return projectIdentity.LEAD_PROJECT_ID; },
+      getSessionManager: function () { return leadManager; },
+      deliverCrossProjectEnvelope: function () { return { ok: true }; },
+    };
+    var targetContext = {
+      getProjectId: function () { return CUTOVER_PROJECT; },
+      getSessionManager: function () { return targetManager; },
+      validateAutomationAuthorization: function (input) {
+        if (scenario.removeBeforeAdmission) fs.unlinkSync(evidenceStore.fileFor({
+          projectId: CUTOVER_PROJECT, sessionStorageId: "legacy-2883",
+        }));
+        var validated = autoLaunch.validateAutomationAuthorization(input);
+        if (scenario.hideBeforeCommit) primitive.hidden = true;
+        return validated;
+      },
+      deliverCrossProjectEnvelope: function (envelope) { delivered.push(envelope); return { ok: false }; },
+    };
+    var router = serverCrossProject.createCrossProjectRouter({
+      allowLeadSourcedExecution: true,
+      requireOwnerImplementationDecision: true,
+      bindingFile: bindingFile,
+      automationThreadIndex: {
+        ensureAutomationThread: function (input) {
+          return { ok: true, topicRef: { topicId: input.authorization.threadRef.threadId },
+            threadRef: input.authorization.threadRef };
+        },
+      },
+      onThreadHandedOff: function () { return { ok: true }; },
+      ownerRequests: {
+        claimCoordinator: function (input) {
+          this.claimed = input.coordinator;
+          return { ok: true };
+        },
+        canonicalCoordinator: function () { return this.claimed || null; },
+      },
+      getProjectContextById: function (projectId) {
+        if (projectId === projectIdentity.LEAD_PROJECT_ID) return leadContext;
+        if (projectId === CUTOVER_PROJECT) return targetContext;
+        return null;
+      },
+    });
+
+    var taskLauncher = attachTaskLauncher({
+      cwd: cwd,
+      sm: targetManager,
+      sdk: { startQuery: function () {} },
+      usersModule: { isMultiUser: function () { return false; } },
+      ensureProjectAccessForSession: function () { return true; },
+      onProcessingChanged: function () {},
+    });
+    var item = assignedIssue(2883);
+    var previousCandidate = writePreviousPrimitiveCandidate(cwd, { projectId: CUTOVER_PROJECT },
+      recipe, item, "trialview/v2#2883", Date.now() -
+        (scenario.historical ? automationQualification.MAX_RECEIPT_AGE_MS + 60000 : 0));
+    var primitive = targetManager.createSessionRaw({
+      storageId: "legacy-2883",
+      title: item.title,
+      taskLauncher: {
+        autoLaunch: true,
+        recipeId: "assigned-to-me",
+        itemNumber: 2883,
+        itemUrl: item.url,
+        autoKind: "issue",
+        itemKey: "",
+        workflowCompleted: false,
+      },
+    });
+    if (scenario.historical) {
+      primitive.createdAt = previousCandidate.qualificationReceipt.evidenceAt + 25;
+      var evidenceStore = require("../lib/project-primitive-launch-evidence")
+        .createLaunchEvidenceStore({ cwd: cwd });
+      var retained = evidenceStore.retain({
+        sessionRef: { projectId: CUTOVER_PROJECT,
+          sessionStorageId: scenario.wrongSession ? "unrelated-session" : "legacy-2883" },
+        qualificationReceipt: previousCandidate.qualificationReceipt,
+      });
+      assert.strictEqual(retained.ok, true);
+      if (scenario.lateLaunch) primitive.createdAt += automationQualification.MAX_RECEIPT_AGE_MS;
+      // The candidate has since changed: only the immutable original record
+      // can establish what was eligible when this exact session was created.
+      writePreviousPrimitiveCandidate(cwd, { projectId: CUTOVER_PROJECT },
+        recipe, item, "trialview/v2#2883",
+        previousCandidate.qualificationReceipt.evidenceAt - automationQualification.MAX_RECEIPT_AGE_MS - 1);
+    }
+    item.projectItems[0].status.name = "🔄 In progress";
+    if (scenario.closed) item.state = "CLOSED";
+    if (scenario.unassigned) item.assignedToOwner = false;
+    if (scenario.doneBoard) item.projectItems[0].status.name = "Dev Complete";
+    autoLaunch = attachAutoLaunch({
+      cwd: cwd,
+      slug: "webapp",
+      sm: targetManager,
+      getTaskLauncher: function () { return taskLauncher; },
+      getLeadMode: function () { return true; },
+      crossProject: router,
+      fetchItems: function () { return [item]; },
+    });
+
+    await autoLaunch.runScheduled({ id: "autolaunch_assigned", task: "assigned-to-me" });
+
+    if (scenario.denied) {
+      assert.strictEqual(primitive.taskLauncher.itemKey, "",
+        "old launch evidence must not bypass a current or historical boundary");
+      var deniedBindings = fs.existsSync(bindingFile) ? JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings : [];
+      assert.strictEqual(deniedBindings.length, 0);
+      assert.strictEqual(delivered.length, 0);
+      return;
+    }
+    assert.strictEqual(primitive.taskLauncher.itemKey, "trialview/v2#2883",
+      "legacy recovery must persist the exact primitive identity");
+    var persisted = JSON.parse(fs.readFileSync(bindingFile, "utf8"));
+    assert.strictEqual(persisted.bindings.length, 1,
+      "the production router must accept the verified in-flight primitive adoption");
+    var binding = persisted.bindings[0];
+    assert.strictEqual(binding.status, "active");
+    assert.strictEqual(binding.coordinator.sessionStorageId, "legacy-2883");
+    assert.strictEqual(binding.automationAuthorization.kind,
+      "project_auto_launch_primitive");
+    assert.strictEqual(delivered.length, 0,
+      "valid primitive adoption must not deliver a generic duplicate command");
+    await autoLaunch.runScheduled({ id: "autolaunch_assigned", task: "assigned-to-me" });
+    assert.strictEqual(JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings.length, 1,
+      "replaying recovery must retain exactly the original binding");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+}
+[
+  { name: "end to end: the real router adopts a current in-flight primitive" },
+  { name: "end to end: historical launch evidence recovers the exact old primitive", historical: true },
+  { name: "historical primitive recovery rejects a now-closed issue", historical: true, closed: true, denied: true },
+  { name: "historical primitive recovery rejects lost assignment", historical: true, unassigned: true, denied: true },
+  { name: "historical primitive recovery rejects a completed board status", historical: true, doneBoard: true, denied: true },
+  { name: "historical primitive recovery rejects evidence for another session", historical: true, wrongSession: true, denied: true },
+  { name: "historical primitive recovery rejects an expired receipt at launch", historical: true, lateLaunch: true, denied: true },
+  { name: "historical primitive recovery rechecks evidence at final admission", historical: true, removeBeforeAdmission: true, denied: true },
+  { name: "primitive adoption rechecks hidden state at commit", hideBeforeCommit: true, denied: true },
+].forEach(registerPrimitiveRecoveryCase);
+
 test("adopted require-user-trigger primitive fans in internal completion before owner Done", async function () {
   var serverCrossProject = require("../lib/server-cross-project");
   var projectIdentity = require("../lib/project-identity");
@@ -2300,4 +2571,59 @@ test("owner can finish unadopted automation with Lead ON, but members and stale 
     assert.match(directive, /CLAY_TASK_COMPLETE/);
     assert.strictEqual(owner.taskLauncher.ownerCompletionApproval.by, "owner");
   } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("historical launch evidence is immutable and a copied proof cannot authorize recovery", function () {
+  var item = assignedIssue(2999);
+  var h = makeIdleBoardHarness({ type: "bug" }, item);
+  try {
+    var evidence = require("../lib/project-primitive-launch-evidence");
+    var store = evidence.createLaunchEvidenceStore({ cwd: h.cwd });
+    var ref = { projectId: CUTOVER_PROJECT, sessionStorageId: "actual-old-launch" };
+    var old = writePreviousPrimitiveCandidate(h.cwd, { projectId: CUTOVER_PROJECT },
+      h.recipe, item, "trialview/v2#2999", Date.now() - automationQualification.MAX_RECEIPT_AGE_MS - 1000);
+    var record = { sessionRef: ref, qualificationReceipt: old.qualificationReceipt };
+    assert.deepStrictEqual(store.retain(record), { ok: true, created: true });
+    var before = fs.readFileSync(store.fileFor(ref));
+    assert.deepStrictEqual(store.retain(record), { ok: true, created: false });
+    var different = writePreviousPrimitiveCandidate(h.cwd, { projectId: CUTOVER_PROJECT },
+      h.recipe, item, "trialview/v2#2999", old.qualificationReceipt.evidenceAt + 1);
+    assert.strictEqual(store.retain({ sessionRef: ref,
+      qualificationReceipt: different.qualificationReceipt }).reason, "historical_launch_evidence_conflict");
+    assert.ok(before.equals(fs.readFileSync(store.fileFor(ref))));
+    var session = { storageId: ref.sessionStorageId,
+      createdAt: old.qualificationReceipt.evidenceAt + 25,
+      taskLauncher: { autoLaunch: true, recipeId: h.recipe.id,
+        itemNumber: item.number, itemUrl: item.url, itemKey: "" } };
+    var policy = automationPolicy.loadProjectAutomationPolicy({ cwd: h.cwd,
+      projectRef: { projectId: CUTOVER_PROJECT } }).policy;
+    var input = { session: session, projectRef: { projectId: CUTOVER_PROJECT },
+      recipe: h.recipe, itemKey: old.itemKey, policy: policy, now: Date.now() };
+    var verified = store.verify(input);
+    assert.strictEqual(verified.ok, true);
+    item.projectItems[0].status.name = "In progress";
+    var request = { policy: policy, projectRef: input.projectRef,
+      recipe: old.qualificationReceipt.recipe, item: item, itemKey: old.itemKey,
+      itemClass: "bug", assignedToOwner: true, recipeAllowsUnassigned: false,
+      allowInFlightPrimitive: true, previousQualificationReceipt: old.qualificationReceipt,
+      historicalPrimitiveLaunch: verified.proof, now: Date.now() };
+    var fresh = automationQualification.receiptFor(request);
+    assert.strictEqual(fresh.ok, true);
+    assert.ok(automationQualification.normalizeReceipt(fresh.receipt));
+    assert.strictEqual(fresh.receipt.historicalLaunch.receiptDigest, old.qualificationReceipt.digest);
+    assert.strictEqual(automationQualification.receiptFor(Object.assign({}, request, {
+      historicalPrimitiveLaunch: JSON.parse(JSON.stringify(verified.proof)),
+    })).ok, false, "serialized proof data must not impersonate an internally verified launch");
+    session.createdAt += 1;
+    assert.strictEqual(automationQualification.receiptFor(request).ok, false,
+      "a proof must stop working if actual session identity changes");
+    session.createdAt -= 1;
+    session.taskLauncher.itemUrl = "https://github.com/other/repo/issues/2999";
+    assert.strictEqual(store.verify(input).ok, false,
+      "matching issue number alone cannot establish repository identity");
+    session.taskLauncher.itemUrl = item.url;
+    var changedPolicy = JSON.parse(JSON.stringify(policy));
+    changedPolicy.digest = "a".repeat(64);
+    assert.strictEqual(store.verify(Object.assign({}, input, { policy: changedPolicy })).ok, false);
+  } finally { fs.rmSync(h.cwd, { recursive: true, force: true }); }
 });
