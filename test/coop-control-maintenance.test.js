@@ -18,6 +18,7 @@ function fixture(t) {
     var options = { cwd: cwd, slug: slug, projectId: projectId, send: function () {} };
     var sm = createManager(options);
     var context = { sm: sm, options: options,
+      getProjectId: function () { return context.sm.getProjectId(); },
       getSessionManager: function () { return context.sm; },
       getStatus: function () { return { slug: slug, title: slug, path: cwd, projectId: projectId, isWorktree: !!worktree }; } };
     projects.set(slug, context);
@@ -70,6 +71,8 @@ test("daemon maintenance waits for startup and converges with zero viewers using
   h.tick();
   var root = plane.projectCoordinatorFor(h.lead.sm, { projectId: PROJECT });
   assert.ok(root);
+  assert.ok(h.router.sessionLedger.get({ projectId: "system-lead", sessionStorageId: root.storageId }),
+    "maintenance reconciles actual registered managers into the durable session ledger");
   assert.ok(h.index.load().canonicalSessionStorageId || Object.keys(h.index.load().topics).length);
   var refs = Array.from(h.lead.sm.sessions.values()).filter(function (session) {
     return plane.projectCoordinatorPolicy(session);

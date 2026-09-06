@@ -48,6 +48,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Preserve execution links and concurrent changes during Thread undo.
 - [x] Enforce read-only local evidence authority at admission and execution, and show its effective limits in session settings.
 - [ ] Define and implement ON adoption / OFF ownership handover.
+- [x] Pause automatic Coop graph dispatch while OFF and retain direct owner continuation.
 - [ ] Give persistent project coordinators explicit role, project context, intake,
       scoped delegation, and upward reporting.
 - [x] Give Coop explicit high-level discussion instructions while delegating substantial execution.
@@ -57,7 +58,7 @@ Independent defect repairs can proceed while those preferences are discussed.
 - [x] Preserve reports through provider submission, bound retries, and expose uncertain delivery for owner review.
 - [x] Correct plain-array transcript saves that can be incorrectly skipped by the unloaded-history optimization.
 - [ ] Consolidate owner-request/task/attempt outcome provenance.
-- [ ] Remove recovery mutations from projections, drive them through daemon events,
+- [x] Remove recovery mutations from projections, drive them through daemon events,
       and release removed managers from the recovery registry.
 - [ ] Verify recovery isolation boundaries and scoped historical reconciliation.
 - [ ] Establish supervised maintenance activation/rollback without a worker stopping
@@ -788,9 +789,64 @@ B tests still exercise the actual handoff controller and durable receipt. These
 checks do not prove production canary quietness, a real provider handoff during a
 running daemon, or the complete owner/work lifecycle. The branch remains unactivated.
 
-Remaining toggle findings: OFF still lacks durable ownership handover and existing
-Coop task graphs can schedule dependencies/retries. ON's legacy-automation drain
+Remaining toggle findings: OFF still lacks durable ownership handover. Historical
+finding, retracted after iteration 25: “existing Coop task graphs can schedule
+dependencies/retries” while OFF. ON's legacy-automation drain
 records duplicate-prevention candidates but does not yet give resident coordinators
 oversight of those existing sessions. Ordinary owner-created orchestration must stay
 usable while those transitions are implemented. The owner's exact preference for
 already-running work on OFF is still pending.
+
+
+## Iteration 25: Pause automatic Coop orchestration when Lead is OFF
+
+The application supplies the actual global Lead setting to project orchestration.
+Validated Coop provenance identifies controlled graphs; titles, coordinator roles,
+and ordinary owner-created graphs do not establish Coop ownership. OFF blocks new
+workers/dependencies, automatic failed-worker retries, coordinator report wake-ups,
+and model-driven delegation/planning/adoption/retry/messages before task mutation.
+Running workers finish normally. Failed work retains its result, worker identity,
+and attempt count instead of silently spending another attempt while paused.
+
+Queued worker messages remain durable while paused. The existing daemon delivery
+clock resumes pending messages and ready dependencies after ON without requiring a
+viewer or another owner request. The ordinary prepared-owner-message dispatch path
+remains available while OFF. Live UI feedback uses a separate server-owned method;
+a model-supplied `_liveUiFollowup` flag has no authority, even while ON. Durable owner
+feedback can continue its exact worker after a restart while OFF without draining
+queued automatic instructions. Failed queue-removal saves retain the message for
+the next clock instead of starting a worker with an unsaved queue transition.
+A completed worker turn with queued follow-up leaves its task unresolved/reviewing,
+so the real project finalizer cannot terminalize the parent before that work runs.
+Restart also repairs older completed records with pending continuation and refuses
+to promote restart-attention tasks ahead of their queued work.
+
+The maintenance test fixture now registers its real ProjectRef getter with the
+router and asserts the created root appears in the actual session ledger. Its
+previous fixture did not register with the router because that getter was absent;
+the earlier passing result covered role creation and binding operations but did not
+prove that registered-manager ledger lookup. The strengthened fixture passes all
+nine tests in both modes.
+
+Verification: the final 13 new tests pass in both modes. On the initial 11-test
+set, removing existing wiring produced 2 passes/9 failures, removing the Lead
+predicate produced 4 passes/7 failures, and removing owner recovery/save guards
+produced 9 passes/2 failures in each mode. With the two finalizer/restart tests
+added, removing their completion guards produced 11 passes/2 failures in both
+modes; restored focused run passed 91/91 in each mode. Removing maintenance ledger
+reconciliation produced 8 passes/1 failure in its nine tests, in both modes.
+Final full suite: 4,259/4,259 default tests across 433 files and 716/716 controlled
+tests across 58 files, exit 0, with every change restored. Tests use real
+session JSONL, persisted Lead toggles, stable coordinator/worker lookup, graph
+transitions, MCP handlers, prepared owner-message dispatch, router retry callbacks,
+and the real daemon retry timer. Provider starts and model catalog are controlled
+fixtures, not actual model runs. The finalizer test exercises actual project status
+closure; it does not create a live provider execution fence. Logs are under
+`/private/tmp/coop-v2-pause-*.out` and the maintenance lookup proof is in
+`/private/tmp/coop-v2-maintenance-ledger-removed.out`.
+
+This is a scheduling pause, not durable ownership release. Startup fences remain
+in force, automatic intake/adoption of pre-existing project automation remains
+open, and the owner has not confirmed the policy for already-running work. The
+current stated assumption lets running workers finish. Production activation,
+live canary verification, and a full owner-visible workflow remain outstanding.

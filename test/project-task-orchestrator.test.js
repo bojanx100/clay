@@ -2980,7 +2980,7 @@ test("Live UI follow-up resumes the completed task in its existing worker", func
   worker._orchestrationTaskClosed = true;
   task.archivedAt = Date.now();
 
-  var result = ctx.api.messageFromTool({
+  var result = ctx.api.messageFromOwner({
     coordinatorSessionId: parent.storageId,
     taskId: task.taskId,
     message: "The mobile spacing still needs adjustment.",
@@ -3009,7 +3009,7 @@ test("Live UI feedback queues on the active worker with its screenshot", functio
   var task = parent.orchestrationTasks[0];
   var worker = ctx.starts[0].session;
 
-  var result = ctx.api.messageFromTool({
+  var result = ctx.api.messageFromOwner({
     coordinatorSessionId: parent.storageId,
     taskId: task.taskId,
     message: "Also tighten the tablet breakpoint.",

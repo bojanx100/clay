@@ -167,7 +167,7 @@ function harness(overrides) {
           workerColor: task.workerColor,
         };
       },
-      messageFromTool: function (input) {
+      messageFromOwner: function (input) {
         followedUp.push(input);
         var task = session.orchestrationTasks.find(function (candidate) {
           return candidate.taskId === input.taskId;
