@@ -1051,3 +1051,51 @@ attachments are not imported by this path. No provider continuation was launched
 so this does not verify native resume or simultaneous writers from Desktop and
 Clay. Continue the conversation from one application at a time. Full Coop lifecycle
 acceptance and the broader product gaps remain as recorded in the previous sections.
+
+
+## Iteration 30: Coop opens with a governed model
+
+The owner reported that the fresh preview opened Coop with the wrong model and
+specified GPT-6 Astra or Claude Fable only. A browser reload reproduced the
+`Claude Code · Opus 4.6` chip. The saved canonical conversation had no vendor,
+route or model, while its initial incarnation said `claude/default`. Existing
+turn-start policy already restricted execution to active Astra/Fable designations;
+initial session creation and model presentation had bypassed that policy.
+
+Canonical conversations now receive an explicit requested route/model before their
+first display. An unspecified fresh Coop uses Astra; a Claude preference uses Fable.
+The current policy remains the source of eligible designations. Startup also repairs
+empty legacy canonical records, including an unmarked empty session selected as the
+home, and synchronizes the existing incarnation without replacing its identity.
+A failed durable repair restores the prior in-memory fields. Started conversations
+retain their provider identity and still use the existing fenced switch path.
+
+Connection and vendor-catalog responses filter canonical Coop choices to governed
+models, retain a pinned Fable alias when the catalog uses a different exact name,
+and keep project defaults or cached models from replacing that selection. Ordinary
+sessions retain their model choices. Configuration does not attest provider health:
+the existing turn-start and failover checks continue to reject unavailable or
+lower-tier routes.
+
+Validation: all six new regressions fail with the five implementation files reverted
+(0 pass / 6 fail), then pass after restoration. The final full run passes 4,301 /
+4,301 default tests and 740 / 740 controlled tests. The regressions exercise actual
+session creation, saved legacy records and reload, canonical channel creation,
+connection selection, asynchronous vendor refresh, failed-save rollback and health
+refusal. Existing policy tests cover lower-tier rejection and Astra/Fable failover.
+
+Before preview activation, the control store was snapshotted consistently to
+`~/.clay-coop-v2/snapshots/before-coop-model-opening.sqlite` (16 tables, zero
+executions, integrity check OK), and the empty Coop JSONL was separately preserved
+and byte-verified. Restart affected only the preview (PID 36820). The browser then
+showed GPT-6 Astra when entering Coop and after a fresh reload; the Codex picker
+contained only Astra. The persisted record has `codex-openai/gpt-6-astra`, with the
+same storage ID, incarnation ID and epoch, and no provider session ID. Apart from
+model/incarnation fields, only the normal last-viewed timestamp changed.
+
+No model turn was sent to validate generation or live provider failover. The first
+post-restart minute recorded 527 ms maximum loop lag; this check establishes model
+selection, not a general latency guarantee. Rollback is to stop only the preview,
+restore its preserved empty JSONL while stopped, and run the previous code; retain
+the SQLite snapshot if a control-store rollback is separately needed. The original
+Clay daemon was not restarted.

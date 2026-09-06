@@ -191,6 +191,7 @@ Wires all modules, sets up session manager and SDK bridge, dispatches messages.
 | `project-provider-failover.js` | Task-floor-aware fallback ladder, bounded idempotent provider switch, and durable interrupted-turn continuation |
 | `lib/public/modules/project-settings-continuation.js` | Per-project comparable-model auto-continue toggle state and WebSocket round trip |
 | `lib/public/modules/add-project-modal.js` | Add-project modal modes, shared existing/new folder picker, clone input, and project creation result handling |
+| `coop-model-policy.js` + `coop-model-routing.js` | Canonical Coop top-tier designations, initialization before first use, model choices that preserve the pinned identity, runtime health gates, and governed failover |
 | `project-session-defaults.js` | Session manager default vendor, mode, effort, model, and Codex config initialization |
 | `project-identity.js` | Durable config-backed project IDs plus validated `ProjectRef`/`SessionRef`/`TaskRef` construction and read-only resolution helpers |
 | `coop-conversation-control.js` | Permanent Coop foreground conversation control | Durable ordered ingress, idempotency, replying state, attention, and idle Lead wakeup state; serializes work activity via `coop-work-activity.js` |
