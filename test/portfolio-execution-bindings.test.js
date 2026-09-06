@@ -46,6 +46,55 @@ function autoLaunchReviewRequest(revision) {
   return value;
 }
 
+function primitiveRequest(taskId, revision, reconsideration, itemKey) {
+  var value = request(revision, "project_coordinator", taskId + "-r" + revision);
+  value.portfolioTaskId = taskId;
+  var item = itemKey || "trialview/v2#17";
+  var candidate = {
+    projectRef: value.targetProject,
+    candidateKey: "launch:" + item,
+    digest: "candidate-digest",
+    itemKey: item,
+    itemClass: "pr_review",
+    policyDigest: "policy-digest",
+    eligibilityPass: "eligibility-pass",
+    eligibility: { assignedToOwner: true, recipeAllowsUnassigned: false, reason: "pr_author" },
+    recipeId: "pr-reviews",
+    intent: { autoKind: "pr-review" },
+  };
+  if (reconsideration) candidate.reconsideration = reconsideration;
+  value.automationAuthorization = automationAuthorization.createAuthorization(candidate, value, {
+    kind: automationAuthorization.PRIMITIVE_KIND,
+  });
+  assert.ok(value.automationAuthorization, "fixture must carry typed primitive authority");
+  return value;
+}
+
+function reconsiderationFor(binding, overrides) {
+  var record = binding || {};
+  return Object.assign({
+    schema: "clay.automation_candidate_reconsideration",
+    version: 1,
+    reason: "owner_requested_bounce_reconsideration",
+    ownerRequestRefs: ["owner-ingress:2777"],
+    requestedAt: 1777777777000,
+    currentQualificationRequired: true,
+    verifiedNoLiveSession: true,
+    completionProof: {
+      kind: "completed_binding",
+      portfolioTaskId: record.portfolioTaskId || "historical-issue-17",
+      bindingRevision: record.bindingRevision || 1,
+      targetProject: record.targetProject || { projectId: PROJECT_ID },
+      completedAt: record.completedAt || 1777777777001,
+      resultEventId: record.resultEventId || "historical-result-17",
+      completionEventId: record.completionEventId || "historical-completion-17",
+      coordinator: record.coordinator || { projectId: PROJECT_ID, sessionStorageId: "historical-17" },
+      projectCoordinator: record.projectCoordinator ||
+        { projectId: "system-lead", sessionStorageId: "coop-home" },
+    },
+  }, overrides || {});
+}
+
 function readOnlyReviewRequest(taskId) {
   var value = request(1, "project_coordinator", taskId + "-r1");
   value.portfolioTaskId = taskId;
@@ -917,6 +966,124 @@ test("legacy auto and project aliases preserve a verified completion over later 
   assert.equal(retry.reason, "duplicate_work_identity",
     "an unrouted successor cannot supersede verified owner-acceptance work");
   assert.equal(retry.binding.bindingRevision, 1);
+});
+
+test("rearmable primitive authority refreshes only the exact unrouted retry", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-primitive-refresh-"));
+  var store = createBindings({ file: path.join(dir, "bindings.json"), now: function () { return 100; } });
+  try {
+    var oldRequest = primitiveRequest("auto-primitive-2725", 2);
+    assert.equal(store.reserve(oldRequest).ok, true);
+    assert.equal(store.releaseReservation(oldRequest.portfolioTaskId, oldRequest.bindingRevision,
+      { reason: "router_before_adoption" }).ok, true);
+
+    var refreshedRequest = primitiveRequest("auto-primitive-2725", 2,
+      reconsiderationFor(null));
+    var refreshed = store.reserve(refreshedRequest);
+    assert.equal(refreshed.ok, true, refreshed.reason);
+    assert.equal(refreshed.rearmed, true);
+    assert.deepEqual(refreshed.binding.automationAuthorization,
+      refreshedRequest.automationAuthorization,
+      "the rearm uses the newly validated primitive authority, not the stale reservation");
+    assert.equal(refreshed.binding.status, "pending");
+
+    var wrongItem = primitiveRequest("auto-primitive-2725", 2, reconsiderationFor(null));
+    wrongItem.automationAuthorization.itemKey = "trialview/v2#99";
+    assert.equal(store.reserve(wrongItem).reason, "invalid_binding",
+      "a forged current authorization is rejected before it can refresh the retry");
+
+    assert.equal(store.commit(refreshedRequest.portfolioTaskId, refreshedRequest.bindingRevision,
+      { projectId: PROJECT_ID, sessionStorageId: "live-2725" }).ok, true);
+    assert.equal(store.reserve(refreshedRequest).created, false,
+      "the committed exact binding replays normally");
+    var changed = primitiveRequest("auto-primitive-2725", 2, reconsiderationFor(null, {
+      ownerRequestRefs: ["owner-ingress:changed"],
+    }));
+    assert.equal(store.reserve(changed).reason, "idempotency_conflict",
+      "an active binding never accepts an authority refresh");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("only exact owner reconsideration crosses a completed work-identity boundary", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-owner-reconsideration-"));
+  var store = createBindings({ file: path.join(dir, "bindings.json"), now: function () { return 200; } });
+  try {
+    var historicalRequest = primitiveRequest("historical-issue-17", 1);
+    assert.equal(store.reserve(historicalRequest).ok, true);
+    assert.equal(store.commit(historicalRequest.portfolioTaskId, historicalRequest.bindingRevision,
+      { projectId: PROJECT_ID, sessionStorageId: "historical-17" }, {
+        projectCoordinatorRef: { projectId: "system-lead", sessionStorageId: "coop-home" },
+      }).ok, true);
+    assert.equal(store.complete(historicalRequest.portfolioTaskId, historicalRequest.bindingRevision, {
+      eventId: "historical-completion-17", resultEventId: "historical-result-17",
+      terminalStatus: "completed",
+    }).ok, true);
+    var historical = store.get(historicalRequest.portfolioTaskId, historicalRequest.bindingRevision);
+    assert.equal(historical.status, "completed");
+
+    var reconsidered = primitiveRequest("new-issue-17", 1, reconsiderationFor(historical));
+    var admitted = store.reserve(reconsidered);
+    assert.equal(admitted.ok, true, admitted.reason);
+    assert.equal(store.get(historicalRequest.portfolioTaskId, historicalRequest.bindingRevision).status,
+      "completed", "the old completed record is retained exactly");
+
+    var wrongProofs = [{
+      name: "completion event",
+      proof: Object.assign({}, reconsiderationFor(historical).completionProof, {
+        completionEventId: "other-completion",
+      }),
+    }, {
+      name: "project",
+      proof: Object.assign({}, reconsiderationFor(historical).completionProof, {
+        targetProject: { projectId: "11111111-2222-4333-8444-555555555555" },
+      }),
+    }, {
+      name: "revision",
+      proof: Object.assign({}, reconsiderationFor(historical).completionProof, {
+        bindingRevision: historical.bindingRevision + 1,
+      }),
+    }];
+    for (var i = 0; i < wrongProofs.length; i++) {
+      var forged = primitiveRequest("forged-new-issue-17-" + i, 1, reconsiderationFor(historical, {
+        completionProof: wrongProofs[i].proof,
+      }));
+      assert.equal(store.reserve(forged).reason, "duplicate_work_identity",
+        "wrong " + wrongProofs[i].name + " evidence cannot authorize a relaunch");
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("owner-reconsidered #2677 and #2522 retain completion history while admitting new work", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-reconsidered-issues-"));
+  var store = createBindings({ file: path.join(dir, "bindings.json"), now: function () { return 300; } });
+  try {
+    ["2677", "2522"].forEach(function (number) {
+      var itemKey = "trialview/v2#" + number;
+      var historicalRequest = primitiveRequest("historical-webapp-" + number, 1, null, itemKey);
+      assert.equal(store.reserve(historicalRequest).ok, true);
+      assert.equal(store.commit(historicalRequest.portfolioTaskId, 1, {
+        projectId: PROJECT_ID, sessionStorageId: "historical-" + number,
+      }, {
+        projectCoordinatorRef: { projectId: "system-lead", sessionStorageId: "coop-home" },
+      }).ok, true);
+      assert.equal(store.complete(historicalRequest.portfolioTaskId, 1, {
+        eventId: "historical-completion-" + number,
+        resultEventId: "historical-result-" + number,
+        terminalStatus: "completed",
+      }).ok, true);
+      var historical = store.get(historicalRequest.portfolioTaskId, 1);
+      var next = primitiveRequest("reconsidered-webapp-" + number, 1,
+        reconsiderationFor(historical, { ownerRequestRefs: ["owner-ingress:" + number] }), itemKey);
+      assert.equal(store.reserve(next).ok, true, "owner reconsideration must admit #" + number);
+      assert.equal(store.get(historicalRequest.portfolioTaskId, 1).status, "completed");
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // The whole acceptance lifecycle, driven only through the store's own API and
