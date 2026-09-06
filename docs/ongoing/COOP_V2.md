@@ -1264,3 +1264,42 @@ variant, or a general UI latency guarantee. The readers do not modify native pro
 transcripts. Startup verification separately found that the shared Claude notification
 installer rewrites the global hook to the preview's port; that isolation defect is
 addressed in the following iteration before considering activation complete.
+
+### Iteration 34 — preserve the original Claude notification destination
+
+The iteration 33 startup log recorded a native Claude hook installation. Inspection
+confirmed that the shared `~/.claude/settings.json` now sent Clay notifications to
+the preview's HTTP port 7392. The original remained active on HTTPS port 7292.
+Separating Clay state directories had not isolated the global provider settings:
+each daemon startup replaced the same marked hook, and could also rewrite its
+managed permission allow-list. This was an actual startup side effect, not an
+inferred risk or proof that the earlier preview isolation covered native settings.
+
+The installer now honors durable `manageClaudeSettings: false` before either native
+settings write, for both single-user and OS-user operation. Both preview-copy
+commands set it automatically; the ordinary daemon keeps its existing default.
+The regression launches the shipped installer in child processes with real isolated
+daemon config and native settings files, verifies exact byte preservation in both
+user modes, then checks ordinary installation still works and preserves owner
+entries. Copy regressions verify the setting survives both actual sync paths.
+Removing all three implementation changes yields 8 pass / 3 fail; restoring them
+yields 11 pass / 0 fail.
+
+Only the preview was stopped to apply its new setting. Its config and control store,
+plus the shared Claude settings file, were backed up and verified in
+`~/.clay-coop-v2/before-native-settings-baGB5z`. The native repair changed only the
+existing marked hook's command to the live original daemon's verified endpoint,
+`https://127.0.0.1:7292/api/tui-notify`; permissions and all other native settings
+were preserved. The original daemon stayed on PID 98484. Rollback retains that
+original notification destination while restoring the preview's prior code/config
+with the preview stopped.
+
+The final full suite passes 4,332 default tests and 746 controlled tests. The preview
+restarted as PID 45456, returned HTTP 200, retained all execution pauses, and left
+the corrected global Claude settings byte-for-byte unchanged. Its session-file
+inventory is identical before/after (3,088 files including the 12 pre-existing
+metadata-free fragments); no extra sessions were added. Startup inspection found
+no native hook/allow-list installation, provider start, copied queue flush, automatic
+resume or new recovery event. Startup still recorded 572 ms and 533 ms event-loop
+stalls, so history/startup responsiveness remains an open performance item. A
+Copilot account-model discovery warning also remains outside this Claude/Codex fix.

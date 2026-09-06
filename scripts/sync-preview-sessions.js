@@ -152,7 +152,7 @@ function syncPreviewSessionsUnlocked(options) {
       }
     });
     var nextConfig = Object.assign({}, config, { nativeSessionDiscovery: false, restoreWorkOnStartup: false,
-      scheduledExecutionPaused: true, singleUserMigratedUserId: sourceUser.id,
+      scheduledExecutionPaused: true, manageClaudeSettings: false, singleUserMigratedUserId: sourceUser.id,
       projects: config.projects.map(function (project) {
         return project.ownerId === targetUser.id ? Object.assign({}, project, { ownerId: sourceUser.id }) : project;
       }) });

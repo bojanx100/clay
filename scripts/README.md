@@ -42,7 +42,10 @@ config/user backups are stored there, alongside a consistent snapshot of the pri
 Coop database. Stop the preview before any rollback.
 
 The resulting preview uses `scheduledExecutionPaused: true`,
-`restoreWorkOnStartup: false`, and `nativeSessionDiscovery: false`. Schedules remain
+`restoreWorkOnStartup: false`, `nativeSessionDiscovery: false`, and
+`manageClaudeSettings: false`. The last setting prevents preview startup from
+redirecting the shared Claude notification hook or changing its permission allow-list.
+The ordinary daemon retains native settings management by default. Schedules remain
 defined and display **Paused**, copied queues/restart continuations/control recovery
 do not start automatically, and native orphan discovery cannot refill the sidebar.
 Explicit native imports remain available. These settings do not create a filesystem

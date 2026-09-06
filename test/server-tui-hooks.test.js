@@ -4,6 +4,45 @@ var fs = require("node:fs");
 var path = require("node:path");
 var serverTuiHooks = require("../lib/server-tui-hooks");
 
+test("a comparison daemon preserves real native settings in single-user and OS-user modes", function (t) {
+  var root = fs.mkdtempSync(path.join(require("os").tmpdir(), "clay-native-settings-"));
+  t.after(function () { fs.rmSync(root, { recursive: true, force: true }); });
+  var settingsFiles = ["alice", "bob"].map(function (name) {
+    var file = path.join(root, name, ".claude/settings.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ theme: "dark", permissions: { allow: ["Read", "owner-custom"] },
+      hooks: { Notification: [{ matcher: "", hooks: [{ type: "command", command: "owner hook" },
+        { type: "command", command: "curl https://127.0.0.1:7292/api/tui-notify # clay:tui-notify" }] }] } }));
+    return file;
+  });
+  var before = settingsFiles.map(function (file) { return fs.readFileSync(file, "utf8"); });
+  var stateDir = path.join(root, "state");
+  fs.mkdirSync(stateDir);
+  var configFile = path.join(stateDir, "daemon-dev.json");
+  fs.writeFileSync(configFile, JSON.stringify({ manageClaudeSettings: false }));
+  function boot(osUsers) {
+    require("child_process").execFileSync(process.execPath, ["-e",
+      "require('./lib/server-tui-hooks').installTuiHooks({ portNum:7392, osUsers:" + osUsers + "," +
+      "osModule:{homedir:function(){return process.env.CLAY_FIXTURE_HOME+'/alice';}}," +
+      "users:{getAllUsers:function(){return [{linuxUser:'alice'},{linuxUser:'bob'}];}}," +
+      "osUsersModule:{resolveOsUserInfo:function(name){return {home:process.env.CLAY_FIXTURE_HOME+'/'+name};}}});"],
+    { cwd: path.join(__dirname, ".."), env: Object.assign({}, process.env, { CLAY_CONFIG: configFile,
+      CLAY_HOME: stateDir, CLAY_DEV: "1", CLAY_FIXTURE_HOME: root }), stdio: "pipe" });
+  }
+  [false, true].forEach(function (osUsers) {
+    boot(osUsers);
+    settingsFiles.forEach(function (file, index) { assert.equal(fs.readFileSync(file, "utf8"), before[index]); });
+  });
+  fs.writeFileSync(configFile, "{}");
+  boot(false);
+  var active = JSON.parse(fs.readFileSync(settingsFiles[0]));
+  var commands = active.hooks.Notification.flatMap(function (group) { return group.hooks.map(function (hook) { return hook.command; }); });
+  assert.ok(commands.indexOf("owner hook") !== -1);
+  assert.ok(commands.some(function (command) { return command.indexOf("http://127.0.0.1:7392/api/tui-notify") !== -1; }));
+  assert.ok(active.permissions.allow.indexOf("owner-custom") !== -1);
+  assert.equal(fs.readFileSync(settingsFiles[1], "utf8"), before[1]);
+});
+
 test("detached adopted sessions are suppressed until Clay attaches a terminal", function () {
   assert.strictEqual(serverTuiHooks.shouldSuppressDetachedAdoptedSession({
     adopted: true,

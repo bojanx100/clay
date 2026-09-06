@@ -51,6 +51,7 @@ test("session snapshot replaces extras, preserves visibility and transcript byte
   assert.equal(config.nativeSessionDiscovery, false);
   assert.equal(config.restoreWorkOnStartup, false);
   assert.equal(config.scheduledExecutionPaused, true);
+  assert.equal(config.manageClaudeSettings, false);
   assert.equal(config.coop.leadMode.enabled, false);
   assert.equal(config.projects[0].ownerId, "owner");
 });

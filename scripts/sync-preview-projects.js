@@ -67,6 +67,7 @@ function syncPreviewProjectsUnlocked(options) {
   var nextConfig = Object.assign({}, copyFields(sourceConfig, targetConfig, CONFIG_FIELDS), {
     projects: projects,
     scheduledExecutionPaused: true,
+    manageClaudeSettings: false,
   });
   // Remove stale preview tombstones for projects that are now registered.
   if (Array.isArray(nextConfig.removedProjects)) {
@@ -82,7 +83,7 @@ function syncPreviewProjectsUnlocked(options) {
   var plan = {
     source: source, target: target, projects: projects.map(function (project) { return project.slug; }),
     sourceOwnerId: sourceOwner.id, targetOwnerId: targetOwner.id,
-    scheduledExecutionPaused: true, historyCopied: false, applied: false,
+    scheduledExecutionPaused: true, manageClaudeSettings: false, historyCopied: false, applied: false,
   };
   if (!options.apply) return plan;
   if (alive(targetConfig.pid)) throw new Error("Stop only the preview daemon before applying this sync.");

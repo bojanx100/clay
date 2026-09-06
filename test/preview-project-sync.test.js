@@ -45,6 +45,7 @@ test("preview sync discovers every registered project, maps private ownership an
   assert.equal(actual.defaultClaudeModel, "claude-opus-5");
   assert.equal(actual.defaultEffort, "xhigh");
   assert.equal(actual.scheduledExecutionPaused, true);
+  assert.equal(actual.manageClaudeSettings, false);
   assert.equal(actual.port, 7392);
   assert.equal(actual.host, "127.0.0.1");
   assert.equal(actual.tls, false);
