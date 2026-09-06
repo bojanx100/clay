@@ -1426,3 +1426,22 @@ what Clay supplies, not real model compliance or a complete live Lead-on journey
 Evidence: /private/tmp/coop-v2-coordinator-full.out,
 /private/tmp/coop-v2-coordinator-proof-fixed.out,
 /private/tmp/coop-v2-coordinator-proof-reverted.out.
+
+
+Activation: implementation commit `90560a7828acc987615f0d719233c62a73b942af`
+is running in the isolated preview on port 7392 (PID 92441). Lead remains OFF;
+schedules, automatic startup work, native discovery and global Claude settings
+management remain disabled. Nine registered projects remain configured. The
+3,514-file backup at `~/.clay-coop-v2/before-coordinator-context-MgZtCd` includes
+a verified VACUUM SQLite snapshot (16 tables, 201 executions) and rollback
+instructions. The global Claude settings hash is unchanged. The original daemon
+and its config changed concurrently; its current PID is 92134, port 7292, Lead ON.
+Those concurrent changes were preserved, not rolled back.
+
+After activation the preview answers HTTP 200. No new recovery canary events or
+provider starts were observed; startup's 853 ms lag settled to 4 ms in the next
+complete interval. The old preview's shutdown logged the pre-existing paused
+control-ingress cleanup warning; startup still reports unavailable Copilot model
+discovery. Neither is evidence of a successful real-provider coordinator journey.
+See `/private/tmp/coop-v2-coordinator-activation.json` and
+`/private/tmp/coop-v2-coordinator-verified.json` for the activation record.
