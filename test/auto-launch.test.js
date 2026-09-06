@@ -2076,13 +2076,13 @@ test("end to end: canonical admission adopts live-shaped #2725 and #2777 primiti
 
     var persisted = JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings;
     var rearmed2725 = persisted.filter(function (binding) {
-      return binding.portfolioTaskId === oldTaskId && binding.bindingRevision === 2;
+      return binding.portfolioTaskId === oldTaskId && binding.bindingRevision === 3;
     })[0];
     var adopted2777 = persisted.filter(function (binding) {
       return binding.workIdentity === "github:trialview/v2#2777" &&
         binding.portfolioTaskId !== "historical-webapp-2777";
     })[0];
-    assert.equal(persisted.length, 3, "the two exact primitives add bindings without replacing history");
+    assert.equal(persisted.length, 4, "the two exact primitives add bindings without replacing history");
     assert.equal(rearmed2725.status, "active");
     assert.equal(adopted2777.status, "active");
     var primitive2725 = targetManager.sessions.get(100);
@@ -2092,7 +2092,7 @@ test("end to end: canonical admission adopts live-shaped #2725 and #2777 primiti
     assert.equal(adopted2777.coordinator.sessionStorageId, primitive2777.storageId,
       "#2777 reuses the launcher-created SessionRef");
     assert.equal(rearmed2725.automationAuthorization.qualificationReceipt.item.boardItems[0].status,
-      "backlog", "the old unrouted revision carries current qualification authority");
+      "backlog", "a fresh revision carries current qualification authority");
     assert.notEqual(rearmed2725.automationAuthorization.policyDigest,
       oldRequest.automationAuthorization.policyDigest,
       "the old reservation cannot retain superseded project-policy authority");
@@ -2109,7 +2109,7 @@ test("end to end: canonical admission adopts live-shaped #2725 and #2777 primiti
     assert.equal(delivered.length, 0, "canonical adoption never creates a second generic session");
 
     await autoLaunch.launchScheduled("assigned-to-me");
-    assert.equal(JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings.length, 3,
+    assert.equal(JSON.parse(fs.readFileSync(bindingFile, "utf8")).bindings.length, 4,
       "repeated scans converge on the same two primitive SessionRefs");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
