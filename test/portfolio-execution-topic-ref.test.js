@@ -201,6 +201,9 @@ test("completion payloads accept a valid ref, tolerate none, and reject a malfor
   }))), "");
   assert.equal(delivery.validationReason(envelope(completionPayload({
     executionMode: "project_coordinator", terminalStatus: "needs_input",
+  }))), "");
+  assert.equal(delivery.validationReason(envelope(completionPayload({
+    executionMode: "project_coordinator", terminalStatus: "needs_input", ownerNotification: false,
   }))), "invalid_payload");
   assert.equal(delivery.validationReason(envelope(completionPayload({
     executionMode: "project_coordinator", terminalStatus: "needs_input",

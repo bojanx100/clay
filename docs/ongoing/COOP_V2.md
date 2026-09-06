@@ -564,3 +564,76 @@ fixture obtains element IDs from the shipped HTML; unrelated UI imports and brow
 facilities are stubbed. Independent source review found no additional blocker.
 These checks do not prove browser layout, remote-model usefulness, full owner-facing
 synthesis or live canary quietness. No production restart or live-state repair.
+
+
+### 21. Deliver ordinary project blockers to the resident coordinator
+
+The completion gate already sends ordinary `needs_input` results upward. The wire
+validator rejected them unless they carried review, owner-acceptance or unavailable
+visual-canary metadata. Direct binding completion could succeed first, producing a
+visible waiting status while durable delivery rejected the actual report.
+
+The validator now accepts ordinary project-coordinator attention when it explicitly
+requests upward notification. The remaining envelope validation, exact bound source,
+destination and revision checks are unchanged. Silent ordinary attention is still
+rejected. Steering retains the same task and creates a distinct report identity for
+a later blocker; replaying one attention turn does not report it twice.
+
+Canary evidence was inspected before source investigation. The live development
+log recorded `invalid_payload` for two project owner-attention deliveries at
+2026-09-05 23:01:38 UTC and 2026-09-06 00:35:56 UTC. Their durable rejected envelopes
+contain `payload: null`; the corresponding saved assistant reports contain ordinary
+`WORKER_STATUS: needs_input`. These observations motivate the investigation but do
+not reconstruct the discarded original payloads. Current session metadata has since
+changed to completed, so it is not evidence of the original rejection cause.
+
+The existing orchestrator test proved the waiting status without checking delivery.
+It now drives the real envelope transport and binding store, verifies receipt by the
+resident coordinator, a second attention report after typed steering, replay dedupe,
+forged-source refusal and silent-attention rejection. Before the fix and with the
+fix actually reverted, the file gives 77 pass / 1 fail out of 78 in each mode. With
+the repair, focused suites pass 126/126 default and 109/109 controlled. A full run
+found one older wire test explicitly requiring ordinary attention to be rejected;
+it now expects notification and retains the silent-message rejection assertion.
+Final full suite: 4,217/4,217 default across 429 files and 674/674 controlled across
+54 files, exit 0. Independent source review found no further blocker.
+
+These tests use actual local delivery/binding persistence and orchestrator routes,
+with session-save/provider boundaries stubbed in the existing fixture. They do not
+prove a real model's high-level explanation to the owner or replay the two live
+rejected reports. No live record was repaired and no daemon was restarted; the
+branch has not been activated, so live canary quietness is not established.
+
+## Next architecture iteration: daemon-owned maintenance
+
+Read-only follow-up review confirmed five remaining mutations during dashboard
+projection: control-plane ensure/migration/handoff sweeps, topic index advancement
+and historical retrofits, session-ledger reconciliation, a per-topic fallback to
+mutating `topicSessionEvidence`, and archived-dismissal visibility reconciliation.
+The control-plane input is currently the viewer's ACL-filtered project inventory.
+Sibling worktree sessions are read through an aggregate facade whose mutating
+methods belong to the parent manager. These are source findings, not a measurement
+of the live loop-lag spikes observed in the canary.
+
+The next implementation should move maintenance into one daemon-owned service with
+no actor or ACL input. It must use the full project inventory, deduplicate resident
+identity by ProjectRef, and send every mutation through the owning runtime manager.
+Order: ensure/migrate roles, advance canonical topic lineage, reconcile explicit
+archive visibility, then refresh topic links and the session ledger. Drive it after
+registration/recovery, relevant lifecycle events, and a coalesced bounded retry.
+Respect startup and Lead-mode gates; creating a maintenance clock must not bypass
+execution admission. Projections then use `index.project` and
+`currentTopicSessionEvidence` without fallback writes.
+
+Required proofs: repeated reads and restricted viewers make no durable changes;
+zero-viewer startup/retry advances required management state; sibling worktrees
+use their real owning managers; failed maintenance retries without duplicate
+migration; explicit archives hide while ordinary dismissals remain visible; the
+real Class B trigger call remains reached. Preserve readable state and surface
+maintenance failure separately.
+
+At the last fetched snapshot, `origin/bojan` contains 11 commits beyond this branch's
+original base, including ACP MCP bridging and timing work. They have not been
+integrated into `coop_v2`; the reported suite covers this branch's contents. Review
+that divergence before a later landing or activation, particularly provider adapter
+and fixture overlap. The owner's dirty primary checkout remains separate.

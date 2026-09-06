@@ -1635,6 +1635,24 @@ test("project-coordinator needs-input turns surface and resume through typed ste
 
   finishNeedsInputTurn();
 
+  var firstDelivery = router.getDeliveryState().delivered.filter(function (entry) {
+    return entry.envelope.payload.type === "portfolio_execution_completed" &&
+      entry.envelope.payload.portfolioTaskId === "portfolio-needs-input-coordinator";
+  });
+  assert.equal(firstDelivery.length, 1, "the first ordinary blocker must reach the resident coordinator");
+  assert.equal(router.getDeadLetters().length, 0);
+  assert.match(firstDelivery[0].envelope.payload.text, /independent review is unavailable/);
+  assert.equal(router.getExecutionBinding("portfolio-needs-input-coordinator", 1).completionOwnerDelivered, true);
+
+  var forged = JSON.parse(JSON.stringify(firstDelivery[0].envelope));
+  forged.source.sessionStorageId = "unbound-project-session";
+  assert.equal(router.completeProjectCoordinatorExecution(forged).reason, "binding_mismatch",
+    "a valid attention shape still requires the exact bound source session");
+  var silent = JSON.parse(JSON.stringify(firstDelivery[0].envelope));
+  silent.payload.ownerNotification = false;
+  assert.equal(require("../lib/cross-project-envelope").validationReason(silent), "invalid_payload",
+    "ordinary attention requires an explicit upward notification");
+
   var metadata = projectCoordinator.orchestrationPolicy.portfolioExecution;
   var binding = router.getExecutionBinding("portfolio-needs-input-coordinator", 1);
   var projected = router.queryCoopSessions({
@@ -1712,6 +1730,17 @@ test("project-coordinator needs-input turns surface and resume through typed ste
   });
   assert.equal(projectRollup.lifecycleState, "needs_input");
   assert.equal(projectRollup.workState, "needs_input");
+  var deliveries = router.getDeliveryState().delivered.filter(function (entry) {
+    return entry.envelope.payload.type === "portfolio_execution_completed" &&
+      entry.envelope.payload.portfolioTaskId === "portfolio-needs-input-coordinator";
+  });
+  assert.equal(deliveries.length, 2, "a later blocker after steering gets its own report");
+  assert.notEqual(deliveries[0].eventId, deliveries[1].eventId);
+  assert.equal(router.getExecutionBinding("portfolio-needs-input-coordinator", 1).completionOwnerDelivered, true);
+  assert.equal(router.getDeadLetters().length, 0);
+  finishNeedsInputTurn();
+  assert.equal(router.getDeliveryState().delivered.length, deliveries.length,
+    "replaying the same attention turn does not report it again");
 });
 
 test("resident control-plane steering visibly resumes the exact blocked task coordinator", function () {
