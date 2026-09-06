@@ -1343,3 +1343,20 @@ The final full rerun after the follow-up evidence change passes 4,374 default an
 755 controlled tests, with no failures. Retracted count: ~~4,378 default and 759
 controlled~~ incorrectly counted added scenarios inside an existing test as new tests. The preview activation uses a separate
 verified rollback snapshot and retains the existing paused execution settings.
+
+Activated in the v2 preview as PID 45347 on HTTP port 7392, from merge
+`558775d8d02f0ea05e4c40a540bd3447a3f57fb8`. The verified rollback is
+`~/.clay-coop-v2/before-bojan-merge-d3mt7i`: 3,505 copied files/links plus a
+VACUUM snapshot of all 16 control-store tables and 201 executions. Rollback stops
+only v2, restores its saved state/config and runs prior commit `1f68dabc6e`.
+The original daemon independently restarted at 15:29 local time as PID 20902,
+before the v2 stop/update; this task did not stop or restart it.
+
+HTTP returns 200. Browser readback retains all nine ordinary project links and
+this conversation; Lead-off navigation remains hidden. The session inventory is
+unchanged at 3,088 JSONL files and native Claude settings remain byte-identical.
+No provider dispatch, copied queue flush, automatic resume or new recovery event
+was recorded. The preview's existing execution pauses remain in force. A 324 ms
+startup-period loop-lag sample and the existing Copilot account-model discovery
+warning remain. This code merge does not refresh the historical snapshot or make
+the two instances' chats continuously synchronize.
