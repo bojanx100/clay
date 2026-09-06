@@ -179,3 +179,58 @@ test("unsupported recognition and permission rejection give visible failures", a
   assert.equal(await h.controller.start(route), false);
   assert.match(h.controller.getState().error, /Microphone access was denied/);
 });
+
+test("the spoken interruption command stops only playback, ignores echo and unrelated speech, and returns to listening", async function () {
+  var interrupts = [];
+  var h = await harness({ createInterruptionRecognition: function () {
+    var r = { start: function () {}, stop: function () {} }; interrupts.push(r); return r;
+  } });
+  function interrupt(text) { var r = interrupts.slice(-1)[0]; r.onresult({ results: [{ isFinal: true, 0: { transcript: text } }] }); }
+  await h.controller.start(route); h.say("explain voice"); h.reply("The command is Coop pause.");
+  interrupt("Coop pause"); assert.equal(h.controller.getState().speaking, true, "playback mentioning the command cannot interrupt itself");
+  h.spoken[0].onend(); h.say("explain the work"); h.reply("Here is a longer explanation.");
+  interrupt("approve and execute"); assert.equal(h.controller.getState().speaking, true);
+  var late = interrupts.slice(-1)[0].onresult;
+  interrupt("Coop pause"); h.tick();
+  assert.equal(h.controller.getState().speaking, false); assert.equal(h.controller.getState().listening, true);
+  assert.equal(h.sent.length, 2, "interruption transcripts never reach the provider");
+  h.controller.end(); late({ results: [{ isFinal: true, 0: { transcript: "Coop pause" } }] }); h.tick();
+  assert.equal(h.controller.getState().routing, null);
+});
+
+test("reconnect reads the exact missed terminal reply once, without replaying history or resending the request", async function () {
+  var requests = [];
+  var h = await harness({ requestTurnState: function (routing, id, requestId) { requests.push({ id: id, requestId: requestId }); return true; } });
+  await h.controller.start(route); h.say("status");
+  h.receive({ type: "user_turn_started", clientMessageId: h.sent[0].id }); h.receive({ type: "delta", text: "Before disconnect " });
+  h.controller.setConnected(false); h.controller.setConnected(true);
+  h.receive({ type: "delta", text: "Old history" }, true); h.receive({ type: "done" }, true);
+  assert.equal(h.spoken.length, 0);
+  var reply = { type: "voice_turn_state", clientRequestId: requests[0].requestId, clientMessageId: requests[0].id,
+    state: "completed", text: "The full reply, including the missed ending." };
+  h.receive(Object.assign({}, reply, { clientRequestId: "stale" })); assert.equal(h.spoken.length, 0);
+  h.receive(reply); h.spoken[0].onend(); h.receive(reply);
+  assert.equal(h.spoken.length, 1); assert.equal(h.spoken[0].text, reply.text); assert.equal(h.sent.length, 1);
+  assert.equal(h.controller.getState().working, false); assert.equal(h.controller.getState().listening, true);
+  h.controller.end();
+});
+
+test("a running reply resumes from its transcript snapshot and unknown replies do not leave Voice permanently working", async function () {
+  var requested;
+  var h = await harness({ requestTurnState: function (routing, id, requestId) { requested = { id: id, requestId: requestId }; return true; } });
+  await h.controller.start(route); h.say("explain"); h.controller.setConnected(false); h.controller.setConnected(true);
+  h.receive({ type: "voice_turn_state", clientMessageId: requested.id, clientRequestId: requested.requestId, state: "running", text: "First half. " });
+  h.receive({ type: "delta", text: "Second half." }); h.receive({ type: "done" });
+  assert.equal(h.spoken[0].text, "First half. Second half."); h.spoken[0].onend();
+  h.say("next"); h.controller.setConnected(false); h.controller.setConnected(true);
+  h.receive({ type: "voice_turn_state", clientMessageId: requested.id, clientRequestId: requested.requestId, state: "unknown", text: "" });
+  assert.equal(h.controller.getState().working, false); assert.match(h.spoken[1].text, /have not resent/);
+  h.controller.end();
+});
+
+test("disconnect during playback resumes the remaining audio after reconnect", async function () {
+  var h = await harness(); await h.controller.start(route); h.say("explain"); h.reply("A complete answer.");
+  h.controller.setConnected(false); h.controller.setConnected(true);
+  assert.equal(h.spoken.length, 2); assert.equal(h.spoken[1].text, "A complete answer.");
+  h.spoken[1].onend(); assert.equal(h.controller.getState().listening, true); h.controller.end();
+});

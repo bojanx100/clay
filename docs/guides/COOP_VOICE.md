@@ -16,21 +16,44 @@ Owner contract, clarified 2026-09-06: Voice should support an ongoing conversati
 - Claude stateless question answers use the ordinary owner-message queue with voice turn identity and the captured Coop lens. Blocking native Claude questions and Codex questions resolve their existing provider callback. Codex replies use its question-ID-to-answer-array protocol; ordinary MCP forms retain their different response format. This also corrects on-screen Codex question answers.
 
 
+- Pending tool permissions and plan approvals have spoken readback followed by “submit decision.” Approvals apply once using the current permission settings. A conditional response becomes rejection with the complete feedback, rather than unconditional approval. The plan is read from its current file, discovered from this session's plan activity (or supplied in the pending tool input), and its contents are checked again at submission. Missing or oversized plans require the existing screen interface.
+- While Clay speaks, a separate recognizer accepts only “Coop pause” (also “Clay pause” or “Coop stop speaking”). It stops audio, drains the speaker briefly, then reopens normal listening. Other playback-time speech never answers a question or enters a model/tool queue. An echoed command present in the current spoken text is ignored; Listen remains a fallback when the browser cannot run recognition during playback.
+- Actual dispatch markers are saved in the session transcript. Reconnect requests the exact client turn, recovers complete or partial replies, distinguishes failure/interruption/unknown state, and never automatically resends the request. Playback interrupted by disconnection resumes from the current chunk. Fresh, correlated Voice replies remain accepted while historical chat is rendering.
+
 Composer dictation remains a separate input feature. The Voice button starts a conversation; dictation prepares a draft.
 
 ## Remaining work for a fully hands-free product
 
-The current implementation uses half-duplex browser speech: recognition pauses while Clay speaks to avoid hearing its own reply as an instruction. Spoken interruption during playback needs an audio adapter with reliable echo handling and voice activity detection. Clicking Listen is still required for immediate interruption.
+~~Spoken interruption during playback needs an audio adapter before it can work; clicking Listen is required.~~ Retracted 2026-09-06: the constrained “Coop pause” command now interrupts playback. Free-form interruption remains separate work: wait for normal listening before stating the next request. Device-specific echo behavior and speech recognition accuracy still need real microphone/speaker validation.
 
-~~Structured question, permission, plan-review and form dialogs still use their existing interfaces. Voice needs exact pending-request resolution and spoken option/answer handling.~~ Retracted in part, 2026-09-06: ordinary Claude and Codex questions now have the spoken flow above. Permission approvals, secret questions, arbitrary forms and plan-review dialogs still require their existing interfaces. Voice announces these unsupported pending dialogs and does not treat a spoken “yes” as permission. The full set of decision flows is not hands-free yet.
+~~Structured question, permission, plan-review and form dialogs still use their existing interfaces. Voice needs exact pending-request resolution and spoken option/answer handling.~~ Retracted in part, 2026-09-06: ordinary Claude and Codex questions now have the spoken flow above. ~~Permission approvals and plan-review dialogs still require their existing interfaces.~~ Retracted 2026-09-06: the one-request permission and plan flow above is implemented. Secret questions, arbitrary forms, unknown host dialog kinds and unavailable/oversized plan contents still require their existing interfaces. Voice announces these unsupported pending dialogs and does not treat a spoken “yes” as permission. The full set of decision flows is not hands-free yet.
 
-The question snapshot describes live provider callbacks and stateless pending questions, not historical cards. It does not recreate provider requests after a daemon restart or provider handoff. A consumed question is not proof that the subsequent provider turn finished; reply replay across disconnection remains separate work.
+The question snapshot describes live provider callbacks and stateless pending questions, not historical cards. It does not recreate provider requests after a daemon restart or provider handoff. A consumed question is not proof that the subsequent provider turn finished; ~~reply replay across disconnection remains separate work~~ (retracted 2026-09-06: exact transcript-backed reply recovery is now implemented).
 
-Reconnect playback is not a durable audio session: historical replies are not automatically read back, and completion while disconnected still needs reconciliation with the exact pending voice turn. Refreshing the page loses ephemeral microphone state. Mobile audio, background listening, cross-device handoff and interruption need separate device validation.
+~~Completion while disconnected still needs reconciliation with the exact pending voice turn.~~ Retracted 2026-09-06: new turns carry persisted dispatch markers and can be recovered by their exact client message ID. Pre-upgrade turns without such evidence remain unknown. Reconnection within the open page is supported; it is not a cross-device durable audio session. Refreshing the page loses ephemeral microphone state. Mobile audio, background listening, cross-device handoff and interruption need separate device validation.
 
 No paid voice service or alternative reasoning model was introduced. These changes use the selected Clay session's provider and the browser's existing speech interfaces. Actual microphone permission, speech recognition accuracy, audible playback and provider latency were not tested in this change.
 
 ## Verification
+
+### Decisions, interruption and reconnect, 2026-09-06
+
+The full suite passed **4,591 normal tests across 470 files and 872 controlled-mode tests across 71 files**, including the merged bojan startup/adoption repairs through `71ca31c1cf`. The initial run exposed one history expectation that did not include the newly persisted dispatch marker; it was corrected and the full gate rerun. A final UI guard accepts fresh Voice protocol replies during history rendering; after that guard, **56 focused tests across ten files passed**.
+
+| Removed fix | Passing | Failing |
+| --- | ---: | ---: |
+| Exact permission/plan revision comparison | 3 | 2 |
+| Plan reread replaced by cached contents | 4 | 1 |
+| Spoken interruption recognition disabled | 15 | 1 |
+| Durable dispatch marker replaced by broadcast only | 0 | 3 |
+| Controller restored to before interruption/reconnect work | 12 | 4 |
+| Live Voice replies suppressed during chat replay | 2 | 1 |
+| Restored final focused suite | 56 | 0 |
+
+The tests use actual provider permission handlers, real plan files, the real transcript recording and queue code, transcript reload, and scripted browser recognition/playback. They do not make live model calls. A browser capability check on the v2 preview confirmed recognition, speech synthesis, a secure context and available voices, with no console errors. That check does not prove audible playback, microphone accuracy or mobile behavior.
+
+V2 activation has an owner-authorized rollback target of `3777cbcefb`. Before activation, `snapshot-control-store.js` produced an integrity-checked snapshot with 201 executions, including WAL state, under `~/.clay-coop-v2/control-store-snapshots/coop-control.pre-handsfree-activation.20260906T204115Z.sqlite`. The configuration was separately saved and verified as `daemon-dev.pre-handsfree-activation.json` in that directory. Code rollback returns the retained v2 checkout to the prior revision and restarts its daemon with the saved configuration; the original Clay instance is separate. Restore the database only if a state repair is required, with the daemon stopped and stale WAL/SHM files removed as described in DIAGNOSTICS.md.
+
 
 ### Spoken question follow-up, 2026-09-06
 
@@ -69,4 +92,4 @@ The production changes were removed temporarily, tests were run, then the change
 
 Latest bojan bookkeeping repairs (`5d867d7c51`) were merged into this branch. The conflict resolution preserves both its rearmable/unrouted binding behavior and v2's requirement for fresh primitive eligibility before reopening completed work. Relevant merge tests passed: 108 normal and 60 controlled tests.
 
-Neither running daemon was restarted for this work. Activation must load the updated backend as well as the browser modules: reply attribution depends on the new dispatch event. A browser refresh against the old backend alone is insufficient.
+The earlier routing and question work did not restart either daemon; the decisions/reconnect follow-up includes activation of the v2 preview. Activation must load the updated backend as well as the browser modules: reply attribution depends on the new dispatch event. A browser refresh against the old backend alone is insufficient.

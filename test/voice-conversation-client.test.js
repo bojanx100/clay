@@ -27,7 +27,7 @@ test("Voice button follows Lead mode, opens Coop, starts listening and stops on 
   var controllers = await import(url + "voice-conversation-controller.js");
   var questionModule = await import(url + "voice-questions.js");
   stores.createStore({ currentSlug: "webapp", activeSessionProjectSlug: "webapp", activeSessionId: 7,
-    activeSessionTitle: "Investigate annotation", activeSessionMode: "gui", connected: true, leadModeEnabled: false });
+    activeSessionTitle: "Investigate annotation", activeSessionMode: "gui", connected: true, leadModeEnabled: false, replayingHistory: true });
   var all = {}, starts = [], switches = [];
   ["input-wrapper", "input-row", "attach-wrap", "stt-btn"].forEach(function (id) { all[id] = element(id, all); });
   function Recognition() { starts.push(this); this.start = function () {}; this.stop = function () {}; }
@@ -44,6 +44,11 @@ test("Voice button follows Lead mode, opens Coop, starts listening and stops on 
         context.observeVoiceConversationMessage({ type: "voice_question_state", sessionId: message.sessionId,
           clientRequestId: message.clientRequestId, available: true, requests: [], blockedCount: 0 });
       });
+      if (message.type === "voice_turn_state_request") Promise.resolve().then(function () {
+        context.observeVoiceConversationMessage({ type: "voice_turn_state", sessionId: message.sessionId,
+          clientMessageId: message.clientMessageId, clientRequestId: message.clientRequestId,
+          state: "completed", text: "Your exact reply finished while disconnected." });
+      });
       return true;
     },
   }, routes);
@@ -55,6 +60,14 @@ test("Voice button follows Lead mode, opens Coop, starts listening and stops on 
   button.click(); await Promise.resolve(); await Promise.resolve();
   assert.equal(starts.length, 1, "opening Voice starts listening without an extra Send or Listen");
   assert.equal(controller.getState().routing.sessionId, 7);
+  assert.equal(stores.store.get("voiceQuestionState").loading, false, "live question replies are accepted during history rendering");
+  starts[0].onresult({ results: [{ isFinal: true, 0: { transcript: "status please" } }] });
+  controller.stopListening();
+  assert.equal(controller.getState().working, true);
+  stores.store.set({ connected: false }); stores.store.set({ connected: true });
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(controller.getState().working, false, "live reply recovery completes even while replayingHistory is true");
+  stores.store.set({ replayingHistory: false });
   stores.store.set({ activeSessionId: 8 });
   assert.equal(controller.getState().listening, false);
   assert.equal(controller.getState().routing, null);

@@ -8,7 +8,7 @@ test("Voice reply attribution is emitted at actual SDK dispatch, after queuing, 
     var session = { localId: 7, coopHome: coopHome, history: [], isProcessing: true, pendingUserMessageQueue: [] };
     var queue = queueModule.attachProjectUserMessageQueue({
       sm: { saveSessionFile: function () {}, broadcastSessionList: function () {}, queuedUserMessagesForClient: function () { return []; },
-        sendAndRecord: function (target, message) { target.history.push(message); } },
+        sendAndRecord: function (target, message) { target.history.push(message); events.push(message); } },
       sdk: { startQuery: function () { events.push({ type: "sdk_started" }); }, pushMessage: function () { return false; } },
       sendToSession: function (id, event) { assert.equal(id, 7); events.push(event); },
       onProcessingChanged: function () {}, ensureProjectAccessForSession: function () {},
@@ -24,6 +24,7 @@ test("Voice reply attribution is emitted at actual SDK dispatch, after queuing, 
     var start = events.findIndex(function (e) { return e.type === "user_turn_started"; });
     assert.ok(start >= 0);
     assert.equal(events[start].clientMessageId, "voice-regression");
+    assert.equal(session.history.filter(function (event) { return event.type === "user_turn_started" && event.clientMessageId === "voice-regression"; }).length, 1);
     assert.ok(events.findIndex(function (e) { return e.type === "sdk_started"; }) > start);
   });
 });

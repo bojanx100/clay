@@ -121,6 +121,7 @@ test("a rejected provider start clears processing and emits a retryable terminal
   });
   await new Promise(function (resolve) { setImmediate(resolve); });
   assert.equal(h.session.isProcessing, false);
-  assert.deepEqual(h.session.history.map(function (item) { return item.type; }), ["error", "done"]);
-  assert.match(h.session.history[0].text, /provider unavailable/);
+  assert.deepEqual(h.session.history.map(function (item) { return item.type; }), ["user_turn_started", "error", "done"]);
+  assert.equal(h.session.history[0].clientMessageId, "cm-retry");
+  assert.match(h.session.history[1].text, /provider unavailable/);
 });
