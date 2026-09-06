@@ -17,6 +17,19 @@ Threads retain conversation identity when tasks are commissioned. Tasks describe
 outcomes, attempts describe executions, and sessions run agents. Answering a request,
 finishing implementation, and owner acceptance are separate facts.
 
+Owner clarification, 2026-09-06: Council and Triage are multi-AI debates/planning
+inside Coop, optionally including the owner. Coop can seek their help before
+escalating a difficult choice. The resulting plan becomes project work only through
+the project coordinator. A single project execution carrying a Council/Triage label
+does not satisfy this requirement. Planning stays under its existing Thread.
+
+Coop must also learn the owner's habits, choices, and corrections. The repository
+already synthesizes a shared user profile from Mate observations, but Coop does not
+capture or retrieve that context. The governance learning store is a substrate with
+no production learning consumer. Connect scoped, attributable observations and
+explicit corrections to Coop's decision context; inferred preferences must remain
+distinguishable from instructions and must not create execution authority.
+
 Pending owner preferences: behavior of already-running work when Lead turns OFF;
 coordinator freedom to change plans and create extra workers within project rules.
 Independent defect repairs can proceed while those preferences are discussed.
@@ -604,7 +617,10 @@ prove a real model's high-level explanation to the owner or replay the two live
 rejected reports. No live record was repaired and no daemon was restarted; the
 branch has not been activated, so live canary quietness is not established.
 
-## Next architecture iteration: daemon-owned maintenance
+## Queued architecture iteration: daemon-owned maintenance
+
+The owner's subsequent Council/Triage and learning clarification takes precedence
+for the next product iterations. The maintenance findings below remain open.
 
 Read-only follow-up review confirmed five remaining mutations during dashboard
 projection: control-plane ensure/migration/handoff sweeps, topic index advancement
@@ -637,3 +653,48 @@ original base, including ACP MCP bridging and timing work. They have not been
 integrated into `coop_v2`; the reported suite covers this branch's contents. Review
 that divergence before a later landing or activation, particularly provider adapter
 and fixture overlap. The owner's dirty primary checkout remains separate.
+
+
+## Iteration 22: Council and Triage planning in Coop
+
+The old dispatch path labeled ordinary project executions as Council/Triage. Coop
+now has session-scoped planning tools that convene one real Mate moderator and two
+to four distinct ready Mate panelists in a parentless Lead discussion. The debate
+stays linked to the existing Thread; that link does not mark the Thread handed off.
+Starting it does not navigate the owner's foreground session or create project work.
+Existing hand-raise, floor, pause, stop, and continuation controls remain available.
+
+Every planning participant uses the native read-only provider restrictions from
+iteration 19, including fresh and resumed moderator handles. Ready requires current
+contributions from every selected panelist and a bounded final synthesis. Reopening
+invalidates the old digest before provider work and requires fresh contributions.
+Interrupted discussions retain history and can resume explicitly in the same session;
+incomplete startup retries repair its missing Thread link instead of duplicating it.
+The loop stops with attention after 24 substantive turns without conclusion.
+
+The synthesis returns to Coop through the durable coordinator update queue, with a
+stable report ID and daemon retries. Failed readiness saves cannot be commissioned.
+An exact digest can be commissioned through ordinary project assignment admission;
+proven pre-dispatch refusal permits correction, while uncertain attempts retain the
+same binding and scope. Council/Triage roles are refused on ordinary delegation.
+Legacy titles remain usable as evidence-task titles without creating a debate role.
+
+Proof: removing the 15 tracked implementation changes while retaining the new
+modules and tests gives 31 pass / 11 fail out of 42 tests in BOTH default and
+controlled modes. Restoring gives 94/94 focused in both modes. A separate removal of
+the restart-to-owner-continuation fix gives 8 pass / 1 fail out of 9 in both modes;
+restoring gives 9/9. The binding normalizer also needs to retain an explicit
+project-coordinator role so a review title cannot reclassify it later: removing that
+fix gives 43 pass / 2 fail out of 45 in both modes; restoring gives 45/45. Full final suite: 4,227/4,227 default across 430 files and
+684/684 controlled across 55 files, exit 0. Logs are under
+`/private/tmp/coop-v2-planning-*.out`; recovery proof has its own `-recovery-` prefix.
+
+Coverage uses actual session JSONL save/reload, actual Mate registry lookup, the
+real debate turn engine and scoped tool handlers, real Thread projection and URL
+parser, real report queue persistence, and real governance lookup for refusal.
+Provider responses and the final project-dispatch boundary are deterministic test
+substitutes. This does not prove real-model debate quality, the visual experience,
+or a live end-to-end commissioned project outcome. No daemon was restarted or live
+state repaired; the branch is not activated. The first panel version uses existing
+ready Claude/Codex Mates; creating virtual participants without Mate setup remains
+future work. Learning capture/retrieval and the broader Lead handover remain open.

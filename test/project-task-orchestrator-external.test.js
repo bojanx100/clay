@@ -417,7 +417,7 @@ function routedReadOnlyReview(input) {
   return delivered;
 }
 
-test("Council dispatch binds the current owner-approved read-only review ingress", function () {
+test("a Council-titled evidence review retains its owner ingress without pretending to be a Council debate", function () {
   var delivered = routedReadOnlyReview({
     portfolioTaskId: "clay-threads-v2-council-review-2026-08-15",
     bindingRevision: 2,
@@ -430,11 +430,12 @@ test("Council dispatch binds the current owner-approved read-only review ingress
   });
 
   assert.equal(delivered.coopIngressId, "coop:canonical-coop:332");
-  assert.equal(delivered.controlRole, "council");
+  assert.equal(delivered.controlRole, "project_coordinator");
+  assert.equal(require("../lib/portfolio-execution-bindings").normalizeRequest(delivered).controlRole, "project_coordinator");
   assert.equal(delivered.reviewOnly, true);
 });
 
-test("Triage dispatch binds the current owner-approved read-only review ingress", function () {
+test("a Triage-titled evidence review retains its owner ingress without pretending to be a Triage debate", function () {
   var delivered = routedReadOnlyReview({
     portfolioTaskId: "clay-threads-v2-triage-review-2026-08-15",
     bindingRevision: 1,
@@ -447,8 +448,23 @@ test("Triage dispatch binds the current owner-approved read-only review ingress"
   });
 
   assert.equal(delivered.coopIngressId, "coop:canonical-coop:332");
-  assert.equal(delivered.controlRole, "triage");
+  assert.equal(delivered.controlRole, "project_coordinator");
+  assert.equal(require("../lib/portfolio-execution-bindings").normalizeRequest(delivered).controlRole, "project_coordinator");
   assert.equal(delivered.reviewOnly, true);
+});
+
+test("explicit Council and Triage roles cannot create ordinary project executions", function () {
+  var creations = 0;
+  var coordinate = createExternalTaskCoordinator({
+    createProjectExecution: function () { creations++; return { ok: true }; },
+  });
+  ["council", "triage"].forEach(function (role) {
+    var result = coordinate({ controlRole: role, targetProject: { projectId: "5332aafc-31e7-5cb1-ba96-c8d90e78260e" },
+      portfolioTaskId: "planning", bindingRevision: 1, idempotencyKey: "planning-v1", mode: "project_coordinator" });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /start_coop_planning/);
+  });
+  assert.equal(creations, 0);
 });
 
 test("an external Live UI report can promote an ordinary conversation", function () {
