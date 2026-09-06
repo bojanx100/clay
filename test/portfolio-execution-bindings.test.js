@@ -46,6 +46,14 @@ function autoLaunchReviewRequest(revision) {
   return value;
 }
 
+function readOnlyReviewRequest(taskId) {
+  var value = request(1, "project_coordinator", taskId + "-r1");
+  value.portfolioTaskId = taskId;
+  value.controlRole = "triage";
+  value.reviewOnly = true;
+  return value;
+}
+
 test("portfolio execution bindings persist one idempotent canonical SessionRef", function () {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-bindings-"));
   var file = path.join(dir, "bindings.json");
@@ -265,6 +273,113 @@ test("explicit owner acceptance remains sticky for unrelated project work", func
     binding: completed.binding,
     execution: {},
   }), null);
+});
+
+test("a coordinator-verified read-only review clears only its local pending owner gate", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-read-only-review-"));
+  var file = path.join(dir, "bindings.json");
+  var store = createBindings({ file: file, now: function () { return 450; } });
+  var input = readOnlyReviewRequest("triage-read-only-review");
+  assert.equal(store.reserve(input).ok, true);
+  assert.equal(store.commit(input.portfolioTaskId, input.bindingRevision, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "triage-review-session",
+  }).ok, true);
+
+  var attention = store.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "triage-review-attention",
+    terminalStatus: "needs_input",
+    executionMode: "project_coordinator",
+    ownerNotification: true,
+    controlRole: "triage",
+    reviewOnly: true,
+    ownerAcceptanceRequired: true,
+    ownerAcceptance: { status: "pending", source: "project_local_instructions" },
+  });
+  assert.equal(attention.ok, true);
+  assert.equal(attention.binding.status, "needs_input");
+
+  var wrongRole = store.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "triage-review-wrong-role",
+    terminalStatus: "completed",
+    executionMode: "project_coordinator",
+    ownerNotification: false,
+    controlRole: "council",
+    reviewOnly: true,
+  });
+  assert.equal(wrongRole.reason, "completion_conflict");
+  assert.equal(store.get(input.portfolioTaskId, input.bindingRevision).status, "needs_input");
+
+  var completed = store.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "triage-review-completed",
+    terminalStatus: "completed",
+    executionMode: "project_coordinator",
+    ownerNotification: false,
+    controlRole: "triage",
+    reviewOnly: true,
+  });
+  assert.equal(completed.ok, true);
+  assert.equal(completed.binding.status, "completed");
+  assert.equal(completed.binding.ownerAcceptanceRequired, undefined);
+  assert.equal(completed.binding.ownerAcceptance, undefined);
+  assert.equal(completed.binding.ownerAcceptanceEvents, undefined);
+  assert.equal(completed.binding.ownerAcceptanceDecisionEventId, undefined);
+  assert.deepEqual(completed.binding.targetProject, { projectId: PROJECT_ID });
+  assert.equal(completed.binding.bindingRevision, input.bindingRevision);
+  assert.deepEqual(store.listCurrent(), []);
+
+  var persisted = fs.readFileSync(file, "utf8");
+  var replay = store.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "triage-review-completed",
+    terminalStatus: "completed",
+    executionMode: "project_coordinator",
+    ownerNotification: false,
+    controlRole: "triage",
+    reviewOnly: true,
+  });
+  assert.equal(replay.ok, true);
+  assert.equal(replay.duplicate, true);
+  assert.equal(fs.readFileSync(file, "utf8"), persisted,
+    "the exact terminal review correction is idempotent");
+});
+
+test("a read-only review with an owner decision cannot use the delivery correction", function () {
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "clay-binding-reviewed-owner-decision-"));
+  var store = createBindings({ file: path.join(dir, "bindings.json"), now: function () { return 475; } });
+  var input = readOnlyReviewRequest("triage-owner-decision");
+  assert.equal(store.reserve(input).ok, true);
+  assert.equal(store.commit(input.portfolioTaskId, input.bindingRevision, {
+    projectId: PROJECT_ID,
+    sessionStorageId: "triage-owner-decision-session",
+  }).ok, true);
+  assert.equal(store.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "triage-owner-decision-attention",
+    terminalStatus: "needs_input",
+    executionMode: "project_coordinator",
+    ownerNotification: true,
+    controlRole: "triage",
+    reviewOnly: true,
+    ownerAcceptanceRequired: true,
+    ownerAcceptance: { status: "pending", source: "project_local_instructions" },
+  }).ok, true);
+  assert.equal(store.recordOwnerVerdict(input.portfolioTaskId, input.bindingRevision, {
+    decisionEventId: "owner-review-decision",
+    status: "pending",
+  }).ok, true);
+
+  var refused = store.complete(input.portfolioTaskId, input.bindingRevision, {
+    eventId: "triage-owner-decision-completed",
+    terminalStatus: "completed",
+    executionMode: "project_coordinator",
+    ownerNotification: false,
+    controlRole: "triage",
+    reviewOnly: true,
+  });
+  assert.equal(refused.reason, "completion_conflict");
+  var binding = store.get(input.portfolioTaskId, input.bindingRevision);
+  assert.equal(binding.status, "needs_input");
+  assert.equal(binding.ownerAcceptanceDecisionEventId, "owner-review-decision");
+  assert.equal(binding.ownerAcceptance.status, "pending");
 });
 
 test("same-event replay removes a stale owner gate from a completed PR primitive", function () {
