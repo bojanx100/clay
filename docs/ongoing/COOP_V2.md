@@ -1303,3 +1303,43 @@ no native hook/allow-list installation, provider start, copied queue flush, auto
 resume or new recovery event. Startup still recorded 572 ms and 533 ms event-loop
 stalls, so history/startup responsiveness remains an open performance item. A
 Copilot account-model discovery warning also remains outside this Claude/Codex fix.
+
+### Iteration 35 — integrate current bojan without losing v2 behavior
+
+Integrated the 15 incoming commits through `7c585e70d3af52c4a5bed7ba80cfca2867ad3b69`
+in merge `81d0c48c01`, then included the follow-up completion-evidence hardening in
+`791acb75d5121c1982f8776dec59441560be40ed`. These bring current execution status
+reconciliation, verified legacy review completion, immediate delivery recovery,
+configured GitHub board evidence, per-turn timing and worker-effort trials, ACP
+and Copilot Clay-tool bridging, and dev-supervisor takeover protection.
+
+The delivery merge retains v2's canonical envelope validator, atomic outbox,
+legacy retry retention, and ordinary coordinator attention reports. The incoming
+parallel validator extraction is folded into the existing modules. Immediate
+reclamation now preserves factory reservations, including reservations without a
+receiver stream; absence of a stream does not prove that a sequence is abandoned.
+Restoring both pre-merge delivery files yields 1 pass / 3 fail across the four
+capacity tests. Restoring only the old cursor manager also yields 1 pass / 3 fail.
+The merged implementation passes all four, exercising actual envelope allocation,
+capacity pressure, pending messages, acknowledgement and restart.
+
+Query timing records the final options after v2's role and read-only policy.
+Copilot still refuses unsupported read-only execution after resolving inherited
+connection options. Scoped project intake and resident coordinator context remain
+in place. New Council/Triage requests still use debates in Coop; upstream legacy
+review-completion tests now exercise compatibility transport below that tool
+boundary. The Thread routing test supplies an actual topic to the real isolated
+claim ledger. Both Workspace fixtures retain the shared HTML parser and exclude
+text nodes from element selectors. Settled task mutation moved beside its evidence
+predicate so the main control-plane module remains below 500 lines.
+
+The first resolved integration passes 4,374 default and 755 controlled tests.
+The follow-up evidence change passes 59 default and 9 controlled checks covering
+its predicate, control-plane mutation and cross-project routing. These are local
+regression checks; they do not establish live provider continuation, improved
+execution speed, or readiness to activate a second autonomous Lead.
+
+The final full rerun after the follow-up evidence change passes 4,374 default and
+755 controlled tests, with no failures. Retracted count: ~~4,378 default and 759
+controlled~~ incorrectly counted added scenarios inside an existing test as new tests. The preview activation uses a separate
+verified rollback snapshot and retains the existing paused execution settings.
